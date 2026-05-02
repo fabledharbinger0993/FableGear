@@ -656,53 +656,6 @@ def api_rename_probe():
     })
 
 
-@bp.route("/api/rename/learn", methods=["POST"])
-def api_rename_learn():
-    data = request.get_json(silent=True) or {}
-    action = str(data.get("action", "")).strip()
-    source_path = str(data.get("source_path", "")).strip()
-    if not action or not source_path:
-        return jsonify({"error": "action and source_path are required"}), 400
-
-    import renamer_learned as _learned  # noqa: PLC0415
-
-    rules = _learned.load()
-
-    if action in ("confirm", "manual"):
-        target_name = str(data.get("target_name", "")).strip()
-        if not target_name:
-            return jsonify({"error": "target_name is required for confirm/manual"}), 400
-        rules.add_manual_rename(source_path, target_name)
-        _learned.harvest_from_confirmation(rules, target_name)
-    elif action == "producer_alias":
-        lowered = str(data.get("token", "")).strip()
-        canonical = str(data.get("canonical", "")).strip()
-        if not lowered or not canonical:
-            return jsonify({"error": "token and canonical are required for producer_alias"}), 400
-        rules.add_producer_alias(lowered, canonical)
-        rules.add_known_producer(canonical)
-    elif action == "quarantine":
-        rules.add_quarantine(source_path)
-        library_root = str(data.get("library_root", "")).strip()
-        moved = None
-        if library_root:
-            from renamer import quarantine_track  # noqa: PLC0415
-            moved = quarantine_track(Path(source_path), Path(library_root))
-    else:
-        return jsonify({"error": f"Unsupported action: {action}"}), 400
-
-    _learned.save(rules)
-    response = {
-        "ok": True,
-        "action": action,
-        "source_path": source_path,
-        "history_count": len(rules.history),
-    }
-    if action == "quarantine":
-        response["moved"] = moved
-    return jsonify(response)
-
-
 @bp.route("/api/rename/preflight/apply", methods=["POST"])
 def api_rename_preflight_apply():
     data = request.get_json(silent=True) or {}

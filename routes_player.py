@@ -21,15 +21,8 @@ from helpers import (
     _EXPORT_LOCK,
     _MAX_EXPORT_JOBS,
     _detect_pioneer_drive_layout,
-    _PLAYBACK_AVAILABLE,
-    _PLAYBACK_IMPORT_ERROR,
     _evict_old_jobs,
-    _play_audio_file,
-    _playback,
-    _playback_lock,
-    _playback_stop_event,
     _run_export,
-    _stop_playback,
 )
 
 bp = Blueprint("player", __name__)
@@ -276,53 +269,6 @@ def _resolve_db(db_param):
     return LOCAL_DB
 
 
-@bp.route("/api/library/volumes")
-def api_library_volumes():
-    """Return all mounted volumes under /Volumes with audio-file estimates."""
-    import shutil  # noqa: PLC0415
-    volumes_root = Path("/Volumes")
-    _AUDIO = {".mp3", ".flac", ".aac", ".wav", ".aiff", ".aif", ".m4a", ".ogg", ".opus", ".wv", ".alac"}
-
-    results = []
-    try:
-        for vol in sorted(volumes_root.iterdir()):
-            if not vol.is_dir() or vol.name.startswith("."):
-                continue
-            # Fast depth-1 audio estimate (not recursive — keeps it instant)
-            audio_estimate = 0
-            try:
-                for entry in os.scandir(vol):
-                    if entry.is_file() and Path(entry.name).suffix.lower() in _AUDIO:
-                        audio_estimate += 1
-            except PermissionError:
-                pass
-
-            # Disk usage
-            total_gb = free_gb = None
-            try:
-                usage = shutil.disk_usage(vol)
-                total_gb = round(usage.total / 1e9, 1)
-                free_gb = round(usage.free / 1e9, 1)
-            except Exception:
-                pass
-
-            # Pioneer DB present?
-            has_pioneer_db = (vol / "PIONEER" / "rekordbox" / "master.db").exists()
-
-            results.append({
-                "name":          vol.name,
-                "mountpoint":    str(vol),
-                "audio_estimate": audio_estimate,
-                "total_gb":      total_gb,
-                "free_gb":       free_gb,
-                "has_pioneer_db": has_pioneer_db,
-            })
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-
-    return jsonify(results)
-
-
 @bp.route("/api/library/tracks")
 def api_library_tracks():
     from db_connection import read_db  # noqa: PLC0415
@@ -556,28 +502,6 @@ def api_library_split_data():
         "unimported":        unimported,
         "unimported_count":  len(unimported),
     })
-
-
-@bp.route("/api/library/integrity/canonical-paths")
-def api_library_integrity_canonical_paths():
-    """
-    Detect likely duplicate logical tracks that point at multiple physical paths.
-    This is read-only and intended to support canonical-path cleanup workflows.
-    """
-    from db_connection import read_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
-
-    try:
-        with read_db(_DB) as db:
-            tracks_scanned, conflicts = _library_canonical_path_conflicts(db)
-            return jsonify({
-                "ok": True,
-                "total_tracks_scanned": tracks_scanned,
-                "conflict_group_count": len(conflicts),
-                "groups": conflicts,
-            })
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
 
 
 @bp.route("/api/library/integrity/canonical-paths/plan")
@@ -838,28 +762,6 @@ def api_library_delete_playlist(playlist_id):
         return jsonify({"error": str(exc)}), 500
 
 
-@bp.route("/api/library/playlists/<playlist_id>/tracks/<track_id>", methods=["DELETE"])
-def api_library_remove_track_from_playlist(playlist_id, track_id):
-    from db_connection import write_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
-
-    try:
-        with write_db(_DB) as db:
-            songs = db.get_playlist_songs(PlaylistID=playlist_id, ContentID=track_id).all()
-            if not songs:
-                return jsonify({"error": "Track not in playlist"}), 404
-            removed = 0
-            for song in songs:
-                db.remove_from_playlist(playlist_id, song.ID)
-                removed += 1
-            db.commit()
-            return jsonify({"ok": True, "status": "removed", "removed": removed})
-    except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-
-
 @bp.route("/api/library/playlists/<playlist_id>/tracks", methods=["DELETE"])
 def api_library_remove_tracks_from_playlist(playlist_id):
     from db_connection import write_db  # noqa: PLC0415
@@ -1004,144 +906,4 @@ def api_library_export_status(job_id):
     return jsonify(job)
 
 
-# ── Legacy playlist / track endpoints (non-library prefix) ────────────────────
 
-@bp.route("/api/playlists")
-def api_playlists():
-    from db_connection import read_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
-    try:
-        with read_db(_DB) as db:
-            rows = db.get_playlist().all()
-            result = []
-            for pl in rows:
-                if getattr(pl, "Attribute", 0) != 0:
-                    continue
-                songs = db.get_playlist_songs(PlaylistID=pl.ID).all()
-                result.append({
-                    "id": str(pl.ID),
-                    "name": pl.Name or "",
-                    "track_count": len(songs),
-                })
-            result.sort(key=lambda p: p["name"].lower())
-            return jsonify(result)
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-
-
-@bp.route("/api/playlists/<playlist_id>")
-def api_playlist(playlist_id):
-    from db_connection import read_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
-    try:
-        with read_db(_DB) as db:
-            pl = db.get_playlist(ID=playlist_id).one_or_none()
-            if pl is None:
-                return jsonify({"error": "Playlist not found"}), 404
-            songs = db.get_playlist_songs(PlaylistID=pl.ID).order_by("TrackNo").all()
-            tracks = []
-            for song in songs:
-                t = song.Content
-                if t is None:
-                    continue
-                tracks.append({
-                    "id": str(t.ID),
-                    "title": t.Title or "",
-                    "artist": t.Artist.Name if t.Artist else "",
-                    "bpm": round(t.BPM / 100, 1) if t.BPM else None,
-                    "key": t.Key.Name if t.Key else None,
-                    "file_path": t.FolderPath or "",
-                })
-            return jsonify({
-                "id": str(pl.ID),
-                "name": pl.Name or "",
-                "track_count": len(tracks),
-                "tracks": tracks,
-            })
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-
-
-@bp.route("/api/tracks")
-def api_tracks():
-    from db_connection import read_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
-    try:
-        with read_db(_DB) as db:
-            rows = db.get_content().all()
-            result = []
-            for t in rows:
-                result.append({
-                    "id": str(t.ID),
-                    "title": t.Title or "",
-                    "artist": t.Artist.Name if t.Artist else "",
-                    "bpm": round(t.BPM / 100, 1) if t.BPM else None,
-                    "key": t.Key.Name if t.Key else None,
-                    "file_path": t.FolderPath or "",
-                })
-            return jsonify(result)
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-
-
-@bp.route("/api/tracks/<track_id>")
-def api_track(track_id):
-    from db_connection import read_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
-    try:
-        with read_db(_DB) as db:
-            t = db.get_content(ID=track_id).one_or_none()
-            if t is None:
-                return jsonify({"error": "Track not found"}), 404
-            return jsonify({
-                "id": str(t.ID),
-                "title": t.Title or "",
-                "artist": t.Artist.Name if t.Artist else "",
-                "bpm": round(t.BPM / 100, 1) if t.BPM else None,
-                "key": t.Key.Name if t.Key else None,
-                "file_path": t.FolderPath or "",
-            })
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-
-
-@bp.route("/audio/<path:audio_path>")
-def serve_audio(audio_path):
-    from config import MUSIC_ROOT  # noqa: PLC0415
-    abs_path = os.path.join(str(MUSIC_ROOT), audio_path)
-    if not os.path.isfile(abs_path):
-        return jsonify({"error": "File not found"}), 404
-    mime, _ = mimetypes.guess_type(abs_path)
-    return send_file(abs_path, mimetype=mime or "audio/mpeg")
-
-
-# ── In-process audio playback ─────────────────────────────────────────────────
-
-@bp.route("/api/playback/start", methods=["POST"])
-def api_playback_start():
-    if not _PLAYBACK_AVAILABLE:
-        detail = _PLAYBACK_IMPORT_ERROR or "audio playback backend is unavailable"
-        return jsonify({"error": f"Playback unavailable: {detail}"}), 503
-
-    data = request.get_json(silent=True) or {}
-    file_path = data.get("file_path", "").strip()
-    if not file_path or not os.path.isfile(file_path):
-        return jsonify({"error": "File not found"}), 404
-
-    _stop_playback()
-
-    def _thread():
-        _play_audio_file(file_path)
-
-    with _playback_lock:
-        _playback_stop_event.clear()
-        _playback["thread"] = threading.Thread(target=_thread, daemon=True)
-        _playback["thread"].start()
-        _playback["current_path"] = file_path
-    return jsonify({"status": "playing", "file_path": file_path})
-
-
-@bp.route("/api/playback/stop", methods=["POST"])
-def api_playback_stop():
-    _stop_playback()
-    return jsonify({"status": "stopped"})

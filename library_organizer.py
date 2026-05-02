@@ -138,8 +138,8 @@ def _folder_artist(path: Path) -> str | None:
                 s = str(val[0]).strip() if isinstance(val, list) else str(val).strip()
                 if s:
                     return _normalize_artist(s)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("Tag extraction failed for %s: %s", path, exc)
     return None
 
 
@@ -401,5 +401,5 @@ def _prune_empty_dirs(root: Path) -> None:
             if not any(p.iterdir()):
                 p.rmdir()
                 log.info("Pruned empty dir: %s", p)
-        except OSError:
-            pass
+        except OSError as exc:
+            log.warning("Could not remove empty dir %s: %s", p, exc)

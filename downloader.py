@@ -146,30 +146,6 @@ def _find_ytdlp() -> str:
     return "yt-dlp"
 
 
-def get_recommended_format(input_file: Optional[str] = None) -> str:
-    """
-    Determine recommended Rekordbox output format for a given input file.
-    
-    For legacy formats (early 2000s), uses LEGACY_CONVERSION_MAP.
-    For modern formats, defaults to AIFF (lossless/maximum fidelity).
-    
-    Parameters
-    ----------
-    input_file : str, optional
-        Input filename or path. If provided, uses its extension for mapping.
-        If None or unknown extension, returns DEFAULT_FORMAT.
-    
-    Returns
-    -------
-    str
-        Format string: "aiff", "wav", "flac", "mp3", "m4a", "ogg", or "opus"
-    """
-    if input_file:
-        ext = Path(input_file).suffix.lower()
-        return LEGACY_CONVERSION_MAP.get(ext, DEFAULT_FORMAT)
-    return DEFAULT_FORMAT
-
-
 def _run(job_id: str) -> None:
     with _LOCK:
         job = dict(_JOBS.get(job_id, {}))

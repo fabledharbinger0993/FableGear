@@ -229,19 +229,6 @@ def _bpm_buckets(bpm_str: str | None) -> frozenset[str]:
         return frozenset()
 
 
-def _bpm_bucket(bpm_str: str | None) -> str | None:
-    """
-    Deprecated alias for _bpm_buckets(). Returns the first element of the
-    bucket set, or None if the set is empty.
-
-    Preserved for backward compatibility — use _bpm_buckets() for new code.
-    """
-    buckets = _bpm_buckets(bpm_str)
-    if not buckets:
-        return None
-    return next(iter(buckets))
-
-
 # ─── Tag-based candidate detection ───────────────────────────────────────────
 
 # Regex to strip trailing parenthetical suffixes from track titles/artists.

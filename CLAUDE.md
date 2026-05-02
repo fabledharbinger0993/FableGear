@@ -88,8 +88,6 @@ body { padding-bottom: calc(var(--log-h) + var(--scan-bar-h) + 4px); }
 body.scan-active { padding-bottom: calc(var(--log-h) + var(--scan-bar-h) * 2 + 4px); }
 ```
 
-Floating buttons (owl, lightbulb, session pills) shift up when `body.log-open` is set.
-
 ## Key decisions made (don't undo without reason)
 
 - **`exec > /dev/null 2>&1` in launch.sh is intentional.** Automator treats any stdout as an error. Server logs still go to `fablegear.log` via explicit redirect.

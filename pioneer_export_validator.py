@@ -100,38 +100,6 @@ def validate_file_exists(path: str) -> None:
 
 # ─── Export Path Builders ──────────────────────────────────────────────────────
 
-def build_export_metadata(
-    source_path: str,
-    dest_path: str,
-) -> Dict[str, Any]:
-    """
-    Build complete metadata for a track being exported to Pioneer drive.
-    
-    Parameters
-    ----------
-    source_path : str
-        Original file path on local system (e.g., /Volumes/DJMT/Music/track.mp3)
-    dest_path : str
-        Actual file location on USB drive after copy (e.g., /Volumes/USB/Contents/Artist/track.mp3)
-    
-    Returns
-    -------
-    dict
-        Metadata dict with FolderPath, OrgFolderPath, rb_LocalFolderPath, etc.
-        Ready to pass to pyrekordbox DjmdContent creation.
-    """
-    validate_folderpath_length(dest_path)
-    validate_file_exists(dest_path)
-    
-    return {
-        "FolderPath": dest_path,
-        # OrgFolderPath: original source path (for relocation tracking)
-        "OrgFolderPath": source_path,
-        # rb_LocalFolderPath: used by Rekordbox when moving files on the drive
-        "rb_LocalFolderPath": str(Path(dest_path).parent),
-    }
-
-
 def validate_export_paths(export_entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Validate all paths in an export batch before committing to database.

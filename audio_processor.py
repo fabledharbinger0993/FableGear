@@ -860,8 +860,8 @@ def process_directory(
                 tkey = audio.tags.get("TKEY")
                 if tkey:
                     key_val = str(tkey).strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("Tag read failed for %s: %s", r.path, exc)
         scan_index.append({
             "path":         str(r.path),
             "bpm":          bpm_val,

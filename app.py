@@ -232,42 +232,6 @@ def api_health():
     })
 
 
-@app.route("/api/health/autofix", methods=["POST"])
-def api_health_autofix():
-    """
-    Re-run health checks and apply all safe auto-heals.
-    Returns what was fixed and the updated findings list.
-    """
-    try:
-        from health import run_health_checks, auto_heal_safe  # noqa: PLC0415
-        findings = run_health_checks()
-        healed = auto_heal_safe(findings)
-        # Re-run to get the post-fix state
-        findings = run_health_checks()
-        with _health_lock:
-            import time as _t  # noqa: PLC0415
-            globals()["_health_cache"] = [f.as_dict() for f in findings]
-            globals()["_health_refreshed_at"] = _t.time()
-        return jsonify({
-            "ok":      True,
-            "healed":  healed,
-            "findings": [f.as_dict() for f in findings],
-            "summary":  _health_summary([f.as_dict() for f in findings]),
-        })
-    except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
-
-
-@app.route("/api/export/rekordbox", methods=["POST"])
-def api_export_rekordbox():
-    return jsonify({
-        "error": (
-            "Legacy Rekordbox XML export is disabled. The previous implementation "
-            "did not produce a self-consistent Pioneer-compatible export."
-        )
-    }), 501
-
-
 @app.route("/api/config")
 def api_config():
     """Expose the configured default paths so the UI can pre-fill forms."""

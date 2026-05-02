@@ -28,26 +28,6 @@ from mutagen import File as MutagenFile
 from pioneer_export_validator import validate_export_paths, validate_copied_file_exists
 
 
-# ── Playback backend (optional) ───────────────────────────────────────────────
-
-_playback_import_errors: list = []
-
-try:
-    import sounddevice as _sounddevice  # type: ignore[import-untyped]
-except Exception as _exc:
-    _sounddevice = None
-    _playback_import_errors.append(f"sounddevice unavailable: {_exc}")
-
-try:
-    import soundfile as _soundfile  # type: ignore[import-untyped]
-except Exception as _exc:
-    _soundfile = None
-    _playback_import_errors.append(f"soundfile unavailable: {_exc}")
-
-_PLAYBACK_AVAILABLE: bool = _sounddevice is not None and _soundfile is not None
-_PLAYBACK_IMPORT_ERROR: str | None = "; ".join(_playback_import_errors) or None
-
-
 # ── Resource root — handles both dev and PyInstaller bundle ──────────────────
 
 _REPO_ROOT = Path(
@@ -92,16 +72,6 @@ except ImportError:
 
     def get_step_status(*a, **kw) -> dict:  # type: ignore[misc]
         return {}
-
-
-# ── Playback state (dict so mutations are visible across blueprint modules) ───
-
-_playback_lock: threading.Lock = threading.Lock()
-_playback_stop_event: threading.Event = threading.Event()
-_playback: dict = {
-    "thread": None,
-    "current_path": None,
-}
 
 
 # ── Shared export job state ───────────────────────────────────────────────────
@@ -247,32 +217,6 @@ def _detect_pioneer_drive_layout(drive_path: str | Path) -> dict:
         "export_error": None,
         "db_path": None,
     }
-
-
-# ── Playback helpers ──────────────────────────────────────────────────────────
-
-def _stop_playback() -> None:
-    with _playback_lock:
-        thread = _playback["thread"]
-        if thread and thread.is_alive():
-            _playback_stop_event.set()
-            thread.join(timeout=2)
-        _playback["thread"] = None
-        _playback["current_path"] = None
-        _playback_stop_event.clear()
-
-
-def _play_audio_file(path: str) -> None:
-    if not _PLAYBACK_AVAILABLE or _sounddevice is None or _soundfile is None:
-        return
-    try:
-        with _soundfile.SoundFile(path) as audio_file:
-            for block in audio_file.blocks(blocksize=1024, dtype="float32"):
-                if _playback_stop_event.is_set():
-                    break
-                _sounddevice.play(block, audio_file.samplerate, blocking=True)
-    except Exception as exc:
-        print(f"Playback error: {exc}")
 
 
 # ── Rekordbox status helpers ──────────────────────────────────────────────────
