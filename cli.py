@@ -685,6 +685,7 @@ def cmd_process(args: argparse.Namespace) -> None:
         pending: list[Path] = []
         total_scanned = 0
         skipped_complete = 0
+        _TICK = 250  # emit a progress line every N files
         for root in roots:
             for track in scan_directory(root):
                 total_scanned += 1
@@ -694,6 +695,11 @@ def cmd_process(args: argparse.Namespace) -> None:
                     pending.append(track.path)
                 else:
                     skipped_complete += 1
+                if total_scanned % _TICK == 0:
+                    print(
+                        f"FABLEGEAR_SCAN_TICK: {total_scanned}",
+                        flush=True,
+                    )
         log.info(
             "Smart Skip: %d/%d file(s) need work; %d already complete and skipped.",
             len(pending), total_scanned, skipped_complete,

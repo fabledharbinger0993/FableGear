@@ -1970,6 +1970,20 @@ function runCommand(url, logTitle, onDone, useBar = true, showPrefilter = false)
         }
       }
 
+      // Smart-skip scan ticker — update a single status line, don't spam log
+      if (line.startsWith('FABLEGEAR_SCAN_TICK: ')) {
+        const n = parseInt(line.slice(20).trim(), 10);
+        let tickEl = document.getElementById('fablegear-scan-tick');
+        if (!tickEl) {
+          const out = document.getElementById('log-output');
+          tickEl = document.createElement('div');
+          tickEl.id = 'fablegear-scan-tick';
+          tickEl.className = 'log-line dim';
+          out.appendChild(tickEl);
+        }
+        tickEl.textContent = `Scanning library… ${n.toLocaleString()} files checked`;
+        return;
+      }
       // Machine-readable report path — capture silently, don't echo to log
       if (line.startsWith('FABLEGEAR_REPORT_PATH: ')) {
         capturedReportPath = line.slice(22).trim();
