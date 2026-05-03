@@ -547,13 +547,14 @@ def fingerprint_file(path: Path) -> str | None:
 
 def _ensure_acoustid_fpcalc() -> bool:
     """Point pyacoustid at fpcalc even when /opt/homebrew/bin is not in PATH.
+    pyacoustid resolves fpcalc via os.environ['FPCALC'], not a module attribute.
     Returns False if fpcalc cannot be found at all.
     """
-    if getattr(acoustid, "FPCALC_PATH", None):
+    if os.environ.get("FPCALC"):
         return True  # already set
     found = _find_fpcalc()
     if found:
-        acoustid.FPCALC_PATH = found  # type: ignore[attr-defined]
+        os.environ["FPCALC"] = found
         return True
     return False
 
