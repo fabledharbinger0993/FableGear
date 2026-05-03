@@ -1713,7 +1713,7 @@ function choosePath(mode) {
 }
 
 /* ── Config prefill + localStorage persistence ─────────────────────────────── */
-const LS_PREFIX = 'fablegear_path_';
+const LS_PREFIX = 'superbox_path_';
 
 function lsSave(id) {
   const el = document.getElementById(id);
@@ -4118,26 +4118,6 @@ function pruneStep1() {
       : 'These files will be moved to Trash. Their database entries will be removed. A timestamped backup of <code>master.db</code> is created automatically. RekordBox must be closed.';
     c2note.style.color = perm ? 'var(--danger)' : '';
   }
-  // Skip step 1 panel — go straight to the file list + execute
-  pruneStep2();
-}
-
-function pruneStep2() {
-  _closeConfirm('confirm-step1');
-  const list = document.getElementById('c2-file-list');
-  list.innerHTML = '';
-  [...pruneSelected].sort().forEach(p => {
-    const div = document.createElement('div');
-    div.className = 'confirm-file-item';
-    div.textContent = p;
-    list.appendChild(div);
-  });
-  // Show or hide the RB warning based on current status
-  document.getElementById('prune-final-rb-block').classList.toggle('visible', rbRunning);
-  // Disable Execute button when RB is open so clicking it has an obvious effect
-  const execBtn = document.getElementById('btn-execute-prune');
-  if (execBtn) execBtn.disabled = rbRunning;
-  _openConfirm('confirm-step2');
 }
 
 function _showPruneStatus(msg, isError) {
@@ -4209,11 +4189,6 @@ async function executePrune() {
       _showPruneStatus('✗ Prune failed — see the log panel (View Output) for details.', true);
     }
   });
-}
-
-function cancelPrune() {
-  ['confirm-step1','confirm-step2'].forEach(_closeConfirm);
-  document.getElementById('confirm-backdrop').classList.remove('open');
 }
 
 function _openConfirm(id) {
