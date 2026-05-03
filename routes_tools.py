@@ -954,9 +954,14 @@ def api_run_prune():
 
             from pruner import prune_files  # noqa: PLC0415
             from db_connection import write_db  # noqa: PLC0415
+            from config import DJMT_DB as _DJMT_DB, LOCAL_DB as _LOCAL_DB  # noqa: PLC0415
+
+            # Use the device DB (Pioneer drive) when it's mounted — that's where
+            # the actual library lives. Fall back to LOCAL_DB only if DJMT_DB is absent.
+            _prune_db_path = _DJMT_DB if (_DJMT_DB and _DJMT_DB.exists()) else _LOCAL_DB
 
             summary = {}
-            with write_db() as db:  # defaults to LOCAL_DB — the user's live library
+            with write_db(_prune_db_path) as db:
                 summary = prune_files(
                     paths,
                     db,

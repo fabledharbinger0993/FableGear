@@ -4103,7 +4103,10 @@ async function previewFile(path) {
 // User must physically move cursor between each step — no click-through.
 
 function pruneStep1() {
-  if (pruneSelected.size === 0) return;
+  if (pruneSelected.size === 0) {
+    showToast('Select files to remove first — use "Select All Lower Quality" or check individual files.', 'warning');
+    return;
+  }
   const perm = document.getElementById('prune-permanent-cb').checked;
   document.getElementById('btn-execute-prune').textContent = perm
     ? 'Execute — Delete Permanently'
@@ -4131,6 +4134,9 @@ function pruneStep2() {
   });
   // Show or hide the RB warning based on current status
   document.getElementById('prune-final-rb-block').classList.toggle('visible', rbRunning);
+  // Disable Execute button when RB is open so clicking it has an obvious effect
+  const execBtn = document.getElementById('btn-execute-prune');
+  if (execBtn) execBtn.disabled = rbRunning;
   _openConfirm('confirm-step2');
 }
 
@@ -4150,6 +4156,9 @@ async function executePrune() {
   await refreshStatus();
   if (rbRunning) {
     document.getElementById('prune-final-rb-block').classList.add('visible');
+    const execBtn = document.getElementById('btn-execute-prune');
+    if (execBtn) execBtn.disabled = true;
+    showToast('Close RekordBox before pruning.', 'warning');
     return;
   }
 
