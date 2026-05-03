@@ -1816,6 +1816,8 @@ function showScanBar(title) {
   ib.textContent = '⏸ Interrupt'; ib.disabled = false; ib.style.display = 'inline-block';
   const eb = document.getElementById('scan-bar-emergency');
   eb.textContent = '⚡ Emergency Stop'; eb.disabled = false; eb.style.display = 'inline-block';
+  document.getElementById('sb-scanned').textContent      = '0';
+  document.getElementById('sb-scanned-wrap').style.display = 'none';
   document.getElementById('sb-remaining').textContent    = '—';
   document.getElementById('sb-clean').textContent        = '0';
   document.getElementById('sb-edited').textContent       = '0';
@@ -1831,6 +1833,12 @@ function showScanBar(title) {
   _syncToolModalScanState();
 }
 function updateScanBar(p) {
+  if (p.scanned != null) {
+    document.getElementById('sb-scanned').textContent = p.scanned.toLocaleString();
+    document.getElementById('sb-scanned-wrap').style.display = '';
+    return;
+  }
+  document.getElementById('sb-scanned-wrap').style.display = 'none';
   document.getElementById('sb-remaining').textContent = p.remaining.toLocaleString();
   document.getElementById('sb-clean').textContent     = p.clean.toLocaleString();
   document.getElementById('sb-edited').textContent    = p.edited.toLocaleString();
