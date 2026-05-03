@@ -1818,6 +1818,8 @@ function showScanBar(title) {
   eb.textContent = '⚡ Emergency Stop'; eb.disabled = false; eb.style.display = 'inline-block';
   document.getElementById('sb-scanned').textContent      = '0';
   document.getElementById('sb-scanned-wrap').style.display = 'none';
+  document.getElementById('sb-inspected').textContent     = '0';
+  document.getElementById('sb-inspected-wrap').style.display = 'none';
   document.getElementById('sb-remaining').textContent    = '—';
   document.getElementById('sb-clean').textContent        = '0';
   document.getElementById('sb-edited').textContent       = '0';
@@ -1839,6 +1841,10 @@ function updateScanBar(p) {
     return;
   }
   document.getElementById('sb-scanned-wrap').style.display = 'none';
+  if (p.inspected != null) {
+    document.getElementById('sb-inspected').textContent = p.inspected.toLocaleString();
+    document.getElementById('sb-inspected-wrap').style.display = '';
+  }
   document.getElementById('sb-remaining').textContent = p.remaining.toLocaleString();
   document.getElementById('sb-clean').textContent     = p.clean.toLocaleString();
   document.getElementById('sb-edited').textContent    = p.edited.toLocaleString();

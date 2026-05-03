@@ -801,6 +801,7 @@ def process_directory(
     bpm_key_written = 0
     quarantined = 0
     enriched = 0
+    inspected = 0
 
     def _emit_progress() -> None:
         print(
@@ -815,6 +816,7 @@ def process_directory(
                 "bpm_key_written": bpm_key_written,
                 "quarantined":   quarantined,
                 "enriched":      enriched,
+                "inspected":     inspected,
             }),
             flush=True,
         )
@@ -871,6 +873,9 @@ def process_directory(
         })
 
     def _process_one(track, index: int) -> ProcessResult:
+        nonlocal inspected
+        inspected += 1
+        _emit_progress()
         r = process_file(
             track.path,
             detect_bpm=detect_bpm,
