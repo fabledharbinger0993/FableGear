@@ -1106,7 +1106,7 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 /* ── Confirmation panels ─────────────────────────────────────────────── */
 .confirm-panel {
   position: fixed;
-  z-index: 8000;
+  z-index: 10500; /* must exceed toolkit-modal (10000) */
   width: 360px;
   background: #0d0d22;
   border: 1px solid var(--border-hi);
@@ -1165,7 +1165,7 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 #confirm-step3 .confirm-panel-footer { display:flex; justify-content:flex-start; gap:8px; }
 
 #confirm-backdrop {
-  position:fixed; inset:0; z-index:7999;
+  position:fixed; inset:0; z-index:10499; /* must exceed toolkit-modal (10000) */
   background:rgba(0,0,0,.45);
   display:none;
 }
