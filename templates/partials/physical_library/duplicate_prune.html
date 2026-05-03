@@ -161,61 +161,13 @@
                onchange="document.getElementById('btn-prune-start').textContent = this.checked ? 'Delete Permanently →' : 'Move to Trash →'">
           Delete permanently
         </label>
-        <button type="button" class="btn btn-prune-danger" id="btn-prune-start"
-                onclick="pruneStep1()" disabled>
+        <button type="button" class="btn btn-prune-start" id="btn-prune-start"
+                onclick="startPrune()">
           Move to Trash →
         </button>
       </div>
 
-      <div class="rb-block-msg" id="prune-rb-block">
-        <span>⚠</span> RekordBox is open. Close it before pruning.
-      </div>
-
       <!-- Inline status shown after a prune attempt -->
       <div id="prune-status-msg"></div>
-    </div>
-  </div>
-
-
-  <!-- ── Confirmation panels (spatially separated, no overlapping) ───── -->
-  <div id="confirm-backdrop"></div>
-
-  <!-- Step 1 — bottom-right. "What you're doing." Proceed button bottom-right. -->
-  <div class="confirm-panel" id="confirm-step1">
-    <div class="confirm-panel-head">
-      <img src="/static/icon-logo-fablegear.png" alt="" role="presentation" class="rb-logo-icon">
-      <div class="confirm-step-num">1</div>
-      <div class="confirm-panel-title">Confirm Selection</div>
-      <button type="button" class="confirm-panel-cancel" onclick="cancelPrune()">✕ Cancel</button>
-    </div>
-    <div class="confirm-panel-body">
-      <p>You're about to remove <strong id="c1-count">—</strong> files from the RekordBox database.</p>
-      <p class="confirm-detail" id="c1-mode-note">Files will be moved to a recovery folder in Trash. Nothing is permanently deleted.</p>
-    </div>
-    <div class="confirm-panel-footer">
-      <button type="button" class="btn btn-ghost" onclick="cancelPrune()">Cancel</button>
-      <button type="button" class="btn btn-warn-action" onclick="pruneStep2()">Review the file list →</button>
-    </div>
-  </div>
-
-  <!-- Step 2 — top-left. File list + execute. -->
-  <div class="confirm-panel" id="confirm-step2">
-    <div class="confirm-panel-head">
-      <img src="/static/icon-logo-fablegear.png" alt="" role="presentation" class="rb-logo-icon">
-      <div class="confirm-step-num">2</div>
-      <div class="confirm-panel-title">Review &amp; Execute</div>
-      <button type="button" class="confirm-panel-cancel" onclick="cancelPrune()">✕ Cancel</button>
-    </div>
-    <div class="confirm-file-list" id="c2-file-list"></div>
-    <div class="confirm-panel-body confirm-body-pt">
-      <p class="confirm-detail" id="c2-mode-note">These files will be moved to Trash. Their database entries will be removed. A timestamped backup of <code>master.db</code> is created automatically. RekordBox must be closed.</p>
-    </div>
-    <div class="confirm-panel-footer">
-      <button type="button" class="btn btn-ghost" onclick="cancelPrune()">Cancel</button>
-      <span class="footer-flex-spacer"></span>
-      <button type="button" class="btn btn-prune-danger" id="btn-execute-prune" onclick="executePrune()">Execute — Move to Trash</button>
-    </div>
-    <div class="rb-block-msg" id="prune-final-rb-block">
-      <span>⚠</span> RekordBox is open. Close it to proceed.
     </div>
   </div>

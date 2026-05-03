@@ -28,7 +28,7 @@ env/
 settings.json
 
 # Setup sentinel (written by setup.sh, local to each machine)
-.superbox_ready
+.fablegear_ready
 .rekitbox_ready
 .fablegear_ready
 
@@ -38,7 +38,7 @@ settings.json
 # Test artifacts
 *.bak
 *.tmp
-SuperBox.zip
+fablegear.zip
 FableGear.zip
 
 # Local portable launcher (drive-resident, built by packaging/make_local_launcher.sh)

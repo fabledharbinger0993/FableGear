@@ -737,11 +737,6 @@ details[open] > summary { color: var(--text); }
   opacity: 1;
   box-shadow: 0 0 10px rgba(109,184,212,.35);
 }
-.btn-prune-danger {
-  background: var(--danger-dim);
-  border: 1px solid var(--danger-border);
-  color: var(--danger);
-}
 
 /* rb-blocked message */
 .rb-block-msg {
@@ -1106,7 +1101,7 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 /* ── Confirmation panels ─────────────────────────────────────────────── */
 .confirm-panel {
   position: fixed;
-  z-index: 10500; /* must exceed toolkit-modal (10000) */
+  z-index: 13000; /* must exceed toolkit-modal (10000) */
   width: 360px;
   background: #0d0d22;
   border: 1px solid var(--border-hi);
@@ -1174,7 +1169,7 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 #rename-learn-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 8090;
+  z-index: 10499; /* must exceed toolkit-modal (10000) */
   background: rgba(0,0,0,.52);
   display: none;
 }
@@ -1182,7 +1177,7 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 
 .rename-learn-modal {
   position: fixed;
-  z-index: 8091;
+  z-index: 10499;
   top: 72px;
   left: 50%;
   transform: translateX(-50%);
@@ -1836,7 +1831,7 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 @keyframes sb-modal-in    { from { opacity: 0; scale: 0.95; translate: 0 20px; } to { opacity: 1; scale: 1; translate: 0 0; } }
 
 #welcome-backdrop {
-  position: fixed; inset: 0; z-index: 10000;
+  position: fixed; inset: 0; z-index: 10100;
   background: rgba(0,0,0,.72);
   display: flex; align-items: center; justify-content: center;
   padding: 24px;

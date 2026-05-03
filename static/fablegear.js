@@ -1713,7 +1713,7 @@ function choosePath(mode) {
 }
 
 /* ── Config prefill + localStorage persistence ─────────────────────────────── */
-const LS_PREFIX = 'superbox_path_';
+const LS_PREFIX = 'fablegear_path_';
 
 function lsSave(id) {
   const el = document.getElementById(id);
@@ -4230,7 +4230,7 @@ function _esc(s) {
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-/* ── Owl / Glossary system ─────────────────────────────────────────────────── */
+/* ── info / Glossary system ─────────────────────────────────────────────────── */
 const GLOSSARY = [
   // ── Tech ──────────────────────────────────────────────────────────────────
   { id:'db',  cat:'Tech', term:'DB',
@@ -4402,40 +4402,40 @@ const GLOSSARY = [
 <p>This is the highest-risk operation in the toolkit because it rewrites audio files. The <code>.bak</code> safety system means your originals are protected, but an independent drive backup first is strongly recommended.</p>`},
 ];
 
-/* ── Owl interaction ──────────────────────────────────────────────────────── */
-let owlHoverTimer  = null;
-let owlCardsActive = false;
+/* ── info interaction ──────────────────────────────────────────────────────── */
+let infoHoverTimer  = null;
+let infoCardsActive = false;
 const pinnedCards  = new Map();   // id → DOM element
 let cardZ          = 1000;
 
-function _buildOwlList() {
-  const list = document.getElementById('owl-panel-list');
+function _buildinfoList() {
+  const list = document.getElementById('info-panel-list');
   if (list.children.length) return;
   const groups = ['Tech','Audio','RekordBox','FableGear'];
   groups.forEach(g => {
     const lbl = document.createElement('div');
-    lbl.className = 'owl-group-label';
+    lbl.className = 'info-group-label';
     lbl.textContent = g;
     list.appendChild(lbl);
     GLOSSARY.filter(t => t.cat === g).forEach(t => {
       const row = document.createElement('div');
-      row.className = 'owl-item';
-      row.id = `owl-item-${t.id}`;
-      row.innerHTML = `<span class="owl-term">${t.term}</span><span class="owl-short">${t.short}</span>`;
+      row.className = 'info-item';
+      row.id = `info-item-${t.id}`;
+      row.innerHTML = `<span class="info-term">${t.term}</span><span class="info-short">${t.short}</span>`;
       row.onclick = e => { e.stopPropagation(); toggleCard(t.id); };
       list.appendChild(row);
     });
   });
 }
 
-function owlHoverIn() {
-  clearTimeout(owlHoverTimer);
-  _buildOwlList();
-  document.getElementById('owl-hover-panel').classList.add('visible');
+function infoHoverIn() {
+  clearTimeout(infoHoverTimer);
+  _buildinfoList();
+  document.getElementById('info-hover-panel').classList.add('visible');
 }
-function owlHoverOut() {
-  owlHoverTimer = setTimeout(() =>
-    document.getElementById('owl-hover-panel').classList.remove('visible'), 220);
+function infoHoverOut() {
+  infoHoverTimer = setTimeout(() =>
+    document.getElementById('info-hover-panel').classList.remove('visible'), 220);
 }
 
 function toggleCard(id) {
@@ -4466,18 +4466,18 @@ function openCard(id) {
   document.body.appendChild(card);
   pinnedCards.set(id, card);
 
-  const item = document.getElementById(`owl-item-${id}`);
+  const item = document.getElementById(`info-item-${id}`);
   if (item) item.classList.add('pinned');
-  owlCardsActive = true;
+  infoCardsActive = true;
 }
 
 function closeCard(id) {
   const c = pinnedCards.get(id);
   if (c) { c.remove(); pinnedCards.delete(id); }
-  const item = document.getElementById(`owl-item-${id}`);
+  const item = document.getElementById(`info-item-${id}`);
   if (item) item.classList.remove('pinned');
   if (pinnedCards.size === 0) {
-    owlCardsActive = false;
+    infoCardsActive = false;
   }
 }
 
@@ -4499,7 +4499,7 @@ document.addEventListener('keydown', e => {
   }
 });
 
-/* patch openLog / closeLog to shift owl button above the log panel */
+/* patch openLog / closeLog to shift info button above the log panel */
 const _origOpenLog  = openLog;
 const _origCloseLog = closeLog;
 openLog  = function(t) { _origOpenLog(t);  document.body.classList.add('log-open');    };
