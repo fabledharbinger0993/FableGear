@@ -393,8 +393,6 @@ def _sse_response(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-            "Transfer-Encoding": "chunked",
         },
     )
 
@@ -510,7 +508,7 @@ def _sse_done(lines: list[str], exit_code: int = 0) -> Response:
     return Response(
         _gen(),
         mimetype="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive", "Transfer-Encoding": "chunked"},
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
