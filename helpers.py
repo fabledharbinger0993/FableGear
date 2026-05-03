@@ -370,6 +370,7 @@ def _stream(
                 pass
 
     yield f"data: {json.dumps({'done': True, 'exit_code': exit_code})}\n\n"
+    yield ": end\n\n"  # flush Waitress buffer
 
 
 def _sse_response(
@@ -389,7 +390,12 @@ def _sse_response(
             cleanup_paths=cleanup_paths,
         ),
         mimetype="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+            "Transfer-Encoding": "chunked",
+        },
     )
 
 
@@ -499,11 +505,12 @@ def _sse_done(lines: list[str], exit_code: int = 0) -> Response:
         for line in lines:
             yield f"data: {json.dumps({'line': line})}\n\n"
         yield f"data: {json.dumps({'done': True, 'exit_code': exit_code})}\n\n"
+        yield ": end\n\n"  # flush Waitress buffer
 
     return Response(
         _gen(),
         mimetype="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive", "Transfer-Encoding": "chunked"},
     )
 
 
@@ -577,9 +584,11 @@ def _stream_pipeline(steps: list[dict]):
 
         if exit_code != 0:
             yield f"data: {json.dumps({'done': True, 'exit_code': exit_code, 'failed_step': name})}\n\n"
+            yield ": end\n\n"  # flush Waitress buffer
             return
 
     yield f"data: {json.dumps({'done': True, 'exit_code': 0})}\n\n"
+    yield ": end\n\n"  # flush Waitress buffer
 
 
 def _require_rb_closed():
