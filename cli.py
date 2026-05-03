@@ -673,6 +673,50 @@ def cmd_process(args: argparse.Namespace) -> None:
 
     detect_bpm = not args.no_bpm
     detect_key = not args.no_key
+
+    # ── Smart-skip pre-filter ───────────────────────────────────────────────
+    # When --smart-skip is set, scan each root and collect only files that
+    # actually need work.  This runs inside the subprocess so it appears in
+    # the log stream, is cancellable via the normal interrupt path, and
+    # emits per-file scan progress to keep the UI alive.
+    if getattr(args, "smart_skip", False) and (detect_bpm or detect_key):
+        from scanner import scan_directory  # noqa: PLC0415
+        import json as _json  # noqa: PLC0415
+        pending: list[Path] = []
+        total_scanned = 0
+        skipped_complete = 0
+        for root in roots:
+            for track in scan_directory(root):
+                total_scanned += 1
+                needs_bpm = detect_bpm and track.bpm is None
+                needs_key = detect_key and track.key is None
+                if needs_bpm or needs_key:
+                    pending.append(track.path)
+                else:
+                    skipped_complete += 1
+        log.info(
+            "Smart Skip: %d/%d file(s) need work; %d already complete and skipped.",
+            len(pending), total_scanned, skipped_complete,
+        )
+        if not pending:
+            print("Smart Skip: all files already tagged — nothing to do.")
+            return
+        # Reuse the paths-file branch: write pending list and re-enter
+        import tempfile as _tf  # noqa: PLC0415
+        with _tf.NamedTemporaryFile(
+            mode="w", suffix=".txt", prefix="fablegear_smart_skip_",
+            delete=False, encoding="utf-8",
+        ) as f:
+            f.write("\n".join(str(p) for p in pending))
+            tmp_path = Path(f.name)
+        args.paths_file = str(tmp_path)
+        args.smart_skip = False  # prevent infinite recursion
+        cmd_process(args)
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return
     normalise = not args.no_normalize and not args.dry_run
 
     log.info(
@@ -1515,6 +1559,12 @@ Examples:
         dest="paths_file",
         default=None,
         help="Text file containing one absolute file path per line. When supplied, only those specific files are processed (PATH arg is still required but ignored as a scan root).",
+    )
+    p_process.add_argument(
+        "--smart-skip",
+        action="store_true",
+        dest="smart_skip",
+        help="Before processing, filter out files that already have all requested tags. Faster re-runs when most files are already complete.",
     )
     p_process.set_defaults(func=cmd_process)
 

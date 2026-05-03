@@ -30,7 +30,6 @@ from helpers import (
     _sse_done,
     _sse_smart_skip_process,
     _stream_pipeline,
-    _smart_skip_candidates,
     _require_rb_closed,
     _get_library_root,
     _rb_is_running,
