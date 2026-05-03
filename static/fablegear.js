@@ -4102,23 +4102,7 @@ async function previewFile(path) {
 // Each action button is at a different corner within its panel.
 // User must physically move cursor between each step — no click-through.
 
-function pruneStep1() {
-  if (pruneSelected.size === 0) {
-    showToast('Select files to remove first — use "Select All Lower Quality" or check individual files.', 'warning');
-    return;
-  }
-  const perm = document.getElementById('prune-permanent-cb').checked;
-  document.getElementById('btn-execute-prune').textContent = perm
-    ? 'Execute — Delete Permanently'
-    : 'Execute — Move to Trash';
-  const c2note = document.getElementById('c2-mode-note');
-  if (c2note) {
-    c2note.innerHTML = perm
-      ? '⚠ These files will be <strong>permanently deleted</strong> from disk and removed from the RekordBox database. <strong>This cannot be undone.</strong> RekordBox must be closed.'
-      : 'These files will be moved to Trash. Their database entries will be removed. A timestamped backup of <code>master.db</code> is created automatically. RekordBox must be closed.';
-    c2note.style.color = perm ? 'var(--danger)' : '';
-  }
-}
+
 
 function _showPruneStatus(msg, isError) {
   const el = document.getElementById('prune-status-msg');
@@ -4132,24 +4116,23 @@ function _showPruneStatus(msg, isError) {
 }
 
 async function executePrune() {
-  // Live RB check — surface the warning and block if open
+  if (pruneSelected.size === 0) {
+    showToast('Select files to remove first.', 'warning');
+    return;
+  }
+
+  // Live RB check
   await refreshStatus();
   if (rbRunning) {
-    document.getElementById('prune-final-rb-block').classList.add('visible');
-    const execBtn = document.getElementById('btn-execute-prune');
-    if (execBtn) execBtn.disabled = true;
     showToast('Close RekordBox before pruning.', 'warning');
     return;
   }
 
-  // Guard: another operation is already in progress — make it visible
+  // Guard: another operation is already in progress
   if (isRunning) {
     _showPruneStatus('⚠ Another operation is still running. Wait for it to finish, then try again.', true);
-    cancelPrune();
     return;
   }
-
-  cancelPrune();   // close all confirm panels
 
   // Hide any previous status before starting
   const statusEl = document.getElementById('prune-status-msg');
@@ -4191,20 +4174,7 @@ async function executePrune() {
   });
 }
 
-function _openConfirm(id) {
-  document.getElementById(id).classList.add('open');
-  document.getElementById('confirm-backdrop').classList.add('open');
-}
-function _closeConfirm(id) {
-  document.getElementById(id).classList.remove('open');
-}
 
-function cancelPrune() {
-  ['confirm-step1','confirm-step2'].forEach(_closeConfirm);
-  document.getElementById('confirm-backdrop').classList.remove('open');
-  const execBtn = document.getElementById('btn-execute-prune');
-  if (execBtn) execBtn.disabled = false;
-}
 
 function _esc(s) {
   return String(s)
