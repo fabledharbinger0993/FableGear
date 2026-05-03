@@ -28,6 +28,7 @@ from helpers import (
     CLI_PATH,
     _sse_response,
     _sse_done,
+    _sse_smart_skip_process,
     _stream_pipeline,
     _smart_skip_candidates,
     _require_rb_closed,
@@ -267,49 +268,13 @@ def api_process():
         and (detect_bpm or detect_key)
     ):
         roots = [Path(p) for p in paths]
-        filter_result = _smart_skip_candidates(roots, detect_bpm=detect_bpm, detect_key=detect_key)
-        pending = filter_result["pending"]
-
-        prelude = [
-            (
-                "Smart Skip: "
-                f"{filter_result['pending_count']}/{filter_result['total']} file(s) need work; "
-                f"{filter_result['skipped_complete']} already complete and skipped upfront."
-            )
-        ]
-        if filter_result["unreadable"]:
-            prelude.append(
-                f"Smart Skip note: {filter_result['unreadable']} file(s) had read warnings and remain included for safe handling."
-            )
-        if filter_result["invalid_paths"]:
-            prelude.append(
-                f"Smart Skip note: {filter_result['invalid_paths']} path(s) were invalid or unsupported and ignored."
-            )
-
-        if not pending:
-            return _sse_done([
-                prelude[0],
-                "No files require BPM/key updates for this run.",
-                "Finished successfully.",
-            ])
-
-        tf = tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".txt",
-            prefix="fablegear_smart_skip_",
-            delete=False,
-            encoding="utf-8",
-        )
-        tf.write("\n".join(pending))
-        tf.close()
-        cmd += ["--paths-file", tf.name]
         library_root = _get_library_root(request, "path")
-        return _sse_response(
-            cmd,
+        return _sse_smart_skip_process(
+            base_cmd=cmd,
+            roots=roots,
+            detect_bpm=detect_bpm,
+            detect_key=detect_key,
             library_root=library_root,
-            step_name="process",
-            prelude_lines=prelude,
-            cleanup_paths=[Path(tf.name)],
         )
 
     library_root = _get_library_root(request, "path")

@@ -397,6 +397,78 @@ def _sse_response(
     )
 
 
+def _sse_smart_skip_process(
+    base_cmd: list[str],
+    roots: list[Path],
+    detect_bpm: bool,
+    detect_key: bool,
+    library_root: str = "",
+    cleanup_on_done: list[Path] | None = None,
+) -> Response:
+    """
+    SSE response for the Tag Tracks smart-skip path.
+
+    Runs _smart_skip_candidates inside the generator so the browser gets an
+    immediate 'Scanning…' line instead of silence while the server blocks.
+    """
+    import tempfile as _tempfile  # noqa: PLC0415
+
+    def _gen():
+        yield f"data: {json.dumps({'line': 'Smart Skip: scanning library for files that need tagging…'})}\n\n"
+
+        filter_result = _smart_skip_candidates(roots, detect_bpm=detect_bpm, detect_key=detect_key)
+        pending = filter_result["pending"]
+
+        prelude = [
+            (
+                "Smart Skip: "
+                f"{filter_result['pending_count']}/{filter_result['total']} file(s) need work; "
+                f"{filter_result['skipped_complete']} already complete and skipped upfront."
+            )
+        ]
+        if filter_result["unreadable"]:
+            prelude.append(
+                f"Smart Skip note: {filter_result['unreadable']} file(s) had read warnings and remain included."
+            )
+        if filter_result["invalid_paths"]:
+            prelude.append(
+                f"Smart Skip note: {filter_result['invalid_paths']} path(s) were invalid or unsupported and ignored."
+            )
+
+        for line in prelude:
+            yield f"data: {json.dumps({'line': line})}\n\n"
+
+        if not pending:
+            yield f"data: {json.dumps({'line': 'No files require BPM/key updates for this run.'})}\n\n"
+            yield f"data: {json.dumps({'line': 'Finished successfully.'})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'exit_code': 0})}\n\n"
+            yield ": end\n\n"
+            if cleanup_on_done:
+                for p in cleanup_on_done:
+                    try:
+                        p.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+            return
+
+        tf = _tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", prefix="fablegear_smart_skip_",
+            delete=False, encoding="utf-8",
+        )
+        tf.write("\n".join(pending))
+        tf.close()
+        cmd = base_cmd + ["--paths-file", tf.name]
+
+        all_cleanup = [Path(tf.name)] + (cleanup_on_done or [])
+        yield from _stream(cmd, library_root=library_root, step_name="process", cleanup_paths=all_cleanup)
+
+    return Response(
+        _gen(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # ── Tag-presence helpers (used by smart-skip logic) ───────────────────────────
 
 def _tag_value_present(value) -> bool:
@@ -478,10 +550,14 @@ def _smart_skip_candidates(roots: list[Path], detect_bpm: bool, detect_key: bool
 
         for track in scan_directory(root):
             total += 1
-            path = track.path
-            needs_bpm, needs_key = _track_needs_tag_work(path, detect_bpm, detect_key)
+            # Use bpm/key already read by extract_metadata — avoids a second
+            # MutagenFile open per file (halves I/O on the smart-skip pre-scan).
+            # track.bpm/key are None when the tag is absent, unparseable, or
+            # the file errored — all three cases correctly trigger processing.
+            needs_bpm = detect_bpm and track.bpm is None
+            needs_key = detect_key and track.key is None
             if needs_bpm or needs_key:
-                pending.append(str(path))
+                pending.append(str(track.path))
             else:
                 skipped_complete += 1
             if track.errors:
