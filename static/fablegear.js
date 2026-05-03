@@ -616,6 +616,15 @@ async function interruptScan() {
     if (!resp.ok) {
       appendLog(`[ERROR] ${data?.error || 'Could not send interrupt signal.'}`, 'error');
       btn.textContent = '⏸ Interrupt'; btn.disabled = false;
+      // If the server says "No active scan", the process is already gone — clean up the stuck UI
+      if (resp.status === 404) {
+        if (activeSource) { activeSource.close(); activeSource = null; }
+        isRunning = false;
+        setSpinner(false);
+        setAllButtons(false);
+        finishScanBar();
+        appendLog('(Process had already exited — UI state cleared.)', 'dim');
+      }
       return;
     }
     appendLog(data?.message || '⏸ Interrupt signal sent — waiting for process to exit…', 'warn');
