@@ -1130,5 +1130,32 @@
      Must be in the DOM so WKWebView (pywebview/macOS) can play it. -->
 <audio id="le-player-audio" preload="none" style="display:none"></audio>
 
+<!-- ══ Prune Confirm Panels ════════════════════════════════════════════════ -->
+<div id="confirm-backdrop"></div>
+
+<!-- Step 1 placeholder — skipped in current flow but must exist for cancelPrune() -->
+<div id="confirm-step1" class="confirm-panel"></div>
+
+<!-- Step 2 — file list + execute -->
+<div id="confirm-step2" class="confirm-panel">
+  <div class="confirm-panel-head">
+    <div class="confirm-step-num">!</div>
+    <span class="confirm-panel-title">Confirm Removal</span>
+    <button type="button" class="confirm-panel-cancel" onclick="cancelPrune()">✕</button>
+  </div>
+  <div class="confirm-panel-body confirm-body-pt">
+    <div id="c2-mode-note">These files will be moved to Trash. Their database entries will be removed. A timestamped backup of <code>master.db</code> is created automatically. RekordBox must be closed.</div>
+  </div>
+  <div class="confirm-file-list" id="c2-file-list"></div>
+  <div class="rb-block-msg" id="prune-final-rb-block">
+    <span>⚠ RekordBox is open — close it before pruning.</span>
+  </div>
+  <div class="confirm-panel-footer">
+    <button type="button" class="btn btn-ghost" onclick="cancelPrune()">Cancel</button>
+    <div class="footer-flex-spacer"></div>
+    <button type="button" class="btn btn-danger-action" id="btn-execute-prune" onclick="executePrune()">Execute — Move to Trash</button>
+  </div>
+</div>
+
 </body>
 </html>

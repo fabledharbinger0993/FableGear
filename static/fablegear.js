@@ -4199,6 +4199,13 @@ function _closeConfirm(id) {
   document.getElementById(id).classList.remove('open');
 }
 
+function cancelPrune() {
+  ['confirm-step1','confirm-step2'].forEach(_closeConfirm);
+  document.getElementById('confirm-backdrop').classList.remove('open');
+  const execBtn = document.getElementById('btn-execute-prune');
+  if (execBtn) execBtn.disabled = false;
+}
+
 function _esc(s) {
   return String(s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;')
