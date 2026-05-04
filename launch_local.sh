@@ -9,7 +9,8 @@
 # Switch back to launch.sh (or the bootstrap script) for public releases.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VENV="$SCRIPT_DIR/.venv"
+# The repo uses "venv" (no dot) — setup.sh creates it there.
+VENV="$SCRIPT_DIR/venv"
 SENTINEL="$SCRIPT_DIR/.fablegear_ready"
 LOG="$SCRIPT_DIR/fablegear.log"
 

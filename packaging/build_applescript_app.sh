@@ -53,6 +53,9 @@ case "$MODE" in
   agent)
     build_app "FABLEGEAR Agent" "$SCRIPT_DIR/FABLEGEARAgentLauncher.applescript"
     ;;
+  local)
+    build_app "FableGear Dev" "$SCRIPT_DIR/FableGearLocalLauncher.applescript"
+    ;;
   both|*)
     build_app "FABLEGEAR" "$SCRIPT_DIR/FABLEGEARLauncher.applescript"
     build_app "FABLEGEAR Agent" "$SCRIPT_DIR/FABLEGEARAgentLauncher.applescript"

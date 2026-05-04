@@ -368,3 +368,9 @@ WARNING:health:health auto-heal failed for backup_dir_missing: [Errno 13] Permis
 [13:25:06] pyrekordbox.db6.database:WARNING  - Rekordbox is running!
 WARNING:pyrekordbox.db6.database:Rekordbox is running!
 2026-05-01 13:42:31.319 python[1481:42616043] Warning: Window move completed without beginning
+/Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/launch_local.sh: line 74: /Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/.venv/bin/pip: No such file or directory
+/Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/launch_local.sh: line 75: /Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/.venv/bin/pip: No such file or directory
+arch: /Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/.venv/bin/python isn't executable
+/Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/launch_local.sh: line 74: /Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/.venv/bin/pip: No such file or directory
+/Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/launch_local.sh: line 75: /Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/.venv/bin/pip: No such file or directory
+arch: /Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/.venv/bin/python isn't executable
