@@ -27,7 +27,9 @@ mutagen, librosa, etc.
 
 import argparse
 import logging
+import signal
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -321,6 +323,7 @@ def cmd_relocate(args: argparse.Namespace) -> None:
 def cmd_duplicates(args: argparse.Namespace) -> None:
     """Scan one or more PATHs for acoustically identical files and write a CSV report."""
     from duplicate_detector import scan_duplicates, write_csv_report, write_trash_rescue_report
+    from checkpoint import Checkpoint
 
     paths = args.path if isinstance(args.path, list) else [args.path]
     roots = []
@@ -364,16 +367,44 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
             "Selected folders are scanned together as one comparison set so duplicates across different source folders are not missed."
         )
 
+    # ── Checkpoint setup ──────────────────────────────────────────────────────
+    ck = Checkpoint(
+        "duplicates",
+        roots,
+        {"match_mode": args.match_mode, "fuzzy_threshold": str(args.fuzzy_threshold)},
+    )
+    checkpoint_action = getattr(args, "checkpoint_action", None)
+    if checkpoint_action == "reset":
+        log.info("Checkpoint action=reset: clearing previous checkpoint")
+        ck.reset()
+    elif checkpoint_action is None and ck.exists():
+        # Pre-flight already handled by Flask route; subprocess just resumes
+        log.info("Checkpoint found — resuming from previous run")
+
+    # ── Cancel event (SIGINT / SIGTERM graceful stop) ─────────────────────────
+    cancel_event = threading.Event()
+
+    def _signal_handler(sig, frame):  # noqa: ANN001
+        log.info("Interrupt received — stopping fingerprint pass and saving partial results...")
+        cancel_event.set()
+
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+
     try:
         result = scan_duplicates(
             root,
             max_workers=workers,
             match_mode=args.match_mode,
             fuzzy_threshold=args.fuzzy_threshold,
+            checkpoint=ck,
+            cancel_event=cancel_event,
         )
     except Exception:
         log.exception("Duplicate scan failed")
         sys.exit(1)
+
+    interrupted = cancel_event.is_set()
 
     groups   = result.groups
     removable = sum(len(g.recommended_remove) for g in groups)
@@ -397,9 +428,13 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
             print(f"  ║          cleanup would — move them first                    ║")
         print("  ╚══════════════════════════════════════════════════════════════╝")
 
+    partial_note = "\n[PARTIAL SCAN — interrupted before completion. Resume next run to continue.]" if interrupted else ""
+
     if not groups and not result.unique_in_trash:
+        msg = "No duplicates found in the fingerprinted files so far." if interrupted else \
+              "No duplicates found. Every file in this folder appears to be unique."
         _emit_report(
-            "No duplicates found. Every file in this folder appears to be unique.",
+            msg + partial_note,
             "Duplicates", f"duplicates_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
         )
     else:
@@ -408,6 +443,8 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
             "Each group contains the same recording in different files.",
             "A report has been saved so you can review each group before deleting anything.",
         ]
+        if interrupted:
+            lines.append(partial_note)
         try:
             if groups:
                 write_csv_report(result, output)
@@ -1501,6 +1538,14 @@ Examples:
         dest="fuzzy_threshold",
         help="Similarity threshold for fuzzy fingerprint matching (0.0–1.0, default: 0.85)",
     )
+    p_dupes.add_argument(
+        "--checkpoint-action",
+        metavar="ACTION",
+        choices=["resume", "reset"],
+        default=None,
+        dest="checkpoint_action",
+        help="resume: continue fingerprinting from last checkpoint; reset: clear checkpoint and start fresh",
+    )
     p_dupes.set_defaults(func=cmd_duplicates)
 
     # ── process ──
@@ -1570,6 +1615,14 @@ Examples:
         dest="smart_skip",
         help="Before processing, filter out files that already have all requested tags. Faster re-runs when most files are already complete.",
     )
+    p_process.add_argument(
+        "--checkpoint-action",
+        metavar="ACTION",
+        choices=["resume", "reset"],
+        default=None,
+        dest="checkpoint_action",
+        help="resume: skip already-processed files (uses checkpoint); reset: clear checkpoint and start fresh",
+    )
     p_process.set_defaults(func=cmd_process)
 
     # ── convert ──
@@ -1596,6 +1649,14 @@ Examples:
         type=int,
         default=1,
         help="Parallel ffmpeg workers for conversion (default: 1)",
+    )
+    p_convert.add_argument(
+        "--checkpoint-action",
+        metavar="ACTION",
+        choices=["resume", "reset"],
+        default=None,
+        dest="checkpoint_action",
+        help="resume: skip already-converted files; reset: clear checkpoint and start fresh",
     )
     p_convert.set_defaults(func=cmd_convert)
 
@@ -1651,6 +1712,14 @@ Examples:
             "integrate: copy files to target only — source drive is never modified."
         ),
     )
+    p_organize.add_argument(
+        "--checkpoint-action",
+        metavar="ACTION",
+        choices=["resume", "reset"],
+        default=None,
+        dest="checkpoint_action",
+        help="resume: skip already-organized files; reset: clear checkpoint and start fresh",
+    )
     p_organize.set_defaults(func=cmd_organize)
 
     # ── novelty ───────────────────────────────────────────────────────────────
@@ -1689,6 +1758,14 @@ Examples:
         dest="also_scan",
         help="Additional source directory (can be repeated)",
     )
+    p_novelty.add_argument(
+        "--checkpoint-action",
+        metavar="ACTION",
+        choices=["resume", "reset"],
+        default=None,
+        dest="checkpoint_action",
+        help="resume: skip already-scanned files; reset: clear checkpoint and start fresh",
+    )
     p_novelty.set_defaults(func=cmd_novelty)
 
     # ── rename ──
@@ -1713,6 +1790,14 @@ Examples:
         type=int,
         default=1,
         help="Parallel workers (default: 1)",
+    )
+    p_rename.add_argument(
+        "--checkpoint-action",
+        metavar="ACTION",
+        choices=["resume", "reset"],
+        default=None,
+        dest="checkpoint_action",
+        help="resume: skip already-renamed files; reset: clear checkpoint and start fresh",
     )
     p_rename.set_defaults(func=cmd_rename)
 

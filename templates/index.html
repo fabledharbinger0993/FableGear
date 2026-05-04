@@ -210,6 +210,22 @@
   </div>
 </div>
 
+<!-- ══ Checkpoint resume modal ═══════════════════════════════════════════════ -->
+<div id="ckpt-modal-backdrop" class="hidden" onclick="if(event.target===this)_closeCkptModal(null)">
+  <div id="ckpt-modal">
+    <div class="ckpt-modal-header">
+      <h2 class="ckpt-modal-title">Resume previous scan?</h2>
+    </div>
+    <div class="ckpt-modal-body">
+      <p id="ckpt-modal-desc"></p>
+    </div>
+    <div class="ckpt-modal-footer">
+      <button type="button" class="ckpt-btn-fresh" onclick="_closeCkptModal('reset')">Start Fresh</button>
+      <button type="button" class="ckpt-btn-resume" onclick="_closeCkptModal('resume')">Resume</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ Footer ════════════════════════════════════════════════════════════════ -->
 <footer>
   <img src="/static/logo-guthrie.png" alt="Guthrie Entertainment" class="footer-logo">

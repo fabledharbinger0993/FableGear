@@ -259,6 +259,10 @@ def api_process():
         except ValueError:
             pass
 
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
+
     if (
         smart_skip
         and not force
@@ -517,6 +521,9 @@ def api_organize():
         except ValueError:
             pass
 
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
     library_root = _get_library_root(request, "target")
     return _sse_response(cmd, library_root=library_root, step_name="organize")
 
@@ -536,6 +543,9 @@ def api_convert():
     workers = request.args.get("workers", "1").strip()
     if workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
     library_root = paths[0]
     return _sse_response(cmd, library_root=library_root, step_name="convert")
 
@@ -560,6 +570,9 @@ def api_novelty():
     if workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
 
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
     library_root = _get_library_root(request, "dest")
     return _sse_response(cmd, library_root=library_root, step_name="novelty")
 
@@ -587,6 +600,9 @@ def api_rename():
     if workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
 
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
     library_root = path
     return _sse_response(cmd, library_root=library_root, step_name="rename")
 
@@ -681,6 +697,60 @@ def api_rename_preflight_apply():
     })
 
 
+# ── Checkpoint pre-flight check ───────────────────────────────────────────────
+
+@bp.route("/api/checkpoint/check")
+def api_checkpoint_check():
+    """
+    Pre-flight check for checkpoint/resume support.
+
+    Query params:
+      tool          — tool name: duplicates, process, convert, organize, novelty, rename
+      path[]        — one or more root paths (repeatable)
+      match_mode    — (duplicates only) matching strategy
+      fuzzy_threshold — (duplicates only) similarity threshold
+
+    Returns JSON:
+      {exists: false}                             — no checkpoint found
+      {exists: true, tool, saved_at, completed,   — checkpoint found
+       total, roots, config, is_partial}
+    """
+    try:
+        from checkpoint import Checkpoint  # noqa: PLC0415
+    except ImportError:
+        return jsonify({"exists": False, "error": "checkpoint module not available"}), 200
+
+    tool = request.args.get("tool", "").strip()
+    valid_tools = {"duplicates", "process", "convert", "organize", "novelty", "rename"}
+    if tool not in valid_tools:
+        return jsonify({"error": f"tool must be one of: {', '.join(sorted(valid_tools))}"}), 400
+
+    paths = [p.strip() for p in request.args.getlist("path") if p.strip()]
+    if not paths:
+        return jsonify({"error": "at least one path is required"}), 400
+
+    # Build config dict matching what the CLI subprocess would use
+    config: dict = {}
+    if tool == "duplicates":
+        match_mode = request.args.get("match_mode", "exact").strip()
+        if match_mode in ("exact", "fuzzy", "tags", "all"):
+            config["match_mode"] = match_mode
+        else:
+            config["match_mode"] = "exact"
+        fuzzy_threshold = request.args.get("fuzzy_threshold", "0.85").strip()
+        try:
+            ft = float(fuzzy_threshold)
+            config["fuzzy_threshold"] = f"{ft:.2f}"
+        except ValueError:
+            config["fuzzy_threshold"] = "0.85"
+
+    try:
+        ck = Checkpoint(tool, paths, config)
+        return jsonify(ck.info())
+    except Exception as exc:
+        return jsonify({"exists": False, "error": str(exc)}), 200
+
+
 # ── Duplicates ────────────────────────────────────────────────────────────────
 
 @bp.route("/api/run/duplicates")
@@ -711,6 +781,9 @@ def api_duplicates():
                 cmd += ["--pause", pause]
         except ValueError:
             pass
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
     library_root = paths[0] if paths else ""
     return _sse_response(cmd, library_root=library_root, step_name="duplicates")
 

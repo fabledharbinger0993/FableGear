@@ -54,6 +54,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -67,6 +68,7 @@ from config import ACOUSTID_API_KEY, AUDIO_EXTENSIONS, MUSIC_ROOT, SKIP_DIRS, SK
 log = logging.getLogger(__name__)
 
 _LOG_EVERY: int = 100
+_CHECKPOINT_EVERY: int = 250  # save checkpoint every N fingerprinted files
 
 # Default fuzzy fingerprint similarity threshold
 _FUZZY_THRESHOLD_DEFAULT: float = 0.85
@@ -863,6 +865,8 @@ def scan_duplicates(
     pause_seconds: float = 0.0,
     match_mode: str = "exact",
     fuzzy_threshold: float = _FUZZY_THRESHOLD_DEFAULT,
+    checkpoint: "object | None" = None,
+    cancel_event: "threading.Event | None" = None,
 ) -> ScanResult:
     """
     Fingerprint all audio files under root (or multiple roots) and return
@@ -939,16 +943,55 @@ def scan_duplicates(
     print(f"FABLEGEAR_MATCH_MODE: {match_mode}", flush=True)
 
     total = len(files)
-    log.info(
-        "Beginning fingerprint pass on %d files "
-        "(workers=%d pause=%.1fs match_mode=%s)",
-        total, max_workers, pause_seconds, match_mode,
-    )
 
+    # ── Checkpoint restore ────────────────────────────────────────────────────
     fp_map: dict[str, list[Path]] = {}
     dur_map: dict[str, float] = {}  # fingerprint → duration of first file seen
     failed = 0
     completed = 0
+    cancelled = False
+
+    if checkpoint is not None:
+        saved = checkpoint.load()
+        if saved:
+            # Restore accumulated fingerprint maps from previous run
+            raw_fp_map = saved.get("fp_map", {})
+            fp_map = {fp: [Path(p) for p in paths] for fp, paths in raw_fp_map.items()}
+            dur_map = saved.get("dur_map", {})
+            completed = saved.get("completed", 0)
+            failed = saved.get("failed", 0)
+            # files is the ordered list from this run; slice off already-done
+            files = files[completed:]
+            log.info(
+                "Resuming from checkpoint: %d / %d files already fingerprinted, %d remaining",
+                completed, total, len(files),
+            )
+            print(
+                "FABLEGEAR_CHECKPOINT_RESUMED: " + json.dumps({
+                    "completed": completed,
+                    "total": total,
+                    "remaining": len(files),
+                }),
+                flush=True,
+            )
+
+    log.info(
+        "Beginning fingerprint pass on %d files "
+        "(workers=%d pause=%.1fs match_mode=%s)",
+        len(files), max_workers, pause_seconds, match_mode,
+    )
+
+    def _save_checkpoint_now() -> None:
+        if checkpoint is None:
+            return
+        checkpoint.save({
+            "completed": completed,
+            "failed": failed,
+            "total": total,
+            "fp_map": {fp: [str(p) for p in paths] for fp, paths in fp_map.items()},
+            "dur_map": dur_map,
+        })
+        log.info("Checkpoint saved (%d / %d files)", completed, total)
 
     def _fingerprint_one(path: Path) -> tuple[Path, float | None, str | None]:
         result = _fingerprint_with_duration(path)
@@ -960,6 +1003,12 @@ def scan_duplicates(
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
             futures = {ex.submit(_fingerprint_one, p): p for p in files}
             for future in concurrent.futures.as_completed(futures):
+                # Cancel check — break out cleanly
+                if cancel_event is not None and cancel_event.is_set():
+                    for f in futures:
+                        f.cancel()
+                    cancelled = True
+                    break
                 completed += 1
                 try:
                     path, dur, fp = future.result()
@@ -979,29 +1028,29 @@ def scan_duplicates(
                         "Fingerprinting: %d / %d  (failures: %d)",
                         completed, total, failed,
                     )
-                    print(
-                        "FABLEGEAR_PROGRESS: " + json.dumps({
-                            "scanned":   completed,
-                            "remaining": total - completed,
-                            "errors":    failed,
-                        }),
-                        flush=True,
-                    )
-    else:
-        for i, path in enumerate(files):
-            if i > 0 and i % _LOG_EVERY == 0:
-                log.info(
-                    "Fingerprinting: %d / %d  (failures so far: %d)",
-                    i, total, failed,
-                )
+                if completed % _CHECKPOINT_EVERY == 0:
+                    _save_checkpoint_now()
                 print(
                     "FABLEGEAR_PROGRESS: " + json.dumps({
-                        "scanned":   i,
-                        "remaining": total - i,
+                        "scanned":   completed,
+                        "remaining": total - completed,
                         "errors":    failed,
                     }),
                     flush=True,
                 )
+    else:
+        for i, path in enumerate(files):
+            # Cancel check — break out cleanly
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                break
+            if i > 0 and i % _LOG_EVERY == 0:
+                log.info(
+                    "Fingerprinting: %d / %d  (failures so far: %d)",
+                    completed, total, failed,
+                )
+            if i > 0 and i % _CHECKPOINT_EVERY == 0:
+                _save_checkpoint_now()
             result = _fingerprint_with_duration(path)
             if result is None:
                 failed += 1
@@ -1011,14 +1060,32 @@ def scan_duplicates(
                 if path not in bucket:
                     bucket.append(path)
                 dur_map.setdefault(fp, dur)
-            if pause_seconds > 0 and i < total - 1:
+            completed += 1
+            print(
+                "FABLEGEAR_PROGRESS: " + json.dumps({
+                    "scanned":   completed,
+                    "remaining": total - completed,
+                    "errors":    failed,
+                }),
+                flush=True,
+            )
+            if pause_seconds > 0 and i < len(files) - 1:
                 time.sleep(pause_seconds)
 
-    log.info(
-        "Fingerprint pass complete — %d unique prints, %d failures",
-        len(fp_map), failed,
-    )
+    if cancelled:
+        log.info(
+            "Fingerprint pass interrupted at %d / %d files — saving checkpoint and partial results",
+            completed, total,
+        )
+        _save_checkpoint_now()
+    else:
+        log.info(
+            "Fingerprint pass complete — %d unique prints, %d failures",
+            len(fp_map), failed,
+        )
 
+    # Build duplicate groups from whatever fp_map was accumulated.
+    # This runs even on a partial (cancelled) scan so caller gets usable output.
     groups: list[DuplicateGroup] = []
     unique_in_trash: list[Path] = []
     # Track files that have NO exact duplicate (for fuzzy pass)
@@ -1052,7 +1119,8 @@ def scan_duplicates(
     # ── Fuzzy fingerprint pass ────────────────────────────────────────────────
     # Only runs in "fuzzy" or "all" mode. Compares files that had unique
     # exact fingerprints using raw integer Hamming distance.
-    if match_mode in ("fuzzy", "all") and unique_fingerprint_files:
+    # Skipped when the scan was cancelled (partial result — exact groups still valid).
+    if not cancelled and match_mode in ("fuzzy", "all") and unique_fingerprint_files:
         log.info(
             "Fuzzy mode: running Hamming-distance comparison on %d files "
             "with unique exact fingerprints (threshold=%.2f)",
@@ -1076,7 +1144,8 @@ def scan_duplicates(
     # title, and artist. Rate-limited to ≤3 req/s per AcoustID ToS.
     # Only enriches groups with non-fuzzy fingerprints (fuzzy groups lack
     # a valid encoded fingerprint for the AcoustID API).
-    if ACOUSTID_API_KEY and groups:
+    # Skipped when cancelled to keep partial-result latency low.
+    if not cancelled and ACOUSTID_API_KEY and groups:
         enrichable = [g for g in groups if not g.fingerprint.startswith("FUZZY:")]
         log.info(
             "AcoustID enrichment: looking up %d groups (≤3 req/s)…", len(enrichable)
@@ -1097,11 +1166,20 @@ def scan_duplicates(
 
     trapped_keep_count = sum(1 for g in groups if g.keep_in_trash)
 
-    log.info(
-        "Duplicate scan complete — %d groups, %d duplicate files",
-        len(groups),
-        sum(len(g.recommended_remove) for g in groups),
-    )
+    if cancelled:
+        log.info(
+            "Partial scan result — %d groups from %d / %d fingerprinted files",
+            len(groups), completed, total,
+        )
+    else:
+        log.info(
+            "Duplicate scan complete — %d groups, %d duplicate files",
+            len(groups),
+            sum(len(g.recommended_remove) for g in groups),
+        )
+        # Clean completion: remove checkpoint so next run starts fresh by default
+        if checkpoint is not None:
+            checkpoint.reset()
     if unique_in_trash:
         log.warning(
             "RESCUE REQUIRED: %d unique tracks exist ONLY inside trash folders — "

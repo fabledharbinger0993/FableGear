@@ -371,6 +371,43 @@ function closeReportModal(shrinkToPill) {
 
 // Escape key handled in the global keydown listener below
 
+/* ── Checkpoint resume modal ──────────────────────────────────────────────── */
+let _ckptModalCallback = null;
+
+function _showCheckpointModal(info, callback) {
+  _ckptModalCallback = callback;
+  const saved = info.saved_at
+    ? new Date(info.saved_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
+    : 'unknown time';
+  const desc = (info.completed != null && info.total != null)
+    ? `A previous scan reached ${info.completed.toLocaleString()} of ${info.total.toLocaleString()} tracks (saved ${saved}).`
+    : `A previous scan was saved at ${saved}.`;
+  document.getElementById('ckpt-modal-desc').textContent = desc;
+  document.getElementById('ckpt-modal-backdrop').classList.remove('hidden');
+}
+
+function _closeCkptModal(action) {
+  document.getElementById('ckpt-modal-backdrop').classList.add('hidden');
+  const cb = _ckptModalCallback;
+  _ckptModalCallback = null;
+  if (action && cb) cb(action);
+}
+
+async function _withCheckpointCheck(tool, params, runFn) {
+  try {
+    const info = await fetch(`/api/checkpoint/check?tool=${tool}&${params}`).then(r => r.json());
+    if (info.exists) {
+      _showCheckpointModal(info, (action) => {
+        const p2 = new URLSearchParams(params.toString());
+        p2.set('checkpoint_action', action);
+        runFn(p2);
+      });
+      return;
+    }
+  } catch (_) { /* pre-flight failure — proceed normally */ }
+  runFn(params);
+}
+
 /* ── Status polling ────────────────────────────────────────────────────────── */
 /* ── Settings modal ────────────────────────────────────────────────────────── */
 function openSettings() {
@@ -2207,16 +2244,18 @@ function _doRunProcess(paths) {
   p.set('no_normalize', '1');
   const el = document.getElementById('process-result');
   if (el) el.classList.add('hidden');
-  _saveToolCkpt('process', {
-    paths,
-    no_bpm:      document.getElementById('process-no-bpm').checked,
-    no_key:      document.getElementById('process-no-key').checked,
-    force:       document.getElementById('process-force').checked,
-    enrich_tags: document.getElementById('process-enrich-tags')?.checked || false,
+  _withCheckpointCheck('process', p, (params) => {
+    _saveToolCkpt('process', {
+      paths,
+      no_bpm:      document.getElementById('process-no-bpm').checked,
+      no_key:      document.getElementById('process-no-key').checked,
+      force:       document.getElementById('process-force').checked,
+      enrich_tags: document.getElementById('process-enrich-tags')?.checked || false,
+    });
+    document.getElementById('step-process')?.querySelector('.tool-resume-banner')?.remove();
+    runCommand(`/api/run/process?${params}`, 'Tag Tracks — BPM & Key Detection',
+      ec => { if (ec === 0) _clearToolCkpt('process'); }, true, false);
   });
-  document.getElementById('step-process')?.querySelector('.tool-resume-banner')?.remove();
-  runCommand(`/api/run/process?${p}`, 'Tag Tracks — BPM & Key Detection',
-    ec => { if (ec === 0) _clearToolCkpt('process'); }, true, false);
 }
 
 function _runProcessRetry(body) {
@@ -2362,20 +2401,22 @@ function runDuplicates() {
     const thresholdPct = parseInt(document.getElementById('fuzzy-threshold')?.value || '85');
     p.set('fuzzy_threshold', (thresholdPct / 100).toFixed(2));
   }
-  _saveToolCkpt('duplicates', { paths, workers, matchMode });
-  document.getElementById('step-duplicates')?.querySelector('.tool-resume-banner')?.remove();
   const title = 'Find Duplicates — Acoustic Fingerprinting';
-  runCommand(`/api/run/duplicates?${p}`, title, (exitCode) => {
-    if (exitCode === 0) {
-      _clearToolCkpt('duplicates');
-      const rp = sessionReports[title]?.reportPath;
-      if (rp && /\.csv$/i.test(rp)) {
-        const el = document.getElementById('prune-csv-path');
-        if (el) el.value = rp;
-        _autoLoadDupeResults(rp);
+  _withCheckpointCheck('duplicates', p, (params) => {
+    _saveToolCkpt('duplicates', { paths, workers, matchMode });
+    document.getElementById('step-duplicates')?.querySelector('.tool-resume-banner')?.remove();
+    runCommand(`/api/run/duplicates?${params}`, title, (exitCode) => {
+      if (exitCode === 0) {
+        _clearToolCkpt('duplicates');
+        const rp = sessionReports[title]?.reportPath;
+        if (rp && /\.csv$/i.test(rp)) {
+          const el = document.getElementById('prune-csv-path');
+          if (el) el.value = rp;
+          _autoLoadDupeResults(rp);
+        }
       }
-    }
-  }, true, true);
+    }, true, true);
+  });
 }
 
 // Show/hide fuzzy threshold row based on match mode selection
@@ -2399,10 +2440,12 @@ function runConvert() {
   const p = new URLSearchParams({ format });
   paths.forEach(path => p.append('path', path));
   if (parseInt(workers) > 1) p.set('workers', workers);
-  _saveToolCkpt('convert', { paths, format, workers });
-  document.getElementById('step-convert')?.querySelector('.tool-resume-banner')?.remove();
-  runCommand(`/api/run/convert?${p}`, `Converting Audio Files to ${format.toUpperCase()}`,
-    ec => { if (ec === 0) _clearToolCkpt('convert'); });
+  _withCheckpointCheck('convert', p, (params) => {
+    _saveToolCkpt('convert', { paths, format, workers });
+    document.getElementById('step-convert')?.querySelector('.tool-resume-banner')?.remove();
+    runCommand(`/api/run/convert?${params}`, `Converting Audio Files to ${format.toUpperCase()}`,
+      ec => { if (ec === 0) _clearToolCkpt('convert'); });
+  });
 }
 
 /* ── Pipeline Builder ──────────────────────────────────────────────────────── */
@@ -3498,18 +3541,24 @@ function runOrganize() {
   if (threshold !== '15') p.set('mix_threshold', threshold);
   const modeLabel = mode === 'integrate' ? 'Integration (copies only, source untouched)' : 'Assimilation (move + clean source)';
   const label = dryRun ? `Organize — Dry Run · ${modeLabel}` : `Organize — ${modeLabel}`;
-  if (!dryRun) {
-    _saveToolCkpt('organize', { sources, target, mode, workers, dryRun: false });
-    document.getElementById('step-organize')?.querySelector('.tool-resume-banner')?.remove();
-  }
   const _orgTarget = target;
   const _orgDry    = dryRun;
-  runCommand(`/api/run/organize?${p}`, label, (exitCode) => {
-    if (exitCode === 0) {
-      _clearToolCkpt('organize');
-      if (!_orgDry) _promptSetLibraryRoot(_orgTarget);
-    }
-  });
+  if (!dryRun) {
+    _withCheckpointCheck('organize', p, (params) => {
+      _saveToolCkpt('organize', { sources, target, mode, workers, dryRun: false });
+      document.getElementById('step-organize')?.querySelector('.tool-resume-banner')?.remove();
+      runCommand(`/api/run/organize?${params}`, label, (exitCode) => {
+        if (exitCode === 0) {
+          _clearToolCkpt('organize');
+          _promptSetLibraryRoot(_orgTarget);
+        }
+      });
+    });
+  } else {
+    runCommand(`/api/run/organize?${p}`, label, (exitCode) => {
+      if (exitCode === 0) _clearToolCkpt('organize');
+    });
+  }
 }
 
 /* ── Rekordbox Library Migration ───────────────────────────────────────────── */
@@ -3623,11 +3672,16 @@ function runNovelty() {
     ? 'Novelty Scan — Dry Run (nothing will be copied)'
     : 'Novelty Scan — Copying novel tracks to destination';
   if (!dryRun) {
-    _saveToolCkpt('novelty', { sources, dest, dryRun: false });
-    document.getElementById('step-novelty')?.querySelector('.tool-resume-banner')?.remove();
+    _withCheckpointCheck('novelty', p, (params) => {
+      _saveToolCkpt('novelty', { sources, dest, dryRun: false });
+      document.getElementById('step-novelty')?.querySelector('.tool-resume-banner')?.remove();
+      runCommand(`/api/run/novelty?${params}`, label,
+        ec => { if (ec === 0) _clearToolCkpt('novelty'); });
+    });
+  } else {
+    runCommand(`/api/run/novelty?${p}`, label,
+      ec => { if (ec === 0) _clearToolCkpt('novelty'); });
   }
-  runCommand(`/api/run/novelty?${p}`, label,
-    ec => { if (ec === 0) _clearToolCkpt('novelty'); });
 }
 
 /* ── Rename Files ──────────────────────────────────────────────────────────── */
@@ -3664,16 +3718,21 @@ function _executeRename(path, dryRun) {
     ? 'Rename Files — Dry Run (preview only)'
     : 'Rename Files — Cleaning file names';
   if (!dryRun) {
-    _saveToolCkpt('rename', { path, dryRun: false });
-    document.getElementById('step-rename')?.querySelector('.tool-resume-banner')?.remove();
-  }
-  runCommand(`/api/run/rename?${p}`, label,
-    ec => {
-      if (ec === 0) {
-        _clearToolCkpt('rename');
-        if (dryRun) showToast('Dry run complete — uncheck "Dry Run" and click Clean File Names again to apply.', 'neutral');
-      }
+    _withCheckpointCheck('rename', p, (params) => {
+      _saveToolCkpt('rename', { path, dryRun: false });
+      document.getElementById('step-rename')?.querySelector('.tool-resume-banner')?.remove();
+      runCommand(`/api/run/rename?${params}`, label,
+        ec => { if (ec === 0) _clearToolCkpt('rename'); });
     });
+  } else {
+    runCommand(`/api/run/rename?${p}`, label,
+      ec => {
+        if (ec === 0) {
+          _clearToolCkpt('rename');
+          showToast('Dry run complete — uncheck "Dry Run" and click Clean File Names again to apply.', 'neutral');
+        }
+      });
+  }
 }
 
 async function runRenameWithPreflight(path) {
@@ -4504,6 +4563,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     closeSettings();
     closeReportModal();
+    _closeCkptModal(null);
   }
   if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
     e.preventDefault();
