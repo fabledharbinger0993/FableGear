@@ -1808,9 +1808,12 @@ document.querySelectorAll('.step-tab').forEach(btn => {
 
 /* ── Scan bar ──────────────────────────────────────────────────────────────── */
 let scanWarnings = 0;
+let _scanHasStructuredProgress = false; // true once any FABLEGEAR_PROGRESS arrives
+let _scanLinesProcessed = 0;            // fallback line counter for silent tools
 
 function showScanBar(title) {
   scanWarnings = 0;
+  _scanLinesProcessed = 0;
   // Reset interrupt/emergency buttons for fresh use
   const ib = document.getElementById('scan-bar-interrupt');
   ib.textContent = '⏸ Interrupt'; ib.disabled = false; ib.style.display = 'inline-block';
@@ -1827,6 +1830,9 @@ function showScanBar(title) {
   document.getElementById('sb-warnings').textContent     = '0';
   document.getElementById('sb-quarantined').textContent  = '0';
   document.getElementById('sb-quarantine-wrap').style.display = 'none';
+  document.getElementById('sb-processed').textContent    = '0';
+  document.getElementById('sb-processed-wrap').style.display = 'none';
+  _scanHasStructuredProgress = false;
   document.getElementById('scan-bar-title').textContent = title;
   document.getElementById('scan-bar-spinner').classList.add('active');
   document.getElementById('scan-bar-dismiss').style.display = 'none';
@@ -1845,10 +1851,10 @@ function updateScanBar(p) {
     document.getElementById('sb-inspected').textContent = p.inspected.toLocaleString();
     document.getElementById('sb-inspected-wrap').style.display = '';
   }
-  document.getElementById('sb-remaining').textContent = p.remaining.toLocaleString();
-  document.getElementById('sb-clean').textContent     = p.clean.toLocaleString();
-  document.getElementById('sb-edited').textContent    = p.edited.toLocaleString();
-  document.getElementById('sb-errors').textContent    = p.errors.toLocaleString();
+  if (p.remaining != null) document.getElementById('sb-remaining').textContent = p.remaining.toLocaleString();
+  if (p.clean     != null) document.getElementById('sb-clean').textContent     = p.clean.toLocaleString();
+  if (p.edited    != null) document.getElementById('sb-edited').textContent    = p.edited.toLocaleString();
+  if (p.errors    != null) document.getElementById('sb-errors').textContent    = p.errors.toLocaleString();
   document.getElementById('sb-warnings').textContent  = scanWarnings.toLocaleString();
   if (p.quarantined > 0) {
     document.getElementById('sb-quarantined').textContent = p.quarantined.toLocaleString();
@@ -2012,7 +2018,14 @@ function runCommand(url, logTitle, onDone, useBar = true, showPrefilter = false)
       // Structured progress — update scan bar, don't echo to log
       if (line.startsWith('FABLEGEAR_PROGRESS: ')) {
         if (useBar) {
-          try { updateScanBar(JSON.parse(line.slice(19))); } catch(_) {}
+          try {
+            const p = JSON.parse(line.slice(19));
+            _scanHasStructuredProgress = true;
+            document.getElementById('sb-processed-wrap').style.display = 'none';
+            const tfmProcWrap = document.getElementById('tfm-processed-wrap');
+            if (tfmProcWrap) tfmProcWrap.style.display = 'none';
+            updateScanBar(p);
+          } catch(_) {}
         }
         return;
       }
@@ -2049,6 +2062,16 @@ function runCommand(url, logTitle, onDone, useBar = true, showPrefilter = false)
       if (useBar && (t.includes('warning') || t.includes('warn'))) {
         scanWarnings++;
         document.getElementById('sb-warnings').textContent = scanWarnings.toLocaleString();
+      }
+      // Fallback processed-lines counter — shown when no structured FABLEGEAR_PROGRESS arrives
+      if (useBar && !_scanHasStructuredProgress && line.trim()) {
+        _scanLinesProcessed++;
+        document.getElementById('sb-processed').textContent = _scanLinesProcessed.toLocaleString();
+        document.getElementById('sb-processed-wrap').style.display = '';
+        const tfmProcWrap = document.getElementById('tfm-processed-wrap');
+        const tfmProcVal  = document.getElementById('tfm-processed');
+        if (tfmProcVal)  tfmProcVal.textContent = _scanLinesProcessed.toLocaleString();
+        if (tfmProcWrap) tfmProcWrap.style.display = '';
       }
       appendLog(line, classifyLine(line));
     }
@@ -5326,7 +5349,7 @@ function _syncToolModalScanState() {
   } else {
     actionsEl.classList.remove('active');
     if (idleLabel) idleLabel.style.display = '';
-    ['tfm-remaining-wrap', 'tfm-clean-wrap', 'tfm-edited-wrap', 'tfm-errors-wrap'].forEach(id => {
+    ['tfm-remaining-wrap', 'tfm-processed-wrap', 'tfm-clean-wrap', 'tfm-edited-wrap', 'tfm-errors-wrap'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
@@ -5339,17 +5362,20 @@ function _syncToolModalScanState() {
 
 function _mirrorScanBarToModal() {
   const map = [
-    ['sb-remaining', 'tfm-remaining', 'tfm-remaining-wrap'],
-    ['sb-clean',     'tfm-clean',     'tfm-clean-wrap'],
-    ['sb-edited',    'tfm-edited',    'tfm-edited-wrap'],
-    ['sb-errors',    'tfm-errors',    'tfm-errors-wrap'],
+    ['sb-remaining',  'tfm-remaining',  'tfm-remaining-wrap'],
+    ['sb-processed',  'tfm-processed',  'tfm-processed-wrap'],
+    ['sb-clean',      'tfm-clean',      'tfm-clean-wrap'],
+    ['sb-edited',     'tfm-edited',     'tfm-edited-wrap'],
+    ['sb-errors',     'tfm-errors',     'tfm-errors-wrap'],
   ];
   map.forEach(([srcId, destId, wrapId]) => {
     const src  = document.getElementById(srcId);
     const dest = document.getElementById(destId);
     const wrap = document.getElementById(wrapId);
     if (src && dest) dest.textContent = src.textContent;
-    if (wrap) wrap.style.display = '';
+    // Only show the wrap if the source wrap is also visible
+    const srcWrap = document.getElementById(wrapId.replace('tfm-', 'sb-'));
+    if (wrap) wrap.style.display = srcWrap?.style.display === 'none' ? 'none' : '';
   });
   const title    = document.getElementById('scan-bar-title');
   const tfmTitle = document.getElementById('tfm-title');

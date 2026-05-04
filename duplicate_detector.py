@@ -979,12 +979,28 @@ def scan_duplicates(
                         "Fingerprinting: %d / %d  (failures: %d)",
                         completed, total, failed,
                     )
+                    print(
+                        "FABLEGEAR_PROGRESS: " + json.dumps({
+                            "scanned":   completed,
+                            "remaining": total - completed,
+                            "errors":    failed,
+                        }),
+                        flush=True,
+                    )
     else:
         for i, path in enumerate(files):
             if i > 0 and i % _LOG_EVERY == 0:
                 log.info(
                     "Fingerprinting: %d / %d  (failures so far: %d)",
                     i, total, failed,
+                )
+                print(
+                    "FABLEGEAR_PROGRESS: " + json.dumps({
+                        "scanned":   i,
+                        "remaining": total - i,
+                        "errors":    failed,
+                    }),
+                    flush=True,
                 )
             result = _fingerprint_with_duration(path)
             if result is None:

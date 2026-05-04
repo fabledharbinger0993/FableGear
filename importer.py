@@ -406,6 +406,19 @@ def import_directory(
     # progress plus what we commit now). Used to save progress after each batch.
     committed_set: set[str] = set(done_set)
 
+    # Running counters for live scan bar progress
+    _p_count = 0
+
+    def _emit_import_progress() -> None:
+        print(
+            "FABLEGEAR_PROGRESS: " + json.dumps({
+                "clean":  report.skipped + report.resumed,
+                "edited": report.imported,
+                "errors": report.failed,
+            }),
+            flush=True,
+        )
+
     for track in scan_directory(root):
         if not track.is_valid:
             r = TrackImportResult(path=track.path, error="invalid or unreadable file")
@@ -437,6 +450,10 @@ def import_directory(
             report.skipped += 1
         else:
             report.failed += 1
+
+        _p_count += 1
+        if _p_count % 20 == 0:
+            _emit_import_progress()
 
         if batch_count >= BATCH_SIZE:
             try:

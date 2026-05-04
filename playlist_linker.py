@@ -23,6 +23,7 @@ Public interface:
 
 import csv
 import difflib
+import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -404,8 +405,20 @@ def link_directory(
     log.info("Linking %d tracks under %s", len(under_root), root)
 
     batch_count = 0
+    total_tracks = len(under_root)
 
-    for content_row in under_root:
+    def _emit_link_progress(processed: int) -> None:
+        print(
+            "FABLEGEAR_PROGRESS: " + json.dumps({
+                "remaining": total_tracks - processed,
+                "clean":     report.unmatched,
+                "edited":    report.linked,
+                "errors":    report.failed,
+            }),
+            flush=True,
+        )
+
+    for i, content_row in enumerate(under_root):
         track_path = Path(content_row.FolderPath)
 
         try:
@@ -441,6 +454,9 @@ def link_directory(
         else:
             report.unmatched += 1
             log.warning("No playlist match for: %s", track_path.name)
+
+        if (i + 1) % 20 == 0:
+            _emit_link_progress(i + 1)
 
         # Batch commit (skipped in dry run — nothing was written)
         if not dry_run and batch_count >= BATCH_SIZE:

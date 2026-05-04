@@ -43,6 +43,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, TYPE_CHECKING
+import json
 
 from pyrekordbox import Rekordbox6Database
 
@@ -352,8 +353,23 @@ def relocate_directory(
 
     results: list[RelocationResult] = []
     batch_count = 0
+    total_affected = len(affected)
 
-    for content_row in affected:
+    def _emit_reloc_progress(processed: int) -> None:
+        succeeded = sum(1 for r in results if r.success)
+        not_found = sum(1 for r in results if r.strategy == "not_found")
+        failed    = sum(1 for r in results if not r.success and r.strategy != "not_found")
+        print(
+            "FABLEGEAR_PROGRESS: " + json.dumps({
+                "remaining": total_affected - processed,
+                "clean":     not_found,
+                "edited":    succeeded,
+                "errors":    failed,
+            }),
+            flush=True,
+        )
+
+    for i, content_row in enumerate(affected):
         result = _relocate_one(
             content_row=content_row,
             old_root=old_root,
@@ -366,6 +382,9 @@ def relocate_directory(
 
         if result.success:
             batch_count += 1
+
+        if (i + 1) % 20 == 0:
+            _emit_reloc_progress(i + 1)
 
         if batch_count >= BATCH_SIZE:
             try:
