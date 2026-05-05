@@ -377,3 +377,139 @@ arch: /Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/.venv/bin/python isn't e
 WARNING: qrcode 8.2 does not provide the extra 'svg'
 WARNING: qrcode 8.2 does not provide the extra 'svg'
 WARNING: qrcode 8.2 does not provide the extra 'svg'
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 100001 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 100001 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 376850764 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 376850764 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 3248334947 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 3248334947 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 606859372 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 606859372 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 2047026369 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2047026369 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 2916437240 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2916437240 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 1557885934 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1557885934 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 2489028989 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2489028989 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 1857415218 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1857415218 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 1243820421 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1243820421 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 1971688460 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1971688460 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 3384739985 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 3384739985 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 1688933192 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1688933192 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 2504344112 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2504344112 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 2274357014 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2274357014 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 1906774317 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1906774317 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 2024521429 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2024521429 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 4269473009 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 4269473009 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 2244259004 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2244259004 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 3127313661 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 3127313661 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 673189974 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 673189974 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 1348692321 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1348692321 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 587244841 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 587244841 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 13282786 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 13282786 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 3402605179 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 3402605179 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 1822118527 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1822118527 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 2017958531 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2017958531 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 228543921 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 228543921 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 2487496421 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2487496421 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 3417553432 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 3417553432 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 1642911382 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1642911382 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 2159905729 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2159905729 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 1030693195 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1030693195 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[12:28:56] pyrekordbox.db6.database:WARNING  - Playlist 2578316538 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2578316538 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 100001 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 100001 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 376850764 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 376850764 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 3248334947 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 3248334947 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 606859372 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 606859372 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 2047026369 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2047026369 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 2916437240 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2916437240 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 1557885934 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1557885934 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 2489028989 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2489028989 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 1857415218 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1857415218 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 1243820421 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1243820421 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 1971688460 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1971688460 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 3384739985 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 3384739985 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 1688933192 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1688933192 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 2504344112 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2504344112 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 2274357014 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2274357014 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 1906774317 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1906774317 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 2024521429 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2024521429 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 4269473009 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 4269473009 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 2244259004 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2244259004 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 3127313661 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 3127313661 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 673189974 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 673189974 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 1348692321 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1348692321 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 587244841 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 587244841 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 13282786 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 13282786 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 3402605179 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 3402605179 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 1822118527 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1822118527 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 2017958531 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2017958531 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 228543921 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 228543921 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 2487496421 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2487496421 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 3417553432 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 3417553432 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 1642911382 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1642911382 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 2159905729 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2159905729 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 1030693195 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 1030693195 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+[13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 2578316538 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
+WARNING:pyrekordbox.db6.database:Playlist 2578316538 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.

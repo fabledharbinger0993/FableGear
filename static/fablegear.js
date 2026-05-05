@@ -2148,7 +2148,7 @@ function runCommand(url, logTitle, onDone, useBar = true, showPrefilter = false)
     setSpinner(false);
     setAllButtons(false);
     if (useBar) finishScanBar();
-    appendLog('Connection error — check the server is running.', 'error');
+    appendLog('Connection error — server unavailable or request blocked (for example by a 429). Refresh and retry.', 'error');
     refreshStatus();
   };
 }
@@ -3747,7 +3747,8 @@ async function runRenameWithPreflight(path) {
     data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Probe failed');
   } catch (err) {
-    showToast('Rename preflight failed — ' + (err.message || err), 'error');
+    showToast('Rename preflight failed — running rename directly. ' + (err.message || err), 'warning');
+    _executeRename(path, false);
     return;
   }
 
@@ -3802,6 +3803,10 @@ function openRenamePreflightModal(path, data, options = {}) {
       ].join('\n'),
       null,
     );
+    if (renamePreflightState.executeRenameAfterApply) {
+      showToast('Preflight UI missing — running rename directly.', 'warning');
+      _executeRename(path, false);
+    }
     return;
   }
 

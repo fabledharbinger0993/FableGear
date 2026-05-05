@@ -204,6 +204,7 @@ def splash():
 
 
 @app.route("/api/status")
+@limiter.exempt
 def api_status():
     from user_config import get_drive_status  # noqa: PLC0415
     findings = _refresh_health_cache()        # returns cached unless stale
@@ -218,6 +219,7 @@ def api_status():
 
 
 @app.route("/api/health")
+@limiter.exempt
 def api_health():
     """
     Return the full list of health findings, refreshed on every call
