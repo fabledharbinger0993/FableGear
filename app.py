@@ -34,9 +34,9 @@ from helpers import (
     _backup_info,
     _release_info,
     _sse_response,
-    _proc_lock,
-    _active_procs,
     get_step_status,
+    list_running_managed_subprocesses,
+    terminate_managed_subprocesses,
 )
 
 _REPO_ROOT = REPO_ROOT   # local alias for legacy references below
@@ -340,12 +340,14 @@ def api_update_apply():
          then re-runs launch.sh. Finally SIGTERM self so the helper can bind.
       4. Frontend polls /api/update/status until it responds, then reloads.
     """
-    with _proc_lock:
-        active = any(proc.poll() is None for proc in _active_procs.values())
-    if active:
+    active_pids = list_running_managed_subprocesses()
+    if active_pids:
         return jsonify({
             "ok": False,
-            "error": "A scan is still running — cancel or finish it before updating.",
+            "error": (
+                "A scan is still running — cancel or finish it before updating. "
+                f"Active PID(s): {', '.join(str(p) for p in active_pids)}"
+            ),
         }), 409
 
     launch_sh = REPO_ROOT / "launch.sh"
@@ -759,8 +761,13 @@ def api_quit():
     """Shut the server down cleanly after sending the response."""
     def _shutdown():
         import time
-        time.sleep(0.4)
-        os.kill(os.getpid(), signal.SIGTERM)
+        time.sleep(0.2)
+        try:
+            terminate_managed_subprocesses(force=False, include_orphans=True)
+            time.sleep(0.2)
+            terminate_managed_subprocesses(force=True, include_orphans=True)
+        finally:
+            os.kill(os.getpid(), signal.SIGTERM)
     threading.Thread(target=_shutdown, daemon=True).start()
     return jsonify({"ok": True})
 

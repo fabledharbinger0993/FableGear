@@ -5,8 +5,10 @@ Native-window entry point for both development and PyInstaller builds.
 
 Starts the Flask/Waitress server in a background daemon thread, waits for it
 to be ready, then opens a pywebview window.  Because the server thread is a
-daemon, it automatically dies when the main thread (pywebview) exits — no
-cleanup needed.
+daemon, it automatically dies when the main thread (pywebview) exits.
+
+Any managed CLI subprocesses spawned by the server are explicitly terminated
+when this process exits so long-running jobs cannot be orphaned.
 
 If the server is already running on port 5001 (e.g. a second launch while the
 app is open), the existing server is reused and a new window is opened.
@@ -100,7 +102,9 @@ class _Api:
 
 
 if __name__ == '__main__':
+    started_server_here = False
     if not _server_running():
+        started_server_here = True
         threading.Thread(target=_start_server, daemon=True).start()
         if not _wait_for_server():
             print('FableGear: server failed to start', file=sys.stderr)
@@ -129,3 +133,10 @@ if __name__ == '__main__':
     _api._window = window
 
     webview.start(debug=False)
+
+    if started_server_here:
+        try:
+            from helpers import terminate_managed_subprocesses
+            terminate_managed_subprocesses(force=True, include_orphans=True)
+        except Exception:
+            pass

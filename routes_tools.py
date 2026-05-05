@@ -33,12 +33,12 @@ from helpers import (
     _require_rb_closed,
     _get_library_root,
     _rb_is_running,
-    _proc_lock,
-    _active_procs,
     _evict_old_jobs,
     _MAX_PRUNE_TOKENS,
     _MAX_PREVIEW_JOBS,
     mark_step_complete,
+    list_running_managed_subprocesses,
+    terminate_managed_subprocesses,
 )
 
 bp = Blueprint("tools", __name__)
@@ -759,6 +759,14 @@ def api_duplicates():
     if not paths:
         return jsonify({"error": "at least one path is required"}), 400
 
+    running_dupes = list_running_managed_subprocesses(tool="duplicates")
+    if running_dupes:
+        return _sse_done([
+            "[ERROR] A duplicate scan is already running.",
+            f"Active duplicate worker PID(s): {', '.join(str(p) for p in running_dupes)}",
+            "Use Interrupt/Emergency Stop before starting another duplicate run.",
+        ], exit_code=1)
+
     cmd = [sys.executable, str(CLI_PATH), "duplicates"] + paths
     workers = request.args.get("workers", "").strip()
     if workers and workers.isdigit() and int(workers) > 1:
@@ -1064,16 +1072,8 @@ def api_run_prune():
 @bp.route("/api/cancel", methods=["POST"])
 def api_cancel():
     """Send SIGTERM to all active subprocesses (graceful interrupt / checkpoint)."""
-    count = 0
-    with _proc_lock:
-        for proc in list(_active_procs.values()):
-            try:
-                if proc.poll() is None:
-                    proc.terminate()
-                    count += 1
-            except Exception:
-                pass
-        _active_procs.clear()
+    kill_result = terminate_managed_subprocesses(force=False, include_orphans=True)
+    count = kill_result["tracked"] + kill_result["orphans"]
 
     prune_running = _prune_workers_running() > 0
     if prune_running:
@@ -1088,6 +1088,9 @@ def api_cancel():
         return jsonify({
             "ok": True,
             "terminated": count,
+            "terminated_tracked": kill_result["tracked"],
+            "terminated_orphans": kill_result["orphans"],
+            "terminated_pids": kill_result["pids"],
             "prune_running": prune_running,
             "message": msg,
         })
@@ -1104,19 +1107,17 @@ def api_cancel_force():
             "error": "Prune is running in-process and cannot be force-killed safely. Wait for prune to finish.",
         }), 409
 
-    count = 0
-    with _proc_lock:
-        for proc in list(_active_procs.values()):
-            try:
-                if proc.poll() is None:
-                    proc.kill()
-                    count += 1
-            except Exception:
-                pass
-        _active_procs.clear()
+    kill_result = terminate_managed_subprocesses(force=True, include_orphans=True)
+    count = kill_result["tracked"] + kill_result["orphans"]
 
     if count > 0:
-        return jsonify({"ok": True, "killed": count})
+        return jsonify({
+            "ok": True,
+            "killed": count,
+            "killed_tracked": kill_result["tracked"],
+            "killed_orphans": kill_result["orphans"],
+            "killed_pids": kill_result["pids"],
+        })
     return jsonify({"ok": False, "error": "No active scan"}), 404
 
 

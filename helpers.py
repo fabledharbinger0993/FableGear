@@ -13,9 +13,12 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import shlex
+import signal
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -57,6 +60,327 @@ sock: Sock = Sock()
 
 _proc_lock: threading.Lock = threading.Lock()
 _active_procs: dict[str, subprocess.Popen] = {}
+
+_PROC_REGISTRY_LOCK: threading.Lock = threading.Lock()
+_PROC_REGISTRY_PATH: Path = Path.home() / ".fablegear" / "runtime" / "active_subprocesses.json"
+
+
+def _runtime_token() -> str:
+    token = os.environ.get("FABLEGEAR_RUNTIME_TOKEN", "").strip()
+    if token:
+        return token
+    token = str(uuid.uuid4())
+    os.environ["FABLEGEAR_RUNTIME_TOKEN"] = token
+    return token
+
+
+_RUNTIME_TOKEN: str = _runtime_token()
+
+
+def _read_proc_registry_unlocked() -> dict[str, dict]:
+    if not _PROC_REGISTRY_PATH.exists():
+        return {}
+    try:
+        data = json.loads(_PROC_REGISTRY_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+def _write_proc_registry_unlocked(data: dict[str, dict]) -> None:
+    _PROC_REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _PROC_REGISTRY_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    tmp.replace(_PROC_REGISTRY_PATH)
+
+
+def _pid_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except Exception:
+        return False
+
+
+def _tokens_from_command(command: str) -> list[str]:
+    try:
+        return shlex.split(command)
+    except Exception:
+        return command.split()
+
+
+def _cli_tool_from_tokens(tokens: list[str]) -> str | None:
+    for idx, tok in enumerate(tokens):
+        if Path(tok).name == "cli.py":
+            if idx + 1 < len(tokens):
+                return tokens[idx + 1]
+            return None
+    return None
+
+
+def _command_matches_cli_tool(command: str, tool: str | None = None) -> bool:
+    tokens = _tokens_from_command(command)
+    if not tokens:
+        return False
+    tool_name = _cli_tool_from_tokens(tokens)
+    if tool_name is None:
+        return False
+    if tool and tool_name != tool:
+        return False
+    return True
+
+
+def _pid_command(pid: int) -> str:
+    try:
+        out = subprocess.check_output(
+            ["ps", "-ww", "-p", str(pid), "-o", "command="],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=1.0,
+        )
+        return out.strip()
+    except Exception:
+        return ""
+
+
+def _pid_ppid(pid: int) -> int:
+    try:
+        out = subprocess.check_output(
+            ["ps", "-p", str(pid), "-o", "ppid="],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=1.0,
+        )
+        return int(out.strip() or "0")
+    except Exception:
+        return 0
+
+
+def _pid_matches_cli_tool(pid: int, tool: str | None = None) -> bool:
+    command = _pid_command(pid)
+    if not command:
+        return False
+    if str(REPO_ROOT) not in command:
+        return False
+    return _command_matches_cli_tool(command, tool)
+
+
+def _registry_meta_matches_cli_tool(meta: dict, tool: str | None = None) -> bool:
+    cmd = meta.get("cmd")
+    if not isinstance(cmd, list) or not cmd:
+        return False
+    command = " ".join(str(x) for x in cmd)
+    if str(REPO_ROOT) not in command:
+        return False
+    return _command_matches_cli_tool(command, tool)
+
+
+def _list_orphaned_cli_pids(tool: str | None = None) -> list[int]:
+    pattern = f"{REPO_ROOT}/cli.py"
+    if tool:
+        pattern = f"{pattern} {tool}"
+
+    try:
+        out = subprocess.check_output(
+            ["pgrep", "-f", pattern],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=1.0,
+        )
+        pids: set[int] = set()
+        for line in out.splitlines():
+            try:
+                pid = int(line.strip())
+            except ValueError:
+                continue
+            if pid <= 0 or pid == os.getpid() or not _pid_exists(pid):
+                continue
+            pids.add(pid)
+        if pids:
+            return sorted(pids)
+    except Exception:
+        pass
+
+    try:
+        out = subprocess.check_output(
+            ["ps", "-ww", "-ax", "-o", "pid=,ppid=,command="],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2.0,
+        )
+    except Exception:
+        return []
+
+    pids: list[int] = []
+    for line in out.splitlines():
+        parts = line.strip().split(None, 2)
+        if len(parts) != 3:
+            continue
+        pid_raw, ppid_raw, command = parts
+        try:
+            pid = int(pid_raw)
+            int(ppid_raw)
+        except ValueError:
+            continue
+        if str(REPO_ROOT) not in command:
+            continue
+        if not _command_matches_cli_tool(command, tool):
+            continue
+        pids.append(pid)
+    return pids
+
+
+def _register_active_process(request_id: str, process: subprocess.Popen, cmd: list[str]) -> None:
+    with _PROC_REGISTRY_LOCK:
+        reg = _read_proc_registry_unlocked()
+        reg[request_id] = {
+            "pid": process.pid,
+            "cmd": [str(x) for x in cmd],
+            "started_at": time.time(),
+            "owner_pid": os.getpid(),
+            "runtime_token": _RUNTIME_TOKEN,
+        }
+        _write_proc_registry_unlocked(reg)
+
+
+def _unregister_active_process(request_id: str) -> None:
+    with _PROC_REGISTRY_LOCK:
+        reg = _read_proc_registry_unlocked()
+        if request_id in reg:
+            reg.pop(request_id, None)
+            _write_proc_registry_unlocked(reg)
+
+
+def _kill_process_group_or_pid(pid: int, sig: int) -> bool:
+    try:
+        os.killpg(pid, sig)
+        return True
+    except ProcessLookupError:
+        return False
+    except Exception:
+        try:
+            os.kill(pid, sig)
+            return True
+        except ProcessLookupError:
+            return False
+        except Exception:
+            return False
+
+
+def list_running_managed_subprocesses(tool: str | None = None) -> list[int]:
+    running: set[int] = set()
+
+    with _proc_lock:
+        for proc in _active_procs.values():
+            try:
+                if proc.poll() is not None:
+                    continue
+                command = " ".join(str(x) for x in (proc.args if isinstance(proc.args, (list, tuple)) else [proc.args]))
+                if not _command_matches_cli_tool(command, tool):
+                    continue
+                running.add(int(proc.pid))
+            except Exception:
+                continue
+
+    with _PROC_REGISTRY_LOCK:
+        reg = _read_proc_registry_unlocked()
+        changed = False
+        for key, meta in list(reg.items()):
+            pid = int(meta.get("pid", 0) or 0)
+            if pid <= 0 or not _pid_exists(pid):
+                reg.pop(key, None)
+                changed = True
+                continue
+
+            cmd = _pid_command(pid)
+            if cmd and _command_matches_cli_tool(cmd, None) and str(REPO_ROOT) in cmd:
+                if tool and not _command_matches_cli_tool(cmd, tool):
+                    continue
+                running.add(pid)
+                continue
+
+            # Some macOS process states may not expose full argv via ps.
+            # Fall back to registry metadata when parent linkage still matches.
+            if _registry_meta_matches_cli_tool(meta, tool):
+                owner_pid = int(meta.get("owner_pid", 0) or 0)
+                ppid = _pid_ppid(pid)
+                owner_alive = _pid_exists(owner_pid) if owner_pid > 0 else False
+                if owner_pid <= 0 or ppid == owner_pid or ppid == 1 or not owner_alive:
+                    running.add(pid)
+                    continue
+
+            reg.pop(key, None)
+            changed = True
+        if changed:
+            _write_proc_registry_unlocked(reg)
+
+    running.update(_list_orphaned_cli_pids(tool=tool))
+    return sorted(running)
+
+
+def terminate_managed_subprocesses(force: bool = False, include_orphans: bool = True, tool: str | None = None) -> dict:
+    sig = signal.SIGKILL if force else signal.SIGTERM
+    tracked_pids: set[int] = set()
+    orphan_pids: set[int] = set()
+
+    with _proc_lock:
+        for proc in list(_active_procs.values()):
+            try:
+                if proc.poll() is not None:
+                    continue
+                command = " ".join(str(x) for x in (proc.args if isinstance(proc.args, (list, tuple)) else [proc.args]))
+                if not _command_matches_cli_tool(command, tool):
+                    continue
+                if _kill_process_group_or_pid(int(proc.pid), sig):
+                    tracked_pids.add(int(proc.pid))
+            except Exception:
+                continue
+
+        # Only remove entries for subprocesses that have actually exited.
+        for request_id, proc in list(_active_procs.items()):
+            try:
+                if proc.poll() is not None:
+                    _active_procs.pop(request_id, None)
+            except Exception:
+                _active_procs.pop(request_id, None)
+
+    if include_orphans:
+        for pid in list_running_managed_subprocesses(tool=tool):
+            if pid in tracked_pids:
+                continue
+            if _kill_process_group_or_pid(pid, sig):
+                orphan_pids.add(pid)
+
+    with _PROC_REGISTRY_LOCK:
+        reg = _read_proc_registry_unlocked()
+        changed = False
+        for key, meta in list(reg.items()):
+            pid = int(meta.get("pid", 0) or 0)
+            if pid in tracked_pids or pid in orphan_pids:
+                if _pid_exists(pid):
+                    continue
+                reg.pop(key, None)
+                changed = True
+                continue
+            if pid <= 0 or not _pid_exists(pid):
+                reg.pop(key, None)
+                changed = True
+        if changed:
+            _write_proc_registry_unlocked(reg)
+
+    return {
+        "tracked": len(tracked_pids),
+        "orphans": len(orphan_pids),
+        "pids": sorted(tracked_pids | orphan_pids),
+        "force": bool(force),
+        "tool": tool,
+    }
 
 
 # ── Step state tracker ────────────────────────────────────────────────────────
@@ -304,7 +628,11 @@ def _release_info() -> dict:
 
 def _subprocess_env() -> dict:
     """Return an environment dict for subprocesses running cli.py."""
-    return os.environ.copy()
+    env = os.environ.copy()
+    env["FABLEGEAR_SERVER_OWNER_PID"] = str(os.getpid())
+    env["FABLEGEAR_RUNTIME_TOKEN"] = _RUNTIME_TOKEN
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    return env
 
 
 # ── SSE streaming — _stream is the canonical subprocess SSE generator ─────────
@@ -342,20 +670,31 @@ def _stream(
             bufsize=1,
             cwd=str(REPO_ROOT),
             env=_subprocess_env(),
+            start_new_session=True,
         )
         with _proc_lock:
             _active_procs[request_id] = process
+        _register_active_process(request_id, process, cmd)
         try:
             for line in iter(process.stdout.readline, ""):
                 yield f"data: {json.dumps({'line': line.rstrip()})}\n\n"
             process.wait()
             exit_code = process.returncode
         finally:
-            with _proc_lock:
-                _active_procs.pop(request_id, None)
+            if process.poll() is None:
+                _kill_process_group_or_pid(int(process.pid), signal.SIGTERM)
+                try:
+                    process.wait(timeout=2.0)
+                except Exception:
+                    _kill_process_group_or_pid(int(process.pid), signal.SIGKILL)
+            if process.poll() is not None:
+                with _proc_lock:
+                    _active_procs.pop(request_id, None)
+                _unregister_active_process(request_id)
     except Exception as exc:
         with _proc_lock:
             _active_procs.pop(request_id, None)
+        _unregister_active_process(request_id)
         yield f"data: {json.dumps({'line': f'[SERVER ERROR] {exc}'})}\n\n"
         exit_code = 1
 
@@ -576,9 +915,11 @@ def _stream_pipeline(steps: list[dict]):
                 bufsize=1,
                 cwd=str(REPO_ROOT),
                 env=_subprocess_env(),
+                start_new_session=True,
             )
             with _proc_lock:
                 _active_procs[request_id] = process
+            _register_active_process(request_id, process, cmd)
             try:
                 for line in iter(process.stdout.readline, ""):
                     stripped = line.rstrip()
@@ -588,11 +929,20 @@ def _stream_pipeline(steps: list[dict]):
                 process.wait()
                 exit_code = process.returncode
             finally:
-                with _proc_lock:
-                    _active_procs.pop(request_id, None)
+                if process.poll() is None:
+                    _kill_process_group_or_pid(int(process.pid), signal.SIGTERM)
+                    try:
+                        process.wait(timeout=2.0)
+                    except Exception:
+                        _kill_process_group_or_pid(int(process.pid), signal.SIGKILL)
+                if process.poll() is not None:
+                    with _proc_lock:
+                        _active_procs.pop(request_id, None)
+                    _unregister_active_process(request_id)
         except Exception as exc:
             with _proc_lock:
                 _active_procs.pop(request_id, None)
+            _unregister_active_process(request_id)
             yield f"data: {json.dumps({'line': f'[SERVER ERROR] {exc}'})}\n\n"
             exit_code = 1
 

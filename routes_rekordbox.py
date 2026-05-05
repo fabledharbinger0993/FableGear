@@ -7,6 +7,8 @@ the Rekordbox-must-be-closed guard.
 """
 
 import json
+import os
+import signal
 import sys
 import uuid
 
@@ -22,6 +24,8 @@ from helpers import (
     _get_library_root,
     _subprocess_env,
     mark_step_complete,
+    _register_active_process,
+    _unregister_active_process,
 )
 
 bp = Blueprint("rekordbox", __name__)
@@ -133,9 +137,11 @@ def api_relocate():
                 proc = subprocess.Popen(
                     cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True, bufsize=1, cwd=str(REPO_ROOT), env=_subprocess_env(),
+                    start_new_session=True,
                 )
                 with _proc_lock:
                     _active_procs[request_id] = proc
+                _register_active_process(request_id, proc, cmd)
                 try:
                     for line in iter(proc.stdout.readline, ""):
                         yield f"data: {json.dumps({'line': line.rstrip()})}\n\n"
@@ -143,11 +149,22 @@ def api_relocate():
                     if proc.returncode != 0:
                         overall = proc.returncode
                 finally:
-                    with _proc_lock:
-                        _active_procs.pop(request_id, None)
+                    if proc.poll() is None:
+                        try:
+                            os.killpg(int(proc.pid), signal.SIGTERM)
+                        except Exception:
+                            try:
+                                proc.terminate()
+                            except Exception:
+                                pass
+                    if proc.poll() is not None:
+                        with _proc_lock:
+                            _active_procs.pop(request_id, None)
+                        _unregister_active_process(request_id)
             except Exception as exc:
                 with _proc_lock:
                     _active_procs.pop(request_id, None)
+                _unregister_active_process(request_id)
                 yield f"data: {json.dumps({'line': f'[SERVER ERROR] {exc}'})}\n\n"
                 overall = 1
         if library_root:
