@@ -49,6 +49,11 @@ except ImportError:
 
 from pyrekordbox import Rekordbox6Database
 
+try:
+    from sqlalchemy.exc import MultipleResultsFound
+except Exception:  # pragma: no cover - defensive fallback
+    MultipleResultsFound = Exception
+
 from config import BATCH_SIZE
 from key_mapper import clear_cache as clear_key_cache, resolve_key_id
 from scanner import TrackInfo, scan_directory
@@ -221,6 +226,22 @@ _artist_cache: dict[str, str] = {}
 _artist_cache_lock = threading.Lock()
 
 
+def _find_existing_artist(name: str, db: Rekordbox6Database):
+    """Return an existing artist row by name, tolerating duplicate-name rows."""
+    try:
+        return db.get_artist(Name=name).one_or_none()
+    except MultipleResultsFound:
+        matches = db.get_artist(Name=name).all()
+        if not matches:
+            return None
+        log.warning(
+            "Multiple DjmdArtist rows found for %r; reusing first existing row (ID=%s)",
+            name,
+            getattr(matches[0], "ID", "unknown"),
+        )
+        return matches[0]
+
+
 def _get_or_create_artist(name: str, db: Rekordbox6Database) -> str | None:
     """Return DjmdArtist.ID for name, creating a row if absent. Never raises."""
     if not name or not name.strip():
@@ -231,7 +252,7 @@ def _get_or_create_artist(name: str, db: Rekordbox6Database) -> str | None:
         if name in _artist_cache:
             return _artist_cache[name]
     
-    existing = db.get_artist(Name=name).one_or_none()
+    existing = _find_existing_artist(name, db)
     if existing is not None:
         with _artist_cache_lock:
             _artist_cache[name] = str(existing.ID)
@@ -244,7 +265,7 @@ def _get_or_create_artist(name: str, db: Rekordbox6Database) -> str | None:
         return str(artist.ID)
     except ValueError:
         # Race condition — re-fetch
-        existing = db.get_artist(Name=name).one_or_none()
+        existing = _find_existing_artist(name, db)
         if existing:
             with _artist_cache_lock:
                 _artist_cache[name] = str(existing.ID)

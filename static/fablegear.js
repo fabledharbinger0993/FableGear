@@ -3757,6 +3757,11 @@ async function runRenameWithPreflight(path) {
     return;
   }
 
+  showToast(
+    `Rename preflight found ${candidates.length} ambiguous file${candidates.length === 1 ? '' : 's'} — review and apply to continue.`,
+    'neutral'
+  );
+
   openRenamePreflightModal(path, data, { executeRenameAfterApply: true, source: 'rename' });
 }
 
@@ -3774,7 +3779,31 @@ function openRenamePreflightModal(path, data, options = {}) {
   const summary = document.getElementById('rename-learn-summary');
   const list = document.getElementById('rename-learn-list');
   const applyBtn = document.getElementById('rename-learn-apply-btn');
-  if (!subtitle || !summary || !list || !applyBtn) return;
+  if (!subtitle || !summary || !list || !applyBtn) {
+    const missing = [
+      !subtitle ? 'rename-learn-subtitle' : null,
+      !summary ? 'rename-learn-summary' : null,
+      !list ? 'rename-learn-list' : null,
+      !applyBtn ? 'rename-learn-apply-btn' : null,
+    ].filter(Boolean);
+    showToast(
+      'Rename preflight UI is unavailable. Reload the page and try again.',
+      'error'
+    );
+    openReportModal(
+      'Rename Preflight — UI Missing',
+      [
+        'Rename preflight could not render required UI controls.',
+        '',
+        `Missing element IDs: ${missing.join(', ')}`,
+        '',
+        'No rename was started.',
+        'Reload the page, then run Rename again.',
+      ].join('\n'),
+      null,
+    );
+    return;
+  }
 
   subtitle.textContent = `${renamePreflightState.topN} most ambiguous files from a stratified sample of ${renamePreflightState.sampleSize} tracks`;
   summary.textContent = renamePreflightState.executeRenameAfterApply

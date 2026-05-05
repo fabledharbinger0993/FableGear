@@ -374,3 +374,4 @@ arch: /Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/.venv/bin/python isn't e
 /Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/launch_local.sh: line 74: /Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/.venv/bin/pip: No such file or directory
 /Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/launch_local.sh: line 75: /Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/.venv/bin/pip: No such file or directory
 arch: /Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/.venv/bin/python isn't executable
+WARNING: qrcode 8.2 does not provide the extra 'svg'
