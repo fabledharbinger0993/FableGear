@@ -514,3 +514,4 @@ WARNING:pyrekordbox.db6.database:Playlist 1030693195 not found in masterPlaylist
 [13:41:27] pyrekordbox.db6.database:WARNING  - Playlist 2578316538 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
 WARNING:pyrekordbox.db6.database:Playlist 2578316538 not found in masterPlaylists6.xml! Did you add it manually? Use the create_playlist method instead.
 WARNING: qrcode 8.2 does not provide the extra 'svg'
+WARNING: qrcode 8.2 does not provide the extra 'svg'
