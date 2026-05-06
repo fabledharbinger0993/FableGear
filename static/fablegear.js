@@ -3766,7 +3766,19 @@ async function runRenameWithPreflight(path) {
   openRenamePreflightModal(path, data, { executeRenameAfterApply: true, source: 'rename' });
 }
 
+function _ensureRenamePreflightMount() {
+  const backdrop = document.getElementById('rename-learn-backdrop');
+  const modal = document.getElementById('rename-learn-modal');
+  if (backdrop && backdrop.parentElement !== document.body) {
+    document.body.appendChild(backdrop);
+  }
+  if (modal && modal.parentElement !== document.body) {
+    document.body.appendChild(modal);
+  }
+}
+
 function openRenamePreflightModal(path, data, options = {}) {
+  _ensureRenamePreflightMount();
   renamePreflightState = {
     path,
     candidates: Array.isArray(data.candidates) ? data.candidates : [],

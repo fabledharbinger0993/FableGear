@@ -1169,7 +1169,7 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 #rename-learn-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 10499; /* must exceed toolkit-modal (10000) */
+  z-index: 13050; /* must exceed floating tool modal (12000) */
   background: rgba(0,0,0,.52);
   display: none;
 }
@@ -1177,7 +1177,7 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 
 .rename-learn-modal {
   position: fixed;
-  z-index: 10499;
+  z-index: 13051; /* sits above rename preflight backdrop */
   top: 72px;
   left: 50%;
   transform: translateX(-50%);
