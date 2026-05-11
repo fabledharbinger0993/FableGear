@@ -371,43 +371,6 @@ function closeReportModal(shrinkToPill) {
 
 // Escape key handled in the global keydown listener below
 
-/* ── Checkpoint resume modal ──────────────────────────────────────────────── */
-let _ckptModalCallback = null;
-
-function _showCheckpointModal(info, callback) {
-  _ckptModalCallback = callback;
-  const saved = info.saved_at
-    ? new Date(info.saved_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
-    : 'unknown time';
-  const desc = (info.completed != null && info.total != null)
-    ? `A previous scan reached ${info.completed.toLocaleString()} of ${info.total.toLocaleString()} tracks (saved ${saved}).`
-    : `A previous scan was saved at ${saved}.`;
-  document.getElementById('ckpt-modal-desc').textContent = desc;
-  document.getElementById('ckpt-modal-backdrop').classList.remove('hidden');
-}
-
-function _closeCkptModal(action) {
-  document.getElementById('ckpt-modal-backdrop').classList.add('hidden');
-  const cb = _ckptModalCallback;
-  _ckptModalCallback = null;
-  if (action && cb) cb(action);
-}
-
-async function _withCheckpointCheck(tool, params, runFn) {
-  try {
-    const info = await fetch(`/api/checkpoint/check?tool=${tool}&${params}`).then(r => r.json());
-    if (info.exists) {
-      _showCheckpointModal(info, (action) => {
-        const p2 = new URLSearchParams(params.toString());
-        p2.set('checkpoint_action', action);
-        runFn(p2);
-      });
-      return;
-    }
-  } catch (_) { /* pre-flight failure — proceed normally */ }
-  runFn(params);
-}
-
 /* ── Status polling ────────────────────────────────────────────────────────── */
 /* ── Settings modal ────────────────────────────────────────────────────────── */
 function openSettings() {
@@ -1845,12 +1808,9 @@ document.querySelectorAll('.step-tab').forEach(btn => {
 
 /* ── Scan bar ──────────────────────────────────────────────────────────────── */
 let scanWarnings = 0;
-let _scanHasStructuredProgress = false; // true once any FABLEGEAR_PROGRESS arrives
-let _scanLinesProcessed = 0;            // fallback line counter for silent tools
 
 function showScanBar(title) {
   scanWarnings = 0;
-  _scanLinesProcessed = 0;
   // Reset interrupt/emergency buttons for fresh use
   const ib = document.getElementById('scan-bar-interrupt');
   ib.textContent = '⏸ Interrupt'; ib.disabled = false; ib.style.display = 'inline-block';
@@ -1858,8 +1818,6 @@ function showScanBar(title) {
   eb.textContent = '⚡ Emergency Stop'; eb.disabled = false; eb.style.display = 'inline-block';
   document.getElementById('sb-scanned').textContent      = '0';
   document.getElementById('sb-scanned-wrap').style.display = 'none';
-  document.getElementById('sb-inspected').textContent     = '0';
-  document.getElementById('sb-inspected-wrap').style.display = 'none';
   document.getElementById('sb-remaining').textContent    = '—';
   document.getElementById('sb-clean').textContent        = '0';
   document.getElementById('sb-edited').textContent       = '0';
@@ -1867,9 +1825,6 @@ function showScanBar(title) {
   document.getElementById('sb-warnings').textContent     = '0';
   document.getElementById('sb-quarantined').textContent  = '0';
   document.getElementById('sb-quarantine-wrap').style.display = 'none';
-  document.getElementById('sb-processed').textContent    = '0';
-  document.getElementById('sb-processed-wrap').style.display = 'none';
-  _scanHasStructuredProgress = false;
   document.getElementById('scan-bar-title').textContent = title;
   document.getElementById('scan-bar-spinner').classList.add('active');
   document.getElementById('scan-bar-dismiss').style.display = 'none';
@@ -1884,14 +1839,10 @@ function updateScanBar(p) {
     return;
   }
   document.getElementById('sb-scanned-wrap').style.display = 'none';
-  if (p.inspected != null) {
-    document.getElementById('sb-inspected').textContent = p.inspected.toLocaleString();
-    document.getElementById('sb-inspected-wrap').style.display = '';
-  }
-  if (p.remaining != null) document.getElementById('sb-remaining').textContent = p.remaining.toLocaleString();
-  if (p.clean     != null) document.getElementById('sb-clean').textContent     = p.clean.toLocaleString();
-  if (p.edited    != null) document.getElementById('sb-edited').textContent    = p.edited.toLocaleString();
-  if (p.errors    != null) document.getElementById('sb-errors').textContent    = p.errors.toLocaleString();
+  document.getElementById('sb-remaining').textContent = p.remaining.toLocaleString();
+  document.getElementById('sb-clean').textContent     = p.clean.toLocaleString();
+  document.getElementById('sb-edited').textContent    = p.edited.toLocaleString();
+  document.getElementById('sb-errors').textContent    = p.errors.toLocaleString();
   document.getElementById('sb-warnings').textContent  = scanWarnings.toLocaleString();
   if (p.quarantined > 0) {
     document.getElementById('sb-quarantined').textContent = p.quarantined.toLocaleString();
@@ -2055,14 +2006,7 @@ function runCommand(url, logTitle, onDone, useBar = true, showPrefilter = false)
       // Structured progress — update scan bar, don't echo to log
       if (line.startsWith('FABLEGEAR_PROGRESS: ')) {
         if (useBar) {
-          try {
-            const p = JSON.parse(line.slice(19));
-            _scanHasStructuredProgress = true;
-            document.getElementById('sb-processed-wrap').style.display = 'none';
-            const tfmProcWrap = document.getElementById('tfm-processed-wrap');
-            if (tfmProcWrap) tfmProcWrap.style.display = 'none';
-            updateScanBar(p);
-          } catch(_) {}
+          try { updateScanBar(JSON.parse(line.slice(19))); } catch(_) {}
         }
         return;
       }
@@ -2099,16 +2043,6 @@ function runCommand(url, logTitle, onDone, useBar = true, showPrefilter = false)
       if (useBar && (t.includes('warning') || t.includes('warn'))) {
         scanWarnings++;
         document.getElementById('sb-warnings').textContent = scanWarnings.toLocaleString();
-      }
-      // Fallback processed-lines counter — shown when no structured FABLEGEAR_PROGRESS arrives
-      if (useBar && !_scanHasStructuredProgress && line.trim()) {
-        _scanLinesProcessed++;
-        document.getElementById('sb-processed').textContent = _scanLinesProcessed.toLocaleString();
-        document.getElementById('sb-processed-wrap').style.display = '';
-        const tfmProcWrap = document.getElementById('tfm-processed-wrap');
-        const tfmProcVal  = document.getElementById('tfm-processed');
-        if (tfmProcVal)  tfmProcVal.textContent = _scanLinesProcessed.toLocaleString();
-        if (tfmProcWrap) tfmProcWrap.style.display = '';
       }
       appendLog(line, classifyLine(line));
     }
@@ -2148,7 +2082,7 @@ function runCommand(url, logTitle, onDone, useBar = true, showPrefilter = false)
     setSpinner(false);
     setAllButtons(false);
     if (useBar) finishScanBar();
-    appendLog('Connection error — server unavailable or request blocked (for example by a 429). Refresh and retry.', 'error');
+    appendLog('Connection error — check the server is running.', 'error');
     refreshStatus();
   };
 }
@@ -2244,18 +2178,16 @@ function _doRunProcess(paths) {
   p.set('no_normalize', '1');
   const el = document.getElementById('process-result');
   if (el) el.classList.add('hidden');
-  _withCheckpointCheck('process', p, (params) => {
-    _saveToolCkpt('process', {
-      paths,
-      no_bpm:      document.getElementById('process-no-bpm').checked,
-      no_key:      document.getElementById('process-no-key').checked,
-      force:       document.getElementById('process-force').checked,
-      enrich_tags: document.getElementById('process-enrich-tags')?.checked || false,
-    });
-    document.getElementById('step-process')?.querySelector('.tool-resume-banner')?.remove();
-    runCommand(`/api/run/process?${params}`, 'Tag Tracks — BPM & Key Detection',
-      ec => { if (ec === 0) _clearToolCkpt('process'); }, true, false);
+  _saveToolCkpt('process', {
+    paths,
+    no_bpm:      document.getElementById('process-no-bpm').checked,
+    no_key:      document.getElementById('process-no-key').checked,
+    force:       document.getElementById('process-force').checked,
+    enrich_tags: document.getElementById('process-enrich-tags')?.checked || false,
   });
+  document.getElementById('step-process')?.querySelector('.tool-resume-banner')?.remove();
+  runCommand(`/api/run/process?${p}`, 'Tag Tracks — BPM & Key Detection',
+    ec => { if (ec === 0) _clearToolCkpt('process'); }, true, false);
 }
 
 function _runProcessRetry(body) {
@@ -2401,22 +2333,20 @@ function runDuplicates() {
     const thresholdPct = parseInt(document.getElementById('fuzzy-threshold')?.value || '85');
     p.set('fuzzy_threshold', (thresholdPct / 100).toFixed(2));
   }
+  _saveToolCkpt('duplicates', { paths, workers, matchMode });
+  document.getElementById('step-duplicates')?.querySelector('.tool-resume-banner')?.remove();
   const title = 'Find Duplicates — Acoustic Fingerprinting';
-  _withCheckpointCheck('duplicates', p, (params) => {
-    _saveToolCkpt('duplicates', { paths, workers, matchMode });
-    document.getElementById('step-duplicates')?.querySelector('.tool-resume-banner')?.remove();
-    runCommand(`/api/run/duplicates?${params}`, title, (exitCode) => {
-      if (exitCode === 0) {
-        _clearToolCkpt('duplicates');
-        const rp = sessionReports[title]?.reportPath;
-        if (rp && /\.csv$/i.test(rp)) {
-          const el = document.getElementById('prune-csv-path');
-          if (el) el.value = rp;
-          _autoLoadDupeResults(rp);
-        }
+  runCommand(`/api/run/duplicates?${p}`, title, (exitCode) => {
+    if (exitCode === 0) {
+      _clearToolCkpt('duplicates');
+      const rp = sessionReports[title]?.reportPath;
+      if (rp && /\.csv$/i.test(rp)) {
+        const el = document.getElementById('prune-csv-path');
+        if (el) el.value = rp;
+        _autoLoadDupeResults(rp);
       }
-    }, true, true);
-  });
+    }
+  }, true, true);
 }
 
 // Show/hide fuzzy threshold row based on match mode selection
@@ -2440,12 +2370,10 @@ function runConvert() {
   const p = new URLSearchParams({ format });
   paths.forEach(path => p.append('path', path));
   if (parseInt(workers) > 1) p.set('workers', workers);
-  _withCheckpointCheck('convert', p, (params) => {
-    _saveToolCkpt('convert', { paths, format, workers });
-    document.getElementById('step-convert')?.querySelector('.tool-resume-banner')?.remove();
-    runCommand(`/api/run/convert?${params}`, `Converting Audio Files to ${format.toUpperCase()}`,
-      ec => { if (ec === 0) _clearToolCkpt('convert'); });
-  });
+  _saveToolCkpt('convert', { paths, format, workers });
+  document.getElementById('step-convert')?.querySelector('.tool-resume-banner')?.remove();
+  runCommand(`/api/run/convert?${p}`, `Converting Audio Files to ${format.toUpperCase()}`,
+    ec => { if (ec === 0) _clearToolCkpt('convert'); });
 }
 
 /* ── Pipeline Builder ──────────────────────────────────────────────────────── */
@@ -3541,24 +3469,18 @@ function runOrganize() {
   if (threshold !== '15') p.set('mix_threshold', threshold);
   const modeLabel = mode === 'integrate' ? 'Integration (copies only, source untouched)' : 'Assimilation (move + clean source)';
   const label = dryRun ? `Organize — Dry Run · ${modeLabel}` : `Organize — ${modeLabel}`;
+  if (!dryRun) {
+    _saveToolCkpt('organize', { sources, target, mode, workers, dryRun: false });
+    document.getElementById('step-organize')?.querySelector('.tool-resume-banner')?.remove();
+  }
   const _orgTarget = target;
   const _orgDry    = dryRun;
-  if (!dryRun) {
-    _withCheckpointCheck('organize', p, (params) => {
-      _saveToolCkpt('organize', { sources, target, mode, workers, dryRun: false });
-      document.getElementById('step-organize')?.querySelector('.tool-resume-banner')?.remove();
-      runCommand(`/api/run/organize?${params}`, label, (exitCode) => {
-        if (exitCode === 0) {
-          _clearToolCkpt('organize');
-          _promptSetLibraryRoot(_orgTarget);
-        }
-      });
-    });
-  } else {
-    runCommand(`/api/run/organize?${p}`, label, (exitCode) => {
-      if (exitCode === 0) _clearToolCkpt('organize');
-    });
-  }
+  runCommand(`/api/run/organize?${p}`, label, (exitCode) => {
+    if (exitCode === 0) {
+      _clearToolCkpt('organize');
+      if (!_orgDry) _promptSetLibraryRoot(_orgTarget);
+    }
+  });
 }
 
 /* ── Rekordbox Library Migration ───────────────────────────────────────────── */
@@ -3672,16 +3594,11 @@ function runNovelty() {
     ? 'Novelty Scan — Dry Run (nothing will be copied)'
     : 'Novelty Scan — Copying novel tracks to destination';
   if (!dryRun) {
-    _withCheckpointCheck('novelty', p, (params) => {
-      _saveToolCkpt('novelty', { sources, dest, dryRun: false });
-      document.getElementById('step-novelty')?.querySelector('.tool-resume-banner')?.remove();
-      runCommand(`/api/run/novelty?${params}`, label,
-        ec => { if (ec === 0) _clearToolCkpt('novelty'); });
-    });
-  } else {
-    runCommand(`/api/run/novelty?${p}`, label,
-      ec => { if (ec === 0) _clearToolCkpt('novelty'); });
+    _saveToolCkpt('novelty', { sources, dest, dryRun: false });
+    document.getElementById('step-novelty')?.querySelector('.tool-resume-banner')?.remove();
   }
+  runCommand(`/api/run/novelty?${p}`, label,
+    ec => { if (ec === 0) _clearToolCkpt('novelty'); });
 }
 
 /* ── Rename Files ──────────────────────────────────────────────────────────── */
@@ -3718,21 +3635,16 @@ function _executeRename(path, dryRun) {
     ? 'Rename Files — Dry Run (preview only)'
     : 'Rename Files — Cleaning file names';
   if (!dryRun) {
-    _withCheckpointCheck('rename', p, (params) => {
-      _saveToolCkpt('rename', { path, dryRun: false });
-      document.getElementById('step-rename')?.querySelector('.tool-resume-banner')?.remove();
-      runCommand(`/api/run/rename?${params}`, label,
-        ec => { if (ec === 0) _clearToolCkpt('rename'); });
-    });
-  } else {
-    runCommand(`/api/run/rename?${p}`, label,
-      ec => {
-        if (ec === 0) {
-          _clearToolCkpt('rename');
-          showToast('Dry run complete — uncheck "Dry Run" and click Clean File Names again to apply.', 'neutral');
-        }
-      });
+    _saveToolCkpt('rename', { path, dryRun: false });
+    document.getElementById('step-rename')?.querySelector('.tool-resume-banner')?.remove();
   }
+  runCommand(`/api/run/rename?${p}`, label,
+    ec => {
+      if (ec === 0) {
+        _clearToolCkpt('rename');
+        if (dryRun) showToast('Dry run complete — uncheck "Dry Run" and click Clean File Names again to apply.', 'neutral');
+      }
+    });
 }
 
 async function runRenameWithPreflight(path) {
@@ -3747,8 +3659,7 @@ async function runRenameWithPreflight(path) {
     data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Probe failed');
   } catch (err) {
-    showToast('Rename preflight failed — running rename directly. ' + (err.message || err), 'warning');
-    _executeRename(path, false);
+    showToast('Rename preflight failed — ' + (err.message || err), 'error');
     return;
   }
 
@@ -3758,27 +3669,10 @@ async function runRenameWithPreflight(path) {
     return;
   }
 
-  showToast(
-    `Rename preflight found ${candidates.length} ambiguous file${candidates.length === 1 ? '' : 's'} — review and apply to continue.`,
-    'neutral'
-  );
-
   openRenamePreflightModal(path, data, { executeRenameAfterApply: true, source: 'rename' });
 }
 
-function _ensureRenamePreflightMount() {
-  const backdrop = document.getElementById('rename-learn-backdrop');
-  const modal = document.getElementById('rename-learn-modal');
-  if (backdrop && backdrop.parentElement !== document.body) {
-    document.body.appendChild(backdrop);
-  }
-  if (modal && modal.parentElement !== document.body) {
-    document.body.appendChild(modal);
-  }
-}
-
 function openRenamePreflightModal(path, data, options = {}) {
-  _ensureRenamePreflightMount();
   renamePreflightState = {
     path,
     candidates: Array.isArray(data.candidates) ? data.candidates : [],
@@ -3792,35 +3686,7 @@ function openRenamePreflightModal(path, data, options = {}) {
   const summary = document.getElementById('rename-learn-summary');
   const list = document.getElementById('rename-learn-list');
   const applyBtn = document.getElementById('rename-learn-apply-btn');
-  if (!subtitle || !summary || !list || !applyBtn) {
-    const missing = [
-      !subtitle ? 'rename-learn-subtitle' : null,
-      !summary ? 'rename-learn-summary' : null,
-      !list ? 'rename-learn-list' : null,
-      !applyBtn ? 'rename-learn-apply-btn' : null,
-    ].filter(Boolean);
-    showToast(
-      'Rename preflight UI is unavailable. Reload the page and try again.',
-      'error'
-    );
-    openReportModal(
-      'Rename Preflight — UI Missing',
-      [
-        'Rename preflight could not render required UI controls.',
-        '',
-        `Missing element IDs: ${missing.join(', ')}`,
-        '',
-        'No rename was started.',
-        'Reload the page, then run Rename again.',
-      ].join('\n'),
-      null,
-    );
-    if (renamePreflightState.executeRenameAfterApply) {
-      showToast('Preflight UI missing — running rename directly.', 'warning');
-      _executeRename(path, false);
-    }
-    return;
-  }
+  if (!subtitle || !summary || !list || !applyBtn) return;
 
   subtitle.textContent = `${renamePreflightState.topN} most ambiguous files from a stratified sample of ${renamePreflightState.sampleSize} tracks`;
   summary.textContent = renamePreflightState.executeRenameAfterApply
@@ -4609,7 +4475,6 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     closeSettings();
     closeReportModal();
-    _closeCkptModal(null);
   }
   if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
     e.preventDefault();
@@ -5455,7 +5320,7 @@ function _syncToolModalScanState() {
   } else {
     actionsEl.classList.remove('active');
     if (idleLabel) idleLabel.style.display = '';
-    ['tfm-remaining-wrap', 'tfm-processed-wrap', 'tfm-clean-wrap', 'tfm-edited-wrap', 'tfm-errors-wrap'].forEach(id => {
+    ['tfm-remaining-wrap', 'tfm-clean-wrap', 'tfm-edited-wrap', 'tfm-errors-wrap'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
@@ -5468,20 +5333,17 @@ function _syncToolModalScanState() {
 
 function _mirrorScanBarToModal() {
   const map = [
-    ['sb-remaining',  'tfm-remaining',  'tfm-remaining-wrap'],
-    ['sb-processed',  'tfm-processed',  'tfm-processed-wrap'],
-    ['sb-clean',      'tfm-clean',      'tfm-clean-wrap'],
-    ['sb-edited',     'tfm-edited',     'tfm-edited-wrap'],
-    ['sb-errors',     'tfm-errors',     'tfm-errors-wrap'],
+    ['sb-remaining', 'tfm-remaining', 'tfm-remaining-wrap'],
+    ['sb-clean',     'tfm-clean',     'tfm-clean-wrap'],
+    ['sb-edited',    'tfm-edited',    'tfm-edited-wrap'],
+    ['sb-errors',    'tfm-errors',    'tfm-errors-wrap'],
   ];
   map.forEach(([srcId, destId, wrapId]) => {
     const src  = document.getElementById(srcId);
     const dest = document.getElementById(destId);
     const wrap = document.getElementById(wrapId);
     if (src && dest) dest.textContent = src.textContent;
-    // Only show the wrap if the source wrap is also visible
-    const srcWrap = document.getElementById(wrapId.replace('tfm-', 'sb-'));
-    if (wrap) wrap.style.display = srcWrap?.style.display === 'none' ? 'none' : '';
+    if (wrap) wrap.style.display = '';
   });
   const title    = document.getElementById('scan-bar-title');
   const tfmTitle = document.getElementById('tfm-title');

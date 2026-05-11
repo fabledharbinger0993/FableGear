@@ -51,6 +51,11 @@ yt-dlp>=2024.1
 qrcode[svg]>=7.4
 # QR code generation for the FableGo pairing panel (inline SVG, no Pillow needed).
 
+mcp>=1.0
+# Anthropic Model Context Protocol SDK — used by mcp_server.py to expose
+# FableGear tools to Claude Desktop, Cursor, Windsurf, and other MCP clients.
+# Supports both stdio transport (local agents) and SSE transport (HTTP clients).
+
 pywebview>=5.0
 # Native OS window (WKWebView on macOS) — replaces the browser launch step.
 # Enables real drag-and-drop path delivery and a proper .app experience.

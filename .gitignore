@@ -21,6 +21,11 @@ env/
 # Claude Code agent worktrees / scratch space
 .claude/
 
+# AI coding tool artifacts (Kilo Code, Qodo, pytest cache)
+.kilocode/
+.qodo/
+.pytest_cache/
+
 # Secrets / config
 *.env
 .env
