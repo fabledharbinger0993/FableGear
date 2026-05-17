@@ -38,9 +38,21 @@ Safety contract:
 """
 
 import argparse
+import importlib
+import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Dict, Optional
+
+import job_dispatcher
+
+from user_config import (
+    DEFAULTS as USER_CONFIG_DEFAULTS,
+    get_drive_status as probe_drive_status,
+    load_user_config,
+    save_user_config,
+)
 
 # ── MCP SDK ───────────────────────────────────────────────────────────────────
 
@@ -57,7 +69,7 @@ except ImportError:
 
 # ── FableGear imports (lazy — server still starts if config is absent) ─────────
 
-_CONFIG_ERROR: str | None = None
+_CONFIG_ERROR: Optional[str] = None
 
 try:
     from db_connection import rekordbox_is_running
@@ -76,19 +88,48 @@ except RuntimeError as _e:
 REPO_DIR = Path(__file__).parent
 _CLI = REPO_DIR / "cli.py"
 
+# ── Job dispatcher init ────────────────────────────────────────────────────────
+_checkpoints_dir: Optional[Path] = None
+try:
+    from config import ARCHIVE_ROOT as _ARCHIVE_ROOT
 
-def _cfg_gate() -> str | None:
+    _checkpoints_dir = Path(str(_ARCHIVE_ROOT)) / "Checkpoints"
+except Exception:
+    _checkpoints_dir = None
+
+job_dispatcher.init(REPO_DIR, _checkpoints_dir)
+
+
+def _cfg_gate() -> Optional[str]:
     """Return an error string if FableGear is not yet configured."""
-    if _CONFIG_ERROR:
+    try:
+        load_user_config()
+    except Exception as exc:
         return (
-            f"FableGear is not configured: {_CONFIG_ERROR}\n"
+            f"FableGear is not configured: {exc}\n"
             "Run `python3 cli.py setup` in the FableGear directory first, "
             "then retry this tool."
         )
     return None
 
 
-def _rb_gate() -> str | None:
+def _get_config() -> Optional[Dict]:
+    """Return the live user config if available, otherwise None."""
+    try:
+        return load_user_config()
+    except Exception:
+        return None
+
+
+def _effective_music_root() -> str:
+    """Read music_root from live config with fallback to startup import values."""
+    cfg = _get_config()
+    if cfg and cfg.get("music_root"):
+        return str(cfg["music_root"])
+    return str(MUSIC_ROOT) if MUSIC_ROOT else ""
+
+
+def _rb_gate() -> Optional[str]:
     """Return an error string if Rekordbox is currently running."""
     try:
         if rekordbox_is_running():
@@ -146,6 +187,20 @@ mcp = FastMCP(
         "- import_to_rekordbox and link_playlists default to live mode (no dry run). "
         "  Pass dry_run=True to preview first.\n"
         "- All writes create a timestamped backup of the Rekordbox database automatically."
+        "\n\n"
+        "DEPENDENCY GATES (check_checkpoint before dispatching dependent tools):\n"
+        "- audit_library     → no prerequisites\n"
+        "- scan_novelty      → no prerequisites\n"
+        "- find_duplicates   → check_checkpoint(\"audit_library\", scope) first\n"
+        "- tag_tracks        → check_checkpoint(\"audit_library\", scope) first\n"
+        "- rename_files      → check_checkpoint(\"tag_tracks\", scope) first\n"
+        "- organize_library  → check_checkpoint(\"rename_files\", scope) first\n"
+        "- import_to_rekordbox → check_checkpoint(\"organize_library\", scope) first\n"
+        "- link_playlists    → check_checkpoint(\"import_to_rekordbox\", scope) first\n"
+        "\n"
+        "Parallel-safe (no shared write resource conflict):\n"
+        "  audit_library + scan_novelty\n"
+        "  find_duplicates + tag_tracks (after audit checkpoint)"
     ),
 )
 
@@ -159,9 +214,10 @@ def get_library_status() -> str:
     Shows database paths, music root, archive location, and whether
     Rekordbox is currently running. No files are read or written.
     """
-    if _CONFIG_ERROR:
+    cfg = _get_config()
+    if not cfg:
         return (
-            f"FableGear is not configured: {_CONFIG_ERROR}\n"
+            f"FableGear is not configured: {_CONFIG_ERROR or 'missing or invalid config.json'}\n"
             "Run `python3 cli.py setup` first."
         )
 
@@ -171,15 +227,107 @@ def get_library_status() -> str:
     except Exception:
         pass
 
+    archive_mode = str(cfg.get("archive_mode", "auto"))
+    custom_archive = str(cfg.get("custom_archive_dir", "")).strip()
+    if archive_mode == "custom" and custom_archive:
+        archive_root = custom_archive
+    else:
+        archive_root = str(Path(str(cfg["music_root"])).parent / "FableGear Archive")
+
     lines = [
         "FableGear Library Status",
         "─" * 44,
         f"Rekordbox running : {'YES — close before any write tool' if rb_running else 'No'}",
-        f"Local DB          : {LOCAL_DB}",
-        f"Music root        : {MUSIC_ROOT}",
-        f"Archive root      : {ARCHIVE_ROOT}",
+        f"Local DB          : {cfg.get('local_db')}",
+        f"Device DB         : {cfg.get('device_db')}",
+        f"Music root        : {cfg.get('music_root')}",
+        f"Archive root      : {archive_root}",
+        f"Mode              : {cfg.get('mode', 'suburban')}",
     ]
     return "\n".join(lines)
+
+
+@mcp.tool(name="get_drive_status")
+def get_drive_status_tool() -> str:
+    """
+    Return current mount/path health for configured library paths.
+
+    Safe read-only helper for onboarding and troubleshooting. This tool never
+    writes files and is safe to call even before configuration exists.
+    """
+    return json.dumps(probe_drive_status(), indent=2)
+
+
+@mcp.tool()
+def configure_paths(
+    local_db: str,
+    device_db: str,
+    music_root: str,
+    backup_dir: str,
+    target_lufs: Optional[float] = None,
+    mode: Optional[str] = None,
+) -> str:
+    """
+    Create or update ~/.fablegear/config.json from MCP.
+
+    This writes only the FableGear config file (atomic save), not the Rekordbox
+    database. It enables AI-assisted onboarding without shell setup.
+
+    Required:
+      local_db, device_db, music_root, backup_dir
+
+    Optional:
+      target_lufs (float), mode ("rural" or "suburban")
+    """
+    cleaned = {
+        "local_db": local_db.strip(),
+        "device_db": device_db.strip(),
+        "music_root": music_root.strip(),
+        "backup_dir": backup_dir.strip(),
+    }
+    missing = [k for k, v in cleaned.items() if not v]
+    if missing:
+        return f"Missing required fields: {', '.join(missing)}"
+
+    cfg = _get_config() or {}
+    for key, default in USER_CONFIG_DEFAULTS.items():
+        cfg.setdefault(key, default)
+    cfg.update(cleaned)
+
+    if target_lufs is not None:
+        try:
+            cfg["target_lufs"] = float(target_lufs)
+        except (TypeError, ValueError):
+            return "target_lufs must be a number."
+
+    if mode is not None:
+        normalized_mode = mode.strip().lower()
+        if normalized_mode not in ("rural", "suburban"):
+            return "mode must be either 'rural' or 'suburban'."
+        cfg["mode"] = normalized_mode
+
+    try:
+        save_user_config(cfg)
+    except Exception as exc:
+        return f"Failed to save config: {exc}"
+
+    try:
+        import config as _config
+
+        _config = importlib.reload(_config)
+        job_dispatcher.reconfigure(Path(str(_config.ARCHIVE_ROOT)) / "Checkpoints")
+    except Exception:
+        pass
+
+    return (
+        "Configuration saved successfully.\n\n"
+        f"local_db: {cfg.get('local_db')}\n"
+        f"device_db: {cfg.get('device_db')}\n"
+        f"music_root: {cfg.get('music_root')}\n"
+        f"backup_dir: {cfg.get('backup_dir')}\n"
+        f"target_lufs: {cfg.get('target_lufs')}\n"
+        f"mode: {cfg.get('mode')}"
+    )
 
 
 @mcp.tool()
@@ -204,14 +352,18 @@ def audit_library(
     if err := _cfg_gate():
         return err
 
-    cli_args: list[str] = ["audit"]
-    root = music_root.strip() or (str(MUSIC_ROOT) if MUSIC_ROOT else "")
+    cli_args: list = ["audit"]
+    root = music_root.strip() or _effective_music_root()
     if root:
         cli_args += ["--root", root]
     for extra in [e.strip() for e in extra_roots.split(",") if e.strip()]:
         cli_args += ["--also-scan", extra]
 
-    return _run_cli(*cli_args)
+    return job_dispatcher.dispatch(
+        tool="audit_library",
+        cli_args=cli_args,
+        scope=root,
+    )
 
 
 @mcp.tool()
@@ -238,14 +390,22 @@ def find_duplicates(
     if err := _cfg_gate():
         return err
 
-    root = music_root.strip() or (str(MUSIC_ROOT) if MUSIC_ROOT else "")
+    root = music_root.strip() or _effective_music_root()
     if not root:
         return "No music root configured. Pass music_root or run `python3 cli.py setup`."
 
-    return _run_cli(
-        "duplicates", root,
-        "--match-mode", match_mode,
-        "--workers", str(workers),
+    cli_args = [
+        "duplicates",
+        root,
+        "--match-mode",
+        match_mode,
+        "--workers",
+        str(workers),
+    ]
+    return job_dispatcher.dispatch(
+        tool="find_duplicates",
+        cli_args=cli_args,
+        scope=root,
     )
 
 
@@ -281,7 +441,11 @@ def scan_novelty(
     if not dry_run:
         cli_args.append("--no-dry-run")
 
-    return _run_cli(*cli_args)
+    return job_dispatcher.dispatch(
+        tool="scan_novelty",
+        cli_args=cli_args,
+        scope=source_path.strip(),
+    )
 
 
 # ─── Write tools (Rekordbox must be closed) ────────────────────────────────────
@@ -313,7 +477,7 @@ def tag_tracks(
     if err := _rb_gate():
         return err
 
-    root = music_root.strip() or (str(MUSIC_ROOT) if MUSIC_ROOT else "")
+    root = music_root.strip() or _effective_music_root()
     if not root:
         return "No music root configured. Pass music_root or run `python3 cli.py setup`."
 
@@ -325,8 +489,12 @@ def tag_tracks(
     if not normalize_loudness:
         cli_args.append("--no-normalize")
 
-    # Large libraries can take hours — generous timeout
-    return _run_cli(*cli_args, timeout=14400)
+    return job_dispatcher.dispatch(
+        tool="tag_tracks",
+        cli_args=cli_args,
+        scope=root,
+        timeout=14400,
+    )
 
 
 @mcp.tool()
@@ -361,7 +529,11 @@ def import_to_rekordbox(
     if resume:
         cli_args.append("--resume")
 
-    return _run_cli(*cli_args)
+    return job_dispatcher.dispatch(
+        tool="import_to_rekordbox",
+        cli_args=cli_args,
+        scope=source_path.strip(),
+    )
 
 
 @mcp.tool()
@@ -393,7 +565,11 @@ def link_playlists(
     if dry_run:
         cli_args.append("--dry-run")
 
-    return _run_cli(*cli_args)
+    return job_dispatcher.dispatch(
+        tool="link_playlists",
+        cli_args=cli_args,
+        scope=source_path.strip(),
+    )
 
 
 @mcp.tool()
@@ -425,7 +601,12 @@ def relocate_tracks(
     if not old_root.strip() or not new_root.strip():
         return "Both old_root and new_root are required."
 
-    return _run_cli("relocate", old_root.strip(), new_root.strip())
+    cli_args = ["relocate", old_root.strip(), new_root.strip()]
+    return job_dispatcher.dispatch(
+        tool="relocate_tracks",
+        cli_args=cli_args,
+        scope=new_root.strip(),
+    )
 
 
 @mcp.tool()
@@ -477,7 +658,12 @@ def organize_library(
     if not dry_run:
         cli_args.append("--no-dry-run")
 
-    return _run_cli(*cli_args, timeout=7200)
+    return job_dispatcher.dispatch(
+        tool="organize_library",
+        cli_args=cli_args,
+        scope=target_path.strip(),
+        timeout=7200,
+    )
 
 
 @mcp.tool()
@@ -506,7 +692,7 @@ def rename_files(
         if err := _rb_gate():
             return err
 
-    root = source_path.strip() or (str(MUSIC_ROOT) if MUSIC_ROOT else "")
+    root = source_path.strip() or _effective_music_root()
     if not root:
         return "No source path configured. Pass source_path or run `python3 cli.py setup`."
 
@@ -514,7 +700,131 @@ def rename_files(
     if not dry_run:
         cli_args.append("--no-dry-run")
 
-    return _run_cli(*cli_args)
+    return job_dispatcher.dispatch(
+        tool="rename_files",
+        cli_args=cli_args,
+        scope=root,
+    )
+
+
+@mcp.tool()
+def get_job_status(job_id: str) -> str:
+    """
+    Poll the status of a previously dispatched background job.
+
+    Returns full job details including state (pending/running/done/error),
+    timing, and the complete CLI output once the job completes.
+
+    Call this repeatedly until state is 'done' or 'error'.
+    Typically poll every 5–15 seconds for long-running tools.
+
+    Args:
+        job_id: The job_id string returned by the tool that dispatched the job.
+    """
+    record = job_dispatcher.get_status(job_id.strip())
+    if record is None:
+        return f"No job found with id '{job_id}'. Jobs are session-scoped and reset on server restart."
+    return json.dumps(record, indent=2)
+
+
+@mcp.tool()
+def list_jobs(state: str = "") -> str:
+    """
+    List all background jobs in the current session.
+
+    Args:
+        state: Optional filter. One of: pending, running, done, error.
+               Leave blank to list all jobs.
+    """
+    records = job_dispatcher.list_all(state_filter=state.strip() or None)
+    if not records:
+        msg = f"No jobs with state '{state}'." if state else "No jobs dispatched this session."
+        return msg
+
+    summary = []
+    for r in records:
+        summary.append(
+            {
+                "job_id": r["job_id"],
+                "tool": r["tool"],
+                "state": r["state"],
+                "scope": r["scope"],
+                "dispatched_at": r["dispatched_at"],
+                "duration_seconds": r["duration_seconds"],
+                "checkpoint_path": r["checkpoint_path"],
+            }
+        )
+    return json.dumps(summary, indent=2)
+
+
+@mcp.tool()
+def check_checkpoint(tool: str, scope: str = "") -> str:
+    """
+    Check whether a completed checkpoint exists for a tool + scope combination.
+
+    Use this to determine whether a prerequisite tool has already run on a
+    given folder before dispatching a dependent tool. This is how the
+    dependency gate works: tag_tracks before rename_files, rename_files before
+    organize_library, and so on.
+
+    Returns checkpoint metadata if found (including when it ran and the
+    report path), or a clear 'not found' message.
+
+    Args:
+        tool:  Tool name to check. E.g. "tag_tracks", "audit_library".
+        scope: The folder path the tool ran on. Leave blank for global tools.
+    """
+    cp = job_dispatcher.find_checkpoint(tool.strip(), scope.strip())
+    if cp is None:
+        return (
+            f"No completed checkpoint found for tool='{tool}' scope='{scope}'. "
+            f"Dispatch '{tool}' first, then wait for it to complete."
+        )
+    return json.dumps(cp, indent=2)
+
+
+@mcp.tool()
+def get_job_history(
+    limit: int = 50,
+    tool: str = "",
+    state: str = "",
+    scope: str = "",
+) -> str:
+    """
+    Return persisted background job history from SQLite.
+
+    Args:
+        limit: Max rows to return (1-500). Default 50.
+        tool: Optional tool name filter.
+        state: Optional state filter: pending, running, done, error.
+        scope: Optional scope path filter (canonicalized before matching).
+    """
+    records = job_dispatcher.get_history(
+        limit=limit,
+        tool=tool.strip() or None,
+        state=state.strip() or None,
+        scope=scope.strip() or None,
+    )
+    if not records:
+        return "No persisted jobs found for the provided filters."
+    return json.dumps(records, indent=2)
+
+
+@mcp.tool()
+def get_job_output(job_id: str, max_chars: int = 0) -> str:
+    """
+    Return output for a specific job, preferring full blob output when available.
+
+    Args:
+        job_id: Job identifier returned by dispatch tools.
+        max_chars: Optional truncation limit for output text. 0 means no truncation.
+    """
+    if not job_id.strip():
+        return "job_id is required."
+    record = job_dispatcher.get_output(job_id.strip(), max_chars=max_chars)
+    if record is None:
+        return f"No persisted output found for job_id '{job_id}'."
+    return json.dumps(record, indent=2)
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
