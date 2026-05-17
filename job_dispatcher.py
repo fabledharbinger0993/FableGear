@@ -321,10 +321,45 @@ def _broadcast(record: JobRecord) -> None:
 
 
 def get_status(job_id: str) -> Optional[Dict]:
-    """Return the JobRecord dict for job_id, or None if not found."""
+    """Return the JobRecord dict for job_id, or None if not found.
+
+    Looks up the in-memory job table first (active or just-finished jobs in this
+    process), then falls back to the persisted SQLite history for jobs that
+    completed in a prior session. The persisted record carries the same shape
+    minus live in-memory-only fields, with a `source` key indicating origin.
+    """
     with _jobs_lock:
         record = _jobs.get(job_id)
-    return asdict(record) if record else None
+    if record is not None:
+        data = asdict(record)
+        data["source"] = "memory"
+        return data
+
+    # Persistent fallback — same columns get_output uses
+    with _db_lock:
+        conn = _db_connect()
+        if conn is None:
+            return None
+        try:
+            row = conn.execute(
+                """
+                SELECT job_id, tool, state, scope, dispatched_at, started_at, completed_at,
+                       duration_seconds, exit_code, result_summary, result_blob_path, checkpoint_path
+                FROM jobs
+                WHERE job_id = ?
+                """,
+                (job_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            persisted = dict(row)
+            persisted["source"] = "persisted"
+            return persisted
+        except sqlite3.Error:
+            _log.exception("job persistence status query failed for job_id=%s", job_id)
+            return None
+        finally:
+            conn.close()
 
 
 def list_all(state_filter: Optional[str] = None) -> List[Dict]:

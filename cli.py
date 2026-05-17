@@ -1062,23 +1062,29 @@ def cmd_organize(args: argparse.Namespace) -> None:
         if not s.is_dir():
             log.error("SOURCE is not a directory: %s", s)
             sys.exit(1)
-    if not target.is_dir():
-        try:
-            target.mkdir(parents=True, exist_ok=True)
-            log.info("Created target directory: %s", target)
-        except OSError as e:
-            log.error("Cannot create target directory %s: %s", target, e)
-            sys.exit(1)
 
     dry_run     = not args.no_dry_run
     max_workers = max(1, getattr(args, "workers", 1))
     threshold   = float(getattr(args, "mix_threshold", 15)) * 60.0
 
+    if not target.is_dir():
+        if dry_run:
+            log.info("Target directory does not exist yet: %s (would be created on a live run)", target)
+        else:
+            try:
+                target.mkdir(parents=True, exist_ok=True)
+                log.info("Created target directory: %s", target)
+            except OSError as e:
+                log.error("Cannot create target directory %s: %s", target, e)
+                sys.exit(1)
+
     if dry_run:
         log.info("DRY RUN — no files will be touched. Pass --no-dry-run to execute.")
 
-    verb = "copy" if mode == "integrate" else "move"
-    action_verb = "copied" if mode == "integrate" else "moved"
+    # Past-participle forms used in both dry-run plans and live reports.
+    # Using full past-tense words avoids "{verb}ed" suffixing producing "copyed".
+    action_past = "copied" if mode == "integrate" else "moved"
+    action_verb = action_past
     log.info(
         "Organizing  sources=%s  target=%s  mode=%s  dry_run=%s  workers=%d  mix_threshold=%.0f min",
         [str(s) for s in sources], target, mode, dry_run, max_workers, threshold / 60,
@@ -1104,9 +1110,9 @@ def cmd_organize(args: argparse.Namespace) -> None:
         root_lines = [f"{len(root_results)} files scanned."]
         if root_moved:
             root_lines.append(
-                f"{root_moved} files would be {verb}ed into Artist / Album / Track folders."
+                f"{root_moved} files would be {action_past} into Artist / Album / Track folders."
                 if dry_run else
-                f"{root_moved} files were {action_verb} into Artist / Album / Track folders."
+                f"{root_moved} files were {action_past} into Artist / Album / Track folders."
             )
         if root_skipped:
             root_lines.append(f"{root_skipped} were already at the destination — left alone.")
@@ -1124,7 +1130,6 @@ def cmd_organize(args: argparse.Namespace) -> None:
     src_desc = str(sources[0]) if len(sources) == 1 else f"{len(sources)} source folders"
 
     if dry_run:
-        dry_verb = "copy" if mode == "integrate" else "move"
         mode_note = (
             "Integration mode — files will be copied to the target; the source drive stays untouched."
             if mode == "integrate" else
@@ -1137,14 +1142,14 @@ def cmd_organize(args: argparse.Namespace) -> None:
             f"Mode: {mode_note}",
         ]
         if moved:
-            lines.append(f"  {moved} would be {dry_verb}ed into Artist / Album / Track folders.")
+            lines.append(f"  {moved} would be {action_past} into Artist / Album / Track folders.")
         if skipped:
             lines.append(f"  {skipped} are exact copies already at the destination — they'd be skipped.")
         if conflicts:
             lines.append(f"  {conflicts} have a name clash — they'd be renamed (e.g. track_1.mp3).")
         if errors:
             lines.append(f"  {errors} had errors — check the log above.")
-        lines += ["", f"Nothing has been {dry_verb}ed. Uncheck \"Dry Run\" and run again to execute."]
+        lines += ["", f"Nothing has been {action_past}. Uncheck \"Dry Run\" and run again to execute."]
     else:
         lines = ["Done organizing.", ""]
         if moved:

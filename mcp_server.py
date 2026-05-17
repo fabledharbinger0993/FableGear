@@ -143,6 +143,44 @@ def _rb_gate() -> Optional[str]:
     return None
 
 
+# Dependency map enforced by `_dep_gate`. Mirrors the advisory order in the
+# server instructions string. Each value is the prerequisite tool that must
+# have a completed checkpoint for the given scope before the keyed tool runs.
+# Callers can bypass with force=True (e.g. when checkpoints exist out-of-band
+# or the operator has explicit reason to skip the precondition).
+_DEPENDENCY_MAP: Dict[str, str] = {
+    "find_duplicates":     "audit_library",
+    "tag_tracks":          "audit_library",
+    "rename_files":        "tag_tracks",
+    "organize_library":    "rename_files",
+    "import_to_rekordbox": "organize_library",
+    "link_playlists":      "import_to_rekordbox",
+}
+
+
+def _dep_gate(tool: str, scope: str, force: bool = False) -> Optional[str]:
+    """Return an error string if the prerequisite checkpoint is missing.
+
+    Returns None when:
+      - tool has no prerequisite, OR
+      - force=True (caller explicitly overrides), OR
+      - a completed checkpoint for the prerequisite exists for this scope.
+    """
+    if force:
+        return None
+    prereq = _DEPENDENCY_MAP.get(tool)
+    if not prereq:
+        return None
+    cp = job_dispatcher.find_checkpoint(prereq, scope.strip())
+    if cp is not None:
+        return None
+    return (
+        f"Dependency gate: '{tool}' requires a completed '{prereq}' checkpoint "
+        f"for scope='{scope or '<global>'}'. Run '{prereq}' first, or pass "
+        f"force=True to bypass this check."
+    )
+
+
 def _run_cli(*args: str, timeout: int = 600) -> str:
     """
     Invoke cli.py with the given arguments.
@@ -371,6 +409,7 @@ def find_duplicates(
     music_root: str = "",
     match_mode: str = "exact",
     workers: int = 1,
+    force: bool = False,
 ) -> str:
     """
     Scan the library for acoustically identical files using Chromaprint
@@ -379,6 +418,7 @@ def find_duplicates(
 
     Requires the 'fpcalc' binary (install via: brew install chromaprint).
     Safe to run with Rekordbox open or closed.
+    Gate: requires an audit_library checkpoint for this scope unless force=True.
 
     Args:
         music_root:  Folder to scan. Uses configured default if blank.
@@ -386,6 +426,7 @@ def find_duplicates(
                      "fuzzy" (catches near-identical files with minor edits).
         workers:     Parallel fingerprinting workers. Default 1.
                      Increase to 2–4 on fast SSDs; keep at 1 on external drives.
+        force:       Bypass the audit_library dependency gate. Default False.
     """
     if err := _cfg_gate():
         return err
@@ -393,6 +434,9 @@ def find_duplicates(
     root = music_root.strip() or _effective_music_root()
     if not root:
         return "No music root configured. Pass music_root or run `python3 cli.py setup`."
+
+    if err := _dep_gate("find_duplicates", root, force=force):
+        return err
 
     cli_args = [
         "duplicates",
@@ -457,13 +501,16 @@ def tag_tracks(
     detect_key: bool = True,
     normalize_loudness: bool = True,
     workers: int = 1,
+    dry_run: bool = False,
+    force: bool = False,
 ) -> str:
     """
     Analyze audio files and write BPM, musical key (Camelot notation),
     and loudness (LUFS normalization) tags to all audio files under
     the given path. Uses librosa for analysis and mutagen for tag writes.
 
-    REQUIRES Rekordbox to be closed.
+    REQUIRES Rekordbox to be closed (unless dry_run=True).
+    Gate: requires an audit_library checkpoint for this scope unless force=True.
 
     Args:
         music_root:         Folder to process. Uses configured default if blank.
@@ -471,15 +518,23 @@ def tag_tracks(
         detect_key:         Detect and write key in Camelot notation. Default True.
         normalize_loudness: Normalize loudness to the configured LUFS target. Default True.
         workers:            Parallel workers. Default 1 (safe). Increase on fast SSDs.
+        dry_run:            Preview mode — loudness normalisation suppressed.
+                            BPM/key tag writes still occur unless detect_bpm /
+                            detect_key are False. Default False.
+        force:              Bypass the audit_library dependency gate. Default False.
     """
     if err := _cfg_gate():
         return err
-    if err := _rb_gate():
-        return err
+    if not dry_run:
+        if err := _rb_gate():
+            return err
 
     root = music_root.strip() or _effective_music_root()
     if not root:
         return "No music root configured. Pass music_root or run `python3 cli.py setup`."
+
+    if err := _dep_gate("tag_tracks", root, force=force):
+        return err
 
     cli_args = ["process", root, "--workers", str(workers)]
     if not detect_bpm:
@@ -488,6 +543,8 @@ def tag_tracks(
         cli_args.append("--no-key")
     if not normalize_loudness:
         cli_args.append("--no-normalize")
+    if dry_run:
+        cli_args.append("--dry-run")
 
     return job_dispatcher.dispatch(
         tool="tag_tracks",
@@ -502,17 +559,20 @@ def import_to_rekordbox(
     source_path: str,
     dry_run: bool = False,
     resume: bool = True,
+    force: bool = False,
 ) -> str:
     """
     Import audio files from a folder into the Rekordbox database.
     Each audio file found under source_path is registered as a new track.
 
     REQUIRES Rekordbox to be closed (unless dry_run=True).
+    Gate: requires an organize_library checkpoint for this scope unless force=True.
 
     Args:
         source_path: Path to the folder containing audio files to import.
         dry_run:     Preview what would be imported without writing. Default False.
         resume:      Skip tracks already present in the database. Default True.
+        force:       Bypass the organize_library dependency gate. Default False.
     """
     if err := _cfg_gate():
         return err
@@ -522,6 +582,9 @@ def import_to_rekordbox(
 
     if not source_path.strip():
         return "source_path is required."
+
+    if err := _dep_gate("import_to_rekordbox", source_path, force=force):
+        return err
 
     cli_args = ["import", source_path.strip()]
     if dry_run:
@@ -540,6 +603,7 @@ def import_to_rekordbox(
 def link_playlists(
     source_path: str,
     dry_run: bool = False,
+    force: bool = False,
 ) -> str:
     """
     Match imported tracks to existing Rekordbox playlists based on the
@@ -547,10 +611,12 @@ def link_playlists(
     to wire tracks into the correct playlists automatically.
 
     REQUIRES Rekordbox to be closed (unless dry_run=True).
+    Gate: requires an import_to_rekordbox checkpoint for this scope unless force=True.
 
     Args:
         source_path: The same folder used for import.
         dry_run:     Preview playlist matches without writing. Default False.
+        force:       Bypass the import_to_rekordbox dependency gate. Default False.
     """
     if err := _cfg_gate():
         return err
@@ -560,6 +626,9 @@ def link_playlists(
 
     if not source_path.strip():
         return "source_path is required."
+
+    if err := _dep_gate("link_playlists", source_path, force=force):
+        return err
 
     cli_args = ["link", source_path.strip()]
     if dry_run:
@@ -617,6 +686,7 @@ def organize_library(
     mode: str = "assimilate",
     mix_threshold_minutes: float = 15.0,
     workers: int = 1,
+    force: bool = False,
 ) -> str:
     """
     Consolidate audio files into a clean Artist / Album / Track folder
@@ -625,6 +695,7 @@ def organize_library(
 
     Defaults to dry_run=True — always preview first.
     REQUIRES Rekordbox to be closed when dry_run=False.
+    Gate: requires a rename_files checkpoint for the source scope unless force=True.
 
     Args:
         source_path:            Folder to scan for audio files.
@@ -635,6 +706,7 @@ def organize_library(
         mix_threshold_minutes:  Tracks at or above this length go to Live Sets & Mixes.
                                 Default 15.0 minutes.
         workers:                Parallel I/O workers for the move phase. Default 1.
+        force:                  Bypass the rename_files dependency gate. Default False.
     """
     if err := _cfg_gate():
         return err
@@ -646,6 +718,9 @@ def organize_library(
         return "source_path is required."
     if not target_path.strip():
         return "target_path is required."
+
+    if err := _dep_gate("organize_library", source_path, force=force):
+        return err
 
     cli_args = [
         "organize",
@@ -671,6 +746,7 @@ def rename_files(
     source_path: str = "",
     dry_run: bool = True,
     workers: int = 1,
+    force: bool = False,
 ) -> str:
     """
     Rename audio files to clean titles derived from their embedded metadata
@@ -679,12 +755,14 @@ def rename_files(
 
     Defaults to dry_run=True — always preview the proposed renames first.
     REQUIRES Rekordbox to be closed when dry_run=False.
+    Gate: requires a tag_tracks checkpoint for this scope unless force=True.
 
     Args:
         source_path: Folder containing files to rename.
                      Uses configured music root if blank.
         dry_run:     Preview proposed renames without executing. Default True (safe).
         workers:     Parallel workers. Default 1.
+        force:       Bypass the tag_tracks dependency gate. Default False.
     """
     if err := _cfg_gate():
         return err
@@ -695,6 +773,9 @@ def rename_files(
     root = source_path.strip() or _effective_music_root()
     if not root:
         return "No source path configured. Pass source_path or run `python3 cli.py setup`."
+
+    if err := _dep_gate("rename_files", root, force=force):
+        return err
 
     cli_args = ["rename", root, "--workers", str(workers)]
     if not dry_run:
@@ -715,6 +796,11 @@ def get_job_status(job_id: str) -> str:
     Returns full job details including state (pending/running/done/error),
     timing, and the complete CLI output once the job completes.
 
+    Looks up in-memory state first (jobs dispatched in this process), then
+    falls back to persisted SQLite history for jobs that completed in a
+    prior session. The response includes a `source` field of either
+    "memory" or "persisted".
+
     Call this repeatedly until state is 'done' or 'error'.
     Typically poll every 5–15 seconds for long-running tools.
 
@@ -723,7 +809,11 @@ def get_job_status(job_id: str) -> str:
     """
     record = job_dispatcher.get_status(job_id.strip())
     if record is None:
-        return f"No job found with id '{job_id}'. Jobs are session-scoped and reset on server restart."
+        return (
+            f"No job found with id '{job_id}'. Not present in memory or "
+            f"persisted history — check the id spelling or use list_jobs / "
+            f"get_job_history to find recent jobs."
+        )
     return json.dumps(record, indent=2)
 
 

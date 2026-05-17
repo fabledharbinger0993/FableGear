@@ -174,6 +174,8 @@ MIN_FILE_BYTES: int = 8
 
 # Base set of directory names to never descend into while scanning the music root.
 # Covers Pioneer system folders, macOS internals, and common non-music app data.
+# Note: dotfile-style dirs (.git, .venv, .tox, etc.) are already skipped by callers
+# via `not d.startswith(".")`, so only non-dotfile dirs need to be listed here.
 SKIP_DIRS: set[str] = {
     # Pioneer / DJ system
     "PIONEER", "PIONEER REC",
@@ -184,6 +186,12 @@ SKIP_DIRS: set[str] = {
     "ollama", "FableGear Archive",
     # Processing artifacts left by FableGear or other tools
     "DJMT PRIMARY_PROCESSING_LOGIC", "POST PROCESS ZIP ARCHIVE",
+    # Source-control, language toolchains, and build outputs that may sit inside
+    # a scanned root (e.g. when auditing a repo path or a music drive that also
+    # hosts code). Audio files in these are never real library content.
+    "venv", "node_modules", "__pycache__",
+    "dist", "build", "target",
+    "site-packages",
 }
 
 # Merge in any user-specified exclusions from config.json ("excluded_dirs" key)
