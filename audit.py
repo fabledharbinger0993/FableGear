@@ -16,6 +16,7 @@ Typical usage:
 """
 
 import logging
+import os
 import platform
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -283,7 +284,8 @@ def find_orphans(db: Rekordbox6Database, root: Path) -> OrphanReport:
         log.warning("Orphan scan root does not exist: %s", root)
         return report
 
-    for dirpath, dirnames, filenames in root.walk():
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirpath = Path(dirpath)
         # Prune skip dirs in-place
         dirnames[:] = [
             d for d in dirnames

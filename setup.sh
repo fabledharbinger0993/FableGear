@@ -126,6 +126,18 @@ if [ ! -f "$VENV/bin/activate" ]; then
 fi
 ok "Virtual environment ready"
 
+# Verify the venv Python meets FableGear's minimum (3.11+)
+VENV_MINOR=$("$VENV/bin/python" -c 'import sys; print(sys.version_info[1])' 2>/dev/null)
+VENV_VER=$("$VENV/bin/python" --version 2>&1 | awk '{print $2}')
+if [ "${VENV_MINOR:-0}" -lt 11 ]; then
+  echo ""
+  echo "  ✗  Python $VENV_VER in this venv is too old — FableGear requires 3.11 or later."
+  echo "     Run: brew install python@3.12  then double-click FableGear again."
+  read -rp "     Press Return to close this window." _
+  exit 1
+fi
+ok "Python version check passed ($VENV_VER)"
+
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
 

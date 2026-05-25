@@ -80,11 +80,15 @@ if command -v tailscale &>/dev/null; then
   tailscale up --accept-routes >> "$LOG" 2>&1 &
 fi
 
-# ── Launch FableGear ───────────────────────────────────────────────────────
-# Force arm64 — the Python.framework binary is universal; if launched from
-# an x86_64 parent (e.g. Automator applet under Rosetta), Python would
-# default to x86_64 and fail to load arm64-only compiled extensions.
-nohup arch -arm64 "$PYTHON" "$SCRIPT_DIR/main.py" >> "$LOG" 2>&1 &
+# ── Launch FableGear (arch-aware) ─────────────────────────────────────────
+# Use 'arch -arm64' only on Apple Silicon; on Intel (e.g. 2011 Mac mini
+# running Monterey via OCLP) run the venv Python directly.
+ARCH_NAME=$(uname -m)
+if [ "$ARCH_NAME" = "arm64" ]; then
+  nohup arch -arm64 "$PYTHON" "$SCRIPT_DIR/main.py" >> "$LOG" 2>&1 &
+else
+  nohup "$PYTHON" "$SCRIPT_DIR/main.py" >> "$LOG" 2>&1 &
+fi
 
 # ── Close Terminal window if launched interactively ───────────────────────
 if [ -t 0 ]; then

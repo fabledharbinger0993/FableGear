@@ -16,6 +16,7 @@ BPM is returned as a float (e.g. 126.0) — the importer applies ×100.
 """
 
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -350,7 +351,8 @@ def scan_directory(
     if not root.is_dir():
         raise ValueError(f"scan_directory: {root} is not a directory")
 
-    for dirpath, dirnames, filenames in root.walk():
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirpath = Path(dirpath)
         # Prune skip dirs in-place so os.walk doesn't descend into them
         dirnames[:] = [
             d for d in dirnames

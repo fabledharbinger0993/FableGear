@@ -232,6 +232,7 @@ function organizeZoneAdd()  { const t = document.getElementById('organize-zone-t
 function relocateOldZoneAdd() { const t = document.getElementById('relocate-old-zone-text'); if (t?.value.trim()) { addFolderPill('relocate-old-pills', t.value.trim()); t.value = ''; } }
 function linkZoneAdd()      { const t = document.getElementById('link-zone-text');      if (t?.value.trim()) { addFolderPill('link-pills',      t.value.trim()); t.value = ''; } }
 function noveltyZoneAdd()   { const t = document.getElementById('novelty-zone-text');   if (t?.value.trim()) { addFolderPill('novelty-pills',   t.value.trim()); t.value = ''; } }
+function deadFilesZoneAdd() { const t = document.getElementById('dead-files-zone-text'); if (t?.value.trim()) { addFolderPill('dead-files-pills', t.value.trim()); t.value = ''; } }
 
 /* Browse buttons — opens the native folder picker dialog.
    Prefers window.pywebview.api.pick_folder() when running inside the
@@ -398,6 +399,14 @@ function runAudit() {
   // 'paths' param — api_audit() uses first as --root, rest as --also-scan
   paths.forEach(path => p.append('paths', path));
   runCommand(`/api/run/audit?${p.toString()}`, 'Audit — Database + Physical Scan', null, true);
+}
+
+function runDeadFiles() {
+  const paths = getFolderPaths('dead-files-pills');
+  if (!paths.length) { showToast('Add at least one drive or folder to scan.', 'warning'); return; }
+  const p = new URLSearchParams();
+  paths.forEach(path => p.append('paths', path));
+  runCommand(`/api/run/dead-files?${p.toString()}`, 'Dead File Scanner — Untracked Audio Files', null, true);
 }
 
 async function previewCanonicalPlan() {

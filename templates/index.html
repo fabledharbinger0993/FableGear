@@ -700,10 +700,11 @@
     <button type="button" class="db-panel-close" onclick="closeDbPanel()" title="Close">✕</button>
   </div>
   <nav class="db-panel-nav" role="tablist">
-    <button type="button" class="db-tool-btn" id="rail-btn-audit"    role="tab" onclick="openDbPanel('audit')">Audit</button>
-    <button type="button" class="db-tool-btn" id="rail-btn-relocate" role="tab" onclick="openDbPanel('relocate')">Relocate</button>
-    <button type="button" class="db-tool-btn" id="rail-btn-link"     role="tab" onclick="openDbPanel('link')">Link</button>
-    <button type="button" class="db-tool-btn" id="rail-btn-import"   role="tab" onclick="openDbPanel('import')">Import</button>
+    <button type="button" class="db-tool-btn" id="rail-btn-audit"       role="tab" onclick="openDbPanel('audit')">Audit</button>
+    <button type="button" class="db-tool-btn" id="rail-btn-relocate"    role="tab" onclick="openDbPanel('relocate')">Relocate</button>
+    <button type="button" class="db-tool-btn" id="rail-btn-link"        role="tab" onclick="openDbPanel('link')">Link</button>
+    <button type="button" class="db-tool-btn" id="rail-btn-import"      role="tab" onclick="openDbPanel('import')">Import</button>
+    <button type="button" class="db-tool-btn" id="rail-btn-dead-files"  role="tab" onclick="openDbPanel('dead-files')">Dead Files</button>
   </nav>
   <div class="db-panel-body">
 
@@ -712,6 +713,8 @@
     {% include 'partials/rekordbox_db/link_path.html' %}
 
     {% include 'partials/rekordbox_db/import.html' %}
+
+    {% include 'partials/rekordbox_db/dead_files.html' %}
   </div>
 </div>
 

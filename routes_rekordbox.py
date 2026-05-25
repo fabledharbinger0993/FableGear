@@ -202,6 +202,19 @@ def api_audit_path_roots():
         return jsonify({"error": str(exc)}), 500
 
 
+# ── Dead File Scan ────────────────────────────────────────────────────────────
+
+@bp.route("/api/run/dead-files")
+def api_dead_files():
+    paths = [p.strip() for p in request.args.getlist("paths") if p.strip()]
+    if not paths:
+        return jsonify({"error": "At least one path is required"}), 400
+    cmd = [sys.executable, str(CLI_PATH), "dead-files", paths[0]]
+    for extra in paths[1:]:
+        cmd += ["--also-scan", extra]
+    return _sse_response(cmd, library_root=paths[0], step_name="dead-files")
+
+
 # ── Pioneer DB migration ──────────────────────────────────────────────────────
 
 @bp.route("/api/migrate-pioneer-db", methods=["POST"])
