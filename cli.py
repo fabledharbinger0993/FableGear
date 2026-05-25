@@ -148,6 +148,52 @@ def cmd_audit(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_dead_files(args: argparse.Namespace) -> None:
+    """Find audio files on disk not referenced in any Rekordbox database."""
+    from dead_file_scanner import scan_dead_files
+
+    roots = [Path(args.path)] + [Path(p) for p in (args.also_scan or [])]
+
+    for root in roots:
+        if not root.is_dir():
+            log.error("PATH is not a directory: %s", root)
+            sys.exit(1)
+
+    db_paths = None  # defaults to LOCAL_DB + DJMT_DB
+
+    total_found = [0]
+    total_files = [0]
+
+    def _progress(scanned: int, total: int) -> None:
+        total_files[0] = total
+        total_found[0] = scanned
+        print(f"FABLEGEAR_SCAN_TICK: {scanned}", flush=True)
+
+    log.info("Dead-file scan: roots=%s", [str(r) for r in roots])
+    try:
+        result = scan_dead_files(roots, db_paths=db_paths, progress_cb=_progress)
+
+        print(f"Scanned {result.total_scanned:,} audio files across {len(roots)} root(s).", flush=True)
+        if result.db_paths_used:
+            for db in result.db_paths_used:
+                print(f"  DB: {db}", flush=True)
+        else:
+            print("  ⚠ No databases found — all files appear untracked.", flush=True)
+
+        if result.dead_count == 0:
+            print(f"✓ All {result.total_scanned:,} files are referenced in a database.", flush=True)
+        else:
+            print(f"⚠ {result.dead_count:,} untracked file(s):", flush=True)
+            for f in result.dead_files:
+                print(f"  DEAD: {f}", flush=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        _emit_report(result.summary(), "DeadFiles", f"dead_files_{timestamp}.txt")
+    except Exception:
+        log.exception("Dead-file scan failed")
+        sys.exit(1)
+
+
 def cmd_import(args: argparse.Namespace) -> None:
     """Import audio files under one or more source paths into the database."""
     from importer import import_directory
@@ -1720,6 +1766,25 @@ Examples:
         help="Parallel workers (default: 1)",
     )
     p_rename.set_defaults(func=cmd_rename)
+
+    # ── dead-files ──
+    p_dead = sub.add_parser(
+        "dead-files",
+        help="Find audio files on disk not referenced in any Rekordbox database",
+    )
+    p_dead.add_argument(
+        "path",
+        metavar="PATH",
+        help="Root directory to scan (e.g. /Volumes/MyDrive/Music)",
+    )
+    p_dead.add_argument(
+        "--also-scan",
+        metavar="PATH",
+        action="append",
+        dest="also_scan",
+        help="Additional root directory to include in the scan (repeatable)",
+    )
+    p_dead.set_defaults(func=cmd_dead_files)
 
     return parser
 

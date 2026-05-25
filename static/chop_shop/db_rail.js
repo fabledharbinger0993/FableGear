@@ -7,10 +7,11 @@
 
 /* ── DB Rail panel open/close ─────────────────────────────────────────────── */
 const DB_PANEL_TITLES = {
-  audit:    'Audit Library',
-  relocate: 'Relocate — Fix Broken Paths',
-  import:   'Import Tracks',
-  link:     'Link Playlists',
+  audit:       'Audit Library',
+  relocate:    'Relocate — Fix Broken Paths',
+  import:      'Import Tracks',
+  link:        'Link Playlists',
+  'dead-files': 'Dead File Scanner',
 };
 let _dbPanelActive = null;
 
