@@ -40,6 +40,7 @@ Public interface:
 import difflib
 import hashlib
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, TYPE_CHECKING
@@ -81,7 +82,8 @@ def _walk_audio_files(root: Path) -> list[Path]:
     Used to build both the hash and fuzzy indexes from a single walk.
     """
     files: list[Path] = []
-    for dirpath, dirnames, filenames in root.walk():
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirpath = Path(dirpath)
         dirnames[:] = [
             d for d in dirnames
             if d not in SKIP_DIRS and not d.startswith(".")

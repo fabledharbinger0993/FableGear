@@ -37,11 +37,7 @@ _PY_FORMULA = f"python@{sys.version_info.major}.{sys.version_info.minor}"
 BREW_DEPS: frozenset[str] = frozenset({
     _PY_FORMULA,
     "ffmpeg",
-    "lame",          # MP3 encoding
-    "opus",          # Opus encoding
-    "libvorbis",     # OGG encoding
-    "flac",          # FLAC encoding
-    "libsndfile",    # WAV / AIFF I/O
+    "chromaprint",
 })
 
 # ── Check interval ────────────────────────────────────────────────────────────

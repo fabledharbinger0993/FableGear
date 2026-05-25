@@ -842,7 +842,8 @@ def _acoustid_lookup(
 def _walk_audio_files(root: Path) -> list[Path]:
     """Walk root and return all audio files, respecting skip rules."""
     files: list[Path] = []
-    for dirpath, dirnames, filenames in root.walk():
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirpath = Path(dirpath)
         dirnames[:] = [
             d for d in dirnames
             if d not in SKIP_DIRS and not d.startswith(".")
