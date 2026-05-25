@@ -282,7 +282,7 @@ input[type="range"] { -webkit-app-region: no-drag; }
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
   width: 100%;
-  min-height: 76px;
+  min-height: 66px;
   padding: 8px 4px;
   gap: 3px;
   background: transparent;
@@ -420,11 +420,54 @@ input[type="range"] { -webkit-app-region: no-drag; }
   font-size: 1rem; cursor: pointer; padding: 0 4px; flex-shrink: 0;
 }
 
+/* ── Room shell ────────────────────────────────────────────────────────── */
+body.fg-space-record #chop-shop-workspace,
+body.fg-space-record .workflow-rail { display: none !important; }
+
+body.fg-space-chop #library-editor-overlay { display: none !important; }
+
 /* ── Workflow rail ─────────────────────────────────────────────────────── */
-.workflow-rail { display: none !important; }
+.workflow-rail {
+  display: none;
+  position: fixed;
+  top: calc(var(--titlebar-h) + var(--header-h));
+  left: var(--left-panel-w);
+  right: var(--nav-bar-right-w);
+  z-index: 30;
+  min-height: 58px;
+  padding: 8px 18px;
+  gap: 8px;
+  align-items: stretch;
+  overflow-x: auto;
+  background: rgba(8, 12, 18, .92);
+  border-bottom: 1px solid var(--border);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+body.fg-space-chop .workflow-rail { display: flex; }
+.step-tab {
+  min-width: 104px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255,255,255,.035);
+  color: var(--text-muted);
+  padding: 8px 10px;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.step-tab:hover,
+.step-tab.active {
+  border-color: rgba(var(--accent-rgb), .45);
+  background: rgba(var(--accent-rgb), .12);
+  color: var(--accent);
+}
+.step-num { display: block; font-size: 1rem; line-height: 1; margin-bottom: 4px; }
 
 /* ── Main layout ───────────────────────────────────────────────────────── */
-main { max-width: 820px; margin: 0 auto; padding: 32px 28px; }
+main { max-width: 1080px; margin: 0 auto; padding: 116px 28px 32px; }
 .section-title {
   font-size: .7rem; letter-spacing: .1em; text-transform: uppercase;
   color: var(--text-dim); margin-bottom: 20px; margin-top: 40px;
@@ -433,7 +476,7 @@ main { max-width: 820px; margin: 0 auto; padding: 32px 28px; }
 
 /* ── Tool cards ────────────────────────────────────────────────────────── */
 main .card {
-  display: none; /* Hidden in main - cards now live in toolkit modal */
+  display: block;
 }
 
 .card {
@@ -4621,12 +4664,25 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
 #rkb-update-skip   { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: rgba(180,215,225,0.8); border-radius: 8px; padding: 8px 18px; font-size: .82rem; cursor: pointer; }
 #rkb-update-go     { background: rgba(0,180,200,0.25); border: 1px solid rgba(0,212,232,0.45); color: #a0f0f8; border-radius: 8px; padding: 8px 18px; font-size: .82rem; font-weight: 600; cursor: pointer; }
 
-/* ── Library workspace placeholder ─────────────────────────────────────── */
-#library-workspace          { padding: 40px; text-align: center; }
-#library-workspace h2       { color: var(--text-muted); font-size: 1.2rem; margin-bottom: 16px; }
-#library-workspace > p      { color: var(--text-dim); font-size: .9rem; max-width: 600px; margin: 0 auto 24px; line-height: 1.6; }
-#library-workspace > p strong { color: var(--accent); }
-#library-workspace .btn     { font-size: .9rem; padding: 10px 24px; }
+/* ── Chop Shop intro ──────────────────────────────────────────────────── */
+#chop-shop-intro {
+  padding: 24px 28px;
+  margin-bottom: 22px;
+  border: 1px solid rgba(var(--accent-rgb), .2);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), .10), rgba(255,255,255,.025));
+}
+#chop-shop-intro .room-kicker {
+  color: var(--accent);
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+#chop-shop-intro h2 { color: var(--text); font-size: 1.22rem; margin-bottom: 8px; }
+#chop-shop-intro > p { color: var(--text-muted); font-size: .88rem; max-width: 760px; margin-bottom: 16px; line-height: 1.6; }
+#chop-shop-intro .btn { font-size: .82rem; padding: 8px 16px; }
 
 /* ── Section title (hidden instance) ───────────────────────────────────── */
 .section-title-hidden { display: none; }
@@ -5234,3 +5290,154 @@ footer {
 .hotplug-icon { font-size: 1rem; flex-shrink: 0; }
 .hotplug-banner .brew-dismiss { margin-left: auto; }
 
+
+/* ══ First-run room launcher overlay ═════════════════════════════════════════ */
+#fg-room-launcher {
+  position: fixed;
+  inset: 0;
+  z-index: 99000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at top, rgba(0,0,0,.78), rgba(0,0,0,.94));
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  opacity: 0;
+  transition: opacity .24s ease;
+  pointer-events: none;
+}
+#fg-room-launcher.visible { opacity: 1; pointer-events: auto; }
+
+#fg-room-launcher .fg-launcher-inner {
+  width: min(880px, 92vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  padding: 40px 36px 32px;
+  background: linear-gradient(180deg, rgba(20,20,28,.92), rgba(10,10,14,.92));
+  border: 1px solid rgba(var(--accent-rgb), .22);
+  border-radius: 18px;
+  box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04) inset;
+  transform: translateY(8px);
+  transition: transform .26s ease;
+}
+#fg-room-launcher.visible .fg-launcher-inner { transform: translateY(0); }
+
+#fg-room-launcher .fg-launcher-brand { text-align: center; }
+#fg-room-launcher .fg-launcher-title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: .01em;
+  color: var(--text);
+}
+#fg-room-launcher .fg-launcher-sub {
+  margin-top: 8px;
+  font-size: .92rem;
+  color: var(--text-dim, rgba(255,255,255,.65));
+}
+#fg-room-launcher .fg-launcher-sub kbd {
+  display: inline-block;
+  padding: 1px 7px;
+  margin: 0 2px;
+  border-radius: 5px;
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.14);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .82em;
+}
+
+#fg-room-launcher .fg-launcher-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  width: 100%;
+}
+@media (max-width: 720px) {
+  #fg-room-launcher .fg-launcher-grid { grid-template-columns: 1fr; }
+}
+
+#fg-room-launcher .fg-launcher-card {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 22px 18px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(255,255,255,.04), rgba(255,255,255,.015));
+  border: 1px solid rgba(255,255,255,.08);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease;
+  font: inherit;
+}
+#fg-room-launcher .fg-launcher-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(var(--accent-rgb), .55);
+  background: linear-gradient(160deg, rgba(var(--accent-rgb), .10), rgba(255,255,255,.02));
+  box-shadow: 0 10px 30px rgba(0,0,0,.45), 0 0 0 1px rgba(var(--accent-rgb), .22) inset;
+}
+#fg-room-launcher .fg-launcher-card:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), .8);
+  outline-offset: 3px;
+}
+#fg-room-launcher .fg-launcher-card-icon { font-size: 2rem; line-height: 1; }
+#fg-room-launcher .fg-launcher-card-title { font-size: 1.15rem; font-weight: 700; }
+#fg-room-launcher .fg-launcher-card-desc {
+  font-size: .86rem;
+  color: var(--text-dim, rgba(255,255,255,.66));
+  line-height: 1.45;
+}
+#fg-room-launcher .fg-launcher-card-hint {
+  margin-top: auto;
+  font-size: .78rem;
+  color: rgba(255,255,255,.45);
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+#fg-room-launcher .fg-launcher-card-hint kbd {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.12);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+#fg-room-launcher .fg-launcher-dismiss {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,.5);
+  font-size: .85rem;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: color .15s ease, background .15s ease;
+}
+#fg-room-launcher .fg-launcher-dismiss:hover {
+  color: var(--text);
+  background: rgba(255,255,255,.05);
+}
+
+/* ── Persistent rail switcher polish ───────────────────────────────────────── */
+#lp-record-room-btn.active,
+#lp-chop-shop-btn.active {
+  background: rgba(var(--accent-rgb), .14);
+  border-color: rgba(var(--accent-rgb), .55);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), .25) inset,
+              0 6px 18px rgba(var(--accent-rgb), .12);
+}
+#lp-record-room-btn.active::before,
+#lp-chop-shop-btn.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14%;
+  bottom: 14%;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), .7);
+}
+#lp-record-room-btn,
+#lp-chop-shop-btn { position: relative; }

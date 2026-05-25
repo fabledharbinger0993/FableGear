@@ -10,6 +10,31 @@ let activeSource = null;
 let isRunning    = false;
 let rbRunning    = false;
 let renamePreflightState = null;
+let _fgActiveSpace = 'record';
+
+function setFableGearSpace(space) {
+  const nextSpace = space === 'chop' ? 'chop' : 'record';
+  _fgActiveSpace = nextSpace;
+
+  document.body.classList.toggle('fg-space-record', nextSpace === 'record');
+  document.body.classList.toggle('fg-space-chop', nextSpace === 'chop');
+  document.getElementById('lp-record-room-btn')?.classList.toggle('active', nextSpace === 'record');
+  document.getElementById('lp-chop-shop-btn')?.classList.toggle('active', nextSpace === 'chop');
+
+  const recordRoom = document.getElementById('library-editor-overlay');
+  if (recordRoom) recordRoom.classList.toggle('hidden', nextSpace !== 'record');
+
+  if (nextSpace === 'record') {
+    closeDbPanel();
+    closeToolFloatModal();
+    closeRightNavDropdown();
+    if (!_leTracksLoaded) setLibraryMode('db');
+  } else {
+    closeRightNavDropdown();
+  }
+
+  localStorage.setItem('fablegear-space', nextSpace);
+}
 
 /* ── File Browser Panel ─────────────────────────────────────────────────────── */
 let _fbCurrentPath = '/Volumes';
@@ -1802,6 +1827,8 @@ checkDeadRoots();
 /* ── Workflow rail scroll ───────────────────────────────────────────────────── */
 document.querySelectorAll('.step-tab').forEach(btn => {
   btn.addEventListener('click', () => {
+    document.querySelectorAll('.step-tab').forEach(tab => tab.classList.remove('active'));
+    btn.classList.add('active');
     if (btn.dataset.target) openToolDrawer(btn.dataset.target);
   });
 });
@@ -5049,6 +5076,7 @@ const DB_PANEL_TITLES = {
 let _dbPanelActive = null;
 
 function openDbPanel(tool) {
+  if (_fgActiveSpace !== 'chop') setFableGearSpace('chop');
   closeRightNavDropdown();
   // Deactivate all sections + rail buttons
   document.querySelectorAll('.db-panel-section').forEach(s => s.classList.remove('active'));
@@ -5107,6 +5135,7 @@ let _leTracksLoaded = false;
 
 /* Library editor is always the primary view — openLibraryEditor just reloads if needed */
 function openLibraryEditor() {
+  if (_fgActiveSpace !== 'record') setFableGearSpace('record');
   _leOpen = true;
   // setLibraryMode('db') is idempotent: leLoadLibrary() checks _leTracksLoaded
   // before fetching, so this is safe to call on every open. It also activates
@@ -5192,6 +5221,7 @@ function toggleToolDrawerPin() {}
 /* ── Floating Tool Modal ─────────────────────────────────────────────── */
 let _toolFloatActive     = null;   // currently displayed toolId
 let _toolFloatPrevParent = null;   // DOM parent the card was borrowed from
+let _toolFloatPlaceholder = null;  // preserves the card's position while borrowed
 
 function openToolFloatModal(toolId) {
   const modal    = document.getElementById('tool-float-modal');
@@ -5206,6 +5236,8 @@ function openToolFloatModal(toolId) {
 
   _toolFloatActive    = toolId;
   _toolFloatPrevParent = card.parentNode;
+  _toolFloatPlaceholder = document.createComment(`fablegear-tool-placeholder:${toolId}`);
+  _toolFloatPrevParent?.insertBefore(_toolFloatPlaceholder, card);
 
   // Populate modal header
   const navBtn  = document.querySelector(`#tools-panel .tool-btn[data-step="${toolId}"]`);
@@ -5247,6 +5279,9 @@ function openToolFloatModal(toolId) {
   document.querySelectorAll('#tools-panel .tool-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.step === toolId);
   });
+  document.querySelectorAll('.step-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.target === toolId);
+  });
   _expandedTool = toolId;
 }
 
@@ -5266,9 +5301,17 @@ function closeToolFloatModal() {
 function _returnFloatCard() {
   if (!_toolFloatActive) return;
   const card = document.getElementById(_toolFloatActive);
-  if (card && _toolFloatPrevParent) _toolFloatPrevParent.appendChild(card);
+  if (card && _toolFloatPrevParent) {
+    if (_toolFloatPlaceholder && _toolFloatPlaceholder.parentNode === _toolFloatPrevParent) {
+      _toolFloatPrevParent.insertBefore(card, _toolFloatPlaceholder);
+      _toolFloatPlaceholder.remove();
+    } else {
+      _toolFloatPrevParent.appendChild(card);
+    }
+  }
   _toolFloatActive    = null;
   _toolFloatPrevParent = null;
+  _toolFloatPlaceholder = null;
 }
 
 /* ── Tool Panel Expand/Collapse ──────────────────────────────────────────── */
@@ -6166,14 +6209,7 @@ function _leExportShowErrors(errors) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  /* Move workflow-rail + main into the tool drawer body */
-  const drawerBody = document.getElementById('tool-drawer-body');
-  if (drawerBody) {
-    const rail = document.getElementById('workflow-rail');
-    const main = document.querySelector('main');
-    if (rail) drawerBody.appendChild(rail);
-    if (main) drawerBody.appendChild(main);
-  }
+  setFableGearSpace(localStorage.getItem('fablegear-space') || 'record');
 
   /* Load the lighter playlist tree first; tracks load on demand */
   leLoadPlaylistsOnly();
@@ -6572,30 +6608,10 @@ fetch('/api/connectivity')
   })
   .catch(() => {});
 
-// ── Toolkit Modal ─────────────────────────────────────────────────────────────
-
-let _toolkitPopulated = false;
+// ── Legacy toolkit launcher ──────────────────────────────────────────────────
 
 function openToolkitModal() {
-  const modal = document.getElementById('toolkit-modal');
-  const content = document.getElementById('toolkit-content');
-  if (!modal || !content) return;
-
-  // Return any borrowed card before populating the toolkit
-  if (_toolFloatActive) closeToolFloatModal();
-  
-  if (!_toolkitPopulated) {
-    _toolkitPopulated = true;
-    // Clear placeholder paragraph before migrating cards
-    content.innerHTML = '';
-    const main = document.querySelector('main');
-    const sectionTitle = main.querySelector('.section-title');
-    if (sectionTitle) sectionTitle.style.display = 'none';
-    Array.from(main.querySelectorAll('.card')).forEach(card => content.appendChild(card));
-  }
-  
-  modal.style.display = 'flex';
-  document.body.style.overflow = 'hidden';
+  setFableGearSpace('chop');
 }
 
 function closeToolkitModal() {
