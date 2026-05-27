@@ -1,0 +1,33 @@
+# FableGear build image — produces dist/FableGear.app
+# Build: docker build -f Dockerfile.build -t fablegear-builder .
+# Run:   docker run --rm -v $(pwd)/dist:/app/dist fablegear-builder
+
+FROM python:3.11-slim
+
+# Install system dependencies: ffmpeg, chromaprint (fpcalc), build tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    chromaprint \
+    git \
+    curl \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy only requirements first for better layer caching
+COPY requirements.txt requirements_build.txt ./
+
+# Install Python dependencies
+RUN python -m pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir -r requirements_build.txt
+
+# Copy the entire app source
+COPY . .
+
+# Create output directory
+RUN mkdir -p /app/dist
+
+# Build the .app
+CMD ["bash", "-c", "pyinstaller FableGear.spec --noconfirm && echo '✓ FableGear.app built successfully'"]

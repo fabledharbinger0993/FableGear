@@ -16,42 +16,6 @@
       "problemMatcher": []
     },
     {
-      "label": "autosync-watch",
-      "type": "shell",
-      "command": "./scripts/autosync.sh start",
-      "runOptions": {
-        "runOn": "folderOpen"
-      },
-      "presentation": {
-        "reveal": "never",
-        "panel": "dedicated",
-        "clear": false
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "autosync-status",
-      "type": "shell",
-      "command": "./scripts/autosync.sh status",
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated",
-        "clear": false
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "autosync-stop",
-      "type": "shell",
-      "command": "./scripts/autosync.sh stop",
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated",
-        "clear": false
-      },
-      "problemMatcher": []
-    },
-    {
       "label": "agent-workflow-start",
       "type": "shell",
       "command": "./scripts/agent_workflow.sh start",
