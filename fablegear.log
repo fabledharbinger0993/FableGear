@@ -3,3 +3,6 @@ arch: Unknown architecture: arm64
 arch: Unknown architecture: arm64
 arch: Unknown architecture: arm64
 arch: Unknown architecture: arm64
+./launch_local.sh: /Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/bin/pip: /Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/bin/python: bad interpreter: No such file or directory
+./launch_local.sh: /Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/bin/pip: /Volumes/DJMT/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/bin/python: bad interpreter: No such file or directory
+nohup: /Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/bin/python: No such file or directory
