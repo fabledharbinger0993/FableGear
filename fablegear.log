@@ -244,3 +244,4 @@ Traceback (most recent call last):
 RuntimeError: rekordbox-toolkit has not been configured yet.
   Config expected at: /Users/fabledharbingerFabledHarbinger/.fablegear/config.json
   Run:  python3 cli.py setup
+2026-05-27 01:39:20.599 python[90890:597987] Warning: Window move completed without beginning
