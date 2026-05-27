@@ -110,3 +110,71 @@ Traceback (most recent call last):
 RuntimeError: rekordbox-toolkit has not been configured yet.
   Config expected at: /Users/fabledharbingerFabledHarbinger/.fablegear/config.json
   Run:  python3 cli.py setup
+ERROR:app:Exception on /api/library/playlists [GET]
+Traceback (most recent call last):
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/config.py", line 29, in <module>
+    _cfg = load_user_config()
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/user_config.py", line 154, in load_user_config
+    raise NotConfiguredError(
+    ...<3 lines>...
+    )
+user_config.NotConfiguredError: rekordbox-toolkit has not been configured yet.
+  Config expected at: /Users/fabledharbingerFabledHarbinger/.fablegear/config.json
+  Run:  python3 cli.py setup
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/lib/python3.13/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/lib/python3.13/site-packages/flask/app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/lib/python3.13/site-packages/flask/app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/lib/python3.13/site-packages/flask/app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/routes_player.py", line 590, in api_library_playlists
+    _DB = _resolve_db(request.args.get("db"))
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/routes_player.py", line 266, in _resolve_db
+    from config import LOCAL_DB, DJMT_DB  # noqa: PLC0415
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/config.py", line 31, in <module>
+    raise RuntimeError(str(_exc)) from _exc
+RuntimeError: rekordbox-toolkit has not been configured yet.
+  Config expected at: /Users/fabledharbingerFabledHarbinger/.fablegear/config.json
+  Run:  python3 cli.py setup
+ERROR:app:Exception on /api/library/playlists [GET]
+Traceback (most recent call last):
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/lib/python3.13/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/lib/python3.13/site-packages/flask/app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/lib/python3.13/site-packages/flask/app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/lib/python3.13/site-packages/flask/app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/routes_player.py", line 590, in api_library_playlists
+    _DB = _resolve_db(request.args.get("db"))
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/routes_player.py", line 266, in _resolve_db
+    from config import LOCAL_DB, DJMT_DB  # noqa: PLC0415
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ImportError: cannot import name 'LOCAL_DB' from 'config' (/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/config.py)
+ERROR:app:Exception on /api/library/tracks [GET]
+Traceback (most recent call last):
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/lib/python3.13/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/lib/python3.13/site-packages/flask/app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/lib/python3.13/site-packages/flask/app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/venv/lib/python3.13/site-packages/flask/app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/routes_player.py", line 275, in api_library_tracks
+    _DB = _resolve_db(request.args.get("db"))
+  File "/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/routes_player.py", line 266, in _resolve_db
+    from config import LOCAL_DB, DJMT_DB  # noqa: PLC0415
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ImportError: cannot import name 'LOCAL_DB' from 'config' (/Users/fabledharbingerFabledHarbinger/Desktop/FABLEDHARBINGER/GIT_REPOS/FableGear/config.py)
