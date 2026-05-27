@@ -5418,6 +5418,15 @@ footer {
   color: var(--text);
   background: rgba(255,255,255,.05);
 }
+#fg-room-launcher .fg-launcher-perm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 560px;
+}
+#fg-room-launcher .welcome-tool-list { font-size: .83rem; }
+#fg-room-launcher .welcome-tool-item { font-size: .83rem; }
 
 /* ── Persistent rail switcher polish ───────────────────────────────────────── */
 #lp-record-room-btn.active,
