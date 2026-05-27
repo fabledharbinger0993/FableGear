@@ -452,57 +452,60 @@ def api_brew_upgrade():
 
 @app.route("/api/finder-selection")
 def api_finder_selection():
-    """Return the path of the currently selected item in Finder."""
+    """Return the path of the currently selected item in Finder (macOS only)."""
     source = request.args.get("source", "")
 
-    _finder_script = """\
+    if _SYSTEM == "Darwin":
+        _finder_script = """\
 tell application "Finder"
     set sel to selection
     if (count of sel) > 0 then
         return POSIX path of (item 1 of sel as alias)
     end if
 end tell"""
-    try:
-        r = subprocess.run(
-            ["osascript", "-e", _finder_script],
-            capture_output=True, text=True, timeout=60,
-        )
-        app.logger.debug("[finder-selection] rc=%d stdout=%r stderr=%r",
-                         r.returncode, r.stdout, r.stderr)
-        if r.returncode == 0 and r.stdout.strip():
-            return jsonify({"path": r.stdout.strip().rstrip("/")})
-    except Exception as exc:
-        app.logger.debug("[finder-selection] exception: %s", exc)
+        try:
+            r = subprocess.run(
+                ["osascript", "-e", _finder_script],
+                capture_output=True, text=True, timeout=60,
+            )
+            app.logger.debug("[finder-selection] rc=%d stdout=%r stderr=%r",
+                             r.returncode, r.stdout, r.stderr)
+            if r.returncode == 0 and r.stdout.strip():
+                return jsonify({"path": r.stdout.strip().rstrip("/")})
+        except Exception as exc:
+            app.logger.debug("[finder-selection] exception: %s", exc)
 
-    if source == "drop":
-        app.logger.debug("[finder-selection] source=drop, returning null")
-        return jsonify({"path": None})
+        if source == "drop":
+            app.logger.debug("[finder-selection] source=drop, returning null")
+            return jsonify({"path": None})
 
-    try:
-        r = subprocess.run(
-            ["osascript", "-e", "POSIX path of (choose folder)"],
-            capture_output=True, text=True, timeout=120,
-        )
-        if r.returncode == 0:
-            return jsonify({"path": r.stdout.strip().rstrip("/")})
-    except Exception:
-        pass
+        try:
+            r = subprocess.run(
+                ["osascript", "-e", "POSIX path of (choose folder)"],
+                capture_output=True, text=True, timeout=120,
+            )
+            if r.returncode == 0:
+                return jsonify({"path": r.stdout.strip().rstrip("/")})
+        except Exception:
+            pass
 
     return jsonify({"path": None})
 
 
 @app.route("/api/pick-folder")
 def api_pick_folder():
-    """Open the native macOS folder-chooser dialog (Browse button)."""
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", "POSIX path of (choose folder)"],
-            capture_output=True, text=True, timeout=120,
-        )
-        if result.returncode == 0:
-            return jsonify({"path": result.stdout.strip().rstrip("/")})
-    except Exception:
-        pass
+    """Open the native folder-chooser dialog. macOS uses osascript; other platforms
+    rely on pywebview's js_api.pick_folder() called directly from the frontend."""
+    if _SYSTEM == "Darwin":
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", "POSIX path of (choose folder)"],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode == 0:
+                return jsonify({"path": result.stdout.strip().rstrip("/")})
+        except Exception:
+            pass
     return jsonify({"path": None})
 
 
@@ -609,7 +612,12 @@ def api_fs_list():
         ".aiff", ".aif", ".aifc", ".wav", ".flac", ".mp3",
         ".m4a", ".m4p", ".mp4", ".m4v", ".alac", ".ogg", ".opus",
     }
-    default_root = "C:\\" if _SYSTEM == "Windows" else "/Volumes"
+    if _SYSTEM == "Windows":
+        default_root = "C:\\"
+    elif _SYSTEM == "Darwin":
+        default_root = "/Volumes"
+    else:
+        default_root = "/media"
     path_str = request.args.get("path", default_root)
     p = Path(path_str)
     if not p.exists() or not p.is_dir():
@@ -763,22 +771,23 @@ def api_set_music_root():
 @app.route("/api/drives/autodetect")
 def api_drives_autodetect():
     """
-    Scan /Volumes/ for Pioneer DB files and music library roots.
+    Scan mounted drives for Pioneer DB files and music library roots.
     Returns candidate paths for device_db and music_root so the user
     can confirm and apply them with one click via /api/drives/apply-fix.
+    Works on macOS, Windows, and Linux.
     """
     import os as _os  # noqa: PLC0415
 
     device_db_candidates: list[str] = []
     music_root_candidates: list[str] = []
-
-    volumes = Path("/Volumes")
-    if not volumes.exists():
-        return jsonify({"device_db": [], "music_root": []})
-
     audio_exts = {".mp3", ".flac", ".aif", ".aiff", ".wav", ".m4a", ".ogg"}
 
-    for vol in sorted(volumes.iterdir()):
+    mounts = _mounted_volumes()
+    if not mounts:
+        return jsonify({"device_db": [], "music_root": []})
+
+    for mount in mounts:
+        vol = Path(mount["mountpoint"])
         if not vol.is_dir():
             continue
         # Pioneer device DB
