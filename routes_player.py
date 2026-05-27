@@ -313,14 +313,39 @@ def api_library_fs_browse():
     path_str = request.args.get("path", "")
     recursive = request.args.get("recursive", "0").lower() in ("1", "true", "yes")
 
-    # ── /Volumes sentinel — return volume picker payload ────────────────────
-    volumes_root = Path("/Volumes")
-    if not path_str or Path(path_str).resolve() == volumes_root:
+    # ── Volume-root sentinel — return drive picker payload ──────────────────
+    if _SYSTEM == "Windows":
+        volumes_root = None          # Windows: synthesised from drive letters
+        _is_vol_root = not path_str
+    elif _SYSTEM == "Darwin":
+        volumes_root = Path("/Volumes")
+        _is_vol_root = not path_str or Path(path_str).resolve() == volumes_root
+    else:
+        # Linux: prefer /media/<user>, fall back to /mnt
+        import getpass as _gp  # noqa: PLC0415
+        _user_media = Path("/media") / _gp.getuser()
+        volumes_root = _user_media if _user_media.is_dir() else Path("/media")
+        _is_vol_root = not path_str or Path(path_str).resolve() in (volumes_root, Path("/mnt"))
+
+    if _is_vol_root:
         _AUDIO = {".mp3", ".flac", ".aac", ".wav", ".aiff", ".aif", ".m4a", ".ogg", ".opus", ".wv", ".alac"}
         volumes = []
+
+        # Build the list of root dirs to scan — platform-specific
+        if _SYSTEM == "Windows":
+            import string as _str  # noqa: PLC0415
+            scan_roots = [
+                Path(f"{d}:\\") for d in _str.ascii_uppercase
+                if d not in ("A", "B") and Path(f"{d}:\\").exists()
+            ]
+            vroot_str = "Drives"
+        else:
+            scan_roots = sorted(volumes_root.iterdir()) if volumes_root and volumes_root.exists() else []
+            vroot_str = str(volumes_root)
+
         try:
-            for vol in sorted(volumes_root.iterdir()):
-                if not vol.is_dir() or vol.name.startswith("."):
+            for vol in scan_roots:
+                if not vol.is_dir() or (hasattr(vol, "name") and vol.name.startswith(".")):
                     continue
                 audio_estimate = 0
                 try:
@@ -337,8 +362,9 @@ def api_library_fs_browse():
                 except Exception:
                     pass
                 has_pioneer_db = (vol / "PIONEER" / "rekordbox" / "master.db").exists()
+                vol_name = vol.name if vol.name else str(vol).rstrip("/\\")
                 volumes.append({
-                    "name": vol.name,
+                    "name": vol_name,
                     "path": str(vol),
                     "audio_estimate": audio_estimate,
                     "total_gb": total_gb,
@@ -348,7 +374,7 @@ def api_library_fs_browse():
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
         return jsonify({
-            "path":           str(volumes_root),
+            "path":           vroot_str,
             "is_volumes_root": True,
             "music_root":     str(_MR),
             "parent":         None,

@@ -346,6 +346,8 @@ function leUpdateActionState() {
   }
   if (renameBtn) renameBtn.disabled = !_leActiveNodeId;
   if (deleteBtn) deleteBtn.disabled = !_leActiveNodeId;
+  const stageSelBtn = document.getElementById('le-stage-selected-btn');
+  if (stageSelBtn) stageSelBtn.disabled = _leSelectedTrackIds.size === 0;
   if (!_leActivePlaylistId) {
     addBtn.textContent = 'Select Playlist';
   } else if (_leSelectedTrackIds.size === 0) {

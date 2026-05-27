@@ -104,6 +104,48 @@ function loadDrivesDropdown(dropdown) {
     });
 }
 
+/* ── Left-rail drive list ─────────────────────────────────────────────────── */
+
+let _driveListOpen = false;
+
+function toggleDriveList() {
+  _driveListOpen = !_driveListOpen;
+  const list = document.getElementById('drive-list');
+  if (!list) return;
+  if (_driveListOpen) {
+    initDriveList();
+  } else {
+    list.innerHTML = '';
+  }
+}
+
+function initDriveList() {
+  const list = document.getElementById('drive-list');
+  if (!list) return;
+  list.innerHTML = '<div class="lp-drives-loading">Scanning…</div>';
+  fetch('/api/status')
+    .then(r => r.json())
+    .then(data => {
+      const vols = data.volumes || [];
+      if (!vols.length) {
+        list.innerHTML = '<div class="lp-drives-empty">No drives</div>';
+        return;
+      }
+      list.innerHTML = vols.map(v => `
+        <div class="lp-drives-item" onclick="openDriveInFileBrowser('${_escPath(v.mountpoint)}')">
+          <span class="lp-drives-name">${_esc(v.name)}</span>
+          ${v.has_pioneer_db ? '<span class="lp-drives-badge">Pioneer</span>' : ''}
+          ${v.free_gb != null ? `<span class="lp-drives-meta">${v.free_gb}/${v.total_gb} GB</span>` : ''}
+          <button type="button" class="le-stage-btn" title="Stage drive for Chop Shop"
+                  onclick="event.stopPropagation(); stagingAddPath('${_escAttr(v.mountpoint)}')">+Q</button>
+        </div>
+      `).join('');
+    })
+    .catch(() => {
+      if (list) list.innerHTML = '<div class="lp-drives-empty">Unavailable</div>';
+    });
+}
+
 function openDriveInLibrary(mountpoint) {
   closeRightNavDropdown();
   setLibraryMode('fs', mountpoint);

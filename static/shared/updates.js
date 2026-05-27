@@ -345,6 +345,8 @@ async function refreshStatus() {
     _updateHealthFromStatus(data.health);
     // ── Volume hotplug detection ──────────────────────────────────────────
     _detectVolumeChanges(data.volumes || []);
+    // ── Refresh left-rail drive list if open ─────────────────────────────
+    if (typeof _driveListOpen !== 'undefined' && _driveListOpen) initDriveList();
   } catch (_) {}
 }
 
