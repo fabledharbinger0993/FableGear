@@ -1,76 +1,91 @@
-# Docker Build Setup for FableGear
+# Docker & Build Guide for FableGear
 
-## Local Development Build
+---
 
-Build FableGear.app locally using Docker (useful for reproducible builds and CI testing):
+## Docker — Headless Server Mode
+
+Docker runs FableGear as a **headless web server** — no native window, just Flask over HTTP. Open `http://localhost:5000` in any browser.
+
+This is useful when:
+- You're on **Windows or Linux** (no macOS pywebview available)
+- You want FableGear running as a **persistent background service**
+- You want a **reproducible environment** for backend testing across your machines (Windows, Mac Studio, Mac mini)
 
 ```bash
 bash docker-build.sh
 ```
 
-This:
-1. Builds a Docker image with Python 3.11, ffmpeg, chromaprint, and all dependencies
-2. Runs PyInstaller inside the container
-3. Outputs `dist/FableGear.app` on your host machine
-
-**Requirements:**
-- Docker installed
-- ~2GB free disk space
-
-**Output:**
-- `dist/FableGear.app` — ready to distribute
-
-To package for release:
+Mount a music folder:
 ```bash
-cd dist && zip -r FableGear.zip FableGear.app
+bash docker-build.sh --music /Volumes/YourDrive
 ```
+
+Force rebuild the image:
+```bash
+bash docker-build.sh --rebuild
+```
+
+**Requirements:** Docker installed, ~1.5GB free disk space.
+
+> **Note:** Docker cannot build a macOS `.app` bundle — PyInstaller requires the target OS. For distributable builds, use the GitHub Actions workflow (push a version tag) or run `bash build_release.sh` on a Mac.
 
 ---
 
-## Automated GitHub Actions Release
+## Automated Release — GitHub Actions
 
-Push a version tag to trigger an automatic build and release:
+Push a version tag to automatically build and publish a release:
 
 ```bash
 git tag v1.0.8
 git push origin v1.0.8
 ```
 
-The workflow:
+The `build-release.yml` workflow:
 1. Triggers on any tag matching `v*.*.*`
-2. Builds FableGear.app on a macOS runner
-3. Creates a GitHub Release with the .app zip and install.sh
-4. Auto-generates release notes
+2. Builds `FableGear.app` on a macOS runner using PyInstaller
+3. Packages it as `FableGear.zip`
+4. Creates a GitHub Release with the zip and `install.sh` attached
+5. Generates release notes with install instructions
 
 **Release notes are customizable** — edit `.github/workflows/build-release.yml` and update the `body:` section.
 
 ---
 
-## How It Works
+## Local macOS Build (PyInstaller)
 
-### Dockerfile.build
+Builds a fully self-contained `.app` with Python + all dependencies bundled — no Python or Homebrew needed on the user's machine.
 
-Builds a Python 3.11 image with:
-- ffmpeg (audio processing)
-- chromaprint (acoustic fingerprinting)
-- PyInstaller (app bundling)
-- All FableGear dependencies from requirements.txt
+```bash
+bash build.sh
+# Output: dist/FableGear.app
+```
 
-### docker-build.sh
+To package for distribution:
+```bash
+cd dist && zip -r FableGear.zip FableGear.app
+```
 
-Local build script that:
-1. Builds the Docker image
-2. Runs the container with `dist/` mounted
-3. Outputs the final .app to your host filesystem
+---
 
-### .github/workflows/build-release.yml
+## Local macOS Build (Shell Launcher — lightweight)
 
-GitHub Actions workflow that:
-1. Listens for version tags (`v1.0.0`, etc.)
-2. Checks out the code
-3. Sets up Python 3.11 and Homebrew dependencies
-4. Builds the .app and zips it
-5. Creates a GitHub Release with the artifact
+Produces a minimal `.app` (~100KB) that clones the repo and runs `launch.sh` on first open. Users need internet access on first launch; setup is automatic.
+
+```bash
+bash build_release.sh            # build only
+bash build_release.sh --release  # build + publish GitHub release
+```
+
+---
+
+## Which approach to use?
+
+| Goal | Use |
+|------|-----|
+| Run on Windows or Linux | `bash docker-build.sh` |
+| Give someone a self-contained Mac app | `bash build.sh` → `dist/FableGear.app` |
+| Publish an official release | `git tag vX.Y.Z && git push origin vX.Y.Z` |
+| Quick lightweight launcher | `bash build_release.sh` |
 
 ---
 
@@ -78,15 +93,12 @@ GitHub Actions workflow that:
 
 **"Docker image build failed"**
 - Ensure Docker is running: `docker ps`
-- Check available disk space: `docker system df`
+- Check disk space: `docker system df`
 
-**"pyinstaller command not found"**
-- The Dockerfile installs PyInstaller; if it's missing, rebuild the image: `docker build -f Dockerfile.build --no-cache -t fablegear-builder:latest .`
-
-**"dist/FableGear.app not created"**
-- Check Docker logs: `docker logs <container_id>`
-- Verify all templates and static files are present in the repo root
+**"FableGear server won't start in Docker"**
+- Check logs: `docker logs fablegear-server`
+- Verify port 5000 isn't already in use: `lsof -i :5000`
 
 **"GitHub Actions build failed"**
-- Check the workflow logs in your GitHub repo: Actions tab
-- Common issues: missing secrets, incorrect Python version, or Homebrew package unavailable
+- Check the workflow logs: GitHub repo → Actions tab
+- Common issues: FableGear.spec referencing wrong paths, missing Homebrew packages
