@@ -56,10 +56,12 @@ function hotplugDismiss() {
 
 function hotplugAcceptScan() {
   if (!_hotplugPending) return;
+  const mp = _hotplugPending.mountpoint;
   hotplugDismiss();
-  // Open filesystem browse to the new drive's mountpoint
-  setLibraryMode('fs', _hotplugPending.mountpoint);
+  // Open filesystem browse in Record Room AND pre-navigate the file browser sidebar
+  setLibraryMode('fs', mp);
   openLibraryEditor();
+  if (typeof fbNavigateTo === 'function') fbNavigateTo(mp);
 }
 
 /* ── Drives nav dropdown ─────────────────────────────────────────────────── */
@@ -83,13 +85,17 @@ function loadDrivesDropdown(dropdown) {
         return;
       }
       dropdown.innerHTML = vols.map(v => `
-        <div class="folder-item drives-item" onclick="openDriveInLibrary('${v.mountpoint}')">
-          <div class="drives-item-row">
+        <div class="folder-item drives-item">
+          <div class="drives-item-row" onclick="openDriveInLibrary('${v.mountpoint}')">
             <span class="drives-item-name">${v.name}</span>
             ${v.has_pioneer_db ? '<span class="drives-item-pill drives-pill-pioneer">Pioneer DB</span>' : ''}
             ${v.is_music_root  ? '<span class="drives-item-pill drives-pill-root">Music Root</span>' : ''}
           </div>
           <div class="drives-item-meta">${v.free_gb != null ? v.free_gb + ' GB free / ' + v.total_gb + ' GB' : ''} &nbsp; ${v.fstype || ''}</div>
+          <div class="drives-item-actions">
+            <button type="button" class="drives-action-btn" onclick="openDriveInFileBrowser('${v.mountpoint}')" title="Browse in file browser">Browse</button>
+            <button type="button" class="drives-action-btn drives-action-stage" onclick="stagingAddPath('${v.mountpoint}')" title="Add entire drive to Staging Queue">+ Queue</button>
+          </div>
         </div>
       `).join('');
     })
@@ -102,5 +108,17 @@ function openDriveInLibrary(mountpoint) {
   closeRightNavDropdown();
   setLibraryMode('fs', mountpoint);
   openLibraryEditor();
+}
+
+function openDriveInFileBrowser(mountpoint) {
+  closeRightNavDropdown();
+  // Navigate the file browser sidebar to this drive's root
+  if (typeof fbNavigateTo === 'function') {
+    fbNavigateTo(mountpoint);
+    const panel = document.getElementById('fb-panel');
+    if (panel && !panel.classList.contains('fb-open')) {
+      if (typeof toggleFileBrowser === 'function') toggleFileBrowser();
+    }
+  }
 }
 

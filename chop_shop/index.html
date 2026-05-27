@@ -187,6 +187,8 @@
 
 {% include 'partials/physical_library/pipeline_wizard.html' %}
 
+{% include 'partials/staging_panel.html' %}
+
 <!-- ══ Step completion report modal ════════════════════════════════════════ -->
 <div id="report-modal-backdrop" class="hidden">
   <div id="report-modal">
@@ -667,6 +669,7 @@
      scope; load order matches the original line order so top-level lets,
      immediate calls, and function hoisting behave identically. -->
 <script src="/static/shared/state.js"></script>
+<script src="/static/shared/staging.js"></script>
 <script src="/static/shared/file_browser.js"></script>
 <script src="/static/shared/modals.js"></script>
 <script src="/static/shared/settings.js"></script>
@@ -854,6 +857,12 @@
           <div class="le-sidebar-section">Filesystem</div>
           <div class="le-fs-crumb" id="le-fs-crumb"></div>
           <div id="le-fs-folder-list"></div>
+          <div class="le-fs-stage-row">
+            <button type="button" class="btn btn-secondary btn-xs le-fs-stage-all-btn"
+                    onclick="_leStageFsCurrentFolder()" title="Stage current folder for Chop Shop">
+              + Queue current folder
+            </button>
+          </div>
         </div>
       </div>
 

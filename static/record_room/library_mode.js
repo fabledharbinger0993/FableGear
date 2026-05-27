@@ -63,6 +63,12 @@ function setLibraryMode(mode, fsRootPath = null) {
   }
 }
 
+function _leStageFsCurrentFolder() {
+  if (_leFsCurrentPath && typeof stagingAddPath === 'function') {
+    stagingAddPath(_leFsCurrentPath);
+  }
+}
+
 function setLeDbSource(source) {
   if (source !== 'local' && source !== 'device') return;
   _leDbSource = source;
@@ -127,6 +133,7 @@ async function leFsBrowse(path) {
         <div class="le-vol-meta">${countStr}</div>
         <div class="le-vol-disk">${freeStr}${freeStr && totalStr ? ' ' : ''}${totalStr}</div>
         ${pioneer}
+        <button type="button" class="le-vol-stage-btn" onclick="event.stopPropagation(); stagingAddPath('${_escAttr(v.path)}')" title="Stage entire drive for Chop Shop">+ Queue</button>
       </div>`;
     }).join('') + '</div>';
     return;
@@ -151,6 +158,7 @@ async function leFsBrowse(path) {
             <span class="le-tree-icon">📁</span>
             <span class="le-tree-label">${_esc(d.name)}</span>
             <span class="le-tree-count">${d.audio_count || ''}</span>
+            <button type="button" class="le-stage-folder-btn" onclick="event.stopPropagation(); stagingAddPath('${_escAttr(d.path)}')" title="Stage folder for Chop Shop">+Q</button>
           </div>
         `).join('');
       }
@@ -177,15 +185,18 @@ async function leFsBrowse(path) {
 
 function _leFsTrackRow(t, idx) {
   const dur = t.duration_s ? _fmtDur(t.duration_s) : '—';
-  // Show the parent folder name as a breadcrumb hint in recursive views.
   const folder = t.path ? t.path.split('/').slice(-2, -1)[0] || '' : '';
+  const safePath = _escAttr(t.path);
   return `
-    <div class="le-track-row le-fs-track-row" data-path="${_escAttr(t.path)}">
+    <div class="le-track-row le-fs-track-row" data-path="${safePath}">
       <div class="le-col le-col-play">
-        <button type="button" class="le-play-btn fs-play-btn" data-path="${_escAttr(t.path)}" title="Play">▶</button>
+        <button type="button" class="le-play-btn fs-play-btn" data-path="${safePath}" title="Play">▶</button>
+      </div>
+      <div class="le-col le-col-stage">
+        <button type="button" class="le-stage-btn" onclick="stagingAddPath('${safePath}')" title="Stage for Chop Shop">+Q</button>
       </div>
       <div class="le-col le-col-num">${idx + 1}</div>
-      <div class="le-col le-col-title" title="${_escAttr(t.path)}">${_esc(t.title)}</div>
+      <div class="le-col le-col-title" title="${safePath}">${_esc(t.title)}</div>
       <div class="le-col le-col-artist">${_esc(t.artist)}</div>
       <div class="le-col le-col-album">${_esc(t.album) || _esc(folder)}</div>
       <div class="le-col le-col-bpm">${t.bpm || '—'}</div>

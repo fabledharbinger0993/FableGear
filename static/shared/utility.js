@@ -13,8 +13,8 @@
  */
 /* ── Utility helpers ─────────────────────────────────────────────────────── */
 
-function _esc(s)     { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function _escAttr(s) { return String(s || '').replace(/"/g,'&quot;'); }
+function _esc(s)     { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _escAttr(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function _escPath(s) { return (s || '').replace(/'/g,'\\'  ); }
 function _fmtDur(s)  {
   const m = Math.floor(s / 60), sec = Math.floor(s % 60);

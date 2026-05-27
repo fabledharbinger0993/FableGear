@@ -101,27 +101,6 @@ async function runMigrateDb() {
   }
 }
 
-/* ── Novelty Scanner ───────────────────────────────────────────────────────── */
-function runNovelty() {
-  const sources = getFolderPaths('novelty-pills');
-  const dest    = document.getElementById('novelty-dest').value.trim();
-  const dryRun  = document.getElementById('novelty-dry-run').checked;
-  if (!sources.length) { showToast('Add at least one source drive or folder.', 'warning'); return; }
-  if (!dest)           { showToast('Enter a destination library path.', 'warning'); return; }
-  const p = new URLSearchParams();
-  sources.forEach(source => p.append('source', source));
-  p.set('dest', dest);
-  if (!dryRun) p.set('no_dry_run', '1');
-  const label = dryRun
-    ? 'Novelty Scan — Dry Run (nothing will be copied)'
-    : 'Novelty Scan — Copying novel tracks to destination';
-  if (!dryRun) {
-    _saveToolCkpt('novelty', { sources, dest, dryRun: false });
-    document.getElementById('step-novelty')?.querySelector('.tool-resume-banner')?.remove();
-  }
-  runCommand(`/api/run/novelty?${p}`, label,
-    ec => { if (ec === 0) _clearToolCkpt('novelty'); });
-}
 
 /* ── Rename Files ──────────────────────────────────────────────────────────── */
 
@@ -727,11 +706,4 @@ async function executePrune() {
   });
 }
 
-
-
-function _esc(s) {
-  return String(s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
 

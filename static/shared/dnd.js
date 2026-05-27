@@ -253,7 +253,16 @@ async function _nativePick() {
 }
 async function pickFolderFor(pillsId) {
   const path = await _nativePick();
-  if (path) addFolderPill(pillsId, path);
+  if (path) {
+    addFolderPill(pillsId, path);
+  } else {
+    // Native picker unavailable (non-macOS or pywebview not focused) — open file browser
+    showToast('Use the file browser sidebar to navigate to your folder, then drag it here.', 'info');
+    const panel = document.getElementById('fb-panel');
+    if (panel && !panel.classList.contains('fb-open') && typeof toggleFileBrowser === 'function') {
+      toggleFileBrowser();
+    }
+  }
 }
 async function pickPathFor(inputId) {
   const path = await _nativePick();

@@ -8,9 +8,22 @@ in-process audio playback for the desktop UI.
 
 import mimetypes
 import os
+import platform
 import threading
 import uuid
 from pathlib import Path
+
+_SYSTEM = platform.system()
+
+
+def _is_user_mount(mountpoint: str) -> bool:
+    if _SYSTEM == "Darwin":
+        return mountpoint.startswith("/Volumes/") or mountpoint.startswith("/Volumes")
+    if _SYSTEM == "Windows":
+        return (len(mountpoint) == 3 and mountpoint[1] == ":"
+                and mountpoint[2] in ("/", "\\")
+                and mountpoint[0].upper() not in ("A", "B"))
+    return mountpoint.startswith("/media/") or mountpoint.startswith("/mnt/")
 
 from flask import Blueprint, jsonify, request, send_file
 
@@ -839,14 +852,15 @@ def api_library_export_drives():
         drives = []
         for part in psutil.disk_partitions():
             mountpoint = part.mountpoint
-            if not mountpoint.startswith("/Volumes"):
+            if not _is_user_mount(mountpoint):
                 continue
             try:
                 usage = psutil.disk_usage(mountpoint)
                 drive_info = _detect_pioneer_drive_layout(mountpoint)
+                name = mountpoint.rstrip("/\\") if _SYSTEM == "Windows" else Path(mountpoint).name
                 drives.append({
                     "path": mountpoint,
-                    "name": Path(mountpoint).name,
+                    "name": name,
                     "free_bytes": usage.free,
                     "total_bytes": usage.total,
                     **drive_info,

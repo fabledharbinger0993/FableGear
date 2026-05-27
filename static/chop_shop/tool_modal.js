@@ -5,12 +5,6 @@
    Original source lines: 5215-6059
    ──────────────────────────────────────────────────────────────────────── */
 
-/* ── Tool Drawer (legacy stubs — drawer is hidden, float modal is used) ── */
-let _toolDrawerStep   = null;
-let _toolDrawerPinned = false;
-function _syncToolDrawerPinState() {}
-function toggleToolDrawerPin() {}
-
 /* ── Floating Tool Modal ─────────────────────────────────────────────── */
 let _toolFloatActive     = null;   // currently displayed toolId
 let _toolFloatPrevParent = null;   // DOM parent the card was borrowed from

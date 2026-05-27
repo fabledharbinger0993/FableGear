@@ -298,3 +298,50 @@ const RECOMMENDED = ['process','duplicates','prune','relocate','import','link','
 
 let pipelineSteps = [];   // [{id, type}]
 let pipeUid = 0;
+
+/* ── Novelty Scanner ─────────────────────────────────────────────────────────
+   Scans an external drive (or any source path) for tracks not already in the
+   home library, then optionally copies them across.
+   Source paths come from the staging queue if no pills are manually set.    */
+
+function runNovelty() {
+  if (stagingIsEmpty && stagingIsEmpty() && !getFolderPaths('novelty-pills').length) {
+    showToast('Add at least one source drive or folder, or stage items from the Record Room.', 'warning');
+    return;
+  }
+  if (stagingIsEmpty && !stagingIsEmpty() && !getFolderPaths('novelty-pills').length) {
+    stagingPopulatePills('novelty-pills');
+  }
+  const sources = getFolderPaths('novelty-pills');
+  const dest    = document.getElementById('novelty-dest').value.trim();
+  const dryRun  = document.getElementById('novelty-dry-run').checked;
+  if (!sources.length) { showToast('Add at least one source drive or folder.', 'warning'); return; }
+  if (!dest)           { showToast('Enter a destination library path.', 'warning'); return; }
+  const p = new URLSearchParams();
+  sources.forEach(source => p.append('source', source));
+  p.set('dest', dest);
+  if (!dryRun) p.set('no_dry_run', '1');
+  const label = dryRun
+    ? 'Novelty Scan — Dry Run (nothing will be copied)'
+    : 'Novelty Scan — Copying novel tracks to destination';
+  if (!dryRun) {
+    _saveToolCkpt('novelty', { sources, dest, dryRun: false });
+    document.getElementById('step-novelty')?.querySelector('.tool-resume-banner')?.remove();
+  }
+  runCommand(`/api/run/novelty?${p}`, label,
+    ec => { if (ec === 0) _clearToolCkpt('novelty'); });
+}
+
+/* ── Staging queue helpers for tools ─────────────────────────────────────────
+   Tools call stagingPopulatePills(pillsId) to pre-fill their source zones
+   from the staging queue. Only called when the user hasn't manually added
+   any paths (i.e. the zone contains only the library-root indicator pill).  */
+
+function _useQueueIfEmpty(pillsId) {
+  const container = document.getElementById(pillsId);
+  if (!container) return;
+  const manual = Array.from(container.querySelectorAll('.folder-pill:not(.library-pill)'));
+  if (!manual.length && typeof stagingPopulatePills === 'function') {
+    stagingPopulatePills(pillsId);
+  }
+}
