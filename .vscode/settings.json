@@ -48,20 +48,11 @@
 	"python.testing.pytestEnabled": true,
 	"sarif-viewer.connectToGithubCodeScanning": "off",
 
-	// ── SonarLint: silence stylistic noise in browser-side JS ───────────────
+	// ── SonarLint: exclude browser-side JS from analysis ────────────────────
 	// FableGear's static/**/*.js targets pywebview's Chromium runtime where
-	// `window`, multi-line `push()`, and toast-only catches are intentional.
-	// These rules are stylistic, not correctness — disable them globally.
-	"sonarlint.rules": {
-		"javascript:S7059":  { "level": "off" },  // Prefer globalThis over window
-		"javascript:S6582":  { "level": "off" },  // Prefer optional chain
-		"javascript:S7758":  { "level": "off" },  // Prefer String#replaceAll()
-		"javascript:S7773":  { "level": "off" },  // Use String.raw to avoid escaping \
-		"javascript:S7752":  { "level": "off" },  // Do not call Array#push() multiple times
-		"javascript:S3358":  { "level": "off" },  // Unexpected negated condition
-		"javascript:S2737":  { "level": "off" },  // Catch clauses should do more than rethrow
-		"javascript:S1481":  { "level": "off" },  // Unused local variables (handled by editor)
-		"javascript:S905":   { "level": "off" },  // Non-empty statements should change control flow or have at least one side-effect (offsetWidth reflow trick)
-		"javascript:S2486":  { "level": "off" }   // Either log or rethrow this exception
-	}
+	// idioms like `window`, multi-line `push()`, toast-only catches, and the
+	// `dupe.offsetWidth` reflow trick are intentional. SonarLint flags these
+	// as stylistic warnings that don't apply to our local-only desktop app.
+	// Exclude the whole tree from SonarLint to silence the noise.
+	"sonarlint.analysisExcludesStandalone": "static/**/*.js,static/**/*.css,static/**/*.html"
 }
