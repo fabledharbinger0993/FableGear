@@ -198,6 +198,7 @@ def _run(job_id: str) -> None:
         "--output", output_tmpl,
         "--no-playlist",
         "--print", "after_move:filepath",   # prints final path to stdout
+        "--",  # end of flags — prevents URLs starting with '--' being parsed as options
         url,
     ]
 
