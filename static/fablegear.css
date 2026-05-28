@@ -465,6 +465,46 @@ body.fg-space-chop .workflow-rail { display: flex; }
   color: var(--accent);
 }
 .step-num { display: block; font-size: 1rem; line-height: 1; margin-bottom: 4px; }
+.step-icon {
+  display: block;
+  height: 24px;
+  width: auto;
+  margin: 0 auto 4px;
+  object-fit: contain;
+}
+
+/* Offset so tool cards land below the fixed titlebar + header + workflow rail
+   when a tab scrolls to them (28 + 56 + ~58 ≈ 142, +buffer). */
+[id^="step-"] { scroll-margin-top: 150px; }
+
+/* Back-to-Record-Room hint — transient popup near the FG logo (top-left).
+   Positioned inline by JS; auto-dismisses after 10s. */
+.fg-back-hint {
+  position: fixed;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: rgba(8, 12, 18, .96);
+  border: 1px solid rgba(var(--accent-rgb), .5);
+  border-radius: 10px;
+  color: var(--accent);
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  animation: fg-back-hint-in .25s ease both;
+}
+.fg-back-hint::before { content: "←"; font-size: 1rem; line-height: 1; }
+.fg-back-hint:hover { background: rgba(var(--accent-rgb), .14); }
+.fg-back-hint.hiding { animation: fg-back-hint-out .35s ease both; }
+@keyframes fg-back-hint-in  { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes fg-back-hint-out { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(-8px); } }
 
 /* ── Main layout ───────────────────────────────────────────────────────── */
 main { max-width: 1080px; margin: 0 auto; padding: 116px 28px 32px; }
