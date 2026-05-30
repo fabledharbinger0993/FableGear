@@ -38,8 +38,9 @@ from pathlib import Path
 _ROOT = Path(getattr(sys, '_MEIPASS', Path(__file__).parent.resolve()))
 
 # Make sure toolkit modules are importable
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+for _p in (str(_ROOT), str(_ROOT / 'chop_shop')):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 # Tell app.py where to find templates and static when bundled
 os.environ.setdefault('FABLEGEAR_ROOT', str(_ROOT))
@@ -104,6 +105,19 @@ class _Api:
 
 
 if __name__ == '__main__':
+    # ── Frozen-bundle CLI routing ─────────────────────────────────────────────
+    # In a PyInstaller bundle sys.executable is the app binary, not Python. The
+    # server shells tools out via [sys.executable, str(CLI_PATH), <subcommand>, …];
+    # in a bundle that would re-launch the UI instead of running the tool. The
+    # routes always pass str(CLI_PATH) as argv[1], so a leading argument ending
+    # in "cli.py" is the reliable signal to dispatch to cli.main() and exit
+    # rather than open a window. The dev (non-frozen) path is unaffected.
+    if getattr(sys, 'frozen', False) and len(sys.argv) > 1 and sys.argv[1].endswith('cli.py'):
+        import cli
+        sys.argv = ['cli.py', *sys.argv[2:]]
+        cli.main()
+        sys.exit(0)
+
     started_server_here = False
     if not _server_running():
         started_server_here = True

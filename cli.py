@@ -27,9 +27,24 @@ mutagen, librosa, etc.
 
 import argparse
 import logging
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
+
+# Ensure the repo root and the chop_shop/ tool package are importable whether
+# cli.py runs as a subprocess (python cli.py …) or is dispatched from a frozen
+# bundle. The command handlers below import duplicate_detector, renamer,
+# library_organizer, pruner, novelty_scanner, relocator, db_migrator, and
+# renamer_learned by bare name; those modules live in chop_shop/.
+_CLI_ROOT = Path(
+    os.environ.get("FABLEGEAR_ROOT")
+    or getattr(sys, "_MEIPASS", None)
+    or Path(__file__).parent.resolve()
+)
+for _p in (str(_CLI_ROOT), str(_CLI_ROOT / "chop_shop")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 try:
     from FableGear.config import LOCAL_DB, MUSIC_ROOT   # when run as a package

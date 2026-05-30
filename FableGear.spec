@@ -19,9 +19,11 @@ a = Analysis(
     pathex=[str(SRC)],
     binaries=[],
     datas=[
-        # Flask templates (chop_shop/) and static assets must travel with the bundle
-        (str(SRC / 'chop_shop'), 'chop_shop'),
+        # templates/ → Jinja2 rendering; static/ → CSS/JS/assets; chop_shop/ →
+        # tool .py modules imported by cli.py at runtime. All three are required.
+        (str(SRC / 'templates'), 'templates'),
         (str(SRC / 'static'),    'static'),
+        (str(SRC / 'chop_shop'), 'chop_shop'),
     ],
     hiddenimports=[
         # Waitress imports these dynamically
