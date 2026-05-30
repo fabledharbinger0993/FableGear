@@ -411,8 +411,10 @@ def api_pipeline():
 
         elif stype == "prune":
             cmd = [sys.executable, str(CLI_PATH), "prune"]
-            if dry_run:
-                cmd.append("--dry-run")
+            if not dry_run:
+                cmd.append("--no-dry-run")
+            # CSV path (from the preceding duplicates step) is appended by
+            # _stream_pipeline as the trailing positional argument.
             built.append({"name": name, "cmd": cmd, "needs_csv": True})
             continue
 

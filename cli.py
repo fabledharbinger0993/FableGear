@@ -614,6 +614,114 @@ def _run_shared_report(args, all_results, root_sections, _quarantine_dir) -> Non
         log.warning("%d files had errors — check log above", errored)
 
 
+def cmd_prune(args: argparse.Namespace) -> None:
+    """Auto-prune duplicates listed in a duplicate_report.csv.
+
+    Reads the quality-ranked report, keeps the best copy in each group, and
+    moves the rest to a recoverable Trash folder (removing their DB rows and
+    re-threading playlists to the keeper). Dry-run by default — pass
+    --no-dry-run to actually prune. Mirrors the interactive Chop Shop prune
+    and is the executor for the pipeline's "prune" step.
+    """
+    from pruner import load_report, prune_files
+    from db_connection import read_db, write_db
+
+    csv_path = Path(args.csv_path)
+    if not csv_path.is_file():
+        log.error("Duplicate report not found: %s", csv_path)
+        sys.exit(1)
+
+    # Operate on the device DB when the Pioneer drive is mounted, else local —
+    # same selection the interactive prune endpoint uses.
+    try:
+        from FableGear.config import DJMT_DB as _DJMT_DB  # noqa: PLC0415
+    except ImportError:
+        try:
+            from config import DJMT_DB as _DJMT_DB        # noqa: PLC0415
+        except Exception:
+            _DJMT_DB = None
+    db_path = _DJMT_DB if (_DJMT_DB and _DJMT_DB.exists()) else LOCAL_DB
+
+    # Load + rank the report (read-only connection flags DB-referenced files).
+    try:
+        with read_db(db_path) as _rdb:
+            groups = load_report(csv_path, _rdb)
+    except Exception:
+        log.exception("Failed to load duplicate report")
+        sys.exit(1)
+
+    remove_paths: list[str] = []
+    keeper_map: dict[str, str] = {}
+    locked_groups = 0
+    for g in groups:
+        cands = g.remove_candidates          # built-in trash-safety lock
+        if not cands:
+            if g.keep_in_trash:
+                locked_groups += 1
+            continue
+        keep = g.keep
+        for e in cands:
+            remove_paths.append(e.file_path)
+            if keep:
+                keeper_map[e.file_path] = keep.file_path
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    if not remove_paths:
+        _emit_report(
+            "No prunable duplicates found.\n"
+            f"  Groups in report                 : {len(groups)}\n"
+            f"  Locked (keeper in trash, skipped): {locked_groups}",
+            "Prune", f"prune_{timestamp}.txt")
+        return
+
+    if args.dry_run:
+        lines = [
+            "DRY RUN — no files were removed.",
+            "",
+            f"Would remove {len(remove_paths)} duplicate file(s), keeping the best "
+            f"copy in each of {len(groups)} group(s).",
+        ]
+        if locked_groups:
+            lines.append(f"  {locked_groups} group(s) skipped (best copy is in a trash folder).")
+        lines.append("")
+        lines += [f"  REMOVE: {p}" for p in remove_paths[:200]]
+        if len(remove_paths) > 200:
+            lines.append(f"  … and {len(remove_paths) - 200} more.")
+        lines += ["", "Re-run with --no-dry-run to move these to the recovery folder."]
+        _emit_report("\n".join(lines), "Prune", f"prune_{timestamp}.txt")
+        return
+
+    log.info("Pruning %d duplicate file(s) from %s", len(remove_paths), db_path)
+    try:
+        with write_db(db_path) as db:
+            summary = prune_files(
+                remove_paths,
+                db,
+                log=lambda m: print(m, flush=True),
+                permanent=args.permanent,
+                keeper_map=keeper_map,
+            )
+    except Exception:
+        log.exception("Prune failed")
+        sys.exit(1)
+
+    lines = [
+        "Prune complete.",
+        "",
+        f"  DB entries removed   : {summary.get('db_removed', 0)}",
+        f"  Files moved to trash : {summary.get('files_moved', 0)}",
+        f"  Playlists re-threaded: {summary.get('playlists_rethreaded', 0)}",
+        f"  Skipped              : {summary.get('skipped', 0)}",
+    ]
+    if summary.get("trash_dir"):
+        lines.append(f"  Recovery folder      : {summary['trash_dir']}")
+    errs = summary.get("errors") or []
+    if errs:
+        lines += ["", f"{len(errs)} error(s):"] + [f"  {e}" for e in errs[:50]]
+    _emit_report("\n".join(lines), "Prune", f"prune_{timestamp}.txt")
+
+
 def cmd_process(args: argparse.Namespace) -> None:
     """
     Detect BPM/key and normalise loudness for audio files under PATH.
@@ -1568,6 +1676,29 @@ Examples:
         help="Similarity threshold for fuzzy fingerprint matching (0.0–1.0, default: 0.85)",
     )
     p_dupes.set_defaults(func=cmd_duplicates)
+
+    # ── prune ──
+    p_prune = sub.add_parser(
+        "prune",
+        help="Remove duplicates listed in a duplicate_report.csv (keeps best copy)",
+    )
+    p_prune.add_argument(
+        "csv_path",
+        metavar="CSV",
+        help="Path to a duplicate_report.csv produced by the duplicates command",
+    )
+    p_prune.add_argument(
+        "--no-dry-run",
+        dest="dry_run",
+        action="store_false",
+        help="Actually prune. Without this flag prune only previews (dry-run by default).",
+    )
+    p_prune.add_argument(
+        "--permanent",
+        action="store_true",
+        help="Permanently delete instead of moving to a recoverable Trash folder",
+    )
+    p_prune.set_defaults(func=cmd_prune, dry_run=True, permanent=False)
 
     # ── process ──
     p_process = sub.add_parser(
