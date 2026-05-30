@@ -49,7 +49,7 @@ _REPO_ROOT = REPO_ROOT   # local alias for legacy references below
 
 app = Flask(
     __name__,
-    template_folder=str(REPO_ROOT / "chop_shop"),   # index.html + partials/
+    template_folder=str(REPO_ROOT / "templates"),   # index.html + partials/
     static_folder=str(REPO_ROOT / "static"),
 )
 

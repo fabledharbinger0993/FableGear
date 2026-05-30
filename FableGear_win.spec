@@ -18,7 +18,7 @@ a = Analysis(
     pathex=[str(SRC)],
     binaries=[],
     datas=[
-        (str(SRC / 'chop_shop'), 'chop_shop'),
+        (str(SRC / 'templates'), 'templates'),
         (str(SRC / 'static'),    'static'),
     ],
     hiddenimports=[
@@ -74,7 +74,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,   # no terminal window
-    icon=None,       # set to 'static/FableGear.ico' once the .ico is generated
+    icon=str(SRC / 'static' / 'FableGear.ico'),
 )
 
 coll = COLLECT(
