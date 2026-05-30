@@ -1,0 +1,57 @@
+<!-- ══ Staging Queue Panel ══════════════════════════════════════════════════
+     Slide-in panel. Toggled by the Staging Queue button in the left rail.
+     Visible in both Record Room and Chop Shop.
+     ══════════════════════════════════════════════════════════════════════ -->
+<div id="staging-panel" class="staging-panel" role="complementary" aria-label="Staging Queue">
+
+  <div class="staging-panel-header">
+    <span class="staging-panel-title">Staging Queue</span>
+    <span id="staging-count" class="staging-count-label">0 items</span>
+    <button type="button" class="staging-panel-close" onclick="closeStagingPanel()" title="Close">✕</button>
+  </div>
+
+  <div class="staging-panel-desc">
+    Stage tracks or folders here, then run Chop Shop tools on exactly those items — nothing else in your library is touched.
+  </div>
+
+  <div class="staging-panel-actions">
+    <button type="button" class="btn btn-secondary btn-xs" onclick="stagingClear()">Clear all</button>
+    <button type="button" class="btn btn-secondary btn-xs" onclick="stagingSaveBatch()">Save batch…</button>
+    <button type="button" class="btn btn-secondary btn-xs" onclick="stagingLoadBatchMenu()">Load batch…</button>
+  </div>
+
+  <!-- Drop zone: drag folders or files here to stage them -->
+  <div id="staging-drop-zone"
+       class="staging-drop-zone"
+       ondragover="event.preventDefault(); this.classList.add('staging-dz-over');"
+       ondragleave="this.classList.remove('staging-dz-over');"
+       ondrop="_stagingHandleDrop(event); this.classList.remove('staging-dz-over');">
+    <span class="staging-dz-label">Drop folders or tracks here</span>
+  </div>
+
+  <div id="staging-list" class="staging-list"></div>
+
+  <p class="staging-hint" id="staging-hint-empty">
+    In the Record Room, right-click a track or folder and choose <strong>Stage for Chop Shop</strong>,
+    or drag items onto the drop zone above.
+  </p>
+
+  <div class="staging-panel-footer">
+    <button type="button" class="btn btn-neon staging-goto-btn" id="staging-goto-chop"
+            onclick="setFableGearSpace('chop')" disabled>
+      Open Chop Shop →
+    </button>
+  </div>
+
+</div>
+
+<!-- Drop handler wired here so it lives with the panel markup -->
+<script>
+function _stagingHandleDrop(e) {
+  e.preventDefault();
+  const text = e.dataTransfer.getData('text/plain');
+  if (text && text.trim()) {
+    stagingAddPath(text.trim().split('\n').map(s => s.trim()).filter(Boolean));
+  }
+}
+</script>

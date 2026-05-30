@@ -46,5 +46,13 @@
 	],
 	"python.testing.unittestEnabled": false,
 	"python.testing.pytestEnabled": true,
-	"sarif-viewer.connectToGithubCodeScanning": "off"
+	"sarif-viewer.connectToGithubCodeScanning": "off",
+
+	// ── SonarLint: exclude browser-side JS from analysis ────────────────────
+	// FableGear's static/**/*.js targets pywebview's Chromium runtime where
+	// idioms like `window`, multi-line `push()`, toast-only catches, and the
+	// `dupe.offsetWidth` reflow trick are intentional. SonarLint flags these
+	// as stylistic warnings that don't apply to our local-only desktop app.
+	// Exclude the whole tree from SonarLint to silence the noise.
+	"sonarlint.analysisExcludesStandalone": "static/**/*.js,static/**/*.css,static/**/*.html"
 }

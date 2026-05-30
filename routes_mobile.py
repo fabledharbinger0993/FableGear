@@ -7,9 +7,22 @@ FableGo iOS companion app, plus the /api/connectivity pairing panel route.
 
 import datetime
 import json
+import platform
 import threading
 import uuid
 from pathlib import Path
+
+_SYSTEM = platform.system()
+
+
+def _is_user_mount(mountpoint: str) -> bool:
+    if _SYSTEM == "Darwin":
+        return mountpoint.startswith("/Volumes/") or mountpoint.startswith("/Volumes")
+    if _SYSTEM == "Windows":
+        return (len(mountpoint) == 3 and mountpoint[1] == ":"
+                and mountpoint[2] in ("/", "\\")
+                and mountpoint[0].upper() not in ("A", "B"))
+    return mountpoint.startswith("/media/") or mountpoint.startswith("/mnt/")
 
 from flask import Blueprint, jsonify, request, current_app
 
@@ -890,11 +903,11 @@ def mobile_drives():
         drives = []
         for part in psutil.disk_partitions():
             mp = part.mountpoint
-            if not mp.startswith("/Volumes"):
+            if not _is_user_mount(mp):
                 continue
             try:
                 usage = psutil.disk_usage(mp)
-                name = Path(mp).name
+                name = mp.rstrip("/\\") if _SYSTEM == "Windows" else Path(mp).name
                 drive_info = _detect_pioneer_drive_layout(mp)
                 drives.append({
                     "path":        mp,
