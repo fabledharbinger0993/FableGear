@@ -182,6 +182,8 @@
   {% include 'partials/physical_library/file_rename.html' %}
 </main>
 
+{% include 'partials/staging_panel.html' %}
+
 {% include 'partials/physical_library/pipeline_wizard.html' %}
 
 <!-- ══ Step completion report modal ════════════════════════════════════════ -->
@@ -686,6 +688,7 @@
 <script src="/static/chop_shop/normalize_preview.js"></script>
 <script src="/static/shared/state_tracker.js"></script>
 <script src="/static/shared/boot.js"></script>
+<script src="/static/shared/staging.js"></script>
 <script src="/static/shared/launcher.js"></script>
 
 <!-- ══ DB Panel ══════════════════════════════════════════════════════════════
@@ -851,6 +854,12 @@
           <div class="le-sidebar-section">Filesystem</div>
           <div class="le-fs-crumb" id="le-fs-crumb"></div>
           <div id="le-fs-folder-list"></div>
+          <div class="le-fs-stage-row">
+            <button type="button" class="btn btn-secondary btn-xs le-fs-stage-all-btn"
+                    onclick="_leStageFsCurrentFolder()" title="Stage current folder for Chop Shop">
+              + Queue current folder
+            </button>
+          </div>
         </div>
       </div>
 
@@ -895,6 +904,7 @@
           <span id="le-status-text">Loading…</span>
           <button type="button" class="le-load-btn" id="le-remove-btn" onclick="leRemoveSelectionFromActivePlaylist()" disabled>Remove Selected</button>
           <button type="button" class="le-load-btn le-add-btn" id="le-add-btn" onclick="leAddSelectionToActivePlaylist()" disabled>Add Selected</button>
+          <button type="button" class="le-load-btn" id="le-stage-selected-btn" onclick="leStageSelected()" disabled title="Add selected tracks to the Staging Queue">+ Stage Selected</button>
           <button type="button" class="le-load-btn" onclick="leLoadLibrary()">↺ Reload</button>
         </div>
       </div>
