@@ -6,9 +6,45 @@ on:
       - 'v*.*.*'
 
 jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create.outputs.upload_url }}
+    steps:
+      - name: Create Release
+        id: create
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: false
+          prerelease: false
+          body: |
+            ## Download
+
+            | Platform | Download |
+            |---|---|
+            | **macOS** (12+, Intel + Apple Silicon) | FableGear-macOS.zip |
+            | **Windows** (10/11, 64-bit) | FableGear-Windows.zip |
+
+            ### macOS install
+            1. Download FableGear-macOS.zip → unzip → drag FableGear.app to Applications
+            2. First launch: right-click → Open → Open Anyway (Gatekeeper)
+
+            ### Windows install
+            1. Download FableGear-Windows.zip → unzip to any folder
+            2. Double-click `launch.bat` OR `FableGear.exe`
+            3. **WebView2 Runtime** is required — ships with Windows 11; Windows 10 users
+               may need to install it from microsoft.com/edge/download/runtime
+            4. **Audio fingerprinting** (AcoustID) requires `fpcalc` — download
+               `fpcalc.exe` from acoustid.org/chromaprint and place it anywhere on PATH,
+               or skip it (tagging, renaming, and all other features work without it)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build-macos:
     name: Build FableGear.app (macOS)
     runs-on: macos-latest
+    needs: create-release
 
     steps:
       - name: Checkout code
@@ -44,34 +80,13 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: dist/FableGear-macOS.zip
-          body: |
-            ## Download
-
-            | Platform | Download |
-            |---|---|
-            | **macOS** (12+, Intel + Apple Silicon) | FableGear-macOS.zip |
-            | **Windows** (10/11, 64-bit) | FableGear-Windows.zip |
-
-            ### macOS install
-            1. Download FableGear-macOS.zip → unzip → drag FableGear.app to Applications
-            2. First launch: right-click → Open → Open Anyway (Gatekeeper)
-
-            ### Windows install
-            1. Download FableGear-Windows.zip → unzip to any folder
-            2. Double-click `launch.bat` OR `FableGear.exe`
-            3. **WebView2 Runtime** is required — ships with Windows 11; Windows 10 users
-               may need to install it from microsoft.com/edge/download/runtime
-            4. **Audio fingerprinting** (AcoustID) requires `fpcalc` — download
-               `fpcalc.exe` from acoustid.org/chromaprint and place it anywhere on PATH,
-               or skip it (tagging, renaming, and all other features work without it)
-          draft: false
-          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-windows:
     name: Build FableGear.exe (Windows)
     runs-on: windows-latest
+    needs: create-release
 
     steps:
       - name: Checkout code
@@ -107,7 +122,5 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: dist/FableGear-Windows.zip
-          draft: false
-          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

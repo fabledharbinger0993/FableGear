@@ -18,8 +18,11 @@ a = Analysis(
     pathex=[str(SRC)],
     binaries=[],
     datas=[
+        # templates/ → Jinja2 rendering; static/ → CSS/JS/assets; chop_shop/ →
+        # tool .py modules imported by cli.py at runtime. All three are required.
         (str(SRC / 'templates'), 'templates'),
         (str(SRC / 'static'),    'static'),
+        (str(SRC / 'chop_shop'), 'chop_shop'),
     ],
     hiddenimports=[
         # Waitress
