@@ -6,11 +6,7 @@
    ──────────────────────────────────────────────────────────────────────── */
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Initialize tool drawer pin button
-  const pinBtn = document.getElementById('tool-drawer-pin');
-  if (pinBtn) {
-    _syncToolDrawerPinState();
-  }
+  // no-op; retained for load-order safety
 });
 /* ── State ─────────────────────────────────────────────────────────────────── */
 let activeSource = null;

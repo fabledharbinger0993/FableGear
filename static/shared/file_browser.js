@@ -100,13 +100,33 @@ function loadLibraryFolders(dropdown) {
 }
 
 function loadFileBrowserFolders(dropdown) {
-  // Integrate with existing file browser
-  dropdown.innerHTML = `
-    <div class="folder-item" onclick="fbNavigateTo('/Volumes'); closeRightNavDropdown();">
-      <img src="/static/icon-folder.png" class="folder-item-icon" alt="">
-      <span>/Volumes</span>
-    </div>
-  `;
+  dropdown.innerHTML = '<div class="folder-item folder-item-loading">Scanning drives…</div>';
+  fetch('/api/status')
+    .then(r => r.json())
+    .then(data => {
+      const vols = data.volumes || [];
+      const rows = vols.map(v => `
+        <div class="folder-item" onclick="fbNavigateTo('${v.mountpoint}'); closeRightNavDropdown();">
+          <img src="/static/icon-folder.png" class="folder-item-icon" alt="">
+          <span>${v.name}</span>
+          ${v.has_pioneer_db ? '<span class="drives-item-pill drives-pill-pioneer" style="font-size:10px;margin-left:4px">Pioneer</span>' : ''}
+        </div>
+      `).join('');
+      dropdown.innerHTML = rows + `
+        <div class="folder-item" onclick="toggleFileBrowser(); closeRightNavDropdown();">
+          <img src="/static/icon-fg-files.png" class="folder-item-icon" alt="">
+          <span>Open file browser…</span>
+        </div>
+      `;
+    })
+    .catch(() => {
+      dropdown.innerHTML = `
+        <div class="folder-item" onclick="toggleFileBrowser(); closeRightNavDropdown();">
+          <img src="/static/icon-fg-files.png" class="folder-item-icon" alt="">
+          <span>Open file browser</span>
+        </div>
+      `;
+    });
 }
 
 function toggleFileBrowser() {

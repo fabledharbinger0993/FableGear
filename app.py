@@ -15,12 +15,16 @@ Blueprint layout:
 """
 
 import json
+import mimetypes
 import os
+import platform
 import psutil
 import signal
 import subprocess
 import threading
 from pathlib import Path
+
+_SYSTEM = platform.system()  # "Darwin" | "Windows" | "Linux"
 
 from flask import Flask, Response, jsonify, render_template, render_template_string, request, send_file
 
@@ -45,7 +49,7 @@ _REPO_ROOT = REPO_ROOT   # local alias for legacy references below
 
 app = Flask(
     __name__,
-    template_folder=str(REPO_ROOT / "templates"),
+    template_folder=str(REPO_ROOT / "chop_shop"),   # index.html + partials/
     static_folder=str(REPO_ROOT / "static"),
 )
 
@@ -448,57 +452,60 @@ def api_brew_upgrade():
 
 @app.route("/api/finder-selection")
 def api_finder_selection():
-    """Return the path of the currently selected item in Finder."""
+    """Return the path of the currently selected item in Finder (macOS only)."""
     source = request.args.get("source", "")
 
-    _finder_script = """\
+    if _SYSTEM == "Darwin":
+        _finder_script = """\
 tell application "Finder"
     set sel to selection
     if (count of sel) > 0 then
         return POSIX path of (item 1 of sel as alias)
     end if
 end tell"""
-    try:
-        r = subprocess.run(
-            ["osascript", "-e", _finder_script],
-            capture_output=True, text=True, timeout=60,
-        )
-        app.logger.debug("[finder-selection] rc=%d stdout=%r stderr=%r",
-                         r.returncode, r.stdout, r.stderr)
-        if r.returncode == 0 and r.stdout.strip():
-            return jsonify({"path": r.stdout.strip().rstrip("/")})
-    except Exception as exc:
-        app.logger.debug("[finder-selection] exception: %s", exc)
+        try:
+            r = subprocess.run(
+                ["osascript", "-e", _finder_script],
+                capture_output=True, text=True, timeout=60,
+            )
+            app.logger.debug("[finder-selection] rc=%d stdout=%r stderr=%r",
+                             r.returncode, r.stdout, r.stderr)
+            if r.returncode == 0 and r.stdout.strip():
+                return jsonify({"path": r.stdout.strip().rstrip("/")})
+        except Exception as exc:
+            app.logger.debug("[finder-selection] exception: %s", exc)
 
-    if source == "drop":
-        app.logger.debug("[finder-selection] source=drop, returning null")
-        return jsonify({"path": None})
+        if source == "drop":
+            app.logger.debug("[finder-selection] source=drop, returning null")
+            return jsonify({"path": None})
 
-    try:
-        r = subprocess.run(
-            ["osascript", "-e", "POSIX path of (choose folder)"],
-            capture_output=True, text=True, timeout=120,
-        )
-        if r.returncode == 0:
-            return jsonify({"path": r.stdout.strip().rstrip("/")})
-    except Exception:
-        pass
+        try:
+            r = subprocess.run(
+                ["osascript", "-e", "POSIX path of (choose folder)"],
+                capture_output=True, text=True, timeout=120,
+            )
+            if r.returncode == 0:
+                return jsonify({"path": r.stdout.strip().rstrip("/")})
+        except Exception:
+            pass
 
     return jsonify({"path": None})
 
 
 @app.route("/api/pick-folder")
 def api_pick_folder():
-    """Open the native macOS folder-chooser dialog (Browse button)."""
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", "POSIX path of (choose folder)"],
-            capture_output=True, text=True, timeout=120,
-        )
-        if result.returncode == 0:
-            return jsonify({"path": result.stdout.strip().rstrip("/")})
-    except Exception:
-        pass
+    """Open the native folder-chooser dialog. macOS uses osascript; other platforms
+    rely on pywebview's js_api.pick_folder() called directly from the frontend."""
+    if _SYSTEM == "Darwin":
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", "POSIX path of (choose folder)"],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode == 0:
+                return jsonify({"path": result.stdout.strip().rstrip("/")})
+        except Exception:
+            pass
     return jsonify({"path": None})
 
 
@@ -506,17 +513,48 @@ def api_pick_folder():
 
 _AUDIO_BEARING_SKIP = frozenset({"Macintosh HD", "Recovery", "VM", "Preboot", "Update", "Data"})
 
+
+def _is_user_mount(mountpoint: str) -> bool:
+    """Return True if this partition is an external/user-accessible drive on any platform."""
+    if _SYSTEM == "Darwin":
+        return mountpoint.startswith("/Volumes/")
+    if _SYSTEM == "Windows":
+        # Drive roots: C:\, D:\, etc.  Skip legacy floppy A/B.
+        return (len(mountpoint) == 3 and mountpoint[1] == ":"
+                and mountpoint[2] in ("/", "\\")
+                and mountpoint[0].upper() not in ("A", "B"))
+    # Linux: /media or /mnt
+    return mountpoint.startswith("/media/") or mountpoint.startswith("/mnt/")
+
+
+def _drive_name(mountpoint: str) -> str:
+    if _SYSTEM == "Windows":
+        return mountpoint.rstrip("/\\")   # "C:", "D:", …
+    return Path(mountpoint).name
+
+
+def _is_browseable_path(p: Path) -> bool:
+    """Security check: only allow paths the user legitimately owns."""
+    s = str(p)
+    home = str(Path.home())
+    if _SYSTEM == "Darwin":
+        return s.startswith("/Volumes/") or s.startswith(home)
+    if _SYSTEM == "Windows":
+        return len(s) >= 3 and s[1] == ":" and s[2] in ("/", "\\")
+    return s.startswith("/media/") or s.startswith("/mnt/") or s.startswith(home)
+
+
 def _mounted_volumes() -> list:
-    """Return info about /Volumes/* mounts. Used by /api/status for hotplug detection."""
+    """Return info about user-accessible mounts. Platform-aware."""
     vols = []
     try:
         from config import MUSIC_ROOT as _MR  # noqa: PLC0415
         music_root_str = str(_MR)
-        for p in psutil.disk_partitions(all=False):
-            mp = p.mountpoint
-            if not mp.startswith("/Volumes/"):
+        for part in psutil.disk_partitions(all=False):
+            mp = part.mountpoint
+            if not _is_user_mount(mp):
                 continue
-            name = Path(mp).name
+            name = _drive_name(mp)
             if name in _AUDIO_BEARING_SKIP:
                 continue
             try:
@@ -527,13 +565,13 @@ def _mounted_volumes() -> list:
                 free_gb = total_gb = None
             pioneer_db = Path(mp) / "PIONEER" / "Master" / "master.db"
             vols.append({
-                "name":            name,
-                "mountpoint":      mp,
-                "fstype":          p.fstype,
-                "free_gb":         free_gb,
-                "total_gb":        total_gb,
-                "has_pioneer_db":  pioneer_db.exists(),
-                "is_music_root":   music_root_str.startswith(mp),
+                "name":           name,
+                "mountpoint":     mp,
+                "fstype":         part.fstype,
+                "free_gb":        free_gb,
+                "total_gb":       total_gb,
+                "has_pioneer_db": pioneer_db.exists(),
+                "is_music_root":  music_root_str.startswith(mp),
             })
     except Exception:
         pass
@@ -545,7 +583,6 @@ def api_fs_stream():
     """Stream an audio file by absolute path (filesystem mode — no rekordbox required).
     Security: path must resolve under /Volumes/ or the configured MUSIC_ROOT.
     """
-    import mimetypes  # noqa: PLC0415
     if request.remote_addr not in ("127.0.0.1", "::1"):
         return jsonify({"error": "Forbidden"}), 403
     path_str = request.args.get("path", "")
@@ -555,8 +592,7 @@ def api_fs_stream():
         p = Path(path_str).resolve()
     except Exception:
         return jsonify({"error": "Invalid path"}), 400
-    # Allow any path under /Volumes (covers all external drives)
-    if not str(p).startswith("/Volumes/") and not str(p).startswith("/Users/"):
+    if not _is_browseable_path(p):
         return jsonify({"error": "Forbidden"}), 403
     if not p.exists() or not p.is_file():
         return jsonify({"error": "File not found"}), 404
@@ -576,7 +612,13 @@ def api_fs_list():
         ".aiff", ".aif", ".aifc", ".wav", ".flac", ".mp3",
         ".m4a", ".m4p", ".mp4", ".m4v", ".alac", ".ogg", ".opus",
     }
-    path_str = request.args.get("path", "/Volumes")
+    if _SYSTEM == "Windows":
+        default_root = "C:\\"
+    elif _SYSTEM == "Darwin":
+        default_root = "/Volumes"
+    else:
+        default_root = "/media"
+    path_str = request.args.get("path", default_root)
     p = Path(path_str)
     if not p.exists() or not p.is_dir():
         return jsonify({"error": f"Not a directory: {path_str}"}), 400
@@ -599,6 +641,76 @@ def api_fs_list():
         "parent":  str(p.parent) if str(p) != str(p.parent) else None,
         "entries": entries,
     })
+
+
+# ── Staging queue ─────────────────────────────────────────────────────────────
+
+@app.route("/api/staging", methods=["GET"])
+def api_staging_get():
+    from staging import get_items  # noqa: PLC0415
+    return jsonify(get_items())
+
+
+@app.route("/api/staging/add", methods=["POST"])
+def api_staging_add():
+    from staging import add_items  # noqa: PLC0415
+    data = request.get_json(silent=True) or {}
+    paths = data.get("paths", [])
+    if not isinstance(paths, list):
+        return jsonify({"error": "paths must be a list"}), 400
+    return jsonify(add_items(paths))
+
+
+@app.route("/api/staging/remove", methods=["POST"])
+def api_staging_remove():
+    from staging import remove_item  # noqa: PLC0415
+    data = request.get_json(silent=True) or {}
+    path = data.get("path", "")
+    if not path:
+        return jsonify({"error": "path required"}), 400
+    return jsonify(remove_item(path))
+
+
+@app.route("/api/staging/clear", methods=["POST"])
+def api_staging_clear():
+    from staging import clear_items  # noqa: PLC0415
+    return jsonify(clear_items())
+
+
+@app.route("/api/staging/batch", methods=["GET"])
+def api_staging_batch_list():
+    from staging import list_batches  # noqa: PLC0415
+    return jsonify(list_batches())
+
+
+@app.route("/api/staging/batch/save", methods=["POST"])
+def api_staging_batch_save():
+    from staging import save_batch  # noqa: PLC0415
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    return jsonify(save_batch(name))
+
+
+@app.route("/api/staging/batch/load", methods=["POST"])
+def api_staging_batch_load():
+    from staging import load_batch  # noqa: PLC0415
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    return jsonify(load_batch(name))
+
+
+@app.route("/api/staging/batch/delete", methods=["POST"])
+def api_staging_batch_delete():
+    from staging import delete_batch  # noqa: PLC0415
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    return jsonify(delete_batch(name))
 
 
 # ── Setup / state persistence ─────────────────────────────────────────────────
@@ -659,22 +771,23 @@ def api_set_music_root():
 @app.route("/api/drives/autodetect")
 def api_drives_autodetect():
     """
-    Scan /Volumes/ for Pioneer DB files and music library roots.
+    Scan mounted drives for Pioneer DB files and music library roots.
     Returns candidate paths for device_db and music_root so the user
     can confirm and apply them with one click via /api/drives/apply-fix.
+    Works on macOS, Windows, and Linux.
     """
     import os as _os  # noqa: PLC0415
 
     device_db_candidates: list[str] = []
     music_root_candidates: list[str] = []
-
-    volumes = Path("/Volumes")
-    if not volumes.exists():
-        return jsonify({"device_db": [], "music_root": []})
-
     audio_exts = {".mp3", ".flac", ".aif", ".aiff", ".wav", ".m4a", ".ogg"}
 
-    for vol in sorted(volumes.iterdir()):
+    mounts = _mounted_volumes()
+    if not mounts:
+        return jsonify({"device_db": [], "music_root": []})
+
+    for mount in mounts:
+        vol = Path(mount["mountpoint"])
         if not vol.is_dir():
             continue
         # Pioneer device DB

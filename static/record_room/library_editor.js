@@ -89,6 +89,16 @@ function leClearFilters() {
   leApplyFilters();
 }
 
+function leStageSelected() {
+  if (!_leSelectedTrackIds.size) return;
+  const paths = _leAllTracks
+    .filter(t => _leSelectedTrackIds.has(t.id) && t.file_path)
+    .map(t => t.file_path);
+  if (paths.length && typeof stagingAddPath === 'function') {
+    stagingAddPath(paths);
+  }
+}
+
 function libBuildGenreSelect() {
   const genres = [...new Set(_leAllTracks.map(t => t.genre).filter(Boolean))].sort();
   const sel = document.getElementById('lf-genre');
