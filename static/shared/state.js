@@ -25,7 +25,9 @@ function setFableGearSpace(space) {
   document.getElementById('lp-chop-shop-btn')?.classList.toggle('active', nextSpace === 'chop');
 
   const recordRoom = document.getElementById('library-editor-overlay');
-  if (recordRoom) recordRoom.classList.toggle('hidden', nextSpace !== 'record');
+  requestAnimationFrame(() => {
+    if (recordRoom) recordRoom.classList.toggle('hidden', nextSpace !== 'record');
+  });
 
   if (nextSpace === 'record') {
     closeDbPanel();

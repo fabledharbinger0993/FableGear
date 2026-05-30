@@ -465,14 +465,24 @@ input[type="range"] { -webkit-app-region: no-drag; }
 }
 
 /* ── Room shell ────────────────────────────────────────────────────────── */
-body.fg-space-record #chop-shop-workspace,
-body.fg-space-record .workflow-rail { display: none !important; }
+body.fg-space-record #chop-shop-workspace { display: none; }
 
-body.fg-space-chop #library-editor-overlay { display: none !important; }
+/* #library-editor-overlay slides in/out via transform; .hidden set by JS */
+#library-editor-overlay {
+  transform: translateX(0);
+  transition: transform .3s cubic-bezier(.4,0,.2,1);
+}
+#library-editor-overlay.hidden {
+  transform: translateX(-100%);
+  pointer-events: none;
+}
 
 /* ── Workflow rail ─────────────────────────────────────────────────────── */
 .workflow-rail {
-  display: none;
+  display: flex;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .2s ease, visibility .2s ease;
   position: fixed;
   top: calc(var(--titlebar-h) + var(--header-h));
   left: var(--left-panel-w);
@@ -488,7 +498,7 @@ body.fg-space-chop #library-editor-overlay { display: none !important; }
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
 }
-body.fg-space-chop .workflow-rail { display: flex; }
+body.fg-space-chop .workflow-rail { opacity: 1; visibility: visible; }
 .step-tab {
   min-width: 104px;
   border: 1px solid var(--border);
@@ -559,9 +569,34 @@ main { max-width: 1080px; margin: 0 auto; padding: 116px 28px 32px; }
 }
 
 /* ── Tool cards ────────────────────────────────────────────────────────── */
+/* Chop Shop workspace — asymmetric 2-col card grid */
+#chop-shop-workspace {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 12px;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 170px 28px 32px;
+}
+#chop-shop-workspace > .hotplug-banner,
+#chop-shop-workspace > .drive-offline-banner,
+#chop-shop-workspace > .health-panel,
+#chop-shop-workspace > #chop-shop-intro,
+#chop-shop-workspace > .section-title,
+#chop-shop-workspace > [id^="step-audit"],
+#chop-shop-workspace > #step-relocate,
+#chop-shop-workspace > #step-import,
+#chop-shop-workspace > #step-link { grid-column: 1 / -1; }
+
 main .card {
   display: block;
 }
+
+/* Compact card variant for 2-col grid cells */
+.card--compact .card-head { padding: 8px 10px; }
+.card--compact .card-icon { width: 28px; height: 28px; font-size: .875rem; }
+.card--compact .card-icon img { width: 28px; height: 28px; }
+.card--compact .card-blurb { font-size: .72rem; }
 
 .card {
   border-radius: var(--radius);
