@@ -21,6 +21,7 @@ Status dict shape:
 
 import json
 import logging
+import platform
 import subprocess
 import sys
 import threading
@@ -28,6 +29,8 @@ import time
 from datetime import datetime
 
 log = logging.getLogger(__name__)
+
+_ON_MAC = platform.system() == "Darwin"
 
 # ── Packages FableGear directly depends on via Homebrew ────────────────────────
 
@@ -37,11 +40,7 @@ _PY_FORMULA = f"python@{sys.version_info.major}.{sys.version_info.minor}"
 BREW_DEPS: frozenset[str] = frozenset({
     _PY_FORMULA,
     "ffmpeg",
-    "lame",          # MP3 encoding
-    "opus",          # Opus encoding
-    "libvorbis",     # OGG encoding
-    "flac",          # FLAC encoding
-    "libsndfile",    # WAV / AIFF I/O
+    "chromaprint",
 })
 
 # ── Check interval ────────────────────────────────────────────────────────────
@@ -91,6 +90,8 @@ def check_now() -> dict:
     Run ``brew outdated --json=v2``, filter to FableGear deps, update cache.
     Returns the new status dict.
     """
+    if not _ON_MAC:
+        return get_status()
     log.info("brew_updater: checking for Homebrew updates …")
     
     brew_cmd = _find_brew()
@@ -169,6 +170,8 @@ def _background_loop() -> None:
 
 def start_background_checker() -> None:
     """Start the weekly background checker. Call once at app startup."""
+    if not _ON_MAC:
+        return
     t = threading.Thread(
         target=_background_loop,
         daemon=True,

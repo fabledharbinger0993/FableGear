@@ -44,6 +44,7 @@ Copy Suffix Examples:
 
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -789,7 +790,8 @@ def _walk_audio_files(root: Path) -> list[Path]:
     """Return all audio files under root, respecting skip lists."""
     files: list[Path] = []
     try:
-        for dirpath, dirnames, filenames in root.walk():
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirpath = Path(dirpath)
             dirnames[:] = [
                 d for d in dirnames
                 if d not in SKIP_DIRS and not d.startswith(".")

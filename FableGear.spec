@@ -19,8 +19,8 @@ a = Analysis(
     pathex=[str(SRC)],
     binaries=[],
     datas=[
-        # Flask templates and static assets must travel with the bundle
-        (str(SRC / 'templates'), 'templates'),
+        # Flask templates (chop_shop/) and static assets must travel with the bundle
+        (str(SRC / 'chop_shop'), 'chop_shop'),
         (str(SRC / 'static'),    'static'),
     ],
     hiddenimports=[

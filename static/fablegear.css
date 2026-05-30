@@ -348,10 +348,54 @@ input[type="range"] { -webkit-app-region: no-drag; }
   width: 100%;
   flex-shrink: 0;
 }
-.lp-drives-hdr { opacity: .45; }
+.lp-drives-hdr { cursor: pointer; }
 #drive-list {
   display: flex; flex-direction: column;
   width: 100%;
+}
+.lp-drives-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px 5px 18px;
+  cursor: pointer;
+  font-size: .72rem;
+  color: var(--text-dim);
+  transition: background .12s, color .12s;
+  border-radius: 0 6px 6px 0;
+  margin: 1px 4px 1px 0;
+}
+.lp-drives-item:hover {
+  background: rgba(255,255,255,.05);
+  color: var(--text);
+}
+.lp-drives-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.lp-drives-badge {
+  font-size: .6rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255,102,0,.15);
+  color: #ff8c42;
+  flex-shrink: 0;
+}
+.lp-drives-meta {
+  font-size: .62rem;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.lp-drives-loading,
+.lp-drives-empty {
+  padding: 6px 18px;
+  font-size: .68rem;
+  color: var(--text-dim);
+  font-style: italic;
 }
 .lp-spacer { flex: 1; }
 .lp-bottom {
@@ -421,14 +465,24 @@ input[type="range"] { -webkit-app-region: no-drag; }
 }
 
 /* ── Room shell ────────────────────────────────────────────────────────── */
-body.fg-space-record #chop-shop-workspace,
-body.fg-space-record .workflow-rail { display: none !important; }
+body.fg-space-record #chop-shop-workspace { display: none; }
 
-body.fg-space-chop #library-editor-overlay { display: none !important; }
+/* #library-editor-overlay slides in/out via transform; .hidden set by JS */
+#library-editor-overlay {
+  transform: translateX(0);
+  transition: transform .3s cubic-bezier(.4,0,.2,1);
+}
+#library-editor-overlay.hidden {
+  transform: translateX(-100%);
+  pointer-events: none;
+}
 
 /* ── Workflow rail ─────────────────────────────────────────────────────── */
 .workflow-rail {
-  display: none;
+  display: flex;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .2s ease, visibility .2s ease;
   position: fixed;
   top: calc(var(--titlebar-h) + var(--header-h));
   left: var(--left-panel-w);
@@ -444,7 +498,7 @@ body.fg-space-chop #library-editor-overlay { display: none !important; }
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
 }
-body.fg-space-chop .workflow-rail { display: flex; }
+body.fg-space-chop .workflow-rail { opacity: 1; visibility: visible; }
 .step-tab {
   min-width: 104px;
   border: 1px solid var(--border);
@@ -465,6 +519,46 @@ body.fg-space-chop .workflow-rail { display: flex; }
   color: var(--accent);
 }
 .step-num { display: block; font-size: 1rem; line-height: 1; margin-bottom: 4px; }
+.step-icon {
+  display: block;
+  height: 24px;
+  width: auto;
+  margin: 0 auto 4px;
+  object-fit: contain;
+}
+
+/* Offset so tool cards land below the fixed titlebar + header + workflow rail
+   when a tab scrolls to them (28 + 56 + ~58 ≈ 142, +buffer). */
+[id^="step-"] { scroll-margin-top: 150px; }
+
+/* Back-to-Record-Room hint — transient popup near the FG logo (top-left).
+   Positioned inline by JS; auto-dismisses after 10s. */
+.fg-back-hint {
+  position: fixed;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: rgba(8, 12, 18, .96);
+  border: 1px solid rgba(var(--accent-rgb), .5);
+  border-radius: 10px;
+  color: var(--accent);
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  animation: fg-back-hint-in .25s ease both;
+}
+.fg-back-hint::before { content: "←"; font-size: 1rem; line-height: 1; }
+.fg-back-hint:hover { background: rgba(var(--accent-rgb), .14); }
+.fg-back-hint.hiding { animation: fg-back-hint-out .35s ease both; }
+@keyframes fg-back-hint-in  { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes fg-back-hint-out { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(-8px); } }
 
 /* ── Main layout ───────────────────────────────────────────────────────── */
 main { max-width: 1080px; margin: 0 auto; padding: 116px 28px 32px; }
@@ -475,9 +569,34 @@ main { max-width: 1080px; margin: 0 auto; padding: 116px 28px 32px; }
 }
 
 /* ── Tool cards ────────────────────────────────────────────────────────── */
+/* Chop Shop workspace — asymmetric 2-col card grid */
+#chop-shop-workspace {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 12px;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 170px 28px 32px;
+}
+#chop-shop-workspace > .hotplug-banner,
+#chop-shop-workspace > .drive-offline-banner,
+#chop-shop-workspace > .health-panel,
+#chop-shop-workspace > #chop-shop-intro,
+#chop-shop-workspace > .section-title,
+#chop-shop-workspace > [id^="step-audit"],
+#chop-shop-workspace > #step-relocate,
+#chop-shop-workspace > #step-import,
+#chop-shop-workspace > #step-link { grid-column: 1 / -1; }
+
 main .card {
   display: block;
 }
+
+/* Compact card variant for 2-col grid cells */
+.card--compact .card-head { padding: 8px 10px; }
+.card--compact .card-icon { width: 28px; height: 28px; font-size: .875rem; }
+.card--compact .card-icon img { width: 28px; height: 28px; }
+.card--compact .card-blurb { font-size: .72rem; }
 
 .card {
   border-radius: var(--radius);
@@ -5417,6 +5536,300 @@ footer {
 #fg-room-launcher .fg-launcher-dismiss:hover {
   color: var(--text);
   background: rgba(255,255,255,.05);
+}
+#fg-room-launcher .fg-launcher-perm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 560px;
+}
+#fg-room-launcher .welcome-tool-list { font-size: .83rem; }
+#fg-room-launcher .welcome-tool-item { font-size: .83rem; }
+
+/* ══ Staging Queue Panel ════════════════════════════════════════════════════ */
+
+.staging-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  z-index: 9500;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface, #1a1a22);
+  border-left: 1px solid rgba(255,255,255,.09);
+  box-shadow: -8px 0 32px rgba(0,0,0,.45);
+  transform: translateX(100%);
+  transition: transform .22s cubic-bezier(.4,0,.2,1);
+  overflow: hidden;
+}
+.staging-panel.staging-panel-open {
+  transform: translateX(0);
+}
+
+.staging-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  flex-shrink: 0;
+}
+.staging-panel-title {
+  font-size: .88rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text);
+  flex: 1;
+}
+.staging-count-label {
+  font-size: .68rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: rgba(var(--accent-rgb), .18);
+  color: var(--accent);
+  min-width: 20px;
+  text-align: center;
+}
+.staging-panel-close {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 5px;
+  line-height: 1;
+  transition: color .15s, background .15s;
+}
+.staging-panel-close:hover {
+  color: var(--text);
+  background: rgba(255,255,255,.07);
+}
+
+.staging-panel-desc {
+  padding: 8px 14px 6px;
+  font-size: .73rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+  flex-shrink: 0;
+}
+
+.staging-panel-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+  flex-shrink: 0;
+}
+
+.staging-drop-zone {
+  margin: 10px 12px 6px;
+  border: 2px dashed rgba(255,255,255,.14);
+  border-radius: 8px;
+  padding: 14px 10px;
+  text-align: center;
+  cursor: default;
+  transition: border-color .15s, background .15s;
+  flex-shrink: 0;
+}
+.staging-drop-zone.staging-dz-over {
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb), .06);
+}
+.staging-dz-label {
+  font-size: .72rem;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.staging-list {
+  flex: 1 1 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+}
+
+.staging-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.04);
+  transition: background .12s;
+}
+.staging-item:hover { background: rgba(255,255,255,.03); }
+.staging-item-icon {
+  font-size: .9rem;
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+.staging-item-info {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.staging-item-name {
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.staging-item-path {
+  font-size: .65rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.staging-item-remove {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,.28);
+  font-size: .9rem;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color .12s, background .12s;
+}
+.staging-item-remove:hover {
+  color: var(--danger, #ef4444);
+  background: rgba(239,68,68,.1);
+}
+
+.staging-hint {
+  margin: 10px 14px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,.03);
+  border-radius: 7px;
+  font-size: .72rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.staging-panel-footer {
+  padding: 10px 12px 14px;
+  border-top: 1px solid rgba(255,255,255,.07);
+  flex-shrink: 0;
+}
+.staging-goto-btn { width: 100%; }
+
+/* Badge on Queue nav button */
+.staging-nav-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: var(--accent);
+  color: #000;
+  font-size: .58rem;
+  font-weight: 800;
+  border-radius: 10px;
+  padding: 1px 4px;
+  min-width: 14px;
+  text-align: center;
+  line-height: 1.3;
+  pointer-events: none;
+  display: none;
+}
+
+@keyframes staging-badge-pulse {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.45); }
+  100% { transform: scale(1); }
+}
+.staging-badge-flash { animation: staging-badge-pulse .32s ease; }
+
+/* ── Stage (+Q) buttons on track rows, folder items, volume cards ──────────── */
+
+.le-stage-btn,
+.le-stage-folder-btn {
+  background: transparent;
+  border: 1px solid rgba(var(--accent-rgb), .28);
+  color: var(--accent);
+  font-size: .62rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1.5;
+  white-space: nowrap;
+  transition: background .13s, border-color .13s, color .13s;
+  flex-shrink: 0;
+}
+.le-stage-btn:hover,
+.le-stage-folder-btn:hover {
+  background: rgba(var(--accent-rgb), .12);
+  border-color: rgba(var(--accent-rgb), .65);
+}
+
+.le-vol-stage-btn {
+  margin-top: 6px;
+  width: 100%;
+  background: transparent;
+  border: 1px solid rgba(var(--accent-rgb), .3);
+  color: var(--accent);
+  font-size: .7rem;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .13s, border-color .13s;
+}
+.le-vol-stage-btn:hover {
+  background: rgba(var(--accent-rgb), .1);
+  border-color: rgba(var(--accent-rgb), .6);
+}
+
+/* ── Drives dropdown action buttons ─────────────────────────────────────────── */
+
+.drives-item-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 5px;
+}
+.drives-action-btn {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,.13);
+  color: var(--text-dim);
+  font-size: .68rem;
+  padding: 3px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background .13s, border-color .13s, color .13s;
+}
+.drives-action-btn:hover {
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.25);
+  color: var(--text);
+}
+.drives-action-stage {
+  border-color: rgba(var(--accent-rgb), .3);
+  color: var(--accent);
+}
+.drives-action-stage:hover {
+  background: rgba(var(--accent-rgb), .1);
+  border-color: rgba(var(--accent-rgb), .65);
+}
+
+/* ── "Use Queue" button in tool cards ───────────────────────────────────────── */
+.use-queue-btn {
+  border-color: rgba(var(--accent-rgb), .3);
+  color: var(--accent);
+}
+.use-queue-btn:hover {
+  background: rgba(var(--accent-rgb), .08);
+  border-color: rgba(var(--accent-rgb), .65);
 }
 
 /* ── Persistent rail switcher polish ───────────────────────────────────────── */

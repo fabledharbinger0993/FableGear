@@ -11,6 +11,7 @@ import os
 import signal
 import sys
 import uuid
+from pathlib import Path
 
 from flask import Blueprint, Response, jsonify, request
 
@@ -118,6 +119,13 @@ def api_relocate():
     if not old_roots or not new:
         return jsonify({"error": "old_root and new_root are required"}), 400
 
+    # Validate paths are absolute to prevent argument injection into cli.py
+    if not Path(new).is_absolute():
+        return jsonify({"error": "new_root must be an absolute path"}), 400
+    invalid = [r for r in old_roots if not Path(r).is_absolute()]
+    if invalid:
+        return jsonify({"error": "old_root values must be absolute paths"}), 400
+
     library_root = _get_library_root(request, "new_root")
 
     if len(old_roots) == 1:
@@ -200,6 +208,19 @@ def api_audit_path_roots():
         })
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+# ── Dead File Scan ────────────────────────────────────────────────────────────
+
+@bp.route("/api/run/dead-files")
+def api_dead_files():
+    paths = [p.strip() for p in request.args.getlist("paths") if p.strip()]
+    if not paths:
+        return jsonify({"error": "At least one path is required"}), 400
+    cmd = [sys.executable, str(CLI_PATH), "dead-files", paths[0]]
+    for extra in paths[1:]:
+        cmd += ["--also-scan", extra]
+    return _sse_response(cmd, library_root=paths[0], step_name="dead-files")
 
 
 # ── Pioneer DB migration ──────────────────────────────────────────────────────

@@ -54,3 +54,6 @@ FableGear.command
 # Never commit a copy here — it causes confusion about which file is current.
 static/index.html
 
+
+# Runtime log
+fablegear.log

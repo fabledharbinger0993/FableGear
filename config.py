@@ -7,12 +7,11 @@ All path references in the toolkit flow from here.
 import sys
 from pathlib import Path
 
-# Require Python 3.12+ — Path.walk() was added in 3.12
-if sys.version_info < (3, 12):
+if sys.version_info < (3, 11):
     raise RuntimeError(
-        f"FableGear requires Python 3.12 or later "
+        f"FableGear requires Python 3.11 or later "
         f"(found {sys.version_info.major}.{sys.version_info.minor}). "
-        "Path.walk() is used throughout — upgrade Python or replace with os.walk()."
+        "Please run: brew install python@3.12"
     )
 
 # ─── User configuration ───────────────────────────────────────────────────────

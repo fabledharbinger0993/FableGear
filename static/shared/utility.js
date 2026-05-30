@@ -13,8 +13,17 @@
  */
 /* ── Utility helpers ─────────────────────────────────────────────────────── */
 
-function _esc(s)     { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function _escAttr(s) { return String(s || '').replace(/"/g,'&quot;'); }
+function _esc(s)     { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _escAttr(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+// Alias names used by rename/preflight modal innerHTML templates
+const escapeHtml     = _esc;
+const escapeHtmlAttr = _escAttr;
+
+function extractProducerAliasToken(text) {
+  return String(text || '')
+    .replace(/\s+(remix|dub|edit|mix|rework|version|remaster|bootleg|re-edit|radio\s+edit|extended\s+mix)\s*$/i, '')
+    .trim();
+}
 function _escPath(s) { return (s || '').replace(/'/g,'\\'  ); }
 function _fmtDur(s)  {
   const m = Math.floor(s / 60), sec = Math.floor(s % 60);
@@ -150,6 +159,7 @@ document.querySelectorAll('.step-tab').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.step-tab').forEach(tab => tab.classList.remove('active'));
     btn.classList.add('active');
-    if (btn.dataset.target) openToolDrawer(btn.dataset.target);
+    const target = btn.dataset.target && document.getElementById(btn.dataset.target);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 });

@@ -68,25 +68,25 @@
 <!-- ══ Chop Shop tool rail ═══════════════════════════════════════════════════ -->
 <nav class="workflow-rail" id="workflow-rail">
   <button type="button" class="step-tab active" data-target="step-process">
-    <img class="step-icon" src="/static/icon-tag.png" alt=""> Tag Tracks
+    <span class="step-num">🏷</span> Tag Tracks
   </button>
   <button type="button" class="step-tab" data-target="step-rename">
-    <img class="step-icon" src="/static/icon-filename.png" alt=""> Rename
+    <span class="step-num">📝</span> Rename
   </button>
   <button type="button" class="step-tab" data-target="step-convert">
-    <img class="step-icon" src="/static/icon-convert.png" alt=""> Convert
+    <span class="step-num">🔄</span> Convert
   </button>
   <button type="button" class="step-tab" data-target="step-normalize">
-    <img class="step-icon" src="/static/icon-normalize.png" alt=""> Normalize
+    <span class="step-num">📢</span> Normalize
   </button>
   <button type="button" class="step-tab" data-target="step-organize">
-    <img class="step-icon" src="/static/icon-organizer.png" alt=""> Organize
+    <span class="step-num">🗂</span> Organize
   </button>
   <button type="button" class="step-tab" data-target="step-duplicates">
-    <img class="step-icon" src="/static/icon-find-duplicate.png" alt=""> Duplicates
+    <span class="step-num">✂</span> Duplicates
   </button>
   <button type="button" class="step-tab" data-target="step-novelty">
-    <img class="step-icon" src="/static/icon-novelty.png" alt=""> Novelty
+    <span class="step-num">★</span> Novelty
   </button>
 </nav>
 
@@ -141,6 +141,9 @@
     <p>
       Tag, rename, convert, normalize, organize, dedupe, import, link, and repair paths without crowding the listening and playlist-building flow.
     </p>
+    <button type="button" class="btn btn-neon" onclick="setFableGearSpace('record')">
+      Back to Record Room →
+    </button>
   </section>
 
   <!-- Hidden section title (used by toolkit modal) -->
@@ -183,6 +186,8 @@
 </main>
 
 {% include 'partials/physical_library/pipeline_wizard.html' %}
+
+{% include 'partials/staging_panel.html' %}
 
 <!-- ══ Step completion report modal ════════════════════════════════════════ -->
 <div id="report-modal-backdrop" class="hidden">
@@ -664,6 +669,7 @@
      scope; load order matches the original line order so top-level lets,
      immediate calls, and function hoisting behave identically. -->
 <script src="/static/shared/state.js"></script>
+<script src="/static/shared/staging.js"></script>
 <script src="/static/shared/file_browser.js"></script>
 <script src="/static/shared/modals.js"></script>
 <script src="/static/shared/settings.js"></script>
@@ -851,6 +857,12 @@
           <div class="le-sidebar-section">Filesystem</div>
           <div class="le-fs-crumb" id="le-fs-crumb"></div>
           <div id="le-fs-folder-list"></div>
+          <div class="le-fs-stage-row">
+            <button type="button" class="btn btn-secondary btn-xs le-fs-stage-all-btn"
+                    onclick="_leStageFsCurrentFolder()" title="Stage current folder for Chop Shop">
+              + Queue current folder
+            </button>
+          </div>
         </div>
       </div>
 
@@ -895,6 +907,7 @@
           <span id="le-status-text">Loading…</span>
           <button type="button" class="le-load-btn" id="le-remove-btn" onclick="leRemoveSelectionFromActivePlaylist()" disabled>Remove Selected</button>
           <button type="button" class="le-load-btn le-add-btn" id="le-add-btn" onclick="leAddSelectionToActivePlaylist()" disabled>Add Selected</button>
+          <button type="button" class="le-load-btn" id="le-stage-selected-btn" onclick="leStageSelected()" disabled title="Add selected tracks to the Staging Queue">+ Stage Selected</button>
           <button type="button" class="le-load-btn" onclick="leLoadLibrary()">↺ Reload</button>
         </div>
       </div>
