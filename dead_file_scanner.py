@@ -84,8 +84,8 @@ def _build_db_index(db_paths: list[Path]) -> set[str]:
                 if fp:
                     known.add(_normalise(fp))
             log.debug("Dead-file scan: loaded %d paths from %s", len(known), db_path.name)
-        except Exception:
-            log.warning("Dead-file scan: could not open DB %s", db_path, exc_info=True)
+        except Exception as exc:
+            raise RuntimeError(f"Dead-file scan: could not read DB {db_path}") from exc
     return known
 
 
