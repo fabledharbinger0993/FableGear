@@ -94,7 +94,11 @@ _PREVIEW_MAX_FILES: int = 400
 
 
 def _default_duplicates_report_path() -> Path:
-    return Path.home() / "rekordbox-toolkit" / "duplicate_report.csv"
+    try:
+        from config import REPORTS_DIR  # noqa: PLC0415
+        return REPORTS_DIR / "Duplicates" / "duplicate_report.csv"
+    except Exception:
+        return Path.home() / ".fablegear" / "Reports" / "Duplicates" / "duplicate_report.csv"
 
 
 def _resolve_duplicates_report_path(csv_path_str: str) -> Path:

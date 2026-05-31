@@ -53,7 +53,6 @@ MUSIC_ROOT = Path(_cfg["music_root"])
 #   └── FableGear Archive/   ← auto-created on first run
 #       ├── Savepoints/     ← timestamped DB backups before every write
 #       ├── Quarantine/     ← problem files moved here from triage
-#       ├── Reports/        ← audit summaries, duplicate CSVs, scan reports
 #       └── Logs/
 #           ├── Audit/
 #           ├── Tag Tracks/
@@ -76,7 +75,9 @@ else:
 
 SAVEPOINTS_DIR = ARCHIVE_ROOT / "Savepoints"
 QUARANTINE_DIR = ARCHIVE_ROOT / "Quarantine"
-REPORTS_DIR    = ARCHIVE_ROOT / "Reports"
+# Reports are intentionally stored on the local Mac user account so they remain
+# available even when external DJ volumes are disconnected.
+REPORTS_DIR    = Path.home() / ".fablegear" / "Reports"
 LOGS_DIR       = ARCHIVE_ROOT / "Logs"
 
 LOG_DIRS: dict[str, Path] = {
