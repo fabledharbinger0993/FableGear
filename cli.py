@@ -396,8 +396,8 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
     if args.output:
         output = Path(args.output)
     else:
-        # Default: write into REPORTS_DIR/Duplicates/ if archive is configured,
-        # otherwise fall back to ~/fablegear/
+        # Default: write into REPORTS_DIR/Duplicates/ (local user path on macOS),
+        # otherwise fall back to ~/.fablegear/Reports/Duplicates.
         try:
             try:
                 from FableGear.config import REPORTS_DIR  # noqa: PLC0415
@@ -408,7 +408,7 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output = out_dir / f"duplicate_report_{timestamp}.csv"
         except Exception:
-            output = Path.home() / "rekordbox-toolkit" / "duplicate_report.csv"
+            output = Path.home() / ".fablegear" / "Reports" / "Duplicates" / "duplicate_report.csv"
 
     rescue_output = output.with_name(
         output.stem.replace("duplicate_report", "trash_rescue_report")
