@@ -172,7 +172,7 @@ echo "✅ No shell injection risks detected"
 ### Installation
 
 ```bash
-cd /Users/cameronkelly/FABLEDHARBINGER/GIT_REPOS/FableGear
+cd /path/to/FableGear
 chmod +x .git/hooks/pre-commit
 ```
 

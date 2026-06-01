@@ -49,7 +49,7 @@ MUSIC_ROOT = Path(_cfg["music_root"])
 # All FableGear-generated data lives in one folder beside the music library:
 #
 #   <drive root>/
-#   ├── DJMT PRIMARY/       ← music library
+#   ├── Music Library/      ← music library
 #   └── FableGear Archive/   ← auto-created on first run
 #       ├── Savepoints/     ← timestamped DB backups before every write
 #       ├── Quarantine/     ← problem files moved here from triage
@@ -184,7 +184,7 @@ SKIP_DIRS: set[str] = {
     # Common non-music app data that ends up inside music drives
     "ollama", "FableGear Archive",
     # Processing artifacts left by FableGear or other tools
-    "DJMT PRIMARY_PROCESSING_LOGIC", "POST PROCESS ZIP ARCHIVE",
+    "PROCESSING_CACHE", "POST_PROCESS_ARCHIVE",
     # Source-control, language toolchains, and build outputs that may sit inside
     # a scanned root (e.g. when auditing a repo path or a music drive that also
     # hosts code). Audio files in these are never real library content.

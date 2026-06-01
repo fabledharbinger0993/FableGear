@@ -37,7 +37,7 @@ function setFableGearSpace(space) {
 }
 
 /* ── File Browser Panel ─────────────────────────────────────────────────────── */
-let _fbCurrentPath = '/Volumes';
+let _fbCurrentPath = '';
 
 /* ── Right Nav Dropdown ─────────────────────────────────────────────────────── */
 let _activeDropdown = null;
@@ -133,9 +133,9 @@ function loadLibraryFolders(dropdown) {
 function loadFileBrowserFolders(dropdown) {
   // Integrate with existing file browser
   dropdown.innerHTML = `
-    <div class="folder-item" onclick="fbNavigateTo('/Volumes'); closeRightNavDropdown();">
+    <div class="folder-item" onclick="toggleFileBrowser(); closeRightNavDropdown();">
       <img src="/static/icon-folder.png" class="folder-item-icon" alt="">
-      <span>/Volumes</span>
+      <span>Open file browser…</span>
     </div>
   `;
 }
@@ -230,7 +230,7 @@ function fbUp() {
   if (btn._fbParent) fbNavigateTo(btn._fbParent);
 }
 
-function fbHome() { fbNavigateTo('/Volumes'); }
+function fbHome() { fbNavigateTo(''); }
 
 /* ── Step completion report modal ─────────────────────────────────────────── */
 // Session-only storage — cleared when the page reloads / server stops.
@@ -1430,7 +1430,7 @@ function setLibraryMode(mode, fsRootPath = null) {
     if (trackList)   trackList.style.display  = '';
     if (splitView)   splitView.style.display  = 'none';
     if (statusBar)   statusBar.style.display  = '';
-    leFsBrowse(_leFsCurrentPath || '/Volumes');
+    leFsBrowse(_leFsCurrentPath);
 
   } else if (mode === 'split') {
     if (filterBar)   filterBar.style.display = 'none';
@@ -1489,12 +1489,12 @@ async function leFsBrowse(path) {
 
   _leFsCurrentPath = data.path;
 
-  // ── /Volumes root — render drive picker cards ──────────────────────────
+  // ── Platform volume root — render drive picker cards ───────────────────
   if (data.is_volumes_root) {
     if (folderList) folderList.innerHTML = '';
     const vols = data.volumes || [];
     if (!vols.length) {
-      trackList.innerHTML = '<div class="le-empty-state"><div class="le-empty-music-icon">💿</div><div>No volumes found under /Volumes</div></div>';
+      trackList.innerHTML = '<div class="le-empty-state"><div class="le-empty-music-icon">💿</div><div>No external drives found</div></div>';
       return;
     }
     trackList.innerHTML = '<div class="le-vol-grid">' + vols.map(v => {
@@ -2782,16 +2782,16 @@ function _pipeWizConfigHTML(step, saved) {
 
   switch (step.type) {
     case 'audit':
-      return multiPathRow('paths', 'Music folders (optional)', '/Volumes/YourDrive/Music', false);
+      return multiPathRow('paths', 'Music folders (optional)', 'Choose or enter a music folder', false);
 
     case 'process':
-      return multiPathRow('paths', 'Music folders', '/Volumes/YourDrive/Music') + workersRow(4);
+      return multiPathRow('paths', 'Music folders', 'Choose or enter a music folder') + workersRow(4);
 
     case 'normalize':
-      return multiPathRow('paths', 'Music folders', '/Volumes/YourDrive/Music') + workersRow(4);
+      return multiPathRow('paths', 'Music folders', 'Choose or enter a music folder') + workersRow(4);
 
     case 'duplicates':
-      return multiPathRow('paths', 'Folders to scan', '/Volumes/YourDrive/Music') + workersRow(4);
+      return multiPathRow('paths', 'Folders to scan', 'Choose or enter a music folder') + workersRow(4);
 
     case 'prune':
       return `<p class="pipe-cfg-note" style="color:var(--text-muted);font-size:.84rem;">
@@ -2800,7 +2800,7 @@ function _pipeWizConfigHTML(step, saved) {
       </p>`;
 
     case 'convert':
-      return multiPathRow('paths', 'Folders to convert', '/Volumes/YourDrive/Music') + `
+      return multiPathRow('paths', 'Folders to convert', 'Choose or enter a music folder') + `
         <div style="display:flex;gap:12px;flex-wrap:wrap">
           <div class="pipe-cfg-field" style="flex:1">
             <label class="pipe-cfg-label">Target format <span style="color:var(--danger)">*</span></label>
@@ -2815,18 +2815,18 @@ function _pipeWizConfigHTML(step, saved) {
         </div>`;
 
     case 'relocate':
-      return pathRow('old_root', 'Old path prefix (where files were)', '/Volumes/OLD_DRIVE/Music') +
-             pathRow('new_root', 'New path prefix (where files are now)', '/Volumes/YourDrive/Music');
+            return pathRow('old_root', 'Old path prefix (where files were)', 'Old library path') +
+              pathRow('new_root', 'New path prefix (where files are now)', 'New library path');
 
     case 'import':
-      return multiPathRow('paths', 'Import from (folders)', '/Volumes/YourDrive/Music');
+      return multiPathRow('paths', 'Import from (folders)', 'Choose or enter a music folder');
 
     case 'link':
-      return multiPathRow('paths', 'Library folders', '/Volumes/YourDrive/Music');
+      return multiPathRow('paths', 'Library folders', 'Choose or enter a music folder');
 
     case 'organize':
-      return multiPathRow('sources', 'Source folders', '/Volumes/YourDrive/Music') +
-             pathRow('target', 'Target (organized root)', '/Volumes/YourDrive/Music') + `
+            return multiPathRow('sources', 'Source folders', 'Choose or enter a music folder') +
+              pathRow('target', 'Target (organized root)', 'Choose or enter a music folder') + `
         <div style="display:flex;gap:12px;flex-wrap:wrap">
           <div class="pipe-cfg-field" style="flex:1">
             <label class="pipe-cfg-label">Mode</label>
@@ -2840,8 +2840,8 @@ function _pipeWizConfigHTML(step, saved) {
         </div>`;
 
     case 'novelty':
-      return pathRow('source', 'Source drive / folder', '/Volumes/Passport') +
-             pathRow('dest',   'Home library destination', '/Volumes/YourDrive/Music') +
+            return pathRow('source', 'Source drive / folder', 'Choose or enter a source drive') +
+              pathRow('dest',   'Home library destination', 'Choose or enter a music folder') +
              workersRow(4);
 
     default:
@@ -4277,7 +4277,7 @@ const GLOSSARY = [
   { id:'path', cat:'Tech', term:'File Path',
     short:'The full address of a file on your computer',
     body:`<p>The exact location of a file on your drive, written out as a chain of folders.</p>
-<p>Example: <code>/Volumes/YourDrive/Music/House/Track.aiff</code></p>
+<p>Example: <code>/path/to/music/House/Track.aiff</code></p>
 <p>RekordBox stores the path of every track in its database. If you move a file without telling RekordBox, the path in the database points to nowhere — the track shows as missing. The Relocate tool fixes this.</p>`},
 
   // ── Audio ──────────────────────────────────────────────────────────────────
@@ -4334,8 +4334,8 @@ const GLOSSARY = [
     body:`<p>The single SQLite file where RekordBox stores your entire library — every track, playlist, cue point, loop, hot cue color, and rating.</p>
 <p>Locations:<br>
 <code>~/Library/Pioneer/rekordbox/master.db</code> — your Mac<br>
-<code>/Volumes/[drive]/PIONEER/Master/master.db</code> — some legacy/export targets<br>
-<code>/Volumes/[drive]/PIONEER/rekordbox/exportLibrary.db</code> + <code>export.pdb</code> — common Pioneer USB export layout</p>
+<code>/path/to/drive/PIONEER/Master/master.db</code> — some legacy/export targets<br>
+<code>/path/to/drive/PIONEER/rekordbox/exportLibrary.db</code> + <code>export.pdb</code> — common Pioneer USB export layout</p>
 <p><strong>Every FableGear write operation creates a timestamped copy of this file in <code>~/rekordbox-toolkit/backups/</code> before touching it.</strong> The backup header in this app shows you when the last one was made.</p>`},
 
   { id:'cont', cat:'RekordBox', term:'DjmdContent',

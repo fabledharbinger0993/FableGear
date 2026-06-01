@@ -32,7 +32,7 @@ def _drive_root_from_path(target: str) -> Path:
     """
     Derive the drive root from a path on an external volume.
 
-    /Volumes/DJMT/DJMT PRIMARY  →  /Volumes/DJMT
+    /old/library/root  →  /new/library/root
     /Users/…                    →  / (fallback)
     """
     p = Path(target).resolve()
@@ -60,7 +60,7 @@ def migrate(target_path: str):
     """
     Generator — yields SSE-formatted data lines, then a done event.
 
-    target_path: the organise target (e.g. /Volumes/DJMT/DJMT PRIMARY).
+    target_path: the organise target (e.g. /path/to/music).
     Drive root is derived automatically from the volume name.
     """
 

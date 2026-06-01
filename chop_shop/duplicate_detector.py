@@ -77,7 +77,7 @@ _FUZZY_THRESHOLD_DEFAULT: float = 0.85
 
 # Canonical trash-intent words. Checked against every folder component in the
 # full path (case-insensitive), not just the immediate parent — so
-# /Volumes/Drive/trash/subfolder/file.mp3 is caught even though the immediate
+# /path/to/drive/trash/subfolder/file.mp3 is caught even though the immediate
 # parent is "subfolder".
 #
 # Exact matches are checked first (fast path). If no exact match, fuzzy

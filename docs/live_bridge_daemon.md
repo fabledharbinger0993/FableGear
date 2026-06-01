@@ -17,7 +17,7 @@ Keep active impersonation experiments separate from the daemon until a labeled p
 Activate the DJMT toolchain depot first if your shell does not already have the required tools:
 
 ```zsh
-source /Volumes/DJMT/FABLEDHARBINGER/toolchains/config/djmt-toolchains.zsh
+source /path/to/toolchains/config/djmt-toolchains.zsh
 ```
 
 Then run the passive daemon from the FableGear repo:

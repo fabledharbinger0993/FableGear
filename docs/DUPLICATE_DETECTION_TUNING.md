@@ -124,7 +124,7 @@ Then users can override in `~/.rekordbox-toolkit/config.json`:
 
 ```json
 {
-  "music_root": "/Volumes/DJMT",
+  "music_root": "/path/to/music",
   "duplicate_bpm_tolerance_pct": 0.02,
   "duplicate_duration_tolerance_sec": 2.0,
   "duplicate_fuzzy_threshold": 0.90

@@ -26,6 +26,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -1021,10 +1022,19 @@ def process_directory(
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    test_files = [
-        Path("/Volumes/DJMT/DJMT PRIMARY/Kerri Chandler/Sunset - So Let The Wind Come/02 Sunset - So Let The Wind Come.mp3"),
-        Path("/Volumes/DJMT/DJMT PRIMARY/DJMT PRIMARY/The Salsoul Orchestra/The Salsoul Orchestra/01 - Salsoul Hustle .flac"),
-    ]
+    test_files = [Path(arg) for arg in sys.argv[1:]]
+    if not test_files:
+        from config import MUSIC_ROOT  # noqa: PLC0415
+        test_files = []
+        for candidate in MUSIC_ROOT.rglob("*"):
+            if candidate.suffix.lower() in AUDIO_EXTENSIONS:
+                test_files.append(candidate)
+            if len(test_files) >= 2:
+                break
+
+    if not test_files:
+        print("SKIP (no audio files found; pass one or more paths to test)")
+        sys.exit(0)
 
     for f in test_files:
         if not f.exists():

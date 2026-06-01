@@ -1546,17 +1546,17 @@ def _build_parser() -> argparse.ArgumentParser:
         epilog="""
 Examples:
   python3 cli.py audit
-  python3 cli.py import "/Volumes/DJMT/DJMT PRIMARY" --dry-run
-  python3 cli.py import "/Volumes/DJMT/DJMT PRIMARY"
-  python3 cli.py link "/Volumes/DJMT/DJMT PRIMARY"
+    python3 cli.py import "/path/to/music" --dry-run
+    python3 cli.py import "/path/to/music"
+    python3 cli.py link "/path/to/music"
   python3 cli.py relocate /old/path /new/path
-  python3 cli.py duplicates "/Volumes/DJMT/DJMT PRIMARY" --output ~/Desktop/dupes.csv
-  python3 cli.py process "/Volumes/DJMT/DJMT PRIMARY" --no-normalize
-  python3 cli.py process "/Volumes/DJMT/DJMT PRIMARY" --dry-run --no-bpm --no-key
-  python3 cli.py convert "/Volumes/DJMT/DJMT PRIMARY" mp3
-  python3 cli.py convert "/Volumes/DJMT/DJMT PRIMARY" flac
-  python3 cli.py rename "/Volumes/DJMT/DJMT PRIMARY" --dry-run
-  python3 cli.py rename "/Volumes/DJMT/DJMT PRIMARY"
+    python3 cli.py duplicates "/path/to/music" --output ~/Desktop/dupes.csv
+    python3 cli.py process "/path/to/music" --no-normalize
+    python3 cli.py process "/path/to/music" --dry-run --no-bpm --no-key
+    python3 cli.py convert "/path/to/music" mp3
+    python3 cli.py convert "/path/to/music" flac
+    python3 cli.py rename "/path/to/music" --dry-run
+    python3 cli.py rename "/path/to/music"
         """,
     )
     parser.add_argument(
@@ -1809,7 +1809,7 @@ Examples:
     p_organize.add_argument(
         "target",
         metavar="TARGET",
-        help="Root of the organised library (e.g. /Volumes/DJMT/DJMT PRIMARY)",
+        help="Root of the organised library (e.g. /path/to/music)",
     )
     p_organize.add_argument(
         "--no-dry-run",
@@ -1921,7 +1921,7 @@ Examples:
     p_dead.add_argument(
         "path",
         metavar="PATH",
-        help="Root directory to scan (e.g. /Volumes/MyDrive/Music)",
+        help="Root directory to scan (e.g. /path/to/music)",
     )
     p_dead.add_argument(
         "--also-scan",

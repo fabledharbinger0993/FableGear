@@ -320,7 +320,7 @@
             <span class="settings-excl-hint"> — one per line, folder name only (not full path)</span>
           </label>
           <textarea id="settings-excluded-dirs" rows="4"
-                 placeholder="cache&#10;DJMT PRIMARY_PROCESSING_LOGIC&#10;POST PROCESS ZIP ARCHIVE"></textarea>
+                 placeholder="cache&#10;PROCESSING_CACHE&#10;POST_PROCESS_ARCHIVE"></textarea>
           <div class="settings-excl-note">
             Folders with these names are skipped during all scans (Tag Tracks, Normalize, Convert, Audit). Use this to exclude nested drive copies, app data, or any non-music folder inside your music root.
           </div>
@@ -744,7 +744,7 @@
           <button type="button" class="le-db-btn le-db-active" data-db="local"
                   onclick="setLeDbSource('local')" title="Desktop Rekordbox database">Local DB</button>
           <button type="button" class="le-db-btn" data-db="device"
-                  onclick="setLeDbSource('device')" title="Pioneer device database (DJMT drive)">Device DB</button>
+                  onclick="setLeDbSource('device')" title="Pioneer device database on an external drive">Device DB</button>
         </div>
         <div id="le-db-notice" style="display:none"></div>
       </div>
@@ -1015,7 +1015,7 @@
       <strong>FableGo</strong> is the iPhone companion to FableGear. Queue downloads, browse your library, manage playlists, and export to Pioneer drives — all from your phone.
     </p>
     <p class="rkg-section-body">
-      It installs as a <strong>web app (PWA)</strong> — no App Store, no Xcode, no cost. Just open it in Safari and tap <em>Add to Home Screen</em>.
+      It installs as a <strong>web app (PWA)</strong> — no App Store or native build tools required. Just open it in Safari and tap <em>Add to Home Screen</em>.
     </p>
     <div class="rkg-section-title">What you need</div>
     <ul class="rkg-checklist">

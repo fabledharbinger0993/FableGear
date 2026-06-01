@@ -96,7 +96,7 @@ def dispatch(
 
     Args:
         tool:      Tool name, matches the MCP tool function name (e.g. "tag_tracks").
-        cli_args:  Arguments passed to cli.py (e.g. ["process", "/Volumes/Passport/..."]).
+        cli_args:  Arguments passed to cli.py (e.g. ["process", "/path/to/music"]).
         scope:     The primary path the tool operates on — used as the checkpoint key.
                    Pass None for tools that don't have a meaningful path scope.
         timeout:   Subprocess timeout in seconds.

@@ -5169,7 +5169,7 @@ footer {
   align-self: center;
 }
 
-/* ── Volume picker cards (FS mode /Volumes root) ─────────────────────────── */
+/* ── Volume picker cards (FS mode platform root) ─────────────────────────── */
 
 .le-vol-grid {
   display: grid;

@@ -114,9 +114,9 @@ FableGear includes a split-panel library view backed directly by the Rekordbox d
 
 ---
 
-## FableGo — iOS Companion App
+## FableGo — Mobile Web Companion
 
-FableGo is an iOS companion app (`ios/FableGo/`) that connects to FableGear over your local network or via Tailscale for remote access.
+FableGo is the mobile web/PWA companion built into FableGear. It connects over your local network or via Tailscale for remote access.
 
 **What FableGo can do:**
 - Browse your music folders remotely
@@ -128,7 +128,7 @@ FableGo is an iOS companion app (`ios/FableGo/`) that connects to FableGear over
 
 FableGo uses Bearer token auth (`mobile_token` in `~/.rekordbox-toolkit/config.json`). The FableGear server must be running — Tailscale is optional but enables remote access outside your home network.
 
-FableGo lives in this repo alongside FableGear because it depends directly on FableGear's `/api/mobile/*` API surface — versioning them together keeps the API contract safe.
+FableGo lives in the Flask templates and static assets alongside FableGear because it depends directly on FableGear's `/api/mobile/*` API surface — versioning them together keeps the API contract safe.
 
 ---
 

@@ -527,10 +527,13 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     sys.path.insert(0, ".")
 
-    from config import DJMT_DB
+    from config import DJMT_DB, MUSIC_ROOT
     from db_connection import read_db
 
-    test_root = Path("/Volumes/DJMT/DJMT PRIMARY/Kerri Chandler")
+    test_root = Path(sys.argv[1]) if len(sys.argv) > 1 else MUSIC_ROOT
+    if not test_root.exists():
+        print(f"SKIP (not found): {test_root}")
+        sys.exit(0)
 
     print("=== DRY RUN (no writes) ===")
     with read_db(DJMT_DB) as db:
