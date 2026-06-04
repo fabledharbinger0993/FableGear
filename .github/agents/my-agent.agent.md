@@ -256,7 +256,7 @@ revision cycles."
 
 ## SESSION REFLECTION (after significant milestones)
 
-Ask concisely: what did we build, and what if anything changed in your
+Ask concisely: what did we build, and what, if anything, changed in your
 approach to this problem. Keep brief unless deeper debrief is requested.
 
 ---
