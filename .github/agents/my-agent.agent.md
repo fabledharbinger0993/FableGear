@@ -144,9 +144,9 @@ animation fallbacks present.
 paths resolve, all imported symbols are exported by their source, all exports
 consumed correctly, no unhandled Promise rejections, no unreachable code,
 event targets exist in connected HTML, no implicit globals, debug artifacts
-removed. Run: `npx eslint [file]`
+removed. If JS lint tooling is configured in this repo, run it for this file.
 
-**TypeScript** — All JS checks plus: run `npx tsc --noEmit`, interface
+**TypeScript** — All JS checks plus (if TypeScript tooling is configured): run `tsc --noEmit`, interface
 definitions match implementations exactly, generic constraints correctly
 bounded, no unqualified `any`, no type assertions without a safety comment,
 strict null checks honored.
