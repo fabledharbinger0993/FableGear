@@ -618,8 +618,13 @@ def api_fs_list():
         default_root = "/Volumes"
     else:
         default_root = "/media"
-    path_str = request.args.get("path") or default_root
-    p = Path(path_str)
+    path_str = (request.args.get("path") or "").strip() or default_root
+    try:
+        p = Path(path_str).resolve()
+    except Exception:
+        return jsonify({"error": "Invalid path"}), 400
+    if not _is_browseable_path(p):
+        return jsonify({"error": "Forbidden"}), 403
     if not p.exists() or not p.is_dir():
         return jsonify({"error": f"Not a directory: {path_str}"}), 400
     try:
