@@ -302,7 +302,7 @@ def api_library_fs_browse():
     Falls back to the platform default root when no path is given.
 
     Query params:
-    path      – directory to browse (default: platform root → volume picker)
+      path      – directory to browse (default: platform root → volume picker)
       recursive – if "1" or "true", walk all subdirectories and return every
                   audio file at any depth.  Subdirs list is omitted in this mode.
                   Capped at _FS_RECURSIVE_LIMIT tracks; truncated=true when hit.
