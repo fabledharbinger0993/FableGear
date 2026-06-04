@@ -18,6 +18,15 @@ env/
 .AppleDouble
 .LSOverride
 
+# Apple IDE local user state
+ios/
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+DerivedData/
+
 # Claude Code agent worktrees / scratch space
 .claude/
 

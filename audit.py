@@ -312,7 +312,7 @@ def find_dead_roots(db: Rekordbox6Database) -> DeadRootReport:
     which roots exist on disk. Dead roots are drives that are disconnected
     or have been renamed/remounted.
 
-    On macOS paths like /Volumes/DRIVE/folder/..., the root is /Volumes/DRIVE.
+    On macOS external-drive paths, the root is the mounted drive.
     For other paths, uses the first two components.
     """
     from collections import defaultdict
@@ -323,7 +323,7 @@ def find_dead_roots(db: Rekordbox6Database) -> DeadRootReport:
         if not path_str or _is_streaming(path_str):
             continue
         parts = Path(path_str).parts
-        # macOS: /Volumes/DRIVE_NAME/...
+        # macOS external drive path.
         if len(parts) >= 3 and parts[1] == "Volumes":
             prefix = "/" + parts[1] + "/" + parts[2]
         elif len(parts) >= 2:

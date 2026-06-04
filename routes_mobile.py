@@ -2,7 +2,7 @@
 routes_mobile.py — ── The Overlord ──
 
 Flask Blueprint: all /api/mobile/* REST + WebSocket endpoints for the
-FableGo iOS companion app, plus the /api/connectivity pairing panel route.
+FableGo mobile web companion, plus the /api/connectivity pairing panel route.
 """
 
 import datetime
@@ -929,7 +929,7 @@ def mobile_drives():
 def mobile_export_start():
     """
     Start a USB export job.
-    Body: { "playlist_ids": ["123", "456"], "drive_path": "/Volumes/DJMT" }
+    Body: { "playlist_ids": ["123", "456"], "drive_path": "/path/to/drive" }
     Response: { "job_id": "uuid" }  (202)
     """
     data = request.get_json(silent=True) or {}

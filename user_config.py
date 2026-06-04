@@ -10,12 +10,12 @@ Config file schema
 ------------------
 {
   "local_db":        "/Users/name/Library/Pioneer/rekordbox/master.db",
-  "device_db":       "/Volumes/MYDRIVE/PIONEER/Master/master.db",
-  "music_root":      "/Volumes/MYDRIVE/MY MUSIC",
+  "device_db":       "/path/to/drive/PIONEER/Master/master.db",
+  "music_root":      "/path/to/music",
   "backup_dir":      "/Users/name/.fablegear/backups",
   "target_lufs":     -8.0,
   "lufs_tolerance":  0.5,
-  "excluded_dirs":   ["ollama", "DJMT PRIMARY_PROCESSING_LOGIC"]
+  "excluded_dirs":   ["cache", "PROCESSING_CACHE"]
 }
 
 Required keys: local_db, device_db, music_root, backup_dir
@@ -489,7 +489,7 @@ def interactive_setup(*, update: bool = False) -> dict:
 
     cfg["device_db"] = _prompt(
         "DJ drive database path\n  "
-        "(e.g. /Volumes/DRIVENAME/PIONEER/Master/master.db)",
+        "(e.g. /path/to/drive/PIONEER/Master/master.db)",
         default=existing.get("device_db"),
         must_exist=True,
     )

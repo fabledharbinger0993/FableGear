@@ -17,7 +17,7 @@ Usage in a scan function
 
     ck = Checkpoint(
         "duplicates",
-        roots=[Path("/Volumes/DJMT")],
+        roots=[Path("/path/to/music")],
         config={"match_mode": "all", "fuzzy_threshold": "0.85"},
     )
 

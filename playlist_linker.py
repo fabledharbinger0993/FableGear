@@ -6,7 +6,7 @@ filesystem folder names to playlist names already in the database.
 
 The 2,190 playlists in this DB were created from the folder structure —
 artist folders, label folders, VA compilations — so their names correspond
-directly to directory names on DJMT PRIMARY.
+directly to directory names in the configured music library.
 
 Matching strategy per track:
   1. Walk up the path (from immediate parent toward MUSIC_ROOT)

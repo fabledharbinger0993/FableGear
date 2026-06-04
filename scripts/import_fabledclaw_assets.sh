@@ -6,13 +6,21 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC_ROOT="${1:-/Users/cameronkelly/FabledHarbinger/Git Repos/RekkiClaw}"
+SRC_ROOT="${1:-${REKKICLAW_ROOT:-}}"
+if [[ -z "$SRC_ROOT" ]]; then
+  for candidate in "$REPO_ROOT/../RekkiClaw" "$REPO_ROOT/../../RekkiClaw"; do
+    if [[ -d "$candidate/.pi/prompts" ]]; then
+      SRC_ROOT="$candidate"
+      break
+    fi
+  done
+fi
 DEST_PROMPTS="${REPO_ROOT}/rekki/prompts"
 
 log() { echo "[import-prompts] $*"; }
 
 if [[ ! -d "$SRC_ROOT/.pi/prompts" ]]; then
-  log "ERROR: prompt source not found: $SRC_ROOT/.pi/prompts"
+  log "ERROR: prompt source not found. Pass /path/to/RekkiClaw or set REKKICLAW_ROOT."
   exit 1
 fi
 

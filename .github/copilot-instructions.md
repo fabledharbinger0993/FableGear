@@ -1,7 +1,7 @@
 # Copilot Instructions For FableGear
 
 ## Runtime Context
-- Project root: /Users/cameronkelly/FabledHarbinger/Git Repos/FableGear-private-main
+- Project root: repository workspace root
 - FableGear runs local-only on localhost:5001 via Flask/Waitress.
 - Native window shell is in main.py (pywebview) and UI is templates/index.html + static/fablegear.js.
 - Rekordbox DB operations use pyrekordbox wrappers in db_connection.py.

@@ -28,8 +28,8 @@ _green "────────────────────────
 # ── Require git ───────────────────────────────────────────────────────────
 if ! command -v git &>/dev/null; then
     _red "Git is required."
-    echo "Install Xcode Command Line Tools first, then re-run:"
-    echo "  xcode-select --install"
+    echo "Install Git first, then re-run. On macOS, use Homebrew or the Git installer:"
+    echo "  brew install git"
     exit 1
 fi
 

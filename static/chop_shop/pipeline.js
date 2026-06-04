@@ -364,16 +364,16 @@ function _pipeWizConfigHTML(step, saved) {
 
   switch (step.type) {
     case 'audit':
-      return multiPathRow('paths', 'Music folders (optional)', '/Volumes/YourDrive/Music', false);
+      return multiPathRow('paths', 'Music folders (optional)', 'Choose or enter a music folder', false);
 
     case 'process':
-      return multiPathRow('paths', 'Music folders', '/Volumes/YourDrive/Music') + workersRow(4);
+      return multiPathRow('paths', 'Music folders', 'Choose or enter a music folder') + workersRow(4);
 
     case 'normalize':
-      return multiPathRow('paths', 'Music folders', '/Volumes/YourDrive/Music') + workersRow(4);
+      return multiPathRow('paths', 'Music folders', 'Choose or enter a music folder') + workersRow(4);
 
     case 'duplicates':
-      return multiPathRow('paths', 'Folders to scan', '/Volumes/YourDrive/Music') + workersRow(4);
+      return multiPathRow('paths', 'Folders to scan', 'Choose or enter a music folder') + workersRow(4);
 
     case 'prune':
       return `<p class="pipe-cfg-note" style="color:var(--text-muted);font-size:.84rem;">
@@ -382,7 +382,7 @@ function _pipeWizConfigHTML(step, saved) {
       </p>`;
 
     case 'convert':
-      return multiPathRow('paths', 'Folders to convert', '/Volumes/YourDrive/Music') + `
+      return multiPathRow('paths', 'Folders to convert', 'Choose or enter a music folder') + `
         <div style="display:flex;gap:12px;flex-wrap:wrap">
           <div class="pipe-cfg-field" style="flex:1">
             <label class="pipe-cfg-label">Target format <span style="color:var(--danger)">*</span></label>
@@ -397,18 +397,18 @@ function _pipeWizConfigHTML(step, saved) {
         </div>`;
 
     case 'relocate':
-      return pathRow('old_root', 'Old path prefix (where files were)', '/Volumes/OLD_DRIVE/Music') +
-             pathRow('new_root', 'New path prefix (where files are now)', '/Volumes/YourDrive/Music');
+      return pathRow('old_root', 'Old path prefix (where files were)', 'Old library path') +
+             pathRow('new_root', 'New path prefix (where files are now)', 'New library path');
 
     case 'import':
-      return multiPathRow('paths', 'Import from (folders)', '/Volumes/YourDrive/Music');
+      return multiPathRow('paths', 'Import from (folders)', 'Choose or enter a music folder');
 
     case 'link':
-      return multiPathRow('paths', 'Library folders', '/Volumes/YourDrive/Music');
+      return multiPathRow('paths', 'Library folders', 'Choose or enter a music folder');
 
     case 'organize':
-      return multiPathRow('sources', 'Source folders', '/Volumes/YourDrive/Music') +
-             pathRow('target', 'Target (organized root)', '/Volumes/YourDrive/Music') + `
+      return multiPathRow('sources', 'Source folders', 'Choose or enter a music folder') +
+             pathRow('target', 'Target (organized root)', 'Choose or enter a music folder') + `
         <div style="display:flex;gap:12px;flex-wrap:wrap">
           <div class="pipe-cfg-field" style="flex:1">
             <label class="pipe-cfg-label">Mode</label>
@@ -422,8 +422,8 @@ function _pipeWizConfigHTML(step, saved) {
         </div>`;
 
     case 'novelty':
-      return pathRow('source', 'Source drive / folder', '/Volumes/Passport') +
-             pathRow('dest',   'Home library destination', '/Volumes/YourDrive/Music') +
+      return pathRow('source', 'Source drive / folder', 'Choose or enter a source drive') +
+             pathRow('dest',   'Home library destination', 'Choose or enter a music folder') +
              workersRow(4);
 
     default:

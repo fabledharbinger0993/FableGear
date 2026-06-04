@@ -99,7 +99,7 @@ def _free_bytes(path: Path) -> int | None:
 
 
 def _volume_name(path: Path) -> str:
-    """Extract /Volumes/<name> component or return the path string."""
+    """Extract the macOS mounted-volume name or return the path string."""
     parts = path.parts
     if len(parts) >= 3 and parts[1] == "Volumes":
         return parts[2]

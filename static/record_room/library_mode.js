@@ -49,7 +49,7 @@ function setLibraryMode(mode, fsRootPath = null) {
     if (trackList)   trackList.style.display  = '';
     if (splitView)   splitView.style.display  = 'none';
     if (statusBar)   statusBar.style.display  = '';
-    leFsBrowse(_leFsCurrentPath || '/Volumes');
+    leFsBrowse(_leFsCurrentPath);
 
   } else if (mode === 'split') {
     if (filterBar)   filterBar.style.display = 'none';
@@ -114,12 +114,12 @@ async function leFsBrowse(path) {
 
   _leFsCurrentPath = data.path;
 
-  // ── /Volumes root — render drive picker cards ──────────────────────────
+  // ── Platform volume root — render drive picker cards ───────────────────
   if (data.is_volumes_root) {
     if (folderList) folderList.innerHTML = '';
     const vols = data.volumes || [];
     if (!vols.length) {
-      trackList.innerHTML = '<div class="le-empty-state"><div class="le-empty-music-icon">💿</div><div>No volumes found under /Volumes</div></div>';
+      trackList.innerHTML = '<div class="le-empty-state"><div class="le-empty-music-icon">💿</div><div>No external drives found</div></div>';
       return;
     }
     trackList.innerHTML = '<div class="le-vol-grid">' + vols.map(v => {

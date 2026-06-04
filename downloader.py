@@ -7,7 +7,7 @@ via yt-dlp. Each download runs as a background daemon thread.
 Job lifecycle:  queued → downloading → converting → importing → done / failed
 
 Progress events are broadcast to all connected WebSocket clients via ws_bus so
-the FableGo iOS app gets live updates without polling.
+the FableGo mobile web app gets live updates without polling.
 
 After a successful download the file is auto-imported into the Rekordbox DB.
 Import failure is non-fatal — the file is on disk and can be imported manually.

@@ -299,10 +299,10 @@ def api_library_tracks():
 def api_library_fs_browse():
     """Browse a directory for audio files — filesystem-first, no rekordbox needed.
     Returns subdirectories + audio tracks in the requested folder.
-    Falls back to /Volumes when no path is given.
+    Falls back to the platform default root when no path is given.
 
     Query params:
-      path      – directory to browse (default: /Volumes → volume picker)
+      path      – directory to browse (default: platform root → volume picker)
       recursive – if "1" or "true", walk all subdirectories and return every
                   audio file at any depth.  Subdirs list is omitted in this mode.
                   Capped at _FS_RECURSIVE_LIMIT tracks; truncated=true when hit.

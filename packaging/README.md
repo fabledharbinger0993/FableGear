@@ -4,13 +4,13 @@ This folder contains scripts to build a native Mac .app wrapper for FABLEGEAR wi
 
 ## Files
 
-- `FABLEGEARLauncher.applescript`: AppleScript source for the launcher.
+- `FableGearLauncher.applescript`: AppleScript source for the launcher.
 - `build_applescript_app.sh`: Script to compile the .app and set the icon.
 - `FABLEGEAR-app-icon.png`: Custom dock icon (must be present).
 
 ## Build Instructions
 
-1. Ensure you have Xcode command line tools installed (`xcode-select --install`).
+1. Ensure the macOS command line tools used by this script are available (`osacompile`, `sips`, and `Rez`).
 2. Run the build script:
 
     ```sh

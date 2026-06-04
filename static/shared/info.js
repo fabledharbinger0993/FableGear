@@ -42,7 +42,7 @@ const GLOSSARY = [
   { id:'path', cat:'Tech', term:'File Path',
     short:'The full address of a file on your computer',
     body:`<p>The exact location of a file on your drive, written out as a chain of folders.</p>
-<p>Example: <code>/Volumes/YourDrive/Music/House/Track.aiff</code></p>
+<p>Example: <code>/path/to/music/House/Track.aiff</code></p>
 <p>RekordBox stores the path of every track in its database. If you move a file without telling RekordBox, the path in the database points to nowhere — the track shows as missing. The Relocate tool fixes this.</p>`},
 
   // ── Audio ──────────────────────────────────────────────────────────────────
@@ -99,9 +99,9 @@ const GLOSSARY = [
     body:`<p>The single SQLite file where RekordBox stores your entire library — every track, playlist, cue point, loop, hot cue color, and rating.</p>
 <p>Locations:<br>
 <code>~/Library/Pioneer/rekordbox/master.db</code> — your Mac<br>
-<code>/Volumes/[drive]/PIONEER/Master/master.db</code> — some legacy/export targets<br>
-<code>/Volumes/[drive]/PIONEER/rekordbox/exportLibrary.db</code> + <code>export.pdb</code> — common Pioneer USB export layout</p>
-<p><strong>Every FableGear write operation creates a timestamped copy of this file in <code>~/rekordbox-toolkit/backups/</code> before touching it.</strong> The backup header in this app shows you when the last one was made.</p>`},
+<code>/path/to/drive/PIONEER/Master/master.db</code> — some legacy/export targets<br>
+<code>/path/to/drive/PIONEER/rekordbox/exportLibrary.db</code> + <code>export.pdb</code> — common Pioneer USB export layout</p>
+<p><strong>Every FableGear write operation creates a timestamped copy of this file in your configured backup directory (visible in Settings or returned by <code>/api/config</code>) before touching it.</strong> The backup header in this app shows you when the last one was made.</p>`},
 
   { id:'cont', cat:'RekordBox', term:'DjmdContent',
     short:'The track table inside master.db',

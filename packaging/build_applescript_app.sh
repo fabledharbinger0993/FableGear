@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build FABLEGEAR .app wrappers from AppleScript and set custom icon
-# Usage: bash build_applescript_app.sh [main|agent|both]
+# Usage: bash build_applescript_app.sh [main|local|both]
 set -e
 
 MODE="${1:-both}"
@@ -48,17 +48,14 @@ build_app() {
 # Build requested apps
 case "$MODE" in
   main)
-    build_app "FABLEGEAR" "$SCRIPT_DIR/FABLEGEARLauncher.applescript"
-    ;;
-  agent)
-    build_app "FABLEGEAR Agent" "$SCRIPT_DIR/FABLEGEARAgentLauncher.applescript"
+    build_app "FABLEGEAR" "$SCRIPT_DIR/FableGearLauncher.applescript"
     ;;
   local)
     build_app "FableGear Dev" "$SCRIPT_DIR/FableGearLocalLauncher.applescript"
     ;;
   both|*)
-    build_app "FABLEGEAR" "$SCRIPT_DIR/FABLEGEARLauncher.applescript"
-    build_app "FABLEGEAR Agent" "$SCRIPT_DIR/FABLEGEARAgentLauncher.applescript"
+    build_app "FABLEGEAR" "$SCRIPT_DIR/FableGearLauncher.applescript"
+    build_app "FableGear Dev" "$SCRIPT_DIR/FableGearLocalLauncher.applescript"
     ;;
 esac
 

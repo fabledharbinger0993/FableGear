@@ -658,9 +658,9 @@ def relocate_tracks(
 
     Args:
         old_root: The old folder path prefix as it currently appears in
-                  the Rekordbox database (e.g. /Volumes/OLD/DJMT PRIMARY).
+              the Rekordbox database (e.g. /old/library/root).
         new_root: The new folder path where the files now live
-                  (e.g. /Volumes/DJMT/DJMT PRIMARY).
+              (e.g. /new/library/root).
     """
     if err := _cfg_gate():
         return err

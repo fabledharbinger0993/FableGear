@@ -6,7 +6,7 @@
    ──────────────────────────────────────────────────────────────────────── */
 
 /* ── File Browser Panel ─────────────────────────────────────────────────────── */
-let _fbCurrentPath = '/Volumes';
+let _fbCurrentPath = '';
 
 /* ── Right Nav Dropdown ─────────────────────────────────────────────────────── */
 let _activeDropdown = null;
@@ -139,13 +139,14 @@ function toggleFileBrowser() {
 }
 
 async function fbNavigateTo(path) {
-  _fbCurrentPath = path;
+  _fbCurrentPath = path || '';
   const list = document.getElementById('fb-list');
   list.innerHTML = '<div class="fb-empty">Loading…</div>';
 
   let data;
   try {
-    const res = await fetch(`/api/fs/list?path=${encodeURIComponent(path)}`);
+    const url = path ? `/api/fs/list?path=${encodeURIComponent(path)}` : '/api/fs/list';
+    const res = await fetch(url);
     if (!res.ok) throw new Error(await res.text());
     data = await res.json();
   } catch (_) {
@@ -219,5 +220,5 @@ function fbUp() {
   if (btn._fbParent) fbNavigateTo(btn._fbParent);
 }
 
-function fbHome() { fbNavigateTo('/Volumes'); }
+function fbHome() { fbNavigateTo(''); }
 

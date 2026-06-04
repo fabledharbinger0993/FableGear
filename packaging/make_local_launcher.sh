@@ -2,7 +2,7 @@
 # make_local_launcher.sh
 #
 # Creates FableGear.command at the repo root — a portable, double-clickable
-# launcher that opens FableGear directly from the DJMT drive without any
+# launcher that opens FableGear directly from this checkout without any
 # Automator app, security approval, or Gatekeeper block.
 #
 # Run this once after cloning/moving the repo, or any time the icon is lost

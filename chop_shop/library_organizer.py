@@ -242,7 +242,7 @@ def organize_library(
         One directory or a list of directories to scan.  All are scanned in a
         single pass and their files are merged before processing begins.
     target : Path
-        Root of the organised library (e.g. /Volumes/DJMT/DJMT PRIMARY).
+        Root of the organised library (e.g. /path/to/music).
     mode : str
         ``"assimilate"`` (default) — **move** files to target, delete confirmed
         source duplicates, and prune empty source directories afterwards.
