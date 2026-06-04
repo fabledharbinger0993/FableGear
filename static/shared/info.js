@@ -101,7 +101,7 @@ const GLOSSARY = [
 <code>~/Library/Pioneer/rekordbox/master.db</code> — your Mac<br>
 <code>/path/to/drive/PIONEER/Master/master.db</code> — some legacy/export targets<br>
 <code>/path/to/drive/PIONEER/rekordbox/exportLibrary.db</code> + <code>export.pdb</code> — common Pioneer USB export layout</p>
-<p><strong>Every FableGear write operation creates a timestamped copy of this file in <code>~/rekordbox-toolkit/backups/</code> before touching it.</strong> The backup header in this app shows you when the last one was made.</p>`},
+<p><strong>Every FableGear write operation creates a timestamped copy of this file in your configured backup directory (visible in Settings or returned by <code>/api/config</code>) before touching it.</strong> The backup header in this app shows you when the last one was made.</p>`},
 
   { id:'cont', cat:'RekordBox', term:'DjmdContent',
     short:'The track table inside master.db',
