@@ -32,7 +32,7 @@ def _drive_root_from_path(target: str) -> Path:
     """
     Derive the drive root from a path on an external volume.
 
-    /old/library/root  →  /new/library/root
+    /path/to/drive/Music Library  →  /path/to/drive
     /Users/…                    →  / (fallback)
     """
     p = Path(target).resolve()

@@ -1,11 +1,10 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 # FableGear launcher for Automator or direct shell use
 # Ensures correct directory and Python environment
 
 # Project root is one level above this script's directory.
-script_path="${0:A}"
-script_dir="${script_path:h}"
-repo_dir="${script_dir:h}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_dir="$(dirname "$script_dir")"
 cd "$repo_dir" || exit 1
 
 # Optionally activate conda or venv if needed

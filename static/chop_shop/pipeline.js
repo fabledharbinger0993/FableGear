@@ -397,8 +397,8 @@ function _pipeWizConfigHTML(step, saved) {
         </div>`;
 
     case 'relocate':
-            return pathRow('old_root', 'Old path prefix (where files were)', 'Old library path') +
-              pathRow('new_root', 'New path prefix (where files are now)', 'New library path');
+      return pathRow('old_root', 'Old path prefix (where files were)', 'Old library path') +
+             pathRow('new_root', 'New path prefix (where files are now)', 'New library path');
 
     case 'import':
       return multiPathRow('paths', 'Import from (folders)', 'Choose or enter a music folder');
@@ -407,8 +407,8 @@ function _pipeWizConfigHTML(step, saved) {
       return multiPathRow('paths', 'Library folders', 'Choose or enter a music folder');
 
     case 'organize':
-            return multiPathRow('sources', 'Source folders', 'Choose or enter a music folder') +
-              pathRow('target', 'Target (organized root)', 'Choose or enter a music folder') + `
+      return multiPathRow('sources', 'Source folders', 'Choose or enter a music folder') +
+             pathRow('target', 'Target (organized root)', 'Choose or enter a music folder') + `
         <div style="display:flex;gap:12px;flex-wrap:wrap">
           <div class="pipe-cfg-field" style="flex:1">
             <label class="pipe-cfg-label">Mode</label>
@@ -422,8 +422,8 @@ function _pipeWizConfigHTML(step, saved) {
         </div>`;
 
     case 'novelty':
-            return pathRow('source', 'Source drive / folder', 'Choose or enter a source drive') +
-              pathRow('dest',   'Home library destination', 'Choose or enter a music folder') +
+      return pathRow('source', 'Source drive / folder', 'Choose or enter a source drive') +
+             pathRow('dest',   'Home library destination', 'Choose or enter a music folder') +
              workersRow(4);
 
     default:
