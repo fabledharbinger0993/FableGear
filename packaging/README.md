@@ -1,12 +1,12 @@
-# FABLEGEAR Mac .app Launcher
+# FableGear Mac .app Launcher
 
-This folder contains scripts to build a native Mac .app wrapper for FABLEGEAR with a custom dock icon.
+This folder contains scripts to build a native Mac .app wrapper for FableGear with a custom dock icon.
 
 ## Files
 
 - `FableGearLauncher.applescript`: AppleScript source for the launcher.
 - `build_applescript_app.sh`: Script to compile the .app and set the icon.
-- `FABLEGEAR-app-icon.png`: Custom dock icon (must be present).
+- `FableGear-app-icon.png`: Custom dock icon (must be present).
 
 ## Build Instructions
 
@@ -18,12 +18,12 @@ This folder contains scripts to build a native Mac .app wrapper for FABLEGEAR wi
     bash build_applescript_app.sh
     ```
 
-3. The resulting `FABLEGEAR.app` can be moved to `/Applications` or the Dock.
+3. The resulting `FableGear.app` can be moved to `/Applications` or the Dock.
 
 ## Behavior
 
 - On launch, the app runs `launch.sh` from the repo root.
-- Homebrew and FABLEGEAR update checks run silently; if offline, the current version opens.
+- Homebrew and FableGear update checks run silently; if offline, the current version opens.
 - Closing the window quits the app and venv.
 
 ---

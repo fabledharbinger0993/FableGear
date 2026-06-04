@@ -1,12 +1,14 @@
 #!/bin/bash
-# Build FABLEGEAR .app wrappers from AppleScript and set custom icon
+# Build FableGear .app wrappers from AppleScript and set custom icon
 # Usage: bash build_applescript_app.sh [main|local|both]
 set -e
 
 MODE="${1:-both}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ICON_PNG="$SCRIPT_DIR/FABLEGEAR-app-icon.png"
-ICON_ICNS="$SCRIPT_DIR/FABLEGEAR-app-icon.icns"
+ICON_PNG="$SCRIPT_DIR/FableGear-app-icon.png"
+ICON_ICNS="$SCRIPT_DIR/FableGear-app-icon.icns"
+[ -f "$ICON_PNG" ] || ICON_PNG="$SCRIPT_DIR/FABLEGEAR-app-icon.png"
+[ -f "$ICON_ICNS" ] || ICON_ICNS="$SCRIPT_DIR/FABLEGEAR-app-icon.icns"
 
 # Convert PNG to ICNS (requires sips and iconutil)
 if [ -f "$ICON_PNG" ] && [ ! -f "$ICON_ICNS" ]; then
@@ -48,17 +50,17 @@ build_app() {
 # Build requested apps
 case "$MODE" in
   main)
-    build_app "FABLEGEAR" "$SCRIPT_DIR/FableGearLauncher.applescript"
+    build_app "FableGear" "$SCRIPT_DIR/FableGearLauncher.applescript"
     ;;
   local)
     build_app "FableGear Dev" "$SCRIPT_DIR/FableGearLocalLauncher.applescript"
     ;;
   both|*)
-    build_app "FABLEGEAR" "$SCRIPT_DIR/FableGearLauncher.applescript"
+    build_app "FableGear" "$SCRIPT_DIR/FableGearLauncher.applescript"
     build_app "FableGear Dev" "$SCRIPT_DIR/FableGearLocalLauncher.applescript"
     ;;
 esac
 
 echo ""
 echo "📦 Apps ready in: $SCRIPT_DIR"
-echo "To install: cp -r \"$SCRIPT_DIR/FABLEGEAR\"*.app ~/Applications/"
+echo "To install: cp -r \"$SCRIPT_DIR/FableGear\"*.app ~/Applications/"
