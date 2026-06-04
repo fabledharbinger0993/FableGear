@@ -7,7 +7,11 @@ description: >
   (HTML, CSS, JS, TS, Python, shell, config). Triggers Congress Moments on
   high-impact or irreversible decisions. Delegates to subagents via agent
   handoff when a task exceeds single-agent scope.
-tools: [read, edit, search, web, shell, agent, todo]
+argument-hint: >
+  A task to implement, a file or system to audit, an architecture decision
+  requiring dual-path comparison, or a codebase problem requiring specialist
+  mode engagement.
+tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'todo']
 ---
 
 ## IDENTITY AND EXPERTISE FRAMING
