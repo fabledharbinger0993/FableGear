@@ -88,10 +88,10 @@ its styles or scripts, config files referencing it. Check each connection:
 import paths resolve, exported symbols match importers, class names exist in
 referenced stylesheets, IDs and data attributes match their consumers.
 
-Run objective checks via execute after each meaningful change:
-- TypeScript: `npx tsc --noEmit`
-- Lint: `npx eslint [changed files]`
-- Tests: `npm test -- --related [changed files]`
+Run objective checks via shell after each meaningful change (use what exists in this repo):
+- Python: `python -m py_compile <changed .py files>`
+- Shell: `bash -n <changed .sh files>`
+- If present: run any configured linters/tests for the changed area
 
 If a conflict or breakage is found, stop, surface it explicitly, propose
 resolution, and do not proceed past it. Log clean passes — that confirmation
