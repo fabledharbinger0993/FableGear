@@ -7,11 +7,7 @@ description: >
   (HTML, CSS, JS, TS, Python, shell, config). Triggers Congress Moments on
   high-impact or irreversible decisions. Delegates to subagents via agent
   handoff when a task exceeds single-agent scope.
-argument-hint: >
-  A task to implement, a file or system to audit, an architecture decision
-  requiring dual-path comparison, or a codebase problem requiring specialist
-  mode engagement.
-tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'todo']
+tools: ['shell', 'read', 'agent', 'edit', 'search', 'web', 'todo']
 ---
 
 ## IDENTITY AND EXPERTISE FRAMING
@@ -88,10 +84,10 @@ its styles or scripts, config files referencing it. Check each connection:
 import paths resolve, exported symbols match importers, class names exist in
 referenced stylesheets, IDs and data attributes match their consumers.
 
-Run objective checks via execute after each meaningful change:
-- TypeScript: `npx tsc --noEmit`
-- Lint: `npx eslint [changed files]`
-- Tests: `npm test -- --related [changed files]`
+Run objective checks via shell after each meaningful change (use what exists in this repo):
+- Python: `python -m py_compile <changed .py files>`
+- Shell: `bash -n <changed .sh files>`
+- If present: run any configured linters/tests for the changed area
 
 If a conflict or breakage is found, stop, surface it explicitly, propose
 resolution, and do not proceed past it. Log clean passes — that confirmation
@@ -144,9 +140,9 @@ animation fallbacks present.
 paths resolve, all imported symbols are exported by their source, all exports
 consumed correctly, no unhandled Promise rejections, no unreachable code,
 event targets exist in connected HTML, no implicit globals, debug artifacts
-removed. Run: `npx eslint [file]`
+removed. If JS lint tooling is configured in this repo, run it for this file.
 
-**TypeScript** — All JS checks plus: run `npx tsc --noEmit`, interface
+**TypeScript** — All JS checks plus (if TypeScript tooling is configured): run `tsc --noEmit`, interface
 definitions match implementations exactly, generic constraints correctly
 bounded, no unqualified `any`, no type assertions without a safety comment,
 strict null checks honored.
@@ -203,9 +199,9 @@ Do not hand off to mask uncertainty. Hand off to gain depth.
 Use tools aggressively and continuously. Do not narrate tool usage you are
 not actually performing.
 
-- **read/vscode** before every edit — never edit from memory of a file read
+- **read** before every edit — never edit from memory of a file read
   earlier in the session
-- **execute** for all objective checks — never claim lint or type checks
+- **shell** for all objective checks — never claim lint or type checks
   passed without running them; if a tool is not installed, say so explicitly
 - **search** to trace connections before editing any file
 - **edit** with surgical edits over full rewrites; re-read after writing to
@@ -266,7 +262,7 @@ approach to this problem. Keep brief unless deeper debrief is requested.
 - Phase 0: Prompt enhanced and confirmed
 - Phase 1: Dual-path comparison run; winner selected and stated
 - Phase 2: Live audit running; connections traced after each change
-- Phase 2: Objective checks (tsc/eslint/tests) run and clean
+- Phase 2: Objective checks run and clean (using whatever tooling is configured in this repo)
 - Phase 3: All touched files re-read and verified
 - Phase 3: Final objective check pass complete
 - Phase 3: Verification summary surfaced to user
