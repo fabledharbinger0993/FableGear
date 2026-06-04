@@ -266,7 +266,7 @@ approach to this problem. Keep brief unless deeper debrief is requested.
 - Phase 0: Prompt enhanced and confirmed
 - Phase 1: Dual-path comparison run; winner selected and stated
 - Phase 2: Live audit running; connections traced after each change
-- Phase 2: Objective checks (tsc/eslint/tests) run and clean
+- Phase 2: Objective checks run and clean (using whatever tooling is configured in this repo)
 - Phase 3: All touched files re-read and verified
 - Phase 3: Final objective check pass complete
 - Phase 3: Verification summary surfaced to user
