@@ -10,12 +10,12 @@ Config file schema
 ------------------
 {
   "local_db":        "/Users/name/Library/Pioneer/rekordbox/master.db",
-    "device_db":       "/path/to/drive/PIONEER/Master/master.db",
-    "music_root":      "/path/to/music",
+  "device_db":       "/path/to/drive/PIONEER/Master/master.db",
+  "music_root":      "/path/to/music",
   "backup_dir":      "/Users/name/.fablegear/backups",
   "target_lufs":     -8.0,
   "lufs_tolerance":  0.5,
-    "excluded_dirs":   ["cache", "PROCESSING_CACHE"]
+  "excluded_dirs":   ["cache", "PROCESSING_CACHE"]
 }
 
 Required keys: local_db, device_db, music_root, backup_dir
