@@ -77,15 +77,31 @@ function choosePath(mode) {
 }
 
 /* ── Config prefill + localStorage persistence ─────────────────────────────── */
-const LS_PREFIX = 'superbox_path_';
+const LS_PREFIX = 'fablegear_path_';
+const LEGACY_LS_PREFIX = 'superbox_path_';
 
 function lsSave(id) {
   const el = document.getElementById(id);
-  if (el) localStorage.setItem(LS_PREFIX + id, el.value);
+  if (el) {
+    localStorage.setItem(LS_PREFIX + id, el.value);
+    localStorage.removeItem(LEGACY_LS_PREFIX + id);
+  }
 }
 
 function lsLoad(id) {
-  return localStorage.getItem(LS_PREFIX + id) || '';
+  const key = LS_PREFIX + id;
+  const current = localStorage.getItem(key);
+  if (current !== null) return current;
+
+  const legacyKey = LEGACY_LS_PREFIX + id;
+  const legacy = localStorage.getItem(legacyKey);
+  if (legacy !== null) {
+    localStorage.setItem(key, legacy);
+    localStorage.removeItem(legacyKey);
+    return legacy;
+  }
+
+  return '';
 }
 
 async function prefillDefaults() {

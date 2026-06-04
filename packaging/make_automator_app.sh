@@ -1,15 +1,17 @@
 #!/bin/bash
 # make_automator_app.sh
-# Creates a new Automator .app wrapper for FABLEGEAR
+# Creates a new Automator .app wrapper for FableGear
 # Usage: bash make_automator_app.sh
 
 set -e
 
-APP_NAME="FABLEGEAR"
+APP_NAME="FableGear"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_PATH="$SCRIPT_DIR/${APP_NAME}.app"
-ICON_PNG="$SCRIPT_DIR/FABLEGEAR-app-icon.png"
-ICON_ICNS="$SCRIPT_DIR/FABLEGEAR-app-icon.icns"
+ICON_PNG="$SCRIPT_DIR/FableGear-app-icon.png"
+ICON_ICNS="$SCRIPT_DIR/FableGear-app-icon.icns"
+[ -f "$ICON_PNG" ] || ICON_PNG="$SCRIPT_DIR/FABLEGEAR-app-icon.png"
+[ -f "$ICON_ICNS" ] || ICON_ICNS="$SCRIPT_DIR/FABLEGEAR-app-icon.icns"
 
 # 1. Create temporary Automator workflow
 TMP_WF="$SCRIPT_DIR/${APP_NAME}_workflow.workflow"
