@@ -38,8 +38,12 @@ _REPO_ROOT = Path(
     or getattr(sys, "_MEIPASS", None)
     or Path(__file__).parent.resolve()
 )
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+# Both the repo root and the chop_shop/ tool package must be importable: cli.py
+# and several routes import duplicate_detector, renamer, renamer_learned, etc.
+# by bare name, but those modules live in chop_shop/.
+for _p in (str(_REPO_ROOT), str(_REPO_ROOT / "chop_shop")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 REPO_ROOT: Path = _REPO_ROOT
 CLI_PATH: Path = REPO_ROOT / "cli.py"
@@ -632,6 +636,16 @@ def _subprocess_env() -> dict:
     env["FABLEGEAR_SERVER_OWNER_PID"] = str(os.getpid())
     env["FABLEGEAR_RUNTIME_TOKEN"] = _RUNTIME_TOKEN
     env.setdefault("PYTHONUNBUFFERED", "1")
+    # cli.py imports the tool modules (duplicate_detector, renamer, …) by bare
+    # name, but they live in chop_shop/. The subprocess runs with cwd=REPO_ROOT,
+    # so chop_shop/ must be on PYTHONPATH or every shell-out tool raises
+    # ModuleNotFoundError.
+    _extra = [str(REPO_ROOT / "chop_shop"), str(REPO_ROOT)]
+    _existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        os.pathsep.join([*_extra, _existing]) if _existing
+        else os.pathsep.join(_extra)
+    )
     return env
 
 

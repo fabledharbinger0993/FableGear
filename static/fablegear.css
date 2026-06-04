@@ -465,14 +465,24 @@ input[type="range"] { -webkit-app-region: no-drag; }
 }
 
 /* ── Room shell ────────────────────────────────────────────────────────── */
-body.fg-space-record #chop-shop-workspace,
-body.fg-space-record .workflow-rail { display: none !important; }
+body.fg-space-record #chop-shop-workspace { display: none; }
 
-body.fg-space-chop #library-editor-overlay { display: none !important; }
+/* #library-editor-overlay slides in/out via transform; .hidden set by JS */
+#library-editor-overlay {
+  transform: translateX(0);
+  transition: transform .3s cubic-bezier(.4,0,.2,1);
+}
+#library-editor-overlay.hidden {
+  transform: translateX(-100%);
+  pointer-events: none;
+}
 
 /* ── Workflow rail ─────────────────────────────────────────────────────── */
 .workflow-rail {
-  display: none;
+  display: flex;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .2s ease, visibility .2s ease;
   position: fixed;
   top: calc(var(--titlebar-h) + var(--header-h));
   left: var(--left-panel-w);
@@ -488,7 +498,7 @@ body.fg-space-chop #library-editor-overlay { display: none !important; }
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
 }
-body.fg-space-chop .workflow-rail { display: flex; }
+body.fg-space-chop .workflow-rail { opacity: 1; visibility: visible; }
 .step-tab {
   min-width: 104px;
   border: 1px solid var(--border);
@@ -509,6 +519,46 @@ body.fg-space-chop .workflow-rail { display: flex; }
   color: var(--accent);
 }
 .step-num { display: block; font-size: 1rem; line-height: 1; margin-bottom: 4px; }
+.step-icon {
+  display: block;
+  height: 24px;
+  width: auto;
+  margin: 0 auto 4px;
+  object-fit: contain;
+}
+
+/* Offset so tool cards land below the fixed titlebar + header + workflow rail
+   when a tab scrolls to them (28 + 56 + ~58 ≈ 142, +buffer). */
+[id^="step-"] { scroll-margin-top: 150px; }
+
+/* Back-to-Record-Room hint — transient popup near the FG logo (top-left).
+   Positioned inline by JS; auto-dismisses after 10s. */
+.fg-back-hint {
+  position: fixed;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: rgba(8, 12, 18, .96);
+  border: 1px solid rgba(var(--accent-rgb), .5);
+  border-radius: 10px;
+  color: var(--accent);
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  animation: fg-back-hint-in .25s ease both;
+}
+.fg-back-hint::before { content: "←"; font-size: 1rem; line-height: 1; }
+.fg-back-hint:hover { background: rgba(var(--accent-rgb), .14); }
+.fg-back-hint.hiding { animation: fg-back-hint-out .35s ease both; }
+@keyframes fg-back-hint-in  { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes fg-back-hint-out { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(-8px); } }
 
 /* ── Main layout ───────────────────────────────────────────────────────── */
 main { max-width: 1080px; margin: 0 auto; padding: 116px 28px 32px; }
@@ -519,9 +569,34 @@ main { max-width: 1080px; margin: 0 auto; padding: 116px 28px 32px; }
 }
 
 /* ── Tool cards ────────────────────────────────────────────────────────── */
+/* Chop Shop workspace — asymmetric 2-col card grid */
+#chop-shop-workspace {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 12px;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 170px 28px 32px;
+}
+#chop-shop-workspace > .hotplug-banner,
+#chop-shop-workspace > .drive-offline-banner,
+#chop-shop-workspace > .health-panel,
+#chop-shop-workspace > #chop-shop-intro,
+#chop-shop-workspace > .section-title,
+#chop-shop-workspace > [id^="step-audit"],
+#chop-shop-workspace > #step-relocate,
+#chop-shop-workspace > #step-import,
+#chop-shop-workspace > #step-link { grid-column: 1 / -1; }
+
 main .card {
   display: block;
 }
+
+/* Compact card variant for 2-col grid cells */
+.card--compact .card-head { padding: 8px 10px; }
+.card--compact .card-icon { width: 28px; height: 28px; font-size: .875rem; }
+.card--compact .card-icon img { width: 28px; height: 28px; }
+.card--compact .card-blurb { font-size: .72rem; }
 
 .card {
   border-radius: var(--radius);
@@ -5462,6 +5537,15 @@ footer {
   color: var(--text);
   background: rgba(255,255,255,.05);
 }
+#fg-room-launcher .fg-launcher-perm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 560px;
+}
+#fg-room-launcher .welcome-tool-list { font-size: .83rem; }
+#fg-room-launcher .welcome-tool-item { font-size: .83rem; }
 
 /* ══ Staging Queue Panel ════════════════════════════════════════════════════ */
 

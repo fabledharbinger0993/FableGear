@@ -68,25 +68,25 @@
 <!-- ══ Chop Shop tool rail ═══════════════════════════════════════════════════ -->
 <nav class="workflow-rail" id="workflow-rail">
   <button type="button" class="step-tab active" data-target="step-process">
-    <span class="step-num">🏷</span> Tag Tracks
+    <img class="step-icon" src="/static/icon-tag.png" alt=""> Tag Tracks
   </button>
   <button type="button" class="step-tab" data-target="step-rename">
-    <span class="step-num">📝</span> Rename
+    <img class="step-icon" src="/static/icon-filename.png" alt=""> Rename
   </button>
   <button type="button" class="step-tab" data-target="step-convert">
-    <span class="step-num">🔄</span> Convert
+    <img class="step-icon" src="/static/icon-convert.png" alt=""> Convert
   </button>
   <button type="button" class="step-tab" data-target="step-normalize">
-    <span class="step-num">📢</span> Normalize
+    <img class="step-icon" src="/static/icon-normalize.png" alt=""> Normalize
   </button>
   <button type="button" class="step-tab" data-target="step-organize">
-    <span class="step-num">🗂</span> Organize
+    <img class="step-icon" src="/static/icon-organizer.png" alt=""> Organize
   </button>
   <button type="button" class="step-tab" data-target="step-duplicates">
-    <span class="step-num">✂</span> Duplicates
+    <img class="step-icon" src="/static/icon-find-duplicate.png" alt=""> Duplicates
   </button>
   <button type="button" class="step-tab" data-target="step-novelty">
-    <span class="step-num">★</span> Novelty
+    <img class="step-icon" src="/static/icon-novelty.png" alt=""> Novelty
   </button>
 </nav>
 
@@ -141,9 +141,6 @@
     <p>
       This secondary workspace handles every file/folder-changing tool: tag, rename, convert, normalize, organize, dedupe, import, link, and path repair.
     </p>
-    <button type="button" class="btn btn-neon" onclick="setFableGearSpace('record')">
-      Back to Record Room →
-    </button>
   </section>
 
   <!-- Hidden section title (used by toolkit modal) -->
@@ -185,9 +182,9 @@
   {% include 'partials/physical_library/file_rename.html' %}
 </main>
 
-{% include 'partials/physical_library/pipeline_wizard.html' %}
-
 {% include 'partials/staging_panel.html' %}
+
+{% include 'partials/physical_library/pipeline_wizard.html' %}
 
 <!-- ══ Step completion report modal ════════════════════════════════════════ -->
 <div id="report-modal-backdrop" class="hidden">
@@ -669,7 +666,6 @@
      scope; load order matches the original line order so top-level lets,
      immediate calls, and function hoisting behave identically. -->
 <script src="/static/shared/state.js"></script>
-<script src="/static/shared/staging.js"></script>
 <script src="/static/shared/file_browser.js"></script>
 <script src="/static/shared/modals.js"></script>
 <script src="/static/shared/settings.js"></script>
@@ -692,6 +688,7 @@
 <script src="/static/chop_shop/normalize_preview.js"></script>
 <script src="/static/shared/state_tracker.js"></script>
 <script src="/static/shared/boot.js"></script>
+<script src="/static/shared/staging.js"></script>
 <script src="/static/shared/launcher.js"></script>
 
 <!-- ══ DB Panel ══════════════════════════════════════════════════════════════

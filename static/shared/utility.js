@@ -159,6 +159,7 @@ document.querySelectorAll('.step-tab').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.step-tab').forEach(tab => tab.classList.remove('active'));
     btn.classList.add('active');
-    if (btn.dataset.target) openToolDrawer(btn.dataset.target);
+    const target = btn.dataset.target && document.getElementById(btn.dataset.target);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 });
