@@ -581,7 +581,8 @@ def _mounted_volumes() -> list:
 @app.route("/api/fs/stream")
 def api_fs_stream():
     """Stream an audio file by absolute path (filesystem mode — no rekordbox required).
-    Security: path must resolve under a trusted external-volume root or the configured MUSIC_ROOT.
+    Security: path must resolve under a trusted root as determined by _is_browseable_path()
+    (external-volume roots or the user's home directory).
     """
     if request.remote_addr not in ("127.0.0.1", "::1"):
         return jsonify({"error": "Forbidden"}), 403
