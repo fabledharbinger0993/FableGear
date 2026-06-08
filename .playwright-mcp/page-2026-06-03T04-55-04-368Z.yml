@@ -1,0 +1,233 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - button "✕" [ref=e4] [cursor=pointer]
+      - button "−" [ref=e5] [cursor=pointer]
+      - button "⤢" [ref=e6] [cursor=pointer]
+    - generic [ref=e8]:
+      - generic [ref=e11]: RekordBox is closed — safe to write
+      - generic [ref=e14]: "Build: b6188d3 (unreleased)"
+  - generic [ref=e15]:
+    - img "FableGear" [ref=e17]
+    - navigation "Left panel navigation" [ref=e18]:
+      - button "Record" [ref=e19] [cursor=pointer]:
+        - img [ref=e20]
+        - generic [ref=e21]: Record
+      - button "Chop" [ref=e22] [cursor=pointer]:
+        - img [ref=e23]
+        - generic [ref=e24]: Chop
+      - button "Queue" [ref=e25] [cursor=pointer]:
+        - img [ref=e26]
+        - generic [ref=e27]: Queue
+      - button "Welcome" [ref=e28] [cursor=pointer]:
+        - img [ref=e29]
+        - generic [ref=e30]: Welcome
+      - button "Key" [ref=e31] [cursor=pointer]:
+        - img [ref=e32]
+        - generic [ref=e33]: Key
+      - button "Rekki" [ref=e34] [cursor=pointer]:
+        - img [ref=e35]
+        - generic [ref=e36]: Rekki
+    - button "Drives" [ref=e39] [cursor=pointer]:
+      - img [ref=e40]
+      - generic [ref=e41]: Drives
+    - button "⚙ Settings" [ref=e43] [cursor=pointer]:
+      - generic [ref=e44]: ⚙
+      - generic [ref=e45]: Settings
+  - generic [ref=e241]:
+    - generic [ref=e242]: ⬆
+    - generic [ref=e243]: FableGear v2.2.15 available — close and relaunch to update.
+    - button "✕" [ref=e244] [cursor=pointer]
+  - text: ▸ ▸ ▸ ▸ ▸ ▸ ▸ ▸ ▸ ▸ ▸ ▸ ▸ ▸ ▸ ▸ ▸
+  - complementary "Staging Queue" [ref=e46]:
+    - generic [ref=e47]:
+      - generic [ref=e48]: Staging Queue
+      - generic [ref=e49]: 0 items
+      - button "✕" [ref=e50] [cursor=pointer]
+    - generic [ref=e51]: Stage tracks or folders here, then run Chop Shop tools on exactly those items — nothing else in your library is touched.
+    - generic [ref=e52]:
+      - button "Clear all" [ref=e53] [cursor=pointer]
+      - button "Save batch…" [ref=e54] [cursor=pointer]
+      - button "Load batch…" [ref=e55] [cursor=pointer]
+    - generic [ref=e56]: Drop folders or tracks here
+    - paragraph [ref=e58]:
+      - text: In the Record Room (flow + playlist building), right-click a track or folder and choose
+      - strong [ref=e59]: Stage for Chop Shop
+      - text: ", or drag items onto the drop zone above."
+    - button "Open Chop Shop →" [disabled] [ref=e61]
+  - contentinfo [ref=e62]:
+    - img "Guthrie Entertainment" [ref=e63]
+    - generic [ref=e64]:
+      - strong [ref=e65]: FABLEGEAR
+      - text: · Guthrie Entertainment LLC · Osos Discos
+  - generic [ref=e66]:
+    - generic [ref=e68]:
+      - button "↑" [ref=e69] [cursor=pointer]
+      - button "⌂" [ref=e70] [cursor=pointer]
+      - button "✕" [ref=e71] [cursor=pointer]
+    - generic [ref=e73]: Drag any item to a drop zone ↗
+  - generic [ref=e74]:
+    - button "Library Library" [ref=e75] [cursor=pointer]:
+      - img "Library" [ref=e76]
+      - generic [ref=e77]: Library
+    - button "Files Files" [ref=e78] [cursor=pointer]:
+      - img "Files" [ref=e79]
+      - generic [ref=e80]: Files
+    - button "Drives Drives" [ref=e81] [cursor=pointer]:
+      - img "Drives" [ref=e82]
+      - generic [ref=e83]: Drives
+    - button "DB Maintenance DB Fix" [ref=e84] [cursor=pointer]:
+      - img "DB Maintenance" [ref=e85]
+      - generic [ref=e86]: DB Fix
+  - text: ⚠ ⚠ ⚠ ⚠
+  - generic [ref=e88]:
+    - generic [ref=e89]: FableGear — Ready
+    - generic [ref=e90]:
+      - generic:
+        - generic: Remaining
+        - generic: —
+      - generic:
+        - generic: Complete w/o Edits
+        - generic: "0"
+      - generic:
+        - generic: Edited
+        - generic: "0"
+      - generic:
+        - generic: Errors
+        - generic: "0"
+        - generic: (see report)
+      - generic:
+        - generic: Warnings
+        - generic: "0"
+        - generic: (see report)
+    - generic:
+      - button "▸ Output"
+  - generic [ref=e92]:
+    - strong [ref=e94]: Output
+    - button "−" [ref=e95] [cursor=pointer]
+  - generic [ref=e97]:
+    - generic [ref=e98]:
+      - generic [ref=e99]: RekordBox Maintenance
+      - button "✕" [ref=e100] [cursor=pointer]
+    - tablist [ref=e101]:
+      - tab "Audit" [ref=e102] [cursor=pointer]
+      - tab "Relocate" [ref=e103] [cursor=pointer]
+      - tab "Link" [ref=e104] [cursor=pointer]
+      - tab "Import" [ref=e105] [cursor=pointer]
+      - tab "Dead Files" [ref=e106] [cursor=pointer]
+  - generic [ref=e109]:
+    - generic [ref=e110]:
+      - generic [ref=e111]:
+        - generic [ref=e112]: Record Room
+        - group "Library source" [ref=e113]:
+          - button "Rekordbox DB" [ref=e114] [cursor=pointer]
+          - button "Filesystem" [ref=e115] [cursor=pointer]
+          - button "Split View" [ref=e116] [cursor=pointer]
+        - group "Database source" [ref=e117]:
+          - button "Local DB" [ref=e118] [cursor=pointer]
+          - button "Device DB" [ref=e119] [cursor=pointer]
+      - textbox "Search tracks…" [ref=e121]
+      - generic [ref=e122]:
+        - button "＋ Playlist" [ref=e123] [cursor=pointer]
+        - button "＋ Folder" [ref=e124] [cursor=pointer]
+        - button "Rename" [disabled] [ref=e125] [cursor=pointer]
+        - button "Delete" [disabled] [ref=e126] [cursor=pointer]
+        - button "Chop Shop" [ref=e127] [cursor=pointer]
+        - button "⬆ Export to USB" [ref=e128] [cursor=pointer]
+    - generic [ref=e129]:
+      - generic [ref=e130]:
+        - generic [ref=e131]: BPM
+        - spinbutton [ref=e132]
+        - generic [ref=e133]: –
+        - spinbutton [ref=e134]
+      - generic [ref=e136]:
+        - generic [ref=e137]: Key
+        - combobox "Filter by key" [ref=e138] [cursor=pointer]:
+          - option "Any Key" [selected]
+          - option "1A"
+          - option "2A"
+          - option "3A"
+          - option "4A"
+          - option "5A"
+          - option "6A"
+          - option "7A"
+          - option "8A"
+          - option "9A"
+          - option "10A"
+          - option "11A"
+          - option "12A"
+          - option "1B"
+          - option "2B"
+          - option "3B"
+          - option "4B"
+          - option "5B"
+          - option "6B"
+          - option "7B"
+          - option "8B"
+          - option "9B"
+          - option "10B"
+          - option "11B"
+          - option "12B"
+      - generic [ref=e140]:
+        - generic [ref=e141]: Genre
+        - combobox "Filter by genre" [ref=e142] [cursor=pointer]:
+          - option "Any Genre" [selected]
+      - generic [ref=e144]:
+        - generic [ref=e145]: Rating
+        - generic [ref=e146]:
+          - button "★" [ref=e147] [cursor=pointer]
+          - button "★" [ref=e148] [cursor=pointer]
+          - button "★" [ref=e149] [cursor=pointer]
+          - button "★" [ref=e150] [cursor=pointer]
+          - button "★" [ref=e151] [cursor=pointer]
+      - generic [ref=e153]:
+        - generic [ref=e154]: Color
+        - generic [ref=e155]:
+          - button "Any color" [ref=e156] [cursor=pointer]
+          - button "Pink" [ref=e157] [cursor=pointer]
+          - button "Red" [ref=e158] [cursor=pointer]
+          - button "Orange" [ref=e159] [cursor=pointer]
+          - button "Yellow" [ref=e160] [cursor=pointer]
+          - button "Green" [ref=e161] [cursor=pointer]
+          - button "Aqua" [ref=e162] [cursor=pointer]
+          - button "Blue" [ref=e163] [cursor=pointer]
+          - button "Purple" [ref=e164] [cursor=pointer]
+      - button "Clear" [ref=e166] [cursor=pointer]
+    - generic [ref=e167]:
+      - generic [ref=e168]: Create playlist
+      - textbox "Playlist name" [ref=e169]
+      - button "Create" [ref=e170] [cursor=pointer]
+      - button "Cancel" [ref=e171] [cursor=pointer]
+    - generic [ref=e172]:
+      - generic [ref=e174]:
+        - generic [ref=e175]: All Tracks
+        - button "♫ All Tracks —" [ref=e176] [cursor=pointer]:
+          - generic [ref=e177]: ♫
+          - generic [ref=e178]: All Tracks
+          - generic [ref=e179]: —
+        - generic [ref=e180]: Playlists
+        - generic [ref=e181]: History
+        - button "⏱ Recently Added" [ref=e182] [cursor=pointer]:
+          - generic [ref=e183]: ⏱
+          - generic [ref=e184]: Recently Added
+      - generic [ref=e185]:
+        - generic [ref=e186]:
+          - generic [ref=e187]: Play
+          - generic [ref=e188] [cursor=pointer]: "#"
+          - generic [ref=e189] [cursor=pointer]: Title
+          - generic [ref=e190] [cursor=pointer]: Artist
+          - generic [ref=e191] [cursor=pointer]: Album
+          - generic [ref=e192] [cursor=pointer]: BPM
+          - generic [ref=e193] [cursor=pointer]: Key
+          - generic [ref=e194] [cursor=pointer]: Time
+          - generic [ref=e195] [cursor=pointer]: Added
+        - generic [ref=e197]:
+          - generic [ref=e239]: ⚠
+          - generic [ref=e240]: Failed to load library.
+        - generic [ref=e200]:
+          - generic [ref=e201]: Could not load library — is the database connected?
+          - button "Remove Selected" [disabled] [ref=e202]
+          - button "Add Selected" [disabled] [ref=e203]
+          - button "+ Stage Selected" [disabled] [ref=e204]
+          - button "↺ Reload" [ref=e205] [cursor=pointer]
+  - text: ▸ ▸ ▸ ▸ ▸ ▸ ▸ ▸ ▸ ▸

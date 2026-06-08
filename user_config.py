@@ -568,3 +568,134 @@ def interactive_setup(*, update: bool = False) -> dict:
     print_dependency_report()
 
     return cfg
+
+
+# ── Onboarding scan ───────────────────────────────────────────────────────────
+
+def scan_for_rekordbox_assets() -> dict:
+    """
+    Scan the local machine and all mounted volumes for Rekordbox data.
+
+    Returns a dict with four lists, each item carrying path + mtime + label:
+      local_db     — local Rekordbox master.db candidates
+      device_dbs   — Pioneer device DB candidates on mounted volumes
+      xml_files    — rekordbox.xml / fablegear.xml files found
+      music_roots  — volume roots that appear to contain a music library
+    """
+    import os as _os
+
+    results: dict = {
+        "local_db": [],
+        "device_dbs": [],
+        "xml_files": [],
+        "music_roots": [],
+    }
+
+    # ── Local Rekordbox DB ────────────────────────────────────────────────────
+    local_candidates = []
+    for base in [
+        Path.home() / "Library" / "Pioneer" / "rekordbox",
+        Path.home() / "Library" / "Application Support" / "Pioneer" / "rekordbox",
+    ]:
+        db = base / "master.db"
+        if db.exists():
+            try:
+                mtime = db.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+            local_candidates.append({
+                "path": str(db),
+                "mtime": mtime,
+                "label": "Local Rekordbox DB",
+            })
+    results["local_db"] = sorted(local_candidates, key=lambda x: -x["mtime"])
+
+    # ── Mounted volumes ───────────────────────────────────────────────────────
+    mounts: list[Path] = []
+    volumes_dir = Path("/Volumes")
+    if volumes_dir.is_dir():
+        for name in _os.listdir(volumes_dir):
+            if not name.startswith("."):
+                p = volumes_dir / name
+                if p.is_dir():
+                    mounts.append(p)
+
+    audio_exts = {".mp3", ".flac", ".aif", ".aiff", ".wav", ".m4a", ".ogg"}
+    device_dbs: list[dict] = []
+    xml_files: list[dict] = []
+    music_roots: list[dict] = []
+    seen_xml_paths: set[str] = set()
+
+    for mount in mounts:
+        # Pioneer device DB
+        candidate_db = mount / "PIONEER" / "Master" / "master.db"
+        if candidate_db.exists():
+            try:
+                mtime = candidate_db.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+            device_dbs.append({
+                "path": str(candidate_db),
+                "mtime": mtime,
+                "label": f"Device DB on {mount.name}",
+                "volume": mount.name,
+            })
+
+        # rekordbox.xml / fablegear.xml — scan up to 4 levels deep
+        try:
+            for root, dirs, files in _os.walk(mount):
+                depth = root.replace(str(mount), "").count(_os.sep)
+                if depth > 4:
+                    dirs.clear()
+                    continue
+                dirs[:] = [d for d in dirs if not d.startswith(".")]
+                for fname in files:
+                    if fname in ("rekordbox.xml", "fablegear.xml"):
+                        p = Path(root) / fname
+                        pstr = str(p)
+                        if pstr not in seen_xml_paths:
+                            seen_xml_paths.add(pstr)
+                            try:
+                                mtime = p.stat().st_mtime
+                            except OSError:
+                                mtime = 0.0
+                            xml_files.append({
+                                "path": pstr,
+                                "mtime": mtime,
+                                "label": f"{fname} on {mount.name}",
+                                "volume": mount.name,
+                            })
+        except (PermissionError, OSError):
+            pass
+
+        # Music root heuristic — at least 5 audio files in the first 3 levels
+        audio_count = 0
+        try:
+            for root, dirs, files in _os.walk(mount):
+                depth = root.replace(str(mount), "").count(_os.sep)
+                if depth > 3:
+                    dirs.clear()
+                    continue
+                dirs[:] = [d for d in dirs if not d.startswith(".")]
+                for fname in files:
+                    if Path(fname).suffix.lower() in audio_exts:
+                        audio_count += 1
+                        if audio_count >= 5:
+                            break
+                if audio_count >= 5:
+                    break
+        except (PermissionError, OSError):
+            pass
+
+        if audio_count >= 5:
+            music_roots.append({
+                "path": str(mount),
+                "label": f"Music on {mount.name}",
+                "volume": mount.name,
+            })
+
+    results["device_dbs"] = sorted(device_dbs, key=lambda x: -x["mtime"])
+    results["xml_files"] = sorted(xml_files, key=lambda x: -x.get("mtime", 0))
+    results["music_roots"] = music_roots
+
+    return results

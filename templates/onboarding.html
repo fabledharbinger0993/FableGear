@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FableGear — Setup</title>
+  <link rel="stylesheet" href="/static/fablegear.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: inherit;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      -webkit-app-region: drag;
+    }
+
+    .ob-wrap {
+      width: 660px;
+      max-height: 88vh;
+      overflow-y: auto;
+      padding: 0 4px;
+      -webkit-app-region: no-drag;
+    }
+    .ob-wrap::-webkit-scrollbar { width: 4px; }
+    .ob-wrap::-webkit-scrollbar-track { background: transparent; }
+    .ob-wrap::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px; }
+
+    /* ── Progress ── */
+    .ob-progress {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 32px;
+    }
+    .ob-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--border-hi);
+      transition: background .25s, transform .25s;
+    }
+    .ob-dot.active { background: var(--accent); transform: scale(1.35); }
+    .ob-dot.done   { background: var(--accent2); }
+
+    /* ── Step container ── */
+    .ob-step { display: none; }
+    .ob-step.active {
+      display: block;
+      animation: ob-in .35s cubic-bezier(.4,0,.2,1);
+    }
+    @keyframes ob-in {
+      from { opacity: 0; transform: translateY(14px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Step header ── */
+    .ob-icon  { font-size: 2.4rem; margin-bottom: 10px; }
+    .ob-title { font-size: 1.45rem; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+    .ob-sub   { font-size: .9rem; color: var(--text-muted); margin-bottom: 24px; line-height: 1.55; }
+
+    /* ── Card ── */
+    .ob-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-bottom: 12px;
+    }
+    .ob-card-title {
+      font-size: .78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      margin-bottom: 10px;
+    }
+
+    /* ── Dep rows ── */
+    .dep-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: .88rem;
+    }
+    .dep-row:last-child { border-bottom: none; }
+    .dep-icon { width: 20px; text-align: center; flex-shrink: 0; }
+    .dep-name { flex: 1; font-weight: 500; }
+    .dep-hint { font-size: .78rem; color: var(--text-dim); font-family: monospace; }
+    .dep-ok   { color: #2ecc71; }
+    .dep-fail { color: #e74c3c; }
+
+    /* ── Toggle rows ── */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+      gap: 16px;
+    }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-label strong { display: block; font-size: .92rem; }
+    .toggle-label small  { font-size: .8rem; color: var(--text-muted); }
+
+    .ob-toggle { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+    .ob-toggle input { opacity: 0; width: 0; height: 0; }
+    .ob-toggle-slider {
+      position: absolute; inset: 0;
+      background: var(--border-hi);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    .ob-toggle-slider::before {
+      content: '';
+      position: absolute;
+      left: 3px; top: 3px;
+      width: 18px; height: 18px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform .2s;
+    }
+    .ob-toggle input:checked   + .ob-toggle-slider          { background: var(--accent); }
+    .ob-toggle input:checked   + .ob-toggle-slider::before  { transform: translateX(20px); }
+    .ob-toggle input:disabled  + .ob-toggle-slider          { opacity: .4; cursor: default; }
+
+    /* ── Path rows ── */
+    .path-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .path-row:last-child { border-bottom: none; }
+    .path-label {
+      font-size: .78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      width: 120px;
+      flex-shrink: 0;
+    }
+    .path-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: .8rem;
+      color: var(--text);
+      font-family: monospace;
+      min-width: 0;
+    }
+    .path-input:focus { outline: none; border-color: var(--accent); }
+    .path-browse {
+      background: var(--surface-hi);
+      border: 1px solid var(--border-hi);
+      border-radius: 6px;
+      color: var(--text-muted);
+      padding: 7px 12px;
+      font-size: .8rem;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .path-browse:hover { border-color: var(--accent); color: var(--accent); }
+
+    .path-note { font-size: .78rem; margin-top: 6px; }
+    .path-note.ok     { color: #2ecc71; }
+    .path-note.miss   { color: #e67e22; }
+
+    /* ── Select ── */
+    .ob-select {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: .8rem;
+      color: var(--text);
+      font-family: monospace;
+      margin-top: 8px;
+    }
+    .ob-select:focus { outline: none; border-color: var(--accent); }
+
+    /* ── Perm list ── */
+    .perm-list { list-style: none; }
+    .perm-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: .88rem;
+    }
+    .perm-list li:last-child { border-bottom: none; }
+    .perm-path { font-family: monospace; font-size: .78rem; color: var(--text-muted); word-break: break-all; }
+
+    /* ── FDA warning banner ── */
+    .fda-banner {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      background: rgba(231,76,60,.1);
+      border: 1px solid rgba(231,76,60,.35);
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 14px;
+      font-size: .86rem;
+    }
+    .fda-banner .fda-body { flex: 1; line-height: 1.5; }
+    .fda-banner strong { display: block; margin-bottom: 3px; }
+
+    /* ── Consent ── */
+    .consent-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 16px 0 4px;
+      cursor: pointer;
+      font-size: .9rem;
+      line-height: 1.55;
+    }
+    .consent-row input[type=checkbox] {
+      width: 18px; height: 18px;
+      margin-top: 2px;
+      accent-color: var(--accent);
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+
+    /* ── Final CTA split ── */
+    .ob-final-ctas {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 20px;
+    }
+    .ob-final-btn {
+      padding: 20px 16px;
+      border-radius: 12px;
+      border: 2px solid var(--border-hi);
+      background: var(--surface);
+      cursor: pointer;
+      text-align: center;
+      transition: border-color .2s, background .2s;
+    }
+    .ob-final-btn:hover { border-color: var(--accent); background: var(--surface-hi); }
+    .ob-final-btn .fb-icon { font-size: 2rem; margin-bottom: 8px; }
+    .ob-final-btn strong  { display: block; font-size: 1rem; margin-bottom: 4px; }
+    .ob-final-btn small   { font-size: .8rem; color: var(--text-muted); }
+
+    /* ── Spinner ── */
+    .spin {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid var(--border-hi);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .ob-scanning {
+      font-size: .86rem;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 24px;
+    }
+
+    /* ── Status banners ── */
+    .ob-ok-banner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(46,204,113,.08);
+      border: 1px solid rgba(46,204,113,.28);
+      border-radius: 8px;
+      padding: 11px 16px;
+      margin-bottom: 14px;
+      font-size: .87rem;
+      color: #2ecc71;
+    }
+
+    /* ── Action bar ── */
+    .ob-actions {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 10px;
+      margin-top: 22px;
+    }
+    .ob-btn {
+      padding: 10px 22px;
+      border-radius: 8px;
+      font-size: .88rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: opacity .15s, transform .1s;
+    }
+    .ob-btn:active:not(:disabled) { transform: scale(.97); }
+    .ob-btn:disabled { opacity: .38; cursor: default; }
+    .ob-btn-primary   { background: var(--accent); color: #07090e; }
+    .ob-btn-secondary {
+      background: var(--surface-hi);
+      border: 1px solid var(--border-hi);
+      color: var(--text);
+    }
+    .ob-btn-ghost {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      font-size: .83rem;
+      text-decoration: underline;
+      padding: 10px 6px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+<div class="ob-wrap">
+
+  <!-- Progress dots -->
+  <div class="ob-progress">
+    <div class="ob-dot active" id="dot-0"></div>
+    <div class="ob-dot"        id="dot-1"></div>
+    <div class="ob-dot"        id="dot-2"></div>
+    <div class="ob-dot"        id="dot-3"></div>
+  </div>
+
+  <!-- ══ Step 1: Dependencies ══════════════════════════════════════════════ -->
+  <section class="ob-step active" id="step-0">
+    <div class="ob-icon">⚙️</div>
+    <h1 class="ob-title">Before we begin</h1>
+    <p class="ob-sub">FableGear needs a few system tools to process audio and read your Rekordbox
+      library. Checking your system now…</p>
+
+    <div class="ob-card">
+      <div class="ob-card-title">System dependencies</div>
+      <div id="dep-list"><div class="ob-scanning"><span class="spin"></span>Checking…</div></div>
+    </div>
+
+    <div class="ob-actions">
+      <button class="ob-btn ob-btn-ghost" onclick="goToStep(1)">Skip for now</button>
+      <button class="ob-btn ob-btn-secondary" id="dep-install-btn" style="display:none"
+              onclick="installDeps()">Open Terminal to install</button>
+      <button class="ob-btn ob-btn-primary" id="dep-next-btn" disabled
+              onclick="goToStep(1)">Continue →</button>
+    </div>
+  </section>
+
+  <!-- ══ Step 2: App installation ══════════════════════════════════════════ -->
+  <section class="ob-step" id="step-1">
+    <div class="ob-icon">🚀</div>
+    <h1 class="ob-title">Add FableGear to your Mac</h1>
+    <p class="ob-sub">Install FableGear as a native app so you can launch it from Spotlight, the
+      Dock, or Finder — no terminal required.</p>
+
+    <div class="ob-card">
+      <div class="ob-card-title">Installation options</div>
+
+      <div class="toggle-row">
+        <div class="toggle-label">
+          <strong>Add to Applications folder</strong>
+          <small>Builds FableGear.app in ~/Applications</small>
+        </div>
+        <label class="ob-toggle">
+          <input type="checkbox" id="tog-apps" checked onchange="syncDockToggle()">
+          <span class="ob-toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-label">
+          <strong>Pin to Dock</strong>
+          <small>One-click access from the macOS Dock</small>
+        </div>
+        <label class="ob-toggle">
+          <input type="checkbox" id="tog-dock" checked>
+          <span class="ob-toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="ob-actions">
+      <button class="ob-btn ob-btn-ghost" onclick="goToStep(2)">Skip</button>
+      <button class="ob-btn ob-btn-primary" id="install-btn" onclick="installApp()">
+        Install &amp; continue →
+      </button>
+    </div>
+  </section>
+
+  <!-- ══ Step 3: Library scan ═══════════════════════════════════════════════ -->
+  <section class="ob-step" id="step-2">
+    <div class="ob-icon">🔍</div>
+    <h1 class="ob-title">Your Rekordbox library</h1>
+    <p class="ob-sub">FableGear scanned your drives for Rekordbox files. Confirm or adjust the
+      paths below before continuing.</p>
+
+    <div id="scan-loading" class="ob-scanning">
+      <span class="spin"></span>Scanning drives and volumes…
+    </div>
+
+    <div id="scan-results" style="display:none">
+
+      <!-- Local DB -->
+      <div class="ob-card">
+        <div class="ob-card-title">Local Rekordbox database</div>
+        <div class="path-row">
+          <span class="path-label">Path</span>
+          <input class="path-input" id="inp-local-db" type="text"
+                 placeholder="~/Library/Pioneer/rekordbox/master.db">
+          <button class="path-browse" onclick="pickFile('inp-local-db')">Browse…</button>
+        </div>
+        <div id="local-db-note"></div>
+      </div>
+
+      <!-- Device DB -->
+      <div class="ob-card">
+        <div class="ob-card-title">DJ drive database</div>
+        <div class="path-row">
+          <span class="path-label">Path</span>
+          <input class="path-input" id="inp-device-db" type="text"
+                 placeholder="/Volumes/DJDRIVE/PIONEER/Master/master.db">
+          <button class="path-browse" onclick="pickFile('inp-device-db')">Browse…</button>
+        </div>
+        <div id="device-db-extra"></div>
+      </div>
+
+      <!-- XML files -->
+      <div class="ob-card" id="xml-card">
+        <div class="ob-card-title">Playlist XML files</div>
+        <div id="xml-list">
+          <div class="dep-row">
+            <span class="dep-icon" style="color:var(--text-dim)">—</span>
+            <span style="font-size:.85rem;color:var(--text-dim)">
+              None found — FableGear will create one when you export playlists.
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Music root -->
+      <div class="ob-card">
+        <div class="ob-card-title">Music library root</div>
+        <div class="path-row">
+          <span class="path-label">Path</span>
+          <input class="path-input" id="inp-music-root" type="text"
+                 placeholder="/Volumes/DJDRIVE/Music">
+          <button class="path-browse" onclick="pickFolder('inp-music-root')">Browse…</button>
+        </div>
+        <div id="music-root-extra"></div>
+      </div>
+
+    </div><!-- /scan-results -->
+
+    <div class="ob-actions" id="scan-actions" style="display:none">
+      <button class="ob-btn ob-btn-secondary" onclick="goToStep(1)">← Back</button>
+      <button class="ob-btn ob-btn-primary" onclick="confirmPaths()">Confirm paths →</button>
+    </div>
+  </section>
+
+  <!-- ══ Step 4: Permissions ════════════════════════════════════════════════ -->
+  <section class="ob-step" id="step-3">
+    <div class="ob-icon">🔐</div>
+    <h1 class="ob-title">Access to your library</h1>
+    <p class="ob-sub">FableGear needs permission to read your Rekordbox database and write
+      backups. Your data never leaves your machine — everything runs locally.</p>
+
+    <!-- FDA warning (shown only when needed) -->
+    <div id="fda-banner" class="fda-banner" style="display:none">
+      <span>⚠️</span>
+      <div class="fda-body">
+        <strong>Full Disk Access may be required</strong>
+        macOS restricts reading files in protected folders like ~/Library. If FableGear
+        can't read your database, grant Full Disk Access to Terminal (or FableGear) in
+        System Settings → Privacy &amp; Security → Full Disk Access.
+      </div>
+      <button class="ob-btn ob-btn-secondary" style="white-space:nowrap;flex-shrink:0;margin-left:4px"
+              onclick="openFDAPrefs()">Open Settings</button>
+    </div>
+
+    <div class="ob-card">
+      <div class="ob-card-title">📖 FableGear will read</div>
+      <ul class="perm-list" id="perm-read-list"></ul>
+    </div>
+
+    <div class="ob-card">
+      <div class="ob-card-title">✏️ FableGear will write</div>
+      <ul class="perm-list" id="perm-write-list"></ul>
+    </div>
+
+    <label class="consent-row">
+      <input type="checkbox" id="consent-chk" onchange="onConsent()">
+      I authorise FableGear to read and write the paths listed above. I understand that
+      all write operations create a timestamped backup first.
+    </label>
+
+    <div id="final-ctas" class="ob-final-ctas" style="display:none">
+      <button class="ob-final-btn" onclick="launch('chop')">
+        <div class="fb-icon">⚒️</div>
+        <strong>Chop Shop</strong>
+        <small>Organise, rename, deduplicate and audit your tracks</small>
+      </button>
+      <button class="ob-final-btn" onclick="launch('record')">
+        <div class="fb-icon">🎛️</div>
+        <strong>Record Room</strong>
+        <small>Mix, preview and manage your DJ sets</small>
+      </button>
+    </div>
+  </section>
+
+</div><!-- /ob-wrap -->
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+var currentStep = 0;
+var scanData    = null;
+var confirmedPaths = {};
+
+// ── Navigation ─────────────────────────────────────────────────────────────────
+function goToStep(n) {
+  var prev = document.getElementById('step-' + currentStep);
+  var next = document.getElementById('step-' + n);
+  var dotPrev = document.getElementById('dot-' + currentStep);
+  var dotNext = document.getElementById('dot-' + n);
+
+  prev.classList.remove('active');
+  dotPrev.classList.remove('active');
+  dotPrev.classList.add('done');
+
+  currentStep = n;
+
+  next.classList.add('active');
+  dotNext.classList.remove('done');
+  dotNext.classList.add('active');
+
+  // Side effects per step
+  if (n === 2) triggerScan();
+  if (n === 3) buildPermView();
+}
+
+// ── Step 1: Dependencies ───────────────────────────────────────────────────────
+function checkDeps() {
+  fetch('/api/onboarding/dep-check')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var html = '';
+      data.deps.forEach(function(d) {
+        var ic = d.ok
+          ? '<span class="dep-icon dep-ok">✓</span>'
+          : '<span class="dep-icon dep-fail">✗</span>';
+        var hint = !d.ok && d.brew
+          ? '<span class="dep-hint">' + escHtml(d.brew) + '</span>'
+          : '';
+        html += '<div class="dep-row">' + ic
+               + '<span class="dep-name">' + escHtml(d.name) + '</span>'
+               + hint + '</div>';
+      });
+      document.getElementById('dep-list').innerHTML = html;
+      document.getElementById('dep-next-btn').disabled = false;
+      if (!data.all_ok) {
+        document.getElementById('dep-install-btn').style.display = '';
+      }
+    })
+    .catch(function() {
+      document.getElementById('dep-list').innerHTML =
+        '<div class="ob-scanning" style="color:var(--text-dim)">Could not check — continue anyway.</div>';
+      document.getElementById('dep-next-btn').disabled = false;
+    });
+}
+
+function installDeps() {
+  fetch('/api/onboarding/install-deps', { method: 'POST' })
+    .then(function() { pollDeps(); });
+}
+
+function pollDeps() {
+  fetch('/api/onboarding/dep-check')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      checkDeps();
+      if (!data.all_ok) setTimeout(pollDeps, 5000);
+    });
+}
+
+// ── Step 2: App install ────────────────────────────────────────────────────────
+function syncDockToggle() {
+  var apps = document.getElementById('tog-apps');
+  var dock = document.getElementById('tog-dock');
+  dock.disabled = !apps.checked;
+  if (!apps.checked) dock.checked = false;
+}
+
+function installApp() {
+  var installBtn = document.getElementById('install-btn');
+  installBtn.disabled = true;
+  installBtn.textContent = 'Installing…';
+
+  var apps = document.getElementById('tog-apps').checked;
+  var dock = document.getElementById('tog-dock').checked;
+
+  if (!apps) { goToStep(2); return; }
+
+  fetch('/api/onboarding/install-app', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dock: dock }),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.ok) {
+      goToStep(2);
+    } else {
+      installBtn.disabled = false;
+      installBtn.textContent = 'Install & continue →';
+      alert('Installation failed: ' + (d.error || 'unknown error'));
+    }
+  })
+  .catch(function() { goToStep(2); });
+}
+
+// ── Step 3: Library scan ───────────────────────────────────────────────────────
+function triggerScan() {
+  document.getElementById('scan-loading').style.display = '';
+  document.getElementById('scan-results').style.display = 'none';
+  document.getElementById('scan-actions').style.display = 'none';
+
+  fetch('/api/onboarding/scan-library')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      scanData = data;
+      populateScan(data);
+      document.getElementById('scan-loading').style.display = 'none';
+      document.getElementById('scan-results').style.display = '';
+      document.getElementById('scan-actions').style.display = '';
+    })
+    .catch(function() {
+      document.getElementById('scan-loading').innerHTML =
+        '<span style="color:var(--text-dim)">Scan failed — enter paths manually.</span>';
+      document.getElementById('scan-results').style.display = '';
+      document.getElementById('scan-actions').style.display = '';
+    });
+}
+
+function populateScan(data) {
+  // Local DB
+  if (data.local_db && data.local_db.length) {
+    document.getElementById('inp-local-db').value = data.local_db[0].path;
+    document.getElementById('local-db-note').innerHTML =
+      '<div class="path-note ok">✓ Found — ' + escHtml(data.local_db[0].label) + '</div>';
+  } else {
+    document.getElementById('local-db-note').innerHTML =
+      '<div class="path-note miss">Not found — enter the path manually or browse to select it.</div>';
+  }
+
+  // Device DB
+  var devExtra = document.getElementById('device-db-extra');
+  if (data.device_dbs && data.device_dbs.length) {
+    document.getElementById('inp-device-db').value = data.device_dbs[0].path;
+    if (data.device_dbs.length > 1) {
+      var sel = '<select class="ob-select" onchange="document.getElementById(\'inp-device-db\').value=this.value">';
+      data.device_dbs.forEach(function(d) {
+        sel += '<option value="' + escAttr(d.path) + '">' + escHtml(d.label) + '</option>';
+      });
+      sel += '</select>';
+      devExtra.innerHTML = sel;
+    } else {
+      devExtra.innerHTML =
+        '<div class="path-note ok">✓ Found on ' + escHtml(data.device_dbs[0].volume) + '</div>';
+    }
+  } else {
+    devExtra.innerHTML =
+      '<div class="path-note miss">No DJ drive detected — connect your drive and re-scan, or enter path manually.</div>';
+  }
+
+  // XML files
+  if (data.xml_files && data.xml_files.length) {
+    var xhtml = '';
+    data.xml_files.forEach(function(x) {
+      xhtml += '<div class="dep-row">'
+             + '<span class="dep-icon dep-ok">✓</span>'
+             + '<span style="font-size:.8rem;font-family:monospace">' + escHtml(x.path) + '</span>'
+             + '</div>';
+    });
+    document.getElementById('xml-list').innerHTML = xhtml;
+  }
+
+  // Music root
+  var mc = document.getElementById('music-root-extra');
+  if (data.music_roots && data.music_roots.length) {
+    document.getElementById('inp-music-root').value = data.music_roots[0].path;
+    if (data.music_roots.length > 1) {
+      var msel = '<select class="ob-select" onchange="document.getElementById(\'inp-music-root\').value=this.value">';
+      data.music_roots.forEach(function(m) {
+        msel += '<option value="' + escAttr(m.path) + '">' + escHtml(m.label) + '</option>';
+      });
+      msel += '</select>';
+      mc.innerHTML = msel;
+    } else {
+      mc.innerHTML =
+        '<div class="path-note ok">✓ Found on ' + escHtml(data.music_roots[0].volume) + '</div>';
+    }
+  } else {
+    mc.innerHTML =
+      '<div class="path-note miss">No music library detected — connect your DJ drive or enter path manually.</div>';
+  }
+}
+
+// Native pickers via pywebview
+function pickFile(inputId) {
+  var api = window.pywebview && window.pywebview.api;
+  if (api && api.pick_file) {
+    api.pick_file(['Database files (*.db)', 'All files (*.*)'])
+      .then(function(p) { if (p) document.getElementById(inputId).value = p; });
+  } else {
+    var cur = document.getElementById(inputId).value;
+    var p = window.prompt('Enter file path:', cur);
+    if (p) document.getElementById(inputId).value = p;
+  }
+}
+
+function pickFolder(inputId) {
+  var api = window.pywebview && window.pywebview.api;
+  if (api && api.pick_folder) {
+    api.pick_folder()
+      .then(function(p) { if (p) document.getElementById(inputId).value = p; });
+  } else {
+    var cur = document.getElementById(inputId).value;
+    var p = window.prompt('Enter folder path:', cur);
+    if (p) document.getElementById(inputId).value = p;
+  }
+}
+
+function confirmPaths() {
+  var localDb   = document.getElementById('inp-local-db').value.trim();
+  var deviceDb  = document.getElementById('inp-device-db').value.trim();
+  var musicRoot = document.getElementById('inp-music-root').value.trim();
+
+  if (!localDb || !deviceDb || !musicRoot) {
+    alert('Please fill in all three paths before continuing.');
+    return;
+  }
+  confirmedPaths = {
+    local_db:   localDb,
+    device_db:  deviceDb,
+    music_root: musicRoot,
+  };
+  goToStep(3);
+}
+
+// ── Step 4: Permissions ────────────────────────────────────────────────────────
+function buildPermView() {
+  var home = '/Users/' + (navigator.platform.indexOf('Mac') !== -1 ? '' : '');
+  var backupDir = home + '~/.fablegear/backups';
+
+  var readItems = [
+    { icon: '🗄', label: 'Rekordbox local database', path: confirmedPaths.local_db || '—' },
+    { icon: '🗄', label: 'DJ drive database',        path: confirmedPaths.device_db || '—' },
+  ];
+  if (scanData && scanData.xml_files) {
+    scanData.xml_files.forEach(function(x) {
+      readItems.push({ icon: '📋', label: 'Playlist XML', path: x.path });
+    });
+  }
+  var writeItems = [
+    { icon: '💾', label: 'Timestamped backups',    path: '~/.fablegear/backups/' },
+    { icon: '⚙️', label: 'FableGear configuration', path: '~/.fablegear/config.json' },
+  ];
+
+  function makeItems(arr) {
+    return arr.map(function(i) {
+      return '<li><span style="flex-shrink:0">' + i.icon + '</span>'
+           + '<div><strong>' + escHtml(i.label) + '</strong>'
+           + '<div class="perm-path">' + escHtml(i.path) + '</div></div></li>';
+    }).join('');
+  }
+  document.getElementById('perm-read-list').innerHTML  = makeItems(readItems);
+  document.getElementById('perm-write-list').innerHTML = makeItems(writeItems);
+
+  // FDA check
+  fetch('/api/onboarding/check-fda')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.db_exists && !d.can_read) {
+        document.getElementById('fda-banner').style.display = '';
+      }
+    });
+}
+
+function openFDAPrefs() {
+  fetch('/api/onboarding/open-fda-prefs', { method: 'POST' });
+}
+
+function onConsent() {
+  var checked = document.getElementById('consent-chk').checked;
+  document.getElementById('final-ctas').style.display = checked ? '' : 'none';
+}
+
+function launch(area) {
+  fetch('/api/onboarding/save-config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.assign({}, confirmedPaths, {
+      db_read: true,
+      db_write: true,
+    })),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.ok) {
+      window.location.replace(area === 'chop' ? '/?space=chop' : '/?space=record');
+    } else {
+      alert('Could not save configuration: ' + (d.error || 'unknown error'));
+    }
+  })
+  .catch(function(e) {
+    alert('Save failed — ' + e);
+  });
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+function escAttr(s) { return escHtml(s); }
+
+// ── Boot ───────────────────────────────────────────────────────────────────────
+checkDeps();
+</script>
+</body>
+</html>

@@ -184,7 +184,14 @@ _SPLASH_HTML = """\
       if (done) return;
       done = true;
       v.classList.add('fade-out');
-      setTimeout(function() { window.location.replace('/'); }, 550);
+      setTimeout(function() {
+        fetch('/api/setup-status')
+          .then(function(r) { return r.json(); })
+          .then(function(s) {
+            window.location.replace(s.setup_complete ? '/' : '/onboarding');
+          })
+          .catch(function() { window.location.replace('/onboarding'); });
+      }, 550);
     }
     v.addEventListener('ended', finish);
     v.addEventListener('error', function() { window.location.replace('/'); });
@@ -199,6 +206,16 @@ _SPLASH_HTML = """\
 
 @app.route("/")
 def index():
+    from flask import redirect as _redirect  # noqa: PLC0415
+    from user_config import config_exists   # noqa: PLC0415
+    try:
+        if not config_exists():
+            return _redirect("/onboarding")
+        _st = json.loads(_FABLEGEAR_STATE.read_text(encoding="utf-8")) if _FABLEGEAR_STATE.exists() else {}
+        if not _st.get("setup_complete"):
+            return _redirect("/onboarding")
+    except Exception:
+        pass
     return render_template("index.html")
 
 
@@ -875,6 +892,213 @@ def api_drives_apply_fix():
         return jsonify({"ok": True, "patched": list(patch.keys())})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+# ── First-run onboarding ──────────────────────────────────────────────────────
+
+@app.route("/onboarding")
+def onboarding():
+    """Serve the first-run setup wizard."""
+    from flask import redirect as _redirect  # noqa: PLC0415
+    from user_config import config_exists   # noqa: PLC0415
+    try:
+        if config_exists():
+            state = json.loads(_FABLEGEAR_STATE.read_text(encoding="utf-8")) if _FABLEGEAR_STATE.exists() else {}
+            if state.get("setup_complete"):
+                return _redirect("/")
+    except Exception:
+        pass
+    return render_template("onboarding.html")
+
+
+@app.route("/api/onboarding/dep-check")
+def api_onboarding_dep_check():
+    """Return dependency check results for the onboarding wizard."""
+    from user_config import check_dependencies  # noqa: PLC0415
+    deps = check_dependencies()
+    return jsonify({
+        "deps": deps,
+        "all_ok": all(d["ok"] for d in deps),
+    })
+
+
+@app.route("/api/onboarding/install-deps", methods=["POST"])
+def api_onboarding_install_deps():
+    """Open a Terminal window running setup.sh to install system dependencies."""
+    setup_sh = REPO_ROOT / "setup.sh"
+    if not setup_sh.exists():
+        return jsonify({"error": "setup.sh not found"}), 404
+    try:
+        subprocess.Popen(["open", "-a", "Terminal", str(setup_sh)])
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+def _pin_to_dock(app_path: str) -> None:
+    """Add *app_path* to the macOS Dock persistent-apps list."""
+    import plistlib  # noqa: PLC0415
+    dock_plist = Path.home() / "Library" / "Preferences" / "com.apple.dock.plist"
+    try:
+        with open(dock_plist, "rb") as _f:
+            dock = plistlib.load(_f)
+        for item in dock.get("persistent-apps", []):
+            url = item.get("tile-data", {}).get("file-data", {}).get("_CFURLString", "")
+            if url == app_path:
+                subprocess.run(["killall", "Dock"], capture_output=True, check=False)
+                return
+        dock.setdefault("persistent-apps", []).append({
+            "tile-data": {
+                "file-data": {
+                    "_CFURLString": app_path,
+                    "_CFURLStringType": 0,
+                },
+                "file-label": "FableGear",
+            },
+            "tile-type": "file-tile",
+        })
+        with open(dock_plist, "wb") as _f:
+            plistlib.dump(dock, _f)
+        subprocess.run(["killall", "Dock"], capture_output=True, check=False)
+    except Exception:
+        pass  # Non-fatal — Dock pinning is cosmetic
+
+
+@app.route("/api/onboarding/install-app", methods=["POST"])
+def api_onboarding_install_app():
+    """Build FableGear.app in ~/Applications using osacompile and optionally pin to Dock."""
+    import plistlib  # noqa: PLC0415 (needed for _pin_to_dock)
+    import tempfile  # noqa: PLC0415
+    import shutil   # noqa: PLC0415
+
+    data = request.get_json(silent=True) or {}
+    add_to_dock = bool(data.get("dock", True))
+
+    install_dir = Path.home() / "Applications"
+    app_path = install_dir / "FableGear.app"
+    launch_sh = REPO_ROOT / "launch.sh"
+    icon_src = REPO_ROOT / "static" / "icon-logo-fablegear.png"
+
+    install_dir.mkdir(parents=True, exist_ok=True)
+
+    # Compile a fresh .app pointing at this install's launch.sh
+    script_content = f'do shell script "bash \'{launch_sh}\' > /dev/null 2>&1 &"'
+    tmp_as = Path(tempfile.mktemp(suffix=".applescript"))
+    try:
+        tmp_as.write_text(script_content, encoding="utf-8")
+        result = subprocess.run(
+            ["osacompile", "-o", str(app_path), str(tmp_as)],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            return jsonify({"error": result.stderr.strip() or "osacompile failed"}), 500
+    finally:
+        tmp_as.unlink(missing_ok=True)
+
+    # Apply icon (non-fatal if sips/iconutil unavailable)
+    if icon_src.exists():
+        try:
+            iconset_dir = Path(tempfile.mkdtemp()) / "fg.iconset"
+            iconset_dir.mkdir()
+            for size in (16, 32, 64, 128, 256, 512):
+                subprocess.run(
+                    ["sips", "-z", str(size), str(size), str(icon_src),
+                     "--out", str(iconset_dir / f"icon_{size}x{size}.png")],
+                    capture_output=True, check=False,
+                )
+                double = size * 2
+                subprocess.run(
+                    ["sips", "-z", str(double), str(double), str(icon_src),
+                     "--out", str(iconset_dir / f"icon_{size}x{size}@2x.png")],
+                    capture_output=True, check=False,
+                )
+            icns_out = app_path / "Contents" / "Resources" / "applet.icns"
+            subprocess.run(
+                ["iconutil", "-c", "icns", str(iconset_dir), "-o", str(icns_out)],
+                capture_output=True, check=False,
+            )
+            shutil.rmtree(str(iconset_dir.parent), ignore_errors=True)
+        except Exception:
+            pass
+
+    if add_to_dock:
+        _pin_to_dock(str(app_path))
+
+    return jsonify({"ok": True, "path": str(app_path)})
+
+
+@app.route("/api/onboarding/scan-library")
+def api_onboarding_scan_library():
+    """Scan local machine and mounted volumes for Rekordbox assets."""
+    from user_config import scan_for_rekordbox_assets  # noqa: PLC0415
+    return jsonify(scan_for_rekordbox_assets())
+
+
+@app.route("/api/onboarding/check-fda")
+def api_onboarding_check_fda():
+    """Check if the local Rekordbox DB is readable (Full Disk Access indicator)."""
+    local_db = Path.home() / "Library" / "Pioneer" / "rekordbox" / "master.db"
+    can_read = False
+    if local_db.exists():
+        try:
+            with open(local_db, "rb") as _f:
+                _f.read(16)
+            can_read = True
+        except (PermissionError, OSError):
+            pass
+    return jsonify({
+        "can_read": can_read,
+        "db_path": str(local_db),
+        "db_exists": local_db.exists(),
+    })
+
+
+@app.route("/api/onboarding/open-fda-prefs", methods=["POST"])
+def api_onboarding_open_fda_prefs():
+    """Open System Preferences > Privacy & Security > Full Disk Access."""
+    try:
+        subprocess.Popen(
+            ["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"]
+        )
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/onboarding/save-config", methods=["POST"])
+def api_onboarding_save_config():
+    """Save confirmed paths to config.json and mark setup complete."""
+    from user_config import DEFAULTS, save_user_config  # noqa: PLC0415
+
+    data = request.get_json(silent=True) or {}
+    required = {"local_db", "device_db", "music_root"}
+    missing = [k for k in required if not str(data.get(k, "")).strip()]
+    if missing:
+        return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
+
+    cfg: dict = {
+        "local_db":   str(data["local_db"]).strip(),
+        "device_db":  str(data["device_db"]).strip(),
+        "music_root": str(data["music_root"]).strip(),
+        "backup_dir": str(data.get("backup_dir", "")).strip()
+                      or str(Path.home() / ".fablegear" / "backups"),
+    }
+    for key, default in DEFAULTS.items():
+        cfg.setdefault(key, default)
+
+    try:
+        save_user_config(cfg)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    state = {
+        "setup_complete": True,
+        "db_read":  bool(data.get("db_read", True)),
+        "db_write": bool(data.get("db_write", True)),
+    }
+    _FABLEGEAR_STATE.parent.mkdir(parents=True, exist_ok=True)
+    _FABLEGEAR_STATE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    return jsonify({"ok": True})
 
 
 @app.route("/api/quit", methods=["POST"])

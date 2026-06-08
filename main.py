@@ -95,6 +95,22 @@ class _Api:
             return os.path.normpath(result[0])
         return None
 
+    def pick_file(self, file_types=None):
+        """Open a native file picker. file_types is a list of filter strings, e.g.
+        ['Database files (*.db)', 'All files (*.*)']"""
+        if not self._window:
+            return None
+        types = tuple(file_types) if file_types else ('All files (*.*)',)
+        result = self._window.create_file_dialog(
+            webview.FileDialog.OPEN_DIALOG,
+            allow_multiple=False,
+            file_types=types,
+        )
+        if result:
+            import os
+            return os.path.normpath(result[0])
+        return None
+
     def minimize(self):
         if self._window:
             self._window.minimize()
