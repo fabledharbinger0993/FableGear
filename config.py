@@ -71,7 +71,15 @@ ARCHIVE_ENABLED: bool = _archive_mode != "none"
 if _archive_mode == "custom" and _custom_archive:
     ARCHIVE_ROOT = Path(_custom_archive)
 else:
-    ARCHIVE_ROOT = MUSIC_ROOT.parent / "FableGear Archive"
+    # Place the archive beside the music folder on the same drive.
+    # If music_root IS the drive root (e.g. /Volumes/Passport), then .parent is
+    # /Volumes — a macOS mount-point container, not a real drive — so put the
+    # archive *inside* the drive instead of at /Volumes/FableGear Archive.
+    _music_parent = MUSIC_ROOT.parent
+    if _music_parent == Path("/Volumes") or _music_parent == Path("/"):
+        ARCHIVE_ROOT = MUSIC_ROOT / "FableGear Archive"
+    else:
+        ARCHIVE_ROOT = _music_parent / "FableGear Archive"
 
 SAVEPOINTS_DIR = ARCHIVE_ROOT / "Savepoints"
 QUARANTINE_DIR = ARCHIVE_ROOT / "Quarantine"
@@ -90,8 +98,10 @@ LOG_DIRS: dict[str, Path] = {
     "Prune":       LOGS_DIR / "Prune",
 }
 
-# Backup directory — points to Savepoints inside the archive
-BACKUP_DIR = SAVEPOINTS_DIR
+# Backup directory — use the explicit user setting when present, otherwise fall
+# back to Savepoints inside the archive on the DJ drive.
+_user_backup_dir = _cfg.get("backup_dir", "").strip()
+BACKUP_DIR = Path(_user_backup_dir) if _user_backup_dir else SAVEPOINTS_DIR
 
 
 def ensure_archive_structure() -> None:

@@ -336,6 +336,7 @@
     <div class="ob-dot"        id="dot-1"></div>
     <div class="ob-dot"        id="dot-2"></div>
     <div class="ob-dot"        id="dot-3"></div>
+    <div class="ob-dot"        id="dot-4"></div>
   </div>
 
   <!-- ══ Step 1: Dependencies ══════════════════════════════════════════════ -->
@@ -470,12 +471,13 @@
     </div>
   </section>
 
-  <!-- ══ Step 4: Permissions ════════════════════════════════════════════════ -->
+  <!-- ══ Step 4: Read permission ══════════════════════════════════════════ -->
   <section class="ob-step" id="step-3">
-    <div class="ob-icon">🔐</div>
-    <h1 class="ob-title">Access to your library</h1>
-    <p class="ob-sub">FableGear needs permission to read your Rekordbox database and write
-      backups. Your data never leaves your machine — everything runs locally.</p>
+    <div class="ob-icon">📖</div>
+    <h1 class="ob-title">May FableGear read your Rekordbox database?</h1>
+    <p class="ob-sub">Reading the database lets FableGear see what tracks are in your
+      library, where their files are, and whether any paths are broken.
+      Nothing is modified at this stage.</p>
 
     <!-- FDA warning (shown only when needed) -->
     <div id="fda-banner" class="fda-banner" style="display:none">
@@ -491,31 +493,68 @@
     </div>
 
     <div class="ob-card">
-      <div class="ob-card-title">📖 FableGear will read</div>
-      <ul class="perm-list" id="perm-read-list"></ul>
+      <div class="ob-card-title">Tools unlocked with read access</div>
+      <div class="dep-row"><span class="dep-icon">▣</span><span class="dep-name">Library Audit</span><span class="dep-hint">Maps your full library, flags broken paths and orphaned entries</span></div>
+      <div class="dep-row"><span class="dep-icon">🏷</span><span class="dep-name">Tag Tracks</span><span class="dep-hint">Cross-references the database when prioritising files for analysis</span></div>
+      <div class="dep-row"><span class="dep-icon">🔎</span><span class="dep-name">Find Duplicates</span><span class="dep-hint">Uses DB metadata for smart pre-filtering before fingerprinting</span></div>
     </div>
+
+    <div class="ob-actions">
+      <button class="ob-btn ob-btn-secondary" onclick="goToStep(2)">← Back</button>
+      <button class="ob-btn ob-btn-ghost" onclick="permDenyRead()">Skip — limited mode</button>
+      <button class="ob-btn ob-btn-primary" onclick="permGrantRead()">Allow Read Access →</button>
+    </div>
+  </section>
+
+  <!-- ══ Step 5: Write permission ══════════════════════════════════════════ -->
+  <section class="ob-step" id="step-4">
+    <div class="ob-icon">✏️</div>
+    <h1 class="ob-title">May FableGear write to your Rekordbox database?</h1>
+    <p class="ob-sub">Some tools make changes to your library. FableGear always creates a
+      timestamped database backup before any write operation, and Rekordbox must be
+      closed first.</p>
 
     <div class="ob-card">
-      <div class="ob-card-title">✏️ FableGear will write</div>
-      <ul class="perm-list" id="perm-write-list"></ul>
+      <div class="ob-card-title">Tools unlocked with write access</div>
+      <div class="dep-row"><span class="dep-icon">📍</span><span class="dep-name">Fix Broken Paths</span><span class="dep-hint">Updates file paths in the database after a drive rename or move</span></div>
+      <div class="dep-row"><span class="dep-icon">＋</span><span class="dep-name">Import Tracks</span><span class="dep-hint">Adds new audio files to your Rekordbox library</span></div>
+      <div class="dep-row"><span class="dep-icon">🔗</span><span class="dep-name">Link Playlists</span><span class="dep-hint">Associates imported tracks to playlists based on folder structure</span></div>
+      <div class="dep-row"><span class="dep-icon">✂</span><span class="dep-name">Prune Duplicates</span><span class="dep-hint">Removes confirmed duplicates from the database and optionally the disk</span></div>
     </div>
 
-    <label class="consent-row">
-      <input type="checkbox" id="consent-chk" onchange="onConsent()">
-      I authorise FableGear to read and write the paths listed above. I understand that
-      all write operations create a timestamped backup first.
-    </label>
+    <div class="ob-card" style="background:rgba(0,212,232,.04);border-color:rgba(0,212,232,.18)">
+      <div class="ob-card-title" style="color:var(--accent)">Backup guarantee</div>
+      <div style="font-size:.86rem;color:var(--text-muted);line-height:1.55">
+        Every write operation creates a timestamped copy of your database before it
+        touches anything. Backups are stored at
+        <code style="font-size:.78rem;color:var(--text)">~/.fablegear/backups/</code>.
+        Rekordbox must be closed before FableGear will attempt a write.
+      </div>
+    </div>
 
-    <div id="final-ctas" class="ob-final-ctas" style="display:none">
-      <button class="ob-final-btn" onclick="launch('chop')">
-        <div class="fb-icon">⚒️</div>
-        <strong>Chop Shop</strong>
-        <small>Organise, rename, deduplicate and audit your tracks</small>
-      </button>
+    <div class="ob-actions">
+      <button class="ob-btn ob-btn-secondary" onclick="goToStep(3)">← Back</button>
+      <button class="ob-btn ob-btn-ghost" onclick="permDenyWrite()">Read-only mode</button>
+      <button class="ob-btn ob-btn-primary" onclick="permGrantWrite()">Allow Write Access →</button>
+    </div>
+  </section>
+
+  <!-- ══ Step 6: Choose a room ════════════════════════════════════════════ -->
+  <section class="ob-step" id="step-5">
+    <div class="ob-icon">✅</div>
+    <h1 class="ob-title">You're all set</h1>
+    <p class="ob-sub" id="setup-summary">Setup complete. Pick a room to start.</p>
+
+    <div class="ob-final-ctas">
       <button class="ob-final-btn" onclick="launch('record')">
         <div class="fb-icon">🎛️</div>
         <strong>Record Room</strong>
-        <small>Mix, preview and manage your DJ sets</small>
+        <small>Library &amp; playlist editor. Browse tracks, build playlists, export to Pioneer USB.</small>
+      </button>
+      <button class="ob-final-btn" onclick="launch('chop')">
+        <div class="fb-icon">⚒️</div>
+        <strong>Chop Shop</strong>
+        <small>Tag tracks, normalize, rename, dedupe, organize, fix paths, import.</small>
       </button>
     </div>
   </section>
@@ -536,18 +575,16 @@ function goToStep(n) {
   var dotNext = document.getElementById('dot-' + n);
 
   prev.classList.remove('active');
-  dotPrev.classList.remove('active');
-  dotPrev.classList.add('done');
+  if (dotPrev) { dotPrev.classList.remove('active'); dotPrev.classList.add('done'); }
 
   currentStep = n;
 
   next.classList.add('active');
-  dotNext.classList.remove('done');
-  dotNext.classList.add('active');
+  if (dotNext) { dotNext.classList.remove('done'); dotNext.classList.add('active'); }
 
   // Side effects per step
   if (n === 2) triggerScan();
-  if (n === 3) buildPermView();
+  if (n === 3) checkFDA();
 }
 
 // ── Step 1: Dependencies ───────────────────────────────────────────────────────
@@ -755,45 +792,21 @@ function confirmPaths() {
     local_db:   localDb,
     device_db:  deviceDb,
     music_root: musicRoot,
+    db_read:  true,
+    db_write: true,
   };
   goToStep(3);
 }
 
-// ── Step 4: Permissions ────────────────────────────────────────────────────────
-function buildPermView() {
-  var home = '/Users/' + (navigator.platform.indexOf('Mac') !== -1 ? '' : '');
-  var backupDir = home + '~/.fablegear/backups';
-
-  var readItems = [
-    { icon: '🗄', label: 'Rekordbox local database', path: confirmedPaths.local_db || '—' },
-    { icon: '🗄', label: 'DJ drive database',        path: confirmedPaths.device_db || '—' },
-  ];
-  if (scanData && scanData.xml_files) {
-    scanData.xml_files.forEach(function(x) {
-      readItems.push({ icon: '📋', label: 'Playlist XML', path: x.path });
-    });
-  }
-  var writeItems = [
-    { icon: '💾', label: 'Timestamped backups',    path: '~/.fablegear/backups/' },
-    { icon: '⚙️', label: 'FableGear configuration', path: '~/.fablegear/config.json' },
-  ];
-
-  function makeItems(arr) {
-    return arr.map(function(i) {
-      return '<li><span style="flex-shrink:0">' + i.icon + '</span>'
-           + '<div><strong>' + escHtml(i.label) + '</strong>'
-           + '<div class="perm-path">' + escHtml(i.path) + '</div></div></li>';
-    }).join('');
-  }
-  document.getElementById('perm-read-list').innerHTML  = makeItems(readItems);
-  document.getElementById('perm-write-list').innerHTML = makeItems(writeItems);
-
-  // FDA check
+// ── Step 4: Read permission ────────────────────────────────────────────────────
+function checkFDA() {
   fetch('/api/onboarding/check-fda')
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.db_exists && !d.can_read) {
         document.getElementById('fda-banner').style.display = '';
+      } else {
+        document.getElementById('fda-banner').style.display = 'none';
       }
     });
 }
@@ -802,19 +815,48 @@ function openFDAPrefs() {
   fetch('/api/onboarding/open-fda-prefs', { method: 'POST' });
 }
 
-function onConsent() {
-  var checked = document.getElementById('consent-chk').checked;
-  document.getElementById('final-ctas').style.display = checked ? '' : 'none';
+function permGrantRead() {
+  confirmedPaths.db_read = true;
+  goToStep(4);
 }
 
+function permDenyRead() {
+  confirmedPaths.db_read  = false;
+  confirmedPaths.db_write = false;
+  _buildSetupSummary();
+  goToStep(5);
+}
+
+// ── Step 5: Write permission ───────────────────────────────────────────────────
+function permGrantWrite() {
+  confirmedPaths.db_write = true;
+  _buildSetupSummary();
+  goToStep(5);
+}
+
+function permDenyWrite() {
+  confirmedPaths.db_write = false;
+  _buildSetupSummary();
+  goToStep(5);
+}
+
+function _buildSetupSummary() {
+  var r = confirmedPaths.db_read;
+  var w = confirmedPaths.db_write;
+  var msg = r && w
+    ? '✓ Full access — all tools enabled.'
+    : r
+    ? '⚠ Read-only — write tools locked. Enable them any time via Settings.'
+    : '⚠ Limited mode — database tools unavailable until access is granted.'
+  document.getElementById('setup-summary').textContent = msg;
+}
+
+// ── Step 6: Room selection ─────────────────────────────────────────────────────
 function launch(area) {
   fetch('/api/onboarding/save-config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(Object.assign({}, confirmedPaths, {
-      db_read: true,
-      db_write: true,
-    })),
+    body: JSON.stringify(confirmedPaths),
   })
   .then(function(r) { return r.json(); })
   .then(function(d) {
@@ -824,9 +866,7 @@ function launch(area) {
       alert('Could not save configuration: ' + (d.error || 'unknown error'));
     }
   })
-  .catch(function(e) {
-    alert('Save failed — ' + e);
-  });
+  .catch(function(e) { alert('Save failed — ' + e); });
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

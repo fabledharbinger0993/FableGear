@@ -381,218 +381,37 @@
     <div class="welcome-header">
       <img src="/static/icon-logo-fablegear.png" alt="" role="presentation" class="rb-logo-icon">
       <div class="welcome-header-text">
-        <h2>Welcome to FableGear</h2>
-        <p>A local Record Room and Chop Shop for Rekordbox libraries by Guthrie Entertainment LLC</p>
+        <h2>FableGear</h2>
+        <p>A local Record Room and Chop Shop for Rekordbox libraries.</p>
       </div>
+      <button type="button" class="welcome-close-btn" onclick="closeWelcome()" aria-label="Close">✕</button>
     </div>
 
-    <!-- Step 1: Intro -->
+    <!-- What's New + room picker -->
     <div class="welcome-step active" id="wstep-intro">
       <div class="welcome-step-body">
-        <p class="welcome-step-sub">FableGear keeps the Record Room strictly for music flow and playlist building, while the Chop Shop is the secondary workspace for all file and folder modification tools. Everything runs locally. No internet, no accounts, no subscription.</p>
-        <p class="welcome-step-sub">Before diving in, we need two quick decisions about what FableGear is allowed to access. Takes about 30 seconds.</p>
+        <p class="welcome-step-title">What's new</p>
+        <div class="welcome-tool-list" style="margin-top:.6rem">
+          <div class="welcome-tool-item"><strong>✓ Health alerts fixed</strong><span>Backup directory and archive root path resolution corrected for mounted volumes.</span></div>
+          <div class="welcome-tool-item"><strong>✓ First-run wizard</strong><span>New onboarding flow covers dependencies, app install, library scan, and database access consent.</span></div>
+          <div class="welcome-tool-item"><strong>✓ Room picker on startup</strong><span>Choose your starting room on every launch. Switch any time with ⌘1 / ⌘2.</span></div>
+        </div>
       </div>
       <div class="welcome-footer">
-        <button type="button" class="welcome-got-it" onclick="closeWelcome(); openFableGearLauncher();">Get Started →</button>
-      </div>
-    </div>
-
-    <!-- Step 2: Read permission -->
-    <div class="welcome-step" id="wstep-read">
-      <div class="welcome-step-body">
-        <div>
-          <span class="welcome-perm-badge read">● Read Only</span>
-          <p class="welcome-step-title welcome-step-title-mt">May FableGear read your RekordBox database?</p>
+        <div class="fg-launcher-grid" style="margin-bottom:.5rem">
+          <button type="button" class="fg-launcher-card fg-launcher-card-record" onclick="closeWelcome(); if(typeof setFableGearSpace==='function') setFableGearSpace('record');" style="padding:.9rem 1rem">
+            <div class="fg-launcher-card-icon">🎚️</div>
+            <div class="fg-launcher-card-title">Record Room</div>
+            <div class="fg-launcher-card-desc">Library, playlists, Pioneer export</div>
+          </button>
+          <button type="button" class="fg-launcher-card fg-launcher-card-chop" onclick="closeWelcome(); if(typeof setFableGearSpace==='function') setFableGearSpace('chop');" style="padding:.9rem 1rem">
+            <div class="fg-launcher-card-icon">🛠️</div>
+            <div class="fg-launcher-card-title">Chop Shop</div>
+            <div class="fg-launcher-card-desc">Tag, rename, dedupe, organize</div>
+          </button>
         </div>
-        <p class="welcome-step-sub">Reading the database lets FableGear see what tracks are in your library, where their files are, and whether any paths are broken. It never modifies anything at this stage.</p>
-        <div class="welcome-tool-list">
-          <div class="welcome-tool-item"><strong>▣ Library Audit</strong><span>Maps your full library, flags broken paths, orphaned entries, and missing tags.</span></div>
-          <div class="welcome-tool-item"><strong>🏷 Tag Tracks</strong><span>Cross-references the database when prioritising which files need analysis.</span></div>
-          <div class="welcome-tool-item"><strong>🔎 Find Duplicates</strong><span>Uses DB metadata for smart pre-filtering before acoustic fingerprinting.</span></div>
-        </div>
-        <div class="welcome-btn-row">
-          <button type="button" class="wbtn-accept" onclick="welcomeGrantRead()">Allow Read Access</button>
-          <button type="button" class="wbtn-deny"   onclick="welcomeDenyRead()">Skip — limited mode</button>
-        </div>
+        <button type="button" class="welcome-got-it" onclick="closeWelcome()">Dismiss</button>
       </div>
-    </div>
-
-    <!-- Step 3: Write permission (shown after read granted) -->
-    <div class="welcome-step" id="wstep-write">
-      <div class="welcome-step-body">
-        <div>
-          <span class="welcome-perm-badge write">● Read &amp; Write</span>
-          <p class="welcome-step-title welcome-step-title-mt">May FableGear write to your RekordBox database?</p>
-        </div>
-        <p class="welcome-step-sub">Some tools make changes to your library. FableGear always creates a timestamped database backup before any write operation, and RekordBox must be closed first.</p>
-        <div class="welcome-tool-list">
-          <div class="welcome-tool-item"><strong>📍 Fix Broken Paths</strong><span>Updates file paths in the database after a drive rename or folder move.</span></div>
-          <div class="welcome-tool-item"><strong>＋ Import Tracks</strong><span>Adds new audio files to your Rekordbox library.</span></div>
-          <div class="welcome-tool-item"><strong>🔗 Link Playlists</strong><span>Associates imported tracks to playlists based on folder structure.</span></div>
-          <div class="welcome-tool-item"><strong>✂ Prune Duplicates</strong><span>Removes confirmed duplicates from the database and optionally the disk.</span></div>
-        </div>
-        <div class="welcome-btn-row">
-          <button type="button" class="wbtn-accept" onclick="welcomeGrantWrite()">Allow Write Access</button>
-          <button type="button" class="wbtn-deny"   onclick="welcomeDenyWrite()">Read-only mode</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Step 5: Ready (content set dynamically) -->
-    <div class="welcome-step" id="wstep-ready">
-      <div class="welcome-step-body" id="wstep-ready-body"></div>
-      <div class="welcome-footer">
-        <button type="button" class="welcome-got-it" onclick="completeSetup()">Start FableGear →</button>
-      </div>
-    </div>
-
-    <!-- legacy placeholder kept so existing refs don't throw -->
-    <div class="welcome-body welcome-body-hidden">
-
-      <div class="welcome-section">
-        <h3>Why this exists</h3>
-        <p>Rekordbox is an excellent performance tool. As a library manager, it has real limits. It doesn't write analysis results to your actual audio files — only its own database. BPM, key, and path data all live inside Rekordbox's private database, which means a library rebuild, a drive rename, or a corrupt database wipes all of it with no recovery path.</p>
-        <p>Path breakage is the other one. Move a folder, rename a drive, plug into a different USB port — Rekordbox loses every file it can't find and gives you no tools to fix it in bulk. FableGear was built to solve exactly these problems: to give DJs with large, mature libraries a safety net that Rekordbox doesn't provide, and to ensure your library data outlives any single piece of software.</p>
-      </div>
-
-      <div class="welcome-section">
-        <h3>Core pipeline — each tool feeds the next</h3>
-        <p class="welcome-tool-blurb">Run these in order on a fresh library. Each step's output is used as input by the steps that follow it.</p>
-
-        <p><strong>▣ Library Audit</strong> — two passes in one run. The <em>database pass</em> reads your Rekordbox database and flags orphaned entries, broken file paths, untagged tracks, and duplicates the DB already knows about. The <em>physical scan pass</em> walks your entire music drive and maps every audio file on disk — extension breakdown, total size, trash-adjacent files, and a complete file inventory. The combined report is written to JSON and feeds the Relocate, Import, and Prune tools downstream. Run this first, every time.</p>
-
-        <p><strong>🏷 Tag Tracks</strong> — analyzes each audio file's actual waveform using librosa and writes BPM and musical key directly into the file's tags (ID3 for MP3/AIFF, Vorbis comments for FLAC/OGG). Tags travel with the file permanently, independent of any database or software. Run this before finding duplicates so the pre-filter can use accurate BPM and key values.</p>
-
-        <p><strong>🔎 Find Duplicates</strong> — acoustic fingerprinting across your whole library via Chromaprint. Finds files that are the same recording regardless of filename, bitrate, format, or trim length. Pre-filters by BPM, key, and duration before fingerprinting to keep things fast on large libraries. Produces a CSV report that the Prune tool reads directly.</p>
-
-        <p><strong>✂ Prune Duplicates</strong> — loads the duplicate report and lets you select which files to remove from each group. Confirmation is deliberately multi-step, with each confirm button placed at a different screen corner to prevent muscle-memory clicking through a destructive action. Files go to Trash by default; permanent deletion is a separate explicit choice. Reads the CSV from Find Duplicates automatically if available.</p>
-
-        <p><strong>📍 Fix Broken Paths</strong> — when a drive mounts under a new name, or files move to a new folder, every path stored in Rekordbox's database breaks silently. This tool takes an old path prefix and a new path prefix, then updates every matching entry in the database in one operation. Always creates a timestamped database backup before writing.</p>
-
-        <p><strong>＋ Import</strong> — scans a folder and adds new audio files to Rekordbox's database. Skips files already present. Dry-run mode shows exactly what would be added before committing. A full database backup is created before any write.</p>
-
-        <p><strong>🔗 Link Playlists</strong> — associates imported tracks to Rekordbox playlists based on the folder structure they live in. If your files are organized into named subfolders, this maps those folder names to playlist names automatically. Run after Import.</p>
-      </div>
-
-      <div class="welcome-section">
-        <h3>Optional &amp; transformative</h3>
-        <p class="welcome-tool-blurb">Run after the core pipeline is clean. These tools modify audio files directly.</p>
-
-        <p><strong>📢 Normalize</strong> — measures the integrated loudness of each track using the EBU R128 standard (the same standard used in broadcast and streaming), and re-encodes any file that falls outside your target range. Every original is preserved as a <code>.bak</code> file until the new version is verified readable. Keeps energy consistent across your sets without touching gain in Rekordbox.</p>
-
-        <p><strong>🔄 Convert Format</strong> — re-encodes audio files in a folder to a target format. Useful for converting a batch of downloads to your preferred format before importing. Originals are preserved.</p>
-
-        <p><strong>🗂 Organize (De-fragment Library)</strong> — moves files into a consistent <code>Artist / Album / Track</code> folder hierarchy based on their embedded tags. Uses the Album Artist tag (TPE2) rather than the Track Artist tag (TPE1) to avoid an explosion of per-feature-artist folders. Camelot key prefixes in artist names are stripped before folder creation. Dry-run mode available. In assimilate mode, tracks from multiple source drives are consolidated into one target library root.</p>
-      </div>
-
-      <div class="welcome-section">
-        <h3>Cross-library rescue</h3>
-        <p><strong>★ Novelty Scanner</strong> — scans a source drive or folder (a backup drive, a USB stick, an old hard disk) and identifies audio files that are not acoustically present in your main library. These are genuinely new-to-you tracks, not duplicates under different names. Found tracks can be copied or moved to your primary library for import. Useful for recovering tracks from old drives you thought you'd lost.</p>
-      </div>
-
-      <div class="welcome-section">
-        <h3>▶ Pipeline Builder</h3>
-        <p>Chain any combination of tools into a single automated run. Add steps from the left panel, reorder them, and hit Run Pipeline. Two modes:</p>
-        <div class="welcome-tool-row">
-          <div class="welcome-tool">
-            <div class="welcome-tool-name">Auto mode</div>
-            <div class="welcome-tool-desc">Steps run back-to-back without stopping. Output from each step is passed to the next automatically — the duplicates CSV found by Find Duplicates is fed directly into Prune without you having to copy a path. The full combined output streams to the log panel in real time.</div>
-          </div>
-          <div class="welcome-tool">
-            <div class="welcome-tool-name">Confirm between steps</div>
-            <div class="welcome-tool-desc">Pauses after each step completes and shows a gate panel before the next step begins. The gate is color-coded: green tint on success, red tint on failure. Four actions are available depending on outcome:</div>
-          </div>
-        </div>
-        <div class="welcome-compare-row welcome-compare-mt">
-          <div class="welcome-compare">
-            <div class="welcome-compare-name">↻ Re-do</div>
-            <div class="welcome-compare-desc">Runs the same step again from scratch. Useful if a step failed because Rekordbox was still open, or if you want to tweak a setting and retry before moving on.</div>
-          </div>
-          <div class="welcome-compare">
-            <div class="welcome-compare-name">✓ Finish</div>
-            <div class="welcome-compare-desc">Stops the pipeline here and marks it complete. Use this when a step succeeded and you don't need the remaining steps this session.</div>
-          </div>
-          <div class="welcome-compare">
-            <div class="welcome-compare-name">⏭ Skip</div>
-            <div class="welcome-compare-desc">Skips the current step's result and advances to the next one. Available when a step fails and you want to continue the pipeline anyway — for example, skipping a failed Normalize to still run Organize after it.</div>
-          </div>
-          <div class="welcome-compare">
-            <div class="welcome-compare-name">⏹ Stop</div>
-            <div class="welcome-compare-desc">Aborts the pipeline immediately. Always visible in the gate regardless of step outcome. Any steps that already completed are not reversed.</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="welcome-section">
-        <h3>Quality of life</h3>
-        <p><strong>Drag and drop</strong> — every path input on every card and in the Pipeline Builder accepts a file or folder dragged directly from Finder. Drop anything onto the field. A faint purple dashed ring marks each drop target; it glows neon on hover. The full path populates instantly and the field flashes green to confirm.</p>
-        <p><strong>Session pills</strong> — completed operations are tracked as pills in the bottom-right corner for the duration of your session. Click any pill to re-open that step's full output log.</p>
-        <p><strong>Report viewer</strong> — after any tool run, a report card appears inside the card showing a summary of what happened. Click <em>View Full Report</em> to open the complete output in a scrollable modal.</p>
-        <p><strong>Settings</strong> — the ⚙ gear icon (top right) controls archive mode (which drive FableGear writes backups to), log retention, and scan exclusions. Changes take effect immediately.</p>
-      </div>
-
-      <div class="welcome-section">
-        <h3>Under the hood</h3>
-        <div class="welcome-tool-row">
-          <div class="welcome-tool">
-            <div class="welcome-tool-name">librosa</div>
-            <div class="welcome-tool-desc">Open-source audio analysis from the music information retrieval research community. Beat tracking on the actual waveform for BPM; Krumhansl-Schmuckler algorithm on chroma features for key detection. Runs entirely on your machine, no internet required.</div>
-          </div>
-          <div class="welcome-tool">
-            <div class="welcome-tool-name">chromaprint + pyacoustid</div>
-            <div class="welcome-tool-desc">Acoustic fingerprinting — the same technology behind AcoustID and MusicBrainz. Generates a compact signature from audio content. Two files with different names, bitrates, and lengths — if they're the same recording, this finds them.</div>
-          </div>
-          <div class="welcome-tool">
-            <div class="welcome-tool-name">pyrekordbox</div>
-            <div class="welcome-tool-desc">Reads and writes Rekordbox's SQLite database directly. This is what lets FableGear import tracks, fix paths, and link playlists without Rekordbox needing to be open. Rekordbox must be closed before any write operation.</div>
-          </div>
-          <div class="welcome-tool">
-            <div class="welcome-tool-name">mutagen</div>
-            <div class="welcome-tool-desc">Industry-standard Python library for reading and writing audio file tags. Handles ID3 (MP3/AIFF), Vorbis comments (FLAC), and more. Used by Beets, MusicBrainz Picard, and most serious music metadata tools.</div>
-          </div>
-          <div class="welcome-tool">
-            <div class="welcome-tool-name">pyloudnorm + soundfile</div>
-            <div class="welcome-tool-desc">EBU R128 loudness measurement and audio I/O. The broadcast and streaming standard. Measures integrated loudness across the whole track — not peak, not RMS — and re-encodes only what falls outside your target range.</div>
-          </div>
-          <div class="welcome-tool">
-            <div class="welcome-tool-name">Flask + Waitress</div>
-            <div class="welcome-tool-desc">Local web server — no cloud, no CDN, no external network calls. Everything runs on localhost:5001. The browser is just a UI skin over Python processes running on your own machine. Shut the server down with the ⏻ Quit button.</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="welcome-section">
-        <h3>Honest comparison</h3>
-        <div class="welcome-compare-row">
-          <div class="welcome-compare">
-            <div class="welcome-compare-name">vs Mixed In Key</div>
-            <div class="welcome-compare-desc">MIK is excellent and arguably the most accurate BPM/key tool built specifically for DJs. $58 one-time, polished, years of refinement. FableGear uses librosa — solid and research-grade — but MIK has the edge on complex or atonal tracks. If you use MIK, FableGear respects it: it won't overwrite existing tags unless you explicitly ask.</div>
-          </div>
-          <div class="welcome-compare">
-            <div class="welcome-compare-name">vs Lexicon</div>
-            <div class="welcome-compare-desc">Lexicon is the best cross-platform DJ library manager right now, ~$10/month. If you work across Serato, Traktor, and Rekordbox, Lexicon is probably the right tool. FableGear is Rekordbox-specific, free, and focused on the safety and recovery problems Lexicon doesn't prioritize. They solve different problems.</div>
-          </div>
-          <div class="welcome-compare">
-            <div class="welcome-compare-name">vs Rekordbox's own analysis</div>
-            <div class="welcome-compare-desc">Rekordbox's BPM analysis is fine. The difference is where the results live. Rekordbox writes to its database only — results do not survive a rebuild. FableGear writes to the file tags. Those tags live in the audio file forever, across any software and any database rebuild.</div>
-          </div>
-          <div class="welcome-compare">
-            <div class="welcome-compare-name">vs MusicBrainz Picard</div>
-            <div class="welcome-compare-desc">Picard identifies recordings and corrects metadata — titles, artists, albums. FableGear deliberately doesn't touch any of that. The scope is narrow by design: BPM, key, loudness, path integrity, and library safety. Different tool, different job.</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="welcome-section">
-        <h3>The philosophy</h3>
-        <p>Every write operation in FableGear creates a timestamped backup before touching anything. Database changes, audio rewrites, path updates — all logged and reversible. Files are moved to Trash rather than permanently deleted unless you explicitly choose otherwise. The goal is that nothing FableGear has ever done to your library should be unrecoverable.</p>
-        <p>Rekordbox must be closed before any write operation. FableGear will warn you if it detects Rekordbox is running.</p>
-        <p>No cloud. No accounts. No subscription. No internet dependency at runtime. Your library data stays on your machine.</p>
-        <p class="welcome-tip-block">
-          💡 You can revisit this window anytime — including the archive folder setup below — by clicking the <strong>lightbulb icon</strong> in the bottom-right corner of the screen.
-        </p>
-      </div>
-
     </div>
 
   </div>

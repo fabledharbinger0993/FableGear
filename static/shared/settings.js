@@ -37,12 +37,9 @@ document.addEventListener('change', e => {
   if (e.target.name === 'archive-mode') _settingsUpdateUI(e.target.value);
 });
 
-/* ── Welcome wizard ─────────────────────────────────────────────────────────
-   Permission keys: fablegear-db-read / fablegear-db-write = 'granted'|'denied'
-   Setup gate:      fablegear-setup-complete = '1'                             */
-
-let _wReadGranted  = false;
-let _wWriteGranted = false;
+/* ── Welcome panel (what's new + room picker) ───────────────────────────────
+   Permission consent is handled in the first-run onboarding wizard (/onboarding).
+   This panel is purely informational and fires via the header Welcome button.    */
 
 function welcomeShowStep(id) {
   document.querySelectorAll('.welcome-step').forEach(s => s.classList.remove('active'));
@@ -51,10 +48,7 @@ function welcomeShowStep(id) {
 }
 
 function openWelcome() {
-  _wReadGranted  = localStorage.getItem('fablegear-db-read')  === 'granted';
-  _wWriteGranted = localStorage.getItem('fablegear-db-write') === 'granted';
-  // Returning users land on the read step so they can adjust permissions
-  welcomeShowStep(localStorage.getItem('fablegear-setup-complete') ? 'read' : 'intro');
+  welcomeShowStep('intro');
   _sbFadeBd('welcome-backdrop', true);
   const modal = document.getElementById('welcome-modal');
   void modal.offsetWidth; _sbAnim(modal, 'sb-modal-in', '.28s');
@@ -66,79 +60,9 @@ function closeWelcome() {
   });
 }
 
-function welcomeGrantRead() {
-  _wReadGranted = true;
-  welcomeShowStep('write');
-}
-function welcomeDenyRead() {
-  _wReadGranted  = false;
-  _wWriteGranted = false;
-  _welcomeShowReady();
-}
-function welcomeGrantWrite() {
-  _wWriteGranted = true;
-  _welcomeShowReady();
-}
-function welcomeDenyWrite() {
-  _wWriteGranted = false;
-  _welcomeShowReady();
-}
-
-function _welcomeShowReady() {
-  const body = document.getElementById('wstep-ready-body');
-  if (_wReadGranted && _wWriteGranted) {
-    body.innerHTML =
-      `<p class="welcome-step-title">You're all set.</p>
-       <p class="welcome-step-sub">We'll kick off a quick library audit automatically — it's read-only and maps where Rekordbox thinks everything is. It runs silently in the background. When it's done you'll land on Tag Tracks, and the tools will have data to work with.</p>
-       <p class="welcome-step-sub" style="color:var(--safe)">✓ Full access — all tools enabled.</p>`;
-  } else if (_wReadGranted) {
-    body.innerHTML =
-      `<p class="welcome-step-title">Read-only mode.</p>
-       <p class="welcome-step-sub">We'll run a quick library audit to map your library. Available: Library Audit, Tag Tracks, Find Duplicates, Normalize, Convert, Organize, Novelty Scanner, Pipeline Builder.</p>
-       <p class="welcome-step-sub" style="color:var(--caution)">⚠ Write tools are locked: Fix Broken Paths, Import, Link Playlists, Prune. Enable them anytime via the lightbulb icon.</p>`;
-  } else {
-    body.innerHTML =
-      `<p class="welcome-step-title">Limited mode.</p>
-       <p class="welcome-step-sub">Database tools aren't available. These work without database access: Tag Tracks (file analysis), Find Duplicates (folder scan), Normalize, Convert, Organize, Novelty Scanner.</p>
-       <p class="welcome-step-sub" style="color:var(--text-dim)">Enable database access anytime via the lightbulb icon in the bottom-right corner.</p>`;
-  }
-  welcomeShowStep('ready');
-}
-
-async function completeSetup() {
-  const readVal  = _wReadGranted  ? 'granted' : 'denied';
-  const writeVal = _wWriteGranted ? 'granted' : 'denied';
-  // Mirror to localStorage as fast cache, but truth lives server-side.
-  localStorage.setItem('fablegear-db-read',        readVal);
-  localStorage.setItem('fablegear-db-write',       writeVal);
-  localStorage.setItem('fablegear-setup-complete', '1');
-  if (_wWriteGranted) {
-    localStorage.setItem('fablegear-archive-permission', 'granted');
-    fetch('/api/setup-archive', { method: 'POST' }).catch(() => {});
-  }
-  // Persist to ~/.rekordbox-toolkit/fablegear-state.json so it survives
-  // across pywebview sessions even if WKWebView clears localStorage.
-  await fetch('/api/setup-complete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ db_read: readVal, db_write: writeVal }),
-  }).catch(() => {});
-  applyPermissions();
-  closeWelcome();
-  if (_wReadGranted) {
-    setTimeout(runSilentAudit, 700);
-  } else {
-    setTimeout(() => document.getElementById('step-process')
-      ?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 500);
-  }
-}
-
 function applyPermissions() {
   const readOk  = localStorage.getItem('fablegear-db-read')  === 'granted';
   const writeOk = localStorage.getItem('fablegear-db-write') === 'granted';
-  // step-duplicates contains both a read-only scan phase and a write prune phase.
-  // Don't lock the whole card — the scan should always be accessible.
-  // The prune button is already guarded by the 2-step confirm + RB-running check.
   // Rail buttons that require write permission.
   ['rail-btn-relocate','rail-btn-import','rail-btn-link'].forEach(id => {
     const btn = document.getElementById(id);
