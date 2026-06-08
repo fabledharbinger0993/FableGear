@@ -49,7 +49,11 @@ for _p in (str(_CLI_ROOT), str(_CLI_ROOT / "chop_shop")):
 try:
     from FableGear.config import LOCAL_DB, MUSIC_ROOT   # when run as a package
 except ImportError:
-    from config import LOCAL_DB, MUSIC_ROOT             # when run as a script
+    try:
+        from config import LOCAL_DB, MUSIC_ROOT         # when run as a script
+    except RuntimeError:
+        LOCAL_DB = None    # type: ignore[assignment]
+        MUSIC_ROOT = None  # type: ignore[assignment]
 
 log = logging.getLogger(__name__)
 
@@ -138,6 +142,12 @@ def _setup_logging(verbose: bool) -> None:
 
 
 # ─── Command handlers ─────────────────────────────────────────────────────────
+
+def cmd_setup(args: argparse.Namespace) -> None:
+    """Run the interactive first-run (or re-run) setup wizard."""
+    from user_config import interactive_setup
+    interactive_setup(update=getattr(args, "update", False))
+
 
 def cmd_audit(args: argparse.Namespace) -> None:
     """Run a full read-only audit and print the summary."""
@@ -1931,6 +1941,15 @@ Examples:
         help="Additional root directory to include in the scan (repeatable)",
     )
     p_dead.set_defaults(func=cmd_dead_files)
+
+    # ── setup ──
+    p_setup = sub.add_parser("setup", help="Run the first-run configuration wizard")
+    p_setup.add_argument(
+        "--update",
+        action="store_true",
+        help="Re-run setup, pre-filling existing values",
+    )
+    p_setup.set_defaults(func=cmd_setup)
 
     return parser
 

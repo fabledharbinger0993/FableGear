@@ -482,7 +482,7 @@ body.fg-space-record #chop-shop-workspace { display: none; }
   display: flex;
   opacity: 0;
   visibility: hidden;
-  transition: opacity .2s ease, visibility .2s ease;
+  transition: opacity .2s ease, visibility .2s ease, left .25s cubic-bezier(.4,0,.2,1);
   position: fixed;
   top: calc(var(--titlebar-h) + var(--header-h));
   left: var(--left-panel-w);
@@ -499,6 +499,8 @@ body.fg-space-record #chop-shop-workspace { display: none; }
   backdrop-filter: blur(16px);
 }
 body.fg-space-chop .workflow-rail { opacity: 1; visibility: visible; }
+body:has(#fb-panel.fb-open) .workflow-rail { left: calc(var(--left-panel-w) + var(--sidebar-w)); }
+.fb-close-btn { margin-left: 4px; flex-shrink: 0; }
 .step-tab {
   min-width: 104px;
   border: 1px solid var(--border);
