@@ -1067,8 +1067,8 @@ function runOrganize() {
   const workers  = document.getElementById('organize-workers')?.value || '1';
   const threshold = document.getElementById('organize-mix-threshold')?.value || '15';
   const mode     = document.getElementById('organize-mode')?.value || 'assimilate';
-  if (!sources.length) { showToast('Enter at least one source folder path.', 'warning'); return; }
-  if (!target) { showToast('Enter a target library root folder path.', 'warning'); return; }
+  if (!sources.length) { _flashNeedsInput('organize-source-pills'); showToast('Enter at least one source folder path.', 'warning'); return; }
+  if (!target) { _flashNeedsInput('organize-target'); showToast('Enter a target library root folder path.', 'warning'); return; }
   const p = new URLSearchParams();
   sources.forEach(s => p.append('source', s));
   p.set('target', target);

@@ -33,9 +33,38 @@ function _showRetryOption() {
 }
 
 /* ── Individual command runners ────────────────────────────────────────────── */
+
+/**
+ * Flash the folder-zone associated with the given pills/zone/input element ID
+ * to make empty-field validation failures visually obvious.
+ * Accepts: a folder-pills ID, a folder-zone ID, or any input inside a folder-zone.
+ */
+function _flashNeedsInput(targetId) {
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  let zone;
+  if (el.classList.contains('folder-zone')) {
+    zone = el;
+  } else if (el.classList.contains('folder-pills')) {
+    // Pills sit right after the zone as a sibling
+    const prev = el.previousElementSibling;
+    zone = prev?.classList.contains('folder-zone') ? prev
+         : el.closest('.field')?.querySelector('.folder-zone');
+  } else {
+    // Text input or similar — walk up to the enclosing zone
+    zone = el.closest('.folder-zone');
+  }
+  if (!zone) return;
+  zone.classList.remove('zone-error'); // reset so re-triggering replays animation
+  void zone.offsetWidth;               // force reflow
+  zone.classList.add('zone-error');
+  zone.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  setTimeout(() => zone.classList.remove('zone-error'), 2500);
+}
+
 function runProcess() {
   const paths = getFolderPaths('process-pills');
-  if (!paths.length) { showToast('Add at least one music folder first.', 'warning'); return; }
+  if (!paths.length) { _flashNeedsInput('process-pills'); showToast('Add at least one music folder first.', 'warning'); return; }
 
   const enrichChecked = document.getElementById('process-enrich-tags')?.checked;
   if (enrichChecked) {
@@ -161,7 +190,7 @@ function _runProcessRetry(body) {
 
 function runNormalize(_skipConfirm = false) {
   const paths = getFolderPaths('normalize-pills');
-  if (!paths.length) { showToast('Add at least one music folder first.', 'warning'); return; }
+  if (!paths.length) { _flashNeedsInput('normalize-pills'); showToast('Add at least one music folder first.', 'warning'); return; }
   if (!_skipConfirm) {
     const confirmed = confirm(
       'This will rewrite audio files.\n\n' +
@@ -185,7 +214,7 @@ function runNormalize(_skipConfirm = false) {
 
 function runImportDry() {
   const paths = getFolderPaths('import-pills');
-  if (!paths.length) { showToast('Add at least one music folder first.', 'warning'); return; }
+  if (!paths.length) { _flashNeedsInput('import-pills'); showToast('Add at least one music folder first.', 'warning'); return; }
   const p = new URLSearchParams({ dry_run: '1' });
   paths.forEach(path => p.append('path', path));
   runCommand(`/api/run/import?${p}`, 'Preview Import — Dry Run', null, true, false, null);
@@ -194,7 +223,7 @@ function runImportDry() {
 function runImport() {
   if (checkRbBlock('import-rb-block')) return;
   const paths = getFolderPaths('import-pills');
-  if (!paths.length) { showToast('Add at least one music folder first.', 'warning'); return; }
+  if (!paths.length) { _flashNeedsInput('import-pills'); showToast('Add at least one music folder first.', 'warning'); return; }
   const p = new URLSearchParams();
   paths.forEach(path => p.append('path', path));
   runCommand(`/api/run/import?${p}`, 'Import — Writing Tracks to Database', null, true);
@@ -203,7 +232,7 @@ function runImport() {
 function runLink() {
   if (checkRbBlock('link-rb-block')) return;
   const paths = getFolderPaths('link-pills');
-  if (!paths.length) { showToast('Add at least one music folder first.', 'warning'); return; }
+  if (!paths.length) { _flashNeedsInput('link-pills'); showToast('Add at least one music folder first.', 'warning'); return; }
   const p = new URLSearchParams();
   paths.forEach(path => p.append('path', path));
   runCommand(`/api/run/link?${p}`, 'Link Playlists — Matching Tracks to Folders', null, true);
@@ -213,8 +242,8 @@ function runRelocate() {
   if (checkRbBlock('relocate-rb-block')) return;
   const oldPaths = getFolderPaths('relocate-old-pills');
   const new_ = document.getElementById('relocate-new').value.trim();
-  if (!oldPaths.length) { showToast('Add at least one old path prefix.', 'warning'); return; }
-  if (!new_) { showToast('Enter the new destination path.', 'warning'); return; }
+  if (!oldPaths.length) { _flashNeedsInput('relocate-old-pills'); showToast('Add at least one old path prefix.', 'warning'); return; }
+  if (!new_) { _flashNeedsInput('relocate-new'); showToast('Enter the new destination path.', 'warning'); return; }
   const p = new URLSearchParams({ new_root: new_ });
   oldPaths.forEach(old => p.append('old_root', old));
   runCommand(`/api/run/relocate?${p}`, 'Relocate — Updating File Paths in Database', null, true);
@@ -222,7 +251,7 @@ function runRelocate() {
 
 function runDuplicates() {
   const paths = getFolderPaths('dupes-pills');
-  if (!paths.length) { showToast('Add at least one music folder first.', 'warning'); return; }
+  if (!paths.length) { _flashNeedsInput('dupes-pills'); showToast('Add at least one music folder first.', 'warning'); return; }
   const p = new URLSearchParams();
   paths.forEach(path => p.append('path', path));
   const workers = document.getElementById('dupes-workers')?.value || '4';
@@ -266,7 +295,7 @@ document.addEventListener('DOMContentLoaded', _initMatchModeUI);
 function runConvert() {
   const paths = getFolderPaths('convert-pills');
   const format = document.getElementById('convert-format').value.trim();
-  if (!paths.length) { showToast('Add at least one folder first.', 'warning'); return; }
+  if (!paths.length) { _flashNeedsInput('convert-pills'); showToast('Add at least one folder first.', 'warning'); return; }
   if (!format) { showToast('Select a target format.', 'warning'); return; }
   const workers = document.getElementById('convert-workers')?.value || '4';
   const p = new URLSearchParams({ format });
@@ -306,6 +335,7 @@ let pipeUid = 0;
 
 function runNovelty() {
   if (stagingIsEmpty && stagingIsEmpty() && !getFolderPaths('novelty-pills').length) {
+    _flashNeedsInput('novelty-pills');
     showToast('Add at least one source drive or folder, or stage items from the Record Room.', 'warning');
     return;
   }
@@ -315,8 +345,8 @@ function runNovelty() {
   const sources = getFolderPaths('novelty-pills');
   const dest    = document.getElementById('novelty-dest').value.trim();
   const dryRun  = document.getElementById('novelty-dry-run').checked;
-  if (!sources.length) { showToast('Add at least one source drive or folder.', 'warning'); return; }
-  if (!dest)           { showToast('Enter a destination library path.', 'warning'); return; }
+  if (!sources.length) { _flashNeedsInput('novelty-pills'); showToast('Add at least one source drive or folder.', 'warning'); return; }
+  if (!dest)           { _flashNeedsInput('novelty-dest'); showToast('Enter a destination library path.', 'warning'); return; }
   const p = new URLSearchParams();
   sources.forEach(source => p.append('source', source));
   p.set('dest', dest);
@@ -347,7 +377,7 @@ function renameZoneAdd() {
 function runRename() {
   const paths = getFolderPaths('rename-pills');
   const dryRun = document.getElementById('rename-dry-run').checked;
-  if (!paths.length) { showToast('Add a folder to rename files in.', 'warning'); return; }
+  if (!paths.length) { _flashNeedsInput('rename-pills'); showToast('Add a folder to rename files in.', 'warning'); return; }
   if (paths.length > 1) {
     showToast(`Rename processes one folder at a time — using "${paths[0].split('/').pop()}".`, 'neutral');
   }
@@ -557,7 +587,7 @@ async function applyRenamePreflightAndRun() {
 
 async function runRenameProbe() {
   const paths = getFolderPaths('rename-pills');
-  if (!paths.length) { showToast('Add a folder to probe.', 'warning'); return; }
+  if (!paths.length) { _flashNeedsInput('rename-pills'); showToast('Add a folder to probe.', 'warning'); return; }
 
   const p = new URLSearchParams();
   p.set('path', paths[0]);

@@ -3130,6 +3130,22 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 }
 .folder-zone.drop-success { animation: zone-drop-flash .55s ease forwards; }
 
+@keyframes zone-error-shake {
+  0%   { transform: translateX(0); }
+  15%  { transform: translateX(-5px); }
+  30%  { transform: translateX(5px); }
+  45%  { transform: translateX(-4px); }
+  60%  { transform: translateX(3px); }
+  75%  { transform: translateX(-2px); }
+  100% { transform: translateX(0); }
+}
+.folder-zone.zone-error {
+  border-color: rgba(255, 120, 50, 0.90) !important;
+  background-color: rgba(255, 80, 20, 0.06) !important;
+  box-shadow: 0 0 14px 4px rgba(255, 100, 30, 0.28), 0 0 28px 8px rgba(255, 80, 20, 0.12) !important;
+  animation: zone-error-shake 0.45s ease;
+}
+
 @keyframes pill-already {
   0%   { background: rgba(0,194,255,.10); border-color: rgba(0,194,255,.42); }
   40%  { background: rgba(251,191,36,.28); border-color: rgba(251,191,36,.75); color: #fbbf24; }
