@@ -1,9 +1,8 @@
 #!/bin/bash
-# Build FableGear .app wrappers from AppleScript and set custom icon
-# Usage: bash build_applescript_app.sh [main|local|both]
+# Build the FableGear .app wrapper from AppleScript and set custom icon
+# Usage: bash build_applescript_app.sh
 set -e
 
-MODE="${1:-both}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ICON_PNG="$SCRIPT_DIR/FableGear-app-icon.png"
 ICON_ICNS="$SCRIPT_DIR/FableGear-app-icon.icns"
@@ -47,19 +46,8 @@ build_app() {
   echo "✅ Built $APP_BUNDLE"
 }
 
-# Build requested apps
-case "$MODE" in
-  main)
-    build_app "FableGear" "$SCRIPT_DIR/FableGearLauncher.applescript"
-    ;;
-  local)
-    build_app "FableGear Dev" "$SCRIPT_DIR/FableGearLocalLauncher.applescript"
-    ;;
-  both|*)
-    build_app "FableGear" "$SCRIPT_DIR/FableGearLauncher.applescript"
-    build_app "FableGear Dev" "$SCRIPT_DIR/FableGearLocalLauncher.applescript"
-    ;;
-esac
+# Build the launcher app
+build_app "FableGear" "$SCRIPT_DIR/FableGearLauncher.applescript"
 
 echo ""
 echo "📦 Apps ready in: $SCRIPT_DIR"
