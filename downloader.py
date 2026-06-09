@@ -18,6 +18,7 @@ import logging
 import shutil
 import subprocess
 import threading
+import time
 import uuid
 from collections import OrderedDict
 from pathlib import Path
@@ -29,7 +30,13 @@ log = logging.getLogger(__name__)
 
 _LOCK: threading.Lock = threading.Lock()
 _JOBS: OrderedDict[str, dict] = OrderedDict()   # job_id → job dict, insertion order
+_PROCS: dict[str, subprocess.Popen] = {}         # job_id → running yt-dlp Popen (cleared on finish)
 _MAX_JOBS = 200
+
+# ─── yt-dlp path cache ────────────────────────────────────────────────────────
+# Resolved once on first use; safe to cache because yt-dlp doesn't move at runtime.
+_YTDLP_PATH: Optional[str] = None
+_YTDLP_LOCK: threading.Lock = threading.Lock()
 
 # ─── Supported formats ────────────────────────────────────────────────────────
 #
@@ -120,6 +127,47 @@ def get_job(job_id: str) -> Optional[dict]:
         return dict(job) if job else None
 
 
+def cancel_job(job_id: str) -> bool:
+    """
+    Cancel a queued or in-progress download job.
+
+    - If the job is queued (thread not yet started processing yt-dlp), it is
+      marked cancelled immediately.
+    - If yt-dlp is already running, the subprocess is terminated and the job
+      is marked cancelled.
+    - Returns True if the job existed and was not already in a terminal state.
+    """
+    with _LOCK:
+        job = _JOBS.get(job_id)
+        if job is None:
+            return False
+        if job["status"] in ("done", "failed", "cancelled"):
+            return False
+        _JOBS[job_id]["status"] = "cancelled"
+        proc = _PROCS.pop(job_id, None)
+
+    if proc is not None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+    try:
+        from ws_bus import broadcast  # noqa: PLC0415
+        with _LOCK:
+            snapshot = dict(_JOBS.get(job_id, {}))
+        if snapshot:
+            broadcast(json.dumps({"type": "download_update", "job": snapshot}))
+    except Exception as exc:
+        log.debug("cancel_job broadcast failed: %s", exc)
+
+    return True
+
+
 # ─── Internal helpers ─────────────────────────────────────────────────────────
 
 def _update(job_id: str, **kwargs) -> None:
@@ -137,19 +185,30 @@ def _update(job_id: str, **kwargs) -> None:
 
 
 def _find_ytdlp() -> str:
-    found = shutil.which("yt-dlp")
-    if found:
-        return found
-    for candidate in ("/opt/homebrew/bin/yt-dlp", "/usr/local/bin/yt-dlp"):
-        if Path(candidate).exists():
-            return candidate
-    return "yt-dlp"
+    global _YTDLP_PATH
+    with _YTDLP_LOCK:
+        if _YTDLP_PATH is not None:
+            return _YTDLP_PATH
+        found = shutil.which("yt-dlp")
+        if found:
+            _YTDLP_PATH = found
+            return _YTDLP_PATH
+        for candidate in ("/opt/homebrew/bin/yt-dlp", "/usr/local/bin/yt-dlp"):
+            if Path(candidate).exists():
+                _YTDLP_PATH = candidate
+                return _YTDLP_PATH
+        _YTDLP_PATH = "yt-dlp"
+        return _YTDLP_PATH
 
 
 def _run(job_id: str) -> None:
     with _LOCK:
         job = dict(_JOBS.get(job_id, {}))
     if not job:
+        return
+
+    # Bail immediately if cancelled while still queued
+    if job.get("status") == "cancelled":
         return
 
     url         = job["url"]
@@ -202,11 +261,16 @@ def _run(job_id: str) -> None:
         url,
     ]
 
+    # Record start time for the fallback file-detection window
+    job_start = time.monotonic()
+
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    except subprocess.TimeoutExpired:
-        _update(job_id, status="failed", error="download timed out after 10 minutes")
-        return
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
     except FileNotFoundError:
         _update(job_id, status="failed",
                 error="yt-dlp not installed — run: pip install yt-dlp")
@@ -215,24 +279,55 @@ def _run(job_id: str) -> None:
         _update(job_id, status="failed", error=str(exc))
         return
 
-    if result.returncode != 0:
-        err = result.stderr.strip()[-500:] or "yt-dlp exited with error"
+    # Register the process so cancel_job() can terminate it
+    with _LOCK:
+        if _JOBS.get(job_id, {}).get("status") == "cancelled":
+            # Cancelled between Popen and registration — kill immediately
+            proc.kill()
+            proc.wait()
+            return
+        _PROCS[job_id] = proc
+
+    try:
+        stdout, stderr = proc.communicate(timeout=600)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        _update(job_id, status="failed", error="download timed out after 10 minutes")
+        return
+    finally:
+        with _LOCK:
+            _PROCS.pop(job_id, None)
+
+    # If cancelled mid-run, don't overwrite the "cancelled" status
+    with _LOCK:
+        if _JOBS.get(job_id, {}).get("status") == "cancelled":
+            return
+
+    if proc.returncode != 0:
+        err = stderr.strip()[-500:] or "yt-dlp exited with error"
         _update(job_id, status="failed", error=err)
         return
 
     # yt-dlp prints the final file path via --print after_move:filepath
     downloaded_path: Optional[Path] = None
-    for line in result.stdout.splitlines():
+    for line in stdout.splitlines():
         line = line.strip()
         if line and Path(line).exists():
             downloaded_path = Path(line)
             break
 
-    # Fallback: most-recently-modified audio file in dest
+    # Fallback: most-recently-modified audio file written after this job started.
+    # The time window prevents picking up pre-existing files in the destination.
     if downloaded_path is None:
-        audio_exts = {".aiff", ".aif", ".aifc", ".flac", ".wav", ".mp3", ".m4a", ".m4p", ".mp4", ".m4v", ".ogg", ".opus"}
+        audio_exts = {".aiff", ".aif", ".aifc", ".flac", ".wav", ".mp3",
+                      ".m4a", ".m4p", ".mp4", ".m4v", ".ogg", ".opus"}
+        cutoff = time.time() - (time.monotonic() - job_start) - 5  # 5 s grace window
         candidates = sorted(
-            [f for f in dest_path.iterdir() if f.suffix.lower() in audio_exts],
+            [
+                f for f in dest_path.iterdir()
+                if f.suffix.lower() in audio_exts and f.stat().st_mtime >= cutoff
+            ],
             key=lambda f: f.stat().st_mtime,
             reverse=True,
         )

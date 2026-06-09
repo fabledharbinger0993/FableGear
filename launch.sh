@@ -68,9 +68,9 @@ fi
 exec > /dev/null 2>&1
 
 
-# ── Homebrew update/upgrade (silent, non-blocking) ───────────────────────
+# ── Homebrew update/upgrade (silent, non-blocking, scoped to FableGear deps) ─
 if _brew --version &>/dev/null; then
-  (_brew update >/dev/null 2>&1 && _brew upgrade --formula >/dev/null 2>&1) &
+  (_brew update >/dev/null 2>&1 && _brew upgrade ffmpeg chromaprint >/dev/null 2>&1) &
 fi
 
 # ── Activate venv ─────────────────────────────────────────────────────────

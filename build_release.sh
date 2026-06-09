@@ -61,7 +61,7 @@ chmod +x "$APP_PATH/Contents/MacOS/FableGear"
 echo "  ✓ Launcher script written"
 
 # ── Write Info.plist ──────────────────────────────────────────────────────────
-cat > "$APP_PATH/Contents/Info.plist" << 'PLIST'
+cat > "$APP_PATH/Contents/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -79,9 +79,9 @@ cat > "$APP_PATH/Contents/Info.plist" << 'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0.0</string>
+  <string>${VERSION#v}</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>${VERSION#v}</string>
   <key>LSMinimumSystemVersion</key>
   <string>12.0</string>
   <key>NSHighResolutionCapable</key>

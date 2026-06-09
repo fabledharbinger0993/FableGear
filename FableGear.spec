@@ -10,9 +10,19 @@
 # machine (ffmpeg/chromaprint are still required for audio analysis features;
 # see README).
 
+import subprocess
 from pathlib import Path
 
 SRC = Path('.')  # run PyInstaller from the FableGear/ directory
+
+# ── Dynamic version from latest git tag ──────────────────────────────────────
+try:
+    _ver = subprocess.check_output(
+        ["git", "describe", "--tags", "--abbrev=0"],
+        cwd=str(SRC), text=True, stderr=subprocess.DEVNULL
+    ).strip().lstrip("v")
+except Exception:
+    _ver = "0.0.0"
 
 a = Analysis(
     [str(SRC / 'main.py')],
@@ -41,6 +51,25 @@ a = Analysis(
         # pkg_resources used by several deps
         'pkg_resources',
         'pkg_resources.py2_compat',
+        # downloader.py lazy-imports mutagen for tag reading
+        'mutagen',
+        'mutagen._util',
+        'mutagen.aiff',
+        'mutagen.flac',
+        'mutagen.id3',
+        'mutagen.mp3',
+        'mutagen.mp4',
+        'mutagen.ogg',
+        'mutagen.oggvorbis',
+        'mutagen.oggopus',
+        'mutagen.wave',
+        # downloader.py lazy-imports these for post-download DB import
+        'scanner',
+        'importer',
+        'db_connection',
+        'config',
+        'key_mapper',
+        'pyrekordbox',
     ],
     hookspath=[],
     hooksconfig={},
@@ -91,7 +120,7 @@ app = BUNDLE(
     info_plist={
         'CFBundleName':             'FableGear',
         'CFBundleDisplayName':      'FableGear',
-        'CFBundleShortVersionString': '1.0.7',
+        'CFBundleShortVersionString': _ver,
         'NSPrincipalClass':         'NSApplication',
         'NSHighResolutionCapable':  True,
         # Allow WKWebView to connect to the local Flask server

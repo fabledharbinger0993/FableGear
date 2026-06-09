@@ -398,6 +398,22 @@ def mobile_job(job_id: str):
     return jsonify(job)
 
 
+@bp.route("/api/mobile/jobs/<job_id>/cancel", methods=["POST"])
+def mobile_cancel_job(job_id: str):
+    """
+    Cancel a queued or in-progress download job.
+    Returns 200 if cancelled, 404 if not found, 409 if already in a terminal state.
+    """
+    import downloader  # noqa: PLC0415
+    job = downloader.get_job(job_id)
+    if job is None:
+        return jsonify({"error": "not_found"}), 404
+    cancelled = downloader.cancel_job(job_id)
+    if not cancelled:
+        return jsonify({"error": "job already completed or cancelled"}), 409
+    return jsonify({"ok": True, "job_id": job_id})
+
+
 # ── Rekordbox track list + add ────────────────────────────────────────────────
 
 @bp.route("/api/mobile/rekordbox/tracks")
