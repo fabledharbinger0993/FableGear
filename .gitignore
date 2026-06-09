@@ -48,6 +48,12 @@ settings.json
 # Dev mode marker (skips git pull on launch)
 .dev
 
+# Runtime sentinels (machine-local, written by launchers)
+.dock_launcher_offered
+
+# MCP browser-automation session dumps (never commit)
+.playwright-mcp/
+
 # Test artifacts
 *.bak
 *.tmp
