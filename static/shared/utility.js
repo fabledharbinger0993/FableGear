@@ -36,28 +36,40 @@ function _fmtDur(s)  {
 // Server-side state (/api/setup-status → fablegear-state.json) is the source of
 // truth; localStorage is used as a fast-path cache on top of it.
 (async () => {
+  // The onboarding wizard persists db_read/db_write to the server-side state
+  // file as booleans, while the in-app permission layer (applyPermissions,
+  // settings.js) speaks the 'granted'/'denied' localStorage vocabulary.
+  // Normalize here — the server state is the source of truth — so a permission
+  // granted in the wizard actually unlocks tools in the app. Accepts booleans
+  // (current format) and legacy 'granted' strings for forward/backward compat.
+  const _isGranted = (v) => v === true || v === 'granted';
   try {
     const r = await fetch('/api/setup-status');
     const d = await r.json();
     if (d.setup_complete) {
-      // Restore permission values from server into localStorage so applyPermissions works
-      if (d.db_read)  localStorage.setItem('fablegear-db-read',  d.db_read);
-      if (d.db_write) localStorage.setItem('fablegear-db-write', d.db_write);
+      const readGranted  = _isGranted(d.db_read);
+      const writeGranted = _isGranted(d.db_write);
+      // Restore permission values into localStorage so applyPermissions works
+      localStorage.setItem('fablegear-db-read',  readGranted  ? 'granted' : 'denied');
+      localStorage.setItem('fablegear-db-write', writeGranted ? 'granted' : 'denied');
       localStorage.setItem('fablegear-setup-complete', '1');
       applyPermissions();
-      if (d.db_write === 'granted') {
+      if (writeGranted) {
         localStorage.setItem('fablegear-archive-permission', 'granted');
         fetch('/api/setup-archive', { method: 'POST' }).catch(() => {});
       }
       // Run silent audit on every launch for returning users
-      if (d.db_read === 'granted') setTimeout(runSilentAudit, 700);
+      if (readGranted) setTimeout(runSilentAudit, 700);
     } else {
-      openWelcome();
+      // Setup not finished — the destination is the onboarding wizard, not the
+      // informational welcome panel. The "/" route normally redirects here
+      // already; this is a safety net for direct navigation to index.html.
+      window.location.replace('/onboarding');
     }
   } catch (_) {
     // Server not yet ready — fall back to localStorage cache
     if (!localStorage.getItem('fablegear-setup-complete')) {
-      openWelcome();
+      window.location.replace('/onboarding');
     } else {
       applyPermissions();
       if (localStorage.getItem('fablegear-archive-permission') === 'granted') {

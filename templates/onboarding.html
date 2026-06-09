@@ -325,10 +325,36 @@
       padding: 10px 6px;
       cursor: pointer;
     }
+    .ob-notice {
+      position: fixed;
+      left: 50%;
+      bottom: 22px;
+      transform: translateX(-50%) translateY(8px);
+      max-width: 560px;
+      width: calc(100% - 48px);
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: .85rem;
+      line-height: 1.45;
+      background: var(--surface-hi);
+      border: 1px solid var(--border-hi);
+      color: var(--text);
+      box-shadow: 0 8px 28px rgba(0,0,0,.4);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s, transform .2s;
+      z-index: 50;
+    }
+    .ob-notice.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+    .ob-notice.warn  { border-color: rgba(255,176,32,.5); }
+    .ob-notice.error { border-color: rgba(255,80,80,.55); }
+    .ob-notice.ok    { border-color: rgba(0,212,232,.5); }
   </style>
 </head>
 <body>
 <div class="ob-wrap">
+
+  <div class="ob-notice" id="ob-notice"></div>
 
   <!-- Progress dots -->
   <div class="ob-progress">
@@ -337,6 +363,7 @@
     <div class="ob-dot"        id="dot-2"></div>
     <div class="ob-dot"        id="dot-3"></div>
     <div class="ob-dot"        id="dot-4"></div>
+    <div class="ob-dot"        id="dot-5"></div>
   </div>
 
   <!-- ══ Step 1: Dependencies ══════════════════════════════════════════════ -->
@@ -467,6 +494,7 @@
 
     <div class="ob-actions" id="scan-actions" style="display:none">
       <button class="ob-btn ob-btn-secondary" onclick="goToStep(1)">← Back</button>
+      <button class="ob-btn ob-btn-secondary" onclick="triggerScan()">↻ Re-scan</button>
       <button class="ob-btn ob-btn-primary" onclick="confirmPaths()">Confirm paths →</button>
     </div>
   </section>
@@ -618,17 +646,49 @@ function checkDeps() {
 }
 
 function installDeps() {
+  depPollAttempts = 0;
   fetch('/api/onboarding/install-deps', { method: 'POST' })
-    .then(function() { pollDeps(); });
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d && d.ok) {
+        obNotice('Installing dependencies in Terminal — this can take several minutes. '
+               + 'FableGear will continue automatically when it finishes.', 'ok');
+        pollDeps();
+      } else {
+        obNotice('Could not start the installer: ' + ((d && d.error) || 'unknown error')
+               + '. Run setup.sh manually, or Skip for now.', 'error');
+      }
+    })
+    .catch(function() {
+      obNotice('Could not start the installer. Run setup.sh manually, or Skip for now.', 'error');
+    });
 }
+
+// Poll dep-check until all deps resolve. Capped so a stalled/failed install
+// never loops forever; the ceiling is generous because Homebrew can be slow.
+var depPollAttempts = 0;
+var DEP_POLL_MAX = 180; // ~15 minutes at 5s intervals
 
 function pollDeps() {
   fetch('/api/onboarding/dep-check')
     .then(function(r) { return r.json(); })
     .then(function(data) {
       checkDeps();
-      if (!data.all_ok) setTimeout(pollDeps, 5000);
+      if (data.all_ok) { obNotice('All dependencies installed.', 'ok'); return; }
+      depPollAttempts++;
+      if (depPollAttempts >= DEP_POLL_MAX) { depPollExhausted(); return; }
+      setTimeout(pollDeps, 5000);
+    })
+    .catch(function() {
+      depPollAttempts++;
+      if (depPollAttempts >= DEP_POLL_MAX) { depPollExhausted(); return; }
+      setTimeout(pollDeps, 5000);
     });
+}
+
+function depPollExhausted() {
+  obNotice('This is taking longer than expected. Finish the install in the Terminal window, '
+         + 'then click Continue. You can also Skip and install dependencies later.', 'warn');
 }
 
 // ── Step 2: App install ────────────────────────────────────────────────────────
@@ -657,11 +717,15 @@ function installApp() {
   .then(function(r) { return r.json(); })
   .then(function(d) {
     if (d.ok) {
+      if (d.existed) {
+        obNotice(dock ? 'FableGear is already installed — pinned to Dock.'
+                      : 'FableGear is already installed.', 'ok');
+      }
       goToStep(2);
     } else {
       installBtn.disabled = false;
       installBtn.textContent = 'Install & continue →';
-      alert('Installation failed: ' + (d.error || 'unknown error'));
+      obNotice('Installation failed: ' + (d.error || 'unknown error'), 'error');
     }
   })
   .catch(function() { goToStep(2); });
@@ -669,7 +733,9 @@ function installApp() {
 
 // ── Step 3: Library scan ───────────────────────────────────────────────────────
 function triggerScan() {
-  document.getElementById('scan-loading').style.display = '';
+  var loading = document.getElementById('scan-loading');
+  loading.style.display = '';
+  loading.innerHTML = '<span class="spin"></span>Scanning drives and volumes…';
   document.getElementById('scan-results').style.display = 'none';
   document.getElementById('scan-actions').style.display = 'none';
 
@@ -785,7 +851,7 @@ function confirmPaths() {
   var musicRoot = document.getElementById('inp-music-root').value.trim();
 
   if (!localDb || !deviceDb || !musicRoot) {
-    alert('Please fill in all three paths before continuing.');
+    obNotice('Please fill in all three paths before continuing.', 'warn');
     return;
   }
   confirmedPaths = {
@@ -863,13 +929,23 @@ function launch(area) {
     if (d.ok) {
       window.location.replace(area === 'chop' ? '/?space=chop' : '/?space=record');
     } else {
-      alert('Could not save configuration: ' + (d.error || 'unknown error'));
+      obNotice('Could not save configuration: ' + (d.error || 'unknown error'), 'error');
     }
   })
-  .catch(function(e) { alert('Save failed — ' + e); });
+  .catch(function(e) { obNotice('Save failed — ' + e, 'error'); });
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+var _obNoticeTimer = null;
+function obNotice(msg, kind) {
+  var el = document.getElementById('ob-notice');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'ob-notice show' + (kind ? ' ' + kind : '');
+  if (_obNoticeTimer) clearTimeout(_obNoticeTimer);
+  _obNoticeTimer = setTimeout(function() { el.classList.remove('show'); }, 7000);
+}
+
 function escHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;')

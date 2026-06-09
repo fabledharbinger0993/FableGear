@@ -114,15 +114,13 @@ async function saveSettings() {
   }
 }
 
-/* Clicking a locked card reopens the wizard at the relevant step */
+/* Clicking a locked card re-opens the onboarding wizard so the user can grant
+   the permission it needs. Permission consent lives entirely in /onboarding;
+   `reconfigure=1` allows re-entry after setup is already complete. */
 document.addEventListener('click', e => {
   const card = e.target.closest('.card.permission-locked');
   if (!card) return;
   e.stopPropagation();
-  _wReadGranted  = localStorage.getItem('fablegear-db-read')  === 'granted';
-  _wWriteGranted = localStorage.getItem('fablegear-db-write') === 'granted';
-  const needsWrite = ['rail-btn-relocate','rail-btn-import','rail-btn-link','step-duplicates'].includes(card.id);
-  openWelcome();
-  welcomeShowStep(needsWrite ? 'write' : 'read');
+  window.location.href = '/onboarding?reconfigure=1';
 }, true);
 

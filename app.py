@@ -757,23 +757,6 @@ def api_setup_status():
     return jsonify({"setup_complete": False, "db_read": None, "db_write": None})
 
 
-@app.route("/api/setup-complete", methods=["POST"])
-def api_setup_complete():
-    """Persist welcome-wizard completion and permission choices server-side."""
-    try:
-        data = request.get_json(silent=True) or {}
-        state = {
-            "setup_complete": True,
-            "db_read":  data.get("db_read"),
-            "db_write": data.get("db_write"),
-        }
-        _FABLEGEAR_STATE.parent.mkdir(parents=True, exist_ok=True)
-        _FABLEGEAR_STATE.write_text(json.dumps(state, indent=2) + "\n")
-        return jsonify({"ok": True})
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-
-
 @app.route("/api/config/set-music-root", methods=["POST"])
 def api_set_music_root():
     """Update music_root in ~/.fablegear/config.json."""
@@ -904,7 +887,9 @@ def onboarding():
     try:
         if config_exists():
             state = json.loads(_FABLEGEAR_STATE.read_text(encoding="utf-8")) if _FABLEGEAR_STATE.exists() else {}
-            if state.get("setup_complete"):
+            # `?reconfigure=1` lets a completed user re-enter the wizard (e.g. to
+            # change permissions or paths); otherwise a finished setup bounces home.
+            if state.get("setup_complete") and not request.args.get("reconfigure"):
                 return _redirect("/")
     except Exception:
         pass
@@ -973,6 +958,7 @@ def api_onboarding_install_app():
 
     data = request.get_json(silent=True) or {}
     add_to_dock = bool(data.get("dock", True))
+    force = bool(data.get("force", False))
 
     install_dir = Path.home() / "Applications"
     app_path = install_dir / "FableGear.app"
@@ -980,6 +966,16 @@ def api_onboarding_install_app():
     icon_src = REPO_ROOT / "static" / "icon-logo-fablegear.png"
 
     install_dir.mkdir(parents=True, exist_ok=True)
+
+    # setup.sh already builds FableGear.app during dependency install. If it is
+    # present, don't rebuild it with a different mechanism — just pin to Dock if
+    # requested. A `force` flag allows an explicit rebuild when needed.
+    if app_path.exists() and not force:
+        if add_to_dock:
+            _pin_to_dock(str(app_path))
+        return jsonify({
+            "ok": True, "path": str(app_path), "existed": True, "rebuilt": False,
+        })
 
     # Compile a fresh .app pointing at this install's launch.sh
     script_content = f'do shell script "bash \'{launch_sh}\' > /dev/null 2>&1 &"'
@@ -1024,7 +1020,7 @@ def api_onboarding_install_app():
     if add_to_dock:
         _pin_to_dock(str(app_path))
 
-    return jsonify({"ok": True, "path": str(app_path)})
+    return jsonify({"ok": True, "path": str(app_path), "existed": False, "rebuilt": True})
 
 
 @app.route("/api/onboarding/scan-library")
