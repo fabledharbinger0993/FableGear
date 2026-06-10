@@ -571,30 +571,40 @@ body.fg-space-chop .workflow-rail { opacity: 1; visibility: visible; }
 body:has(#fb-panel.fb-open) .workflow-rail { left: calc(var(--left-panel-w) + var(--sidebar-w)); }
 .fb-close-btn { margin-left: 4px; flex-shrink: 0; }
 .step-tab {
-  min-width: 104px;
+  min-width: 118px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: rgba(255,255,255,.035);
+  border-radius: 10px;
+  background: rgba(255,255,255,.045);
   color: var(--text-muted);
-  padding: 8px 10px;
-  font-size: .72rem;
+  padding: 9px 12px;
+  font-size: .7rem;
   font-weight: 700;
-  letter-spacing: .03em;
+  letter-spacing: .04em;
   text-transform: uppercase;
-  transition: background .15s, border-color .15s, color .15s;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s, transform .12s, box-shadow .15s;
 }
+.step-tab:hover { transform: translateY(-1px); }
 .step-tab:hover,
 .step-tab.active {
-  border-color: rgba(var(--accent-rgb), .45);
-  background: rgba(var(--accent-rgb), .12);
+  border-color: rgba(var(--accent-rgb), .55);
+  background: rgba(var(--accent-rgb), .14);
   color: var(--accent);
+}
+.step-tab.active {
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), .4), 0 6px 18px rgba(var(--accent-rgb), .18);
 }
 .step-num { display: block; font-size: 1rem; line-height: 1; margin-bottom: 4px; }
 .step-icon {
   display: block;
-  height: 24px;
+  height: 30px;
   width: auto;
-  margin: 0 auto 4px;
+  margin: 0 auto 2px;
   object-fit: contain;
 }
 
@@ -4509,129 +4519,7 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   width: 100%;
 }
 
-/* ══ Toolkit Modal ══════════════════════════════════════════════════════ */
-.toolkit-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 10000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.toolkit-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(4, 2, 14, 0.85);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-  animation: sb-backdrop-in 0.25s ease;
-}
-
-.toolkit-panel {
-  position: relative;
-  width: clamp(320px, 85vw, 800px);
-  max-height: 88vh;
-  background: rgba(12, 8, 28, 0.98);
-  border: 1px solid rgba(var(--holo-rgb), 0.35);
-  border-radius: 18px;
-  box-shadow: 0 16px 80px rgba(var(--holo-rgb), 0.6);
-  display: flex;
-  flex-direction: column;
-  animation: sb-modal-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.toolkit-header {
-  position: relative;
-  padding: 24px 28px 20px;
-  border-bottom: 1px solid rgba(var(--holo-rgb), 0.15);
-}
-
-.toolkit-close-btn {
-  position: absolute;
-  top: 16px;
-  right: 20px;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: rgba(255, 95, 87, 0.85);
-  border: 1px solid rgba(255, 95, 87, 0.4);
-  color: rgba(40, 10, 10, 0.95);
-  font-size: 24px;
-  line-height: 1;
-  cursor: pointer;
-  transition: transform 0.15s, background 0.15s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 300;
-}
-
-.toolkit-close-btn:hover {
-  transform: scale(1.08);
-  background: rgba(255, 95, 87, 1);
-}
-
-.toolkit-title {
-  font-family: system-ui, sans-serif;
-  font-size: 1.4rem;
-  font-weight: 700;
-  color: var(--accent-text);
-  margin: 0 0 8px;
-  letter-spacing: 0.04em;
-}
-
-.toolkit-subtitle {
-  font-family: system-ui, sans-serif;
-  font-size: 0.88rem;
-  color: rgba(var(--holo-text-rgb), 0.75);
-  margin: 0;
-  line-height: 1.5;
-}
-
-.toolkit-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 24px 28px 32px;
-}
-
-.toolkit-content::-webkit-scrollbar {
-  width: 10px;
-}
-
-.toolkit-content::-webkit-scrollbar-track {
-  background: rgba(20, 15, 40, 0.5);
-  border-radius: 5px;
-}
-
-.toolkit-content::-webkit-scrollbar-thumb {
-  background: rgba(var(--holo-rgb), 0.3);
-  border-radius: 5px;
-}
-
-.toolkit-content::-webkit-scrollbar-thumb:hover {
-  background: rgba(var(--holo-rgb), 0.5);
-}
-
-/* Cards inside toolkit modal are visible */
-.toolkit-content .card {
-  display: block;
-}
-
-/* Toolkit button styling */
-.toolkit-btn {
-  background: linear-gradient(135deg, rgba(var(--holo-rgb), 0.25), rgba(var(--holo-rgb), 0.15));
-  border: 1px solid rgba(var(--holo-rgb), 0.5) !important;
-}
-
-.toolkit-btn:hover {
-  background: linear-gradient(135deg, rgba(var(--holo-rgb), 0.4), rgba(var(--holo-rgb), 0.25));
-  border-color: rgba(var(--holo-rgb), 0.7) !important;
-}
-
 /* ══ Floating Tool Modal ══════════════════════════════════════════════════ */
-/* Keep #tool-drawer as hidden card storage — never show it visually */
-#tool-drawer { display: none !important; }
 
 #tool-float-modal-backdrop {
   display: none;
@@ -4736,6 +4624,39 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   margin: 0;
 }
 #tool-float-modal-body .card-head { display: none !important; }
+
+/* Idle "what is this?" help — spelled out inline above the tool form. Applied by
+   openToolFloatModal() when no tool is running (.explainers-expanded). */
+#tool-float-modal-body .explainers.explainers-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 14px 16px 2px;
+  padding: 12px 14px;
+  background: rgba(var(--accent-rgb), .06);
+  border: 1px solid rgba(var(--accent-rgb), .22);
+  border-radius: 10px;
+}
+#tool-float-modal-body .explainers.explainers-expanded details {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+}
+#tool-float-modal-body .explainers.explainers-expanded summary {
+  cursor: default;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: .02em;
+  list-style: none;
+  margin-bottom: 2px;
+}
+#tool-float-modal-body .explainers.explainers-expanded summary::-webkit-details-marker { display: none; }
+#tool-float-modal-body .explainers.explainers-expanded .explain-body {
+  font-size: .8rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
 
 #tool-float-modal-footer {
   border-top: 1px solid rgba(var(--holo-rgb), 0.2);
@@ -5137,8 +5058,6 @@ footer {
 .welcome-compare-mt     { margin-top: 10px; }
 
 /* ── Toolkit / float modal ──────────────────────────────────────────────── */
-#toolkit-modal          { display: none; }
-.toolkit-empty-hint     { color: var(--text-muted); text-align: center; padding: 40px; }
 #tool-float-modal-badge { display: none; }
 #tfm-remaining-wrap     { display: none; }
 #tfm-clean-wrap         { display: none; }
@@ -5941,3 +5860,177 @@ footer {
 }
 #lp-record-room-btn,
 #lp-chop-shop-btn { position: relative; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Chop Shop "Last Revision" docked layout
+   Icons (rail) → ONE docked morphing modal (upper) → bottom-half scanner window
+   (left ⅓ read-only terminal = repositioned #log-panel, right ⅔ = #chop-readout).
+   All rules are scoped to body.fg-space-chop so the Record Room is untouched.
+   ──────────────────────────────────────────────────────────────────────────── */
+:root {
+  --chop-scanner-h: 40vh;
+  --chop-zone-top: calc(var(--titlebar-h) + var(--header-h) + 58px);
+}
+
+/* Hide the scrolling card stack + intro — the docked modal is the tool surface */
+body.fg-space-chop #chop-card-stack { display: none; }
+
+/* Safety alert dock — pinned above the docked modal; boot.js pushes the modal
+   down by --chop-banner-h so alerts never cover the tool form. */
+body.fg-space-chop #chop-banner-dock {
+  position: fixed;
+  left: calc(var(--left-panel-w) + 14px);
+  right: calc(var(--nav-bar-right-w) + 14px);
+  top: calc(var(--titlebar-h) + var(--header-h) + 64px);
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+body.fg-space-chop #chop-banner-dock > * {
+  position: static !important;
+  margin: 0;
+  pointer-events: auto;
+}
+/* When any alert is visible, start the docked modal below the dock */
+body.fg-space-chop.fg-chop-banner-open #tool-float-modal {
+  top: calc(var(--chop-zone-top) + var(--chop-banner-h, 0px) + 8px);
+}
+
+/* ── Docked morphing modal ──────────────────────────────────────────────────── */
+body.fg-space-chop #tool-float-modal-backdrop { display: none !important; }
+body.fg-space-chop #tool-float-modal {
+  left: var(--left-panel-w);
+  right: var(--nav-bar-right-w);
+  top: var(--chop-zone-top);
+  bottom: calc(var(--chop-scanner-h) + 4px);
+  width: auto;
+  max-height: none;
+  transform: none !important;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  box-shadow: none;
+  z-index: 60;
+}
+body:has(#fb-panel.fb-open).fg-space-chop #tool-float-modal {
+  left: calc(var(--left-panel-w) + var(--sidebar-w));
+}
+body.fg-space-chop #tool-float-modal-header { cursor: default; }
+body.fg-space-chop #tool-float-modal-close { display: none; }
+
+/* ── Scanner window — left third: read-only terminal (repositioned log-panel) ── */
+body.fg-space-chop #scan-bar { display: none !important; }
+body.fg-space-chop #log-panel {
+  left: var(--left-panel-w);
+  right: auto;
+  width: calc((100vw - var(--left-panel-w) - var(--nav-bar-right-w)) / 3);
+  height: var(--chop-scanner-h);
+  transform: none !important;
+  z-index: 55;
+  border-top: 1px solid rgba(var(--accent-rgb), .25);
+  border-right: 1px solid rgba(var(--accent-rgb), .18);
+  pointer-events: none;
+}
+body:has(#fb-panel.fb-open).fg-space-chop #log-panel {
+  left: calc(var(--left-panel-w) + var(--sidebar-w));
+  width: calc((100vw - var(--left-panel-w) - var(--sidebar-w) - var(--nav-bar-right-w)) / 3);
+}
+body.fg-space-chop #log-panel .log-bar { background: rgba(var(--accent-rgb), .06); }
+body.fg-space-chop .log-close-btn,
+body.fg-space-chop #log-spinner { display: none !important; }
+body.fg-space-chop #log-cmd-label::before { content: '▎ live terminal — '; color: var(--accent); }
+
+/* ── Scanner window — right two-thirds: progress + tick counters ─────────────── */
+#chop-readout { display: none; }
+body.fg-space-chop #chop-readout {
+  display: flex;
+  position: fixed;
+  bottom: 0;
+  left: calc(var(--left-panel-w) + (100vw - var(--left-panel-w) - var(--nav-bar-right-w)) / 3);
+  right: var(--nav-bar-right-w);
+  height: var(--chop-scanner-h);
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 24px;
+  z-index: 55;
+  background: linear-gradient(180deg, rgba(10, 8, 26, .98), rgba(6, 4, 16, .98));
+  border-top: 1px solid rgba(var(--accent-rgb), .25);
+}
+body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
+  left: calc(var(--left-panel-w) + var(--sidebar-w) + (100vw - var(--left-panel-w) - var(--sidebar-w) - var(--nav-bar-right-w)) / 3);
+}
+.chop-readout-head { display: flex; align-items: center; gap: 10px; }
+#chop-readout-title { font-size: .92rem; font-weight: 600; color: var(--text); }
+.chop-spinner {
+  width: 13px; height: 13px;
+  border: 2px solid var(--border-hi);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  display: none;
+  flex-shrink: 0;
+}
+.chop-spinner.active { display: inline-block; animation: spin .7s linear infinite; }
+.chop-prog-track {
+  height: 16px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+#chop-prog-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), .65), var(--accent));
+  transition: width .3s ease;
+}
+.chop-prog-line { font-size: .78rem; color: var(--text-muted); }
+.chop-prog-line span { color: var(--accent); font-weight: 700; }
+.chop-ticks { display: flex; gap: 32px; }
+.chop-tick { display: flex; align-items: baseline; gap: 7px; }
+.chop-tick-arrow { font-size: .95rem; }
+.chop-tick.up .chop-tick-arrow { color: var(--safe); }
+.chop-tick.down .chop-tick-arrow { color: var(--caution); }
+.chop-tick-num { font-family: var(--mono); font-size: 1.6rem; font-weight: 700; color: var(--text); }
+.chop-tick-cap { font-size: .72rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; }
+.chop-readout-stats { display: flex; flex-wrap: wrap; gap: 18px; margin-top: auto; font-size: .76rem; color: var(--text-muted); }
+.chop-readout-stats b { font-family: var(--mono); }
+.crs.ok b   { color: var(--safe); }
+.crs.err b  { color: var(--danger); }
+.crs.warn b { color: var(--caution); }
+
+/* ── Running-tool "what is this?" side panel ────────────────────────────────── */
+#tool-help-panel { display: none; }
+#tool-help-panel.open {
+  display: flex;
+  position: fixed;
+  top: var(--chop-zone-top);
+  right: calc(var(--nav-bar-right-w) + 12px);
+  width: 340px;
+  max-height: calc(100vh - var(--chop-zone-top) - var(--chop-scanner-h) - 24px);
+  z-index: 70;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgba(12, 8, 28, .99);
+  border: 1px solid rgba(var(--accent-rgb), .35);
+  border-radius: 12px;
+  box-shadow: 0 16px 60px rgba(0, 0, 0, .5);
+}
+.thp-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  background: rgba(var(--accent-rgb), .1);
+  border-bottom: 1px solid rgba(var(--accent-rgb), .2);
+  flex-shrink: 0;
+}
+#thp-icon { width: 26px; height: 26px; object-fit: contain; }
+#thp-title { font-weight: 700; color: var(--accent); flex: 1; font-size: .9rem; }
+.thp-close { background: none; border: none; color: var(--text-dim); font-size: 1rem; cursor: pointer; padding: 2px 6px; }
+.thp-close:hover { color: var(--text); }
+#thp-body { padding: 14px 16px; overflow-y: auto; }
+#thp-body .explainers-expanded { display: flex; flex-direction: column; gap: 12px; }
+#thp-body details { border: none; background: none; padding: 0; margin: 0; }
+#thp-body summary { font-weight: 700; color: var(--accent); cursor: default; list-style: none; margin-bottom: 4px; }
+#thp-body summary::-webkit-details-marker { display: none; }
+#thp-body .explain-body { font-size: .82rem; color: var(--text-muted); line-height: 1.55; }
