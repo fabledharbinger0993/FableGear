@@ -182,12 +182,14 @@ function prefillRelocate(deadRoots) {
 
 checkDeadRoots();
 
-/* ── Workflow rail scroll ───────────────────────────────────────────────────── */
+/* ── Workflow rail — prominent tool icons open the single morphing modal ─────── */
 document.querySelectorAll('.step-tab').forEach(btn => {
   btn.addEventListener('click', () => {
+    const target = btn.dataset.target;
+    if (!target) return;
     document.querySelectorAll('.step-tab').forEach(tab => tab.classList.remove('active'));
     btn.classList.add('active');
-    const target = btn.dataset.target && document.getElementById(btn.dataset.target);
-    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (typeof handleToolIconClick === 'function') handleToolIconClick(target);
+    else if (typeof openToolFloatModal === 'function') openToolFloatModal(target);
   });
 });

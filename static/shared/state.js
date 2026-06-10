@@ -32,12 +32,20 @@ function setFableGearSpace(space) {
   if (nextSpace === 'record') {
     closeDbPanel();
     closeToolFloatModal();
+    if (typeof closeToolHelpPanel === 'function') closeToolHelpPanel();
     closeRightNavDropdown();
     dismissBackToRecordHint(true);
     if (!_leTracksLoaded) setLibraryMode('db');
   } else {
     closeRightNavDropdown();
     showBackToRecordHint();
+    if (typeof closeToolHelpPanel === 'function') closeToolHelpPanel();
+    // Dock the single morphing modal on a default tool so the upper zone is
+    // never empty when entering the Chop Shop.
+    if (typeof _toolFloatActive !== 'undefined' && !_toolFloatActive
+        && typeof openToolFloatModal === 'function') {
+      openToolFloatModal('step-process');
+    }
   }
 
   localStorage.setItem('fablegear-space', nextSpace);

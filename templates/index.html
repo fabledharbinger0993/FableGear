@@ -93,6 +93,9 @@
 <!-- ══ Chop Shop ════════════════════════════════════════════════════════════ -->
 <main id="chop-shop-workspace" class="fable-space" aria-label="Chop Shop workspace">
 
+  <!-- Safety alert dock — pinned above the docked tool modal in the Chop Shop.
+       A MutationObserver (boot.js) pushes the modal down by this dock's height. -->
+  <div id="chop-banner-dock">
   <!-- Hotplug drive detection banner — shown when a new volume is connected -->
   <div id="hotplug-banner" class="hotplug-banner" style="display:none">
     <span class="hotplug-icon">💿</span>
@@ -131,8 +134,10 @@
     </div>
     <div id="health-findings-list"></div>
   </div>
+  </div>
 
   <!-- Chop Shop Workspace -->
+  <div id="chop-card-stack">
   <section id="chop-shop-intro">
     <p class="room-kicker">Chop Shop</p>
     <h2>
@@ -180,6 +185,7 @@
 
 
   {% include 'partials/physical_library/file_rename.html' %}
+  </div>
 </main>
 
 {% include 'partials/staging_panel.html' %}
@@ -480,6 +486,50 @@
   <div id="log-output"></div>
 </div>
 
+<!-- ══ Chop Shop scanner window ═════════════════════════════════════════════
+     Bottom-half live readout, visible only in the Chop Shop. The left third is
+     the read-only terminal (repositioned #log-panel above). This is the right
+     two-thirds: progress bar + done↑ / remaining↓ tick counters. Fed by
+     showScanBar / updateScanBar / finishScanBar (see scan_bar.js). -->
+<section id="chop-readout" aria-label="Scan progress readout">
+  <div class="chop-readout-head">
+    <span id="chop-readout-title">Idle — select a tool to begin</span>
+    <span id="chop-readout-spinner" class="chop-spinner"></span>
+  </div>
+  <div class="chop-prog-track"><div id="chop-prog-fill"></div></div>
+  <div class="chop-prog-line"><span id="chop-prog-pct">0</span>% complete</div>
+  <div class="chop-ticks">
+    <div class="chop-tick up">
+      <span class="chop-tick-arrow">▲</span>
+      <span class="chop-tick-num" id="chop-tick-done">0</span>
+      <span class="chop-tick-cap">done</span>
+    </div>
+    <div class="chop-tick down">
+      <span class="chop-tick-arrow">▼</span>
+      <span class="chop-tick-num" id="chop-tick-remaining">—</span>
+      <span class="chop-tick-cap">remaining</span>
+    </div>
+  </div>
+  <div class="chop-readout-stats">
+    <span class="crs ok"><b id="chop-stat-clean">0</b> clean</span>
+    <span class="crs ok"><b id="chop-stat-edited">0</b> edited</span>
+    <span class="crs err"><b id="chop-stat-errors">0</b> errors</span>
+    <span class="crs warn"><b id="chop-stat-warnings">0</b> warnings</span>
+  </div>
+</section>
+
+<!-- ══ Running-tool "what is this?" side panel ══════════════════════════════
+     Shown when a tool is running and a DIFFERENT tool icon is clicked. Surfaces
+     the clicked tool's explainer text read-only without interrupting the run. -->
+<aside id="tool-help-panel" aria-label="Tool description">
+  <div class="thp-head">
+    <img id="thp-icon" alt="" />
+    <span id="thp-title">Tool</span>
+    <button type="button" class="thp-close" onclick="closeToolHelpPanel()" title="Close">✕</button>
+  </div>
+  <div id="thp-body"></div>
+</aside>
+
 <!-- ══ FableGear client scripts ═════════════════════════════════════════════
      Sliced from the legacy static/fablegear.js into shared / record_room /
      chop_shop modules. All slices are classic scripts sharing one global
@@ -729,17 +779,6 @@
         </div>
       </div>
 
-      <!-- Right: Tool Drawer (slides in over track list) -->
-      <div id="tool-drawer">
-        <div id="tool-drawer-header">
-          <span id="tool-drawer-title"></span>
-          <button type="button" id="tool-drawer-close" onclick="closeToolDrawer()" title="Close tool">✕</button>
-        </div>
-        <div id="tool-drawer-body">
-          <!-- workflow-rail and main are moved here by JS on DOMContentLoaded -->
-        </div>
-      </div>
-
     </div>
   </div>
 </div>
@@ -931,24 +970,7 @@
 </div>
 
 
-<!-- ══ Toolkit Modal ═══════════════════════════════════════════════════════ -->
-<div id="toolkit-modal" class="toolkit-modal">
-  <div class="toolkit-backdrop" onclick="closeToolkitModal()"></div>
-  <div class="toolkit-panel">
-    <div class="toolkit-header">
-      <button type="button" class="toolkit-close-btn" onclick="closeToolkitModal()" title="Close Toolkit (Esc)">×</button>
-      <h2 class="toolkit-title">Chop Shop</h2>
-      <p class="toolkit-subtitle">Maintenance tools — run individually or chain into pipelines</p>
-    </div>
-    <div class="toolkit-content" id="toolkit-content">
-      <!-- Tool cards will be moved here dynamically or statically -->
-      <p class="toolkit-empty-hint">Loading toolkit...</p>
-    </div>
-  </div>
-</div>
-
-
-<!-- ══ Floating Tool Modal ════════════════════════════════════════════════ -->
+<!-- ══ Single Morphing Tool Modal ═════════════════════════════════════════ -->
 <div id="tool-float-modal-backdrop" onclick="closeToolFloatModal()"></div>
 <div id="tool-float-modal">
   <div id="tool-float-modal-header">
