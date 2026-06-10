@@ -113,10 +113,56 @@ function toggleDriveList() {
   const list = document.getElementById('drive-list');
   if (!list) return;
   if (_driveListOpen) {
+    list.classList.add('lp-drives-flyout');
+    _positionDriveFlyout(list);
     initDriveList();
+    _bindDriveFlyoutDismiss();
   } else {
-    list.innerHTML = '';
+    closeDriveList();
   }
+}
+
+/* Anchor the fixed flyout to the right edge of the Drives button. The button's
+   vertical position is dynamic (window size, rail content), so measure at open. */
+function _positionDriveFlyout(list) {
+  const btn = document.querySelector('.lp-drives-hdr');
+  if (!btn) return;
+  const r = btn.getBoundingClientRect();
+  list.style.left = Math.round(r.right + 6) + 'px';
+  // Clamp so a tall list never runs off the bottom of the viewport.
+  const top = Math.min(Math.round(r.top), window.innerHeight - 80);
+  list.style.top = Math.max(8, top) + 'px';
+}
+
+function closeDriveList() {
+  _driveListOpen = false;
+  const list = document.getElementById('drive-list');
+  if (!list) return;
+  list.classList.remove('lp-drives-flyout');
+  list.removeAttribute('style');
+  list.innerHTML = '';
+  _unbindDriveFlyoutDismiss();
+}
+
+function _onDriveFlyoutDocClick(e) {
+  if (e.target.closest('#drive-list') || e.target.closest('.lp-drives-hdr')) return;
+  closeDriveList();
+}
+function _onDriveFlyoutKey(e) { if (e.key === 'Escape') closeDriveList(); }
+function _onDriveFlyoutResize() {
+  const list = document.getElementById('drive-list');
+  if (list && list.classList.contains('lp-drives-flyout')) _positionDriveFlyout(list);
+}
+function _bindDriveFlyoutDismiss() {
+  // Defer so the opening click doesn't immediately dismiss it.
+  setTimeout(() => document.addEventListener('click', _onDriveFlyoutDocClick), 0);
+  document.addEventListener('keydown', _onDriveFlyoutKey);
+  window.addEventListener('resize', _onDriveFlyoutResize);
+}
+function _unbindDriveFlyoutDismiss() {
+  document.removeEventListener('click', _onDriveFlyoutDocClick);
+  document.removeEventListener('keydown', _onDriveFlyoutKey);
+  window.removeEventListener('resize', _onDriveFlyoutResize);
 }
 
 function initDriveList() {
@@ -154,6 +200,7 @@ function openDriveInLibrary(mountpoint) {
 
 function openDriveInFileBrowser(mountpoint) {
   closeRightNavDropdown();
+  closeDriveList();
   // Navigate the file browser sidebar to this drive's root
   if (typeof fbNavigateTo === 'function') {
     fbNavigateTo(mountpoint);
