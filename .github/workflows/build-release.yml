@@ -23,12 +23,14 @@ jobs:
 
             | Platform | Download |
             |---|---|
-            | **macOS** (12+, Intel + Apple Silicon) | FableGear-macOS.zip |
+            | **macOS** (10.15+, Intel + Apple Silicon) | FableGear.zip |
             | **Windows** (10/11, 64-bit) | FableGear-Windows.zip |
 
             ### macOS install
-            1. Download FableGear-macOS.zip → unzip → drag FableGear.app to Applications
-            2. First launch: right-click → Open → Open Anyway (Gatekeeper)
+            1. Download FableGear.zip → unzip → drag FableGear.app to Applications
+            2. First launch: right-click → Open → Open Anyway (Gatekeeper). A Terminal
+               window opens to finish setup and start FableGear; later launches are
+               instant and auto-update to the latest release.
 
             ### Windows install
             1. Download FableGear-Windows.zip → unzip to any folder
@@ -38,48 +40,6 @@ jobs:
             4. **Audio fingerprinting** (AcoustID) requires `fpcalc` — download
                `fpcalc.exe` from acoustid.org/chromaprint and place it anywhere on PATH,
                or skip it (tagging, renaming, and all other features work without it)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build-macos:
-    name: Build FableGear.app (macOS)
-    runs-on: macos-latest
-    needs: create-release
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install system dependencies
-        run: |
-          brew install ffmpeg chromaprint
-
-      - name: Install Python dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements_build.txt
-
-      - name: Build FableGear.app
-        run: |
-          pyinstaller FableGear.spec --noconfirm
-
-      - name: Zip macOS app
-        run: |
-          cd dist
-          zip -r FableGear-macOS.zip FableGear.app
-          cd ..
-
-      - name: Upload macOS artifact to release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: dist/FableGear-macOS.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

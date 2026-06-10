@@ -76,13 +76,37 @@ fi
 # ── Activate venv ─────────────────────────────────────────────────────────
 source "$VENV/bin/activate"
 
-# ── Pull latest from GitHub (skip in dev mode) ───────────────────────────
+# ── Update to the latest RELEASE (skip in dev mode) ──────────────────────
+# Release-gated: user installs track GitHub's "latest release", NOT every
+# commit on main. Source of truth is the SAME endpoint update_checker.py uses
+# (/releases/latest), so the in-app update notice and the launcher always
+# agree. Cut a release with:  bash build_release.sh --release.
+# Devs working from source opt out with a .dev sentinel in the repo root.
+# Offline-safe: if the API is unreachable, the app launches on current code.
 cd "$SCRIPT_DIR"
 if [ ! -f "$SCRIPT_DIR/.dev" ]; then
-  git pull origin main --ff-only >> "$LOG" 2>&1
-  # After git pull, requirements may have changed — reinstall/upgrade quietly.
-  pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1
-  pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
+  git fetch origin --tags --quiet >> "$LOG" 2>&1
+  LATEST_TAG=$(curl -fsSL --max-time 10 \
+    "https://api.github.com/repos/fabledharbinger0993/FableGear/releases/latest" 2>/dev/null \
+    | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
+  CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+  if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "$CURRENT_TAG" ]; then
+    # Advance only when the released commit is strictly forward of HEAD — a
+    # true fast-forward. Refuses backward/divergent tags, so a non-monotonic
+    # version number can never downgrade or break a working install.
+    if git merge-base --is-ancestor HEAD "$LATEST_TAG" 2>/dev/null; then
+      echo "FableGear: updating ${CURRENT_TAG:-untagged} -> $LATEST_TAG" >> "$LOG"
+      if git merge --ff-only "$LATEST_TAG" >> "$LOG" 2>&1; then
+        # Deps may have changed with the new release.
+        pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1
+        pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
+      else
+        echo "FableGear: fast-forward to $LATEST_TAG failed; staying on ${CURRENT_TAG:-current}" >> "$LOG"
+      fi
+    else
+      echo "FableGear: release $LATEST_TAG is not a forward update from current HEAD; skipping" >> "$LOG"
+    fi
+  fi
 fi
 
 # ── Bring up Tailscale for FableGo remote access (best-effort, non-blocking) ─
