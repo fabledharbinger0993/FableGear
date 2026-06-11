@@ -23,8 +23,13 @@ jobs:
 
             | Platform | Download |
             |---|---|
-            | **macOS** (12+, Intel + Apple Silicon) | FableGear-macOS.zip |
+            | **macOS** (12+, Intel + Apple Silicon) — full bundle | FableGear-macOS.zip |
+            | **macOS** — bootstrap installer (clones repo, auto-updates) | FableGear.zip |
             | **Windows** (10/11, 64-bit) | FableGear-Windows.zip |
+
+            The README download button and the in-app updater both use
+            FableGear.zip (bootstrap). FableGear-macOS.zip is the standalone
+            PyInstaller bundle — no Python or git required.
 
             ### macOS install
             1. Download FableGear-macOS.zip → unzip → drag FableGear.app to Applications
