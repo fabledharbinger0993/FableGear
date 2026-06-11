@@ -40,11 +40,13 @@
 
   <!-- Drives -->
   <div class="lp-drives">
-    <button type="button" class="lp-btn lp-drives-hdr" title="Connected Drives" onclick="toggleDriveList()">
+    <button type="button" class="lp-btn lp-drives-hdr" title="Connected Drives"
+            aria-controls="drive-list" aria-expanded="false" aria-haspopup="dialog"
+            onclick="toggleDriveList()">
       <img src="/static/icon-fg-drives.png" alt="" class="lp-icon" aria-hidden="true">
       <span class="lp-label">Drives</span>
     </button>
-    <div id="drive-list"></div>
+    <div id="drive-list" tabindex="-1" role="dialog" aria-label="Connected drives"></div>
   </div>
 
   <div class="lp-spacer"></div>

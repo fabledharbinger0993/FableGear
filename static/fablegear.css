@@ -438,6 +438,13 @@ input[type="range"] { -webkit-app-region: no-drag; }
   background: rgba(255,255,255,.05);
   color: var(--text);
 }
+.lp-drives-item:focus-visible,
+#drive-list.lp-drives-flyout button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  background: rgba(255,255,255,.05);
+  color: var(--text);
+}
 .lp-drives-name {
   flex: 1;
   white-space: nowrap;
