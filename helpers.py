@@ -22,7 +22,7 @@ import time
 import uuid
 from pathlib import Path
 
-from flask import Response, jsonify, request
+from flask import Response, jsonify
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_sock import Sock
@@ -1181,7 +1181,6 @@ def _run_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
                 source_path = entry["source_path"]
                 dest_path = entry["dest_path"]
                 dest_key = str(dest_path)
-                track = entry["track"]
                 _update({"current_track": entry["title"]})
 
                 try:

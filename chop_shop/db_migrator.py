@@ -117,7 +117,7 @@ def migrate(target_path: str):
     # 5. Copy source → destination
     dst.parent.mkdir(parents=True, exist_ok=True)
     if dst.exists():
-        yield _line(f"  Destination already exists — removing stale copy…")
+        yield _line("  Destination already exists — removing stale copy…")
         shutil.rmtree(dst)
 
     yield _line(f"  Copying {src.name}/…")

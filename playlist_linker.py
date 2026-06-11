@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     # DjmdPlaylist and DjmdContent are ORM row types from pyrekordbox's SQLAlchemy
     # models. They aren't cleanly importable at runtime in all pyrekordbox versions,
     # so we reference them under TYPE_CHECKING only for static analysis.
-    from pyrekordbox.db6.tables import DjmdPlaylist, DjmdContent
+    pass
 
 log = logging.getLogger(__name__)
 

@@ -1,5 +1,5 @@
 """
-fablegear / dead_file_scanner.py
+fablegear / chop_shop/dead_file_scanner.py  (canonical copy)
 
 Finds audio files on disk that are not referenced in any available
 Rekordbox database (local or device). The inverse of the DB audit's
@@ -84,8 +84,12 @@ def _build_db_index(db_paths: list[Path]) -> set[str]:
                 if fp:
                     known.add(_normalise(fp))
             log.debug("Dead-file scan: loaded %d paths from %s", len(known), db_path.name)
-        except Exception:
-            log.warning("Dead-file scan: could not open DB %s", db_path, exc_info=True)
+        except Exception as exc:
+            # Fail loud: a silently skipped DB shrinks the known-paths set,
+            # which misclassifies its tracks as "dead" — and dead-file results
+            # can feed prune decisions. Better to abort the scan than to
+            # report false positives against an unreadable database.
+            raise RuntimeError(f"Dead-file scan: could not read DB {db_path}") from exc
     return known
 
 

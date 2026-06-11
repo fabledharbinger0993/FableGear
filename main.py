@@ -16,7 +16,6 @@ app is open), the existing server is reused and a new window is opened.
 
 import os
 import sys
-import platform
 import threading
 import time
 from pathlib import Path

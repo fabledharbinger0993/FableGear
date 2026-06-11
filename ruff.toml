@@ -1,0 +1,31 @@
+# FableGear lint configuration.
+#
+# Goal: `ruff check .` passes clean so it can act as a gate, while
+# acknowledging two deliberate house patterns:
+#
+#   1. Entry-point modules (app.py, main.py, cli.py, routes_*, helpers.py)
+#      mutate sys.path BEFORE importing — required so bare-name imports
+#      resolve into chop_shop/ in both dev and PyInstaller bundles.
+#      That makes E402 (import not at top) intentional in those files.
+#
+#   2. Aligned single-line conditionals (`if x: do()`) are used for
+#      readable flag-to-CLI-arg mapping blocks. E701/E702 are ignored.
+
+line-length = 120
+target-version = "py311"
+
+[lint]
+ignore = [
+    "E701",  # multiple statements on one line (colon) — intentional aligned style
+    "E702",  # multiple statements on one line (semicolon) — same
+]
+
+[lint.per-file-ignores]
+"app.py" = ["E402"]
+"main.py" = ["E402"]
+"cli.py" = ["E402"]
+"helpers.py" = ["E402"]
+"routes_mobile.py" = ["E402"]
+"routes_player.py" = ["E402"]
+"routes_tools.py" = ["E402"]
+"routes_rekordbox.py" = ["E402"]

@@ -226,7 +226,6 @@ def _write_checkpoint(record: JobRecord) -> Optional[str]:
     primary_scope = record.scope or ""
     hash_tok = hashlib.sha256(primary_scope.encode()).hexdigest()[:8] if primary_scope else "global"
     ts = record.completed_at.replace(":", "").replace("-", "").replace("T", "T")[:15]
-    filename = f"{record.tool}_{hash_tok}_{ts}_{record.job_id}.json"
     payload = {
         "job_id": record.job_id,
         "tool": record.tool,

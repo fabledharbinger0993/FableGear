@@ -379,7 +379,7 @@ def _check_free_space() -> HealthFinding | None:
                 severity="warn",
                 title=f"Low disk space on {_volume_name(music_root)} ({free_mb} MB free)",
                 detail=(
-                    f"Less than 500 MB remains on the music library volume. "
+                    "Less than 500 MB remains on the music library volume. "
                     "Import, organise, and download operations may fail mid-run."
                 ),
                 fix_hint="Free up space on the drive before running any tool that copies or moves files.",

@@ -59,7 +59,7 @@ import renamer_learned as _learned
 from scanner import extract_metadata
 
 if TYPE_CHECKING:
-    from pyrekordbox.db6.tables import DjmdContent
+    pass
 
 log = logging.getLogger(__name__)
 

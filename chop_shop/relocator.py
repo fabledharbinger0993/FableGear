@@ -54,7 +54,7 @@ if TYPE_CHECKING:
     # DjmdContent is an ORM row type from pyrekordbox's SQLAlchemy models.
     # Not cleanly importable at runtime in all versions — referenced under
     # TYPE_CHECKING only.
-    from pyrekordbox.db6.tables import DjmdContent
+    pass
 
 log = logging.getLogger(__name__)
 

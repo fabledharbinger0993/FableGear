@@ -31,7 +31,6 @@ from flask import Flask, Response, jsonify, render_template, render_template_str
 # ── Shared helpers (base layer — no circular imports) ─────────────────────────
 from helpers import (
     REPO_ROOT,
-    CLI_PATH,
     limiter,
     sock,
     _rb_is_running,
@@ -56,6 +55,69 @@ app = Flask(
 # Attach lazy-init extensions to the app instance
 limiter.init_app(app)
 sock.init_app(app)
+
+
+# ── Network boundary ──────────────────────────────────────────────────────────
+# main.py binds 0.0.0.0 so FableGo can reach the mobile API over Tailscale/LAN.
+# That must NOT expose the desktop tool routes (/api/run/prune, /api/run/rename,
+# etc.) to the network: they are unauthenticated by design because the desktop
+# UI talks to them over loopback only.
+#
+# Policy, first match wins:
+#   1. Loopback (127.0.0.1 / ::1)        → allow  (desktop UI, pywebview)
+#   2. /api/mobile/*                      → allow  (blueprint + sock handlers
+#                                                   enforce their own Bearer auth)
+#   3. /api/connectivity                  → allow  (handler enforces loopback itself)
+#   4. GET /static/*                      → allow  (public assets: css/js/icons)
+#   5. Valid "Authorization: Bearer <mobile_token>"
+#                                         → allow  (deliberate remote access)
+#   6. allow_lan_ui: true in ~/.fablegear/config.json
+#                                         → allow  (explicit owner opt-out)
+#   7. otherwise                          → 403
+
+def _lan_ui_allowed() -> bool:
+    """Owner opt-out: {"allow_lan_ui": true} in ~/.fablegear/config.json."""
+    try:
+        import json as _json
+        cfg_path = Path.home() / ".fablegear" / "config.json"
+        return bool(_json.loads(cfg_path.read_text()).get("allow_lan_ui", False))
+    except Exception:
+        return False
+
+
+@app.before_request
+def _enforce_network_boundary():
+    if request.remote_addr in ("127.0.0.1", "::1"):
+        return
+    if request.path.startswith("/api/mobile/"):
+        return  # mobile surface authenticates itself (Bearer, incl. websocket)
+    if request.path == "/api/connectivity":
+        return  # handler performs its own loopback check
+    if request.method in ("GET", "HEAD") and request.path.startswith("/static/"):
+        return
+    # Deliberate remote access with the FableGo token (same secret, same
+    # constant-time comparison as the mobile blueprint).
+    try:
+        from routes_mobile import _read_mobile_token  # noqa: PLC0415
+        import hmac as _hmac_mod  # noqa: PLC0415
+        token = _read_mobile_token()
+        auth = request.headers.get("Authorization", "")
+        if token and auth.startswith("Bearer ") and _hmac_mod.compare_digest(auth[7:], token):
+            return
+    except Exception:
+        pass
+    if _lan_ui_allowed():
+        return
+    app.logger.warning(
+        "Blocked non-loopback request from %s for %s %s",
+        request.remote_addr, request.method, request.path,
+    )
+    return jsonify({
+        "error": "forbidden",
+        "message": "This endpoint is loopback-only. Set allow_lan_ui in "
+                   "~/.fablegear/config.json or send the FableGo Bearer token "
+                   "for remote access.",
+    }), 403
 
 # ── Blueprints ────────────────────────────────────────────────────────────────
 
@@ -261,8 +323,7 @@ def api_config():
     from helpers import _current_fablegear_mode, _backup_dir  # noqa: PLC0415
     try:
         from config import (  # noqa: PLC0415
-            DJMT_DB, MUSIC_ROOT, SKIP_DIRS,
-            ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
+            DJMT_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
             ARCHIVE_ENABLED, _archive_mode, _custom_archive,
         )
         from user_config import load_user_config as _luc  # noqa: PLC0415
@@ -952,7 +1013,6 @@ def _pin_to_dock(app_path: str) -> None:
 @app.route("/api/onboarding/install-app", methods=["POST"])
 def api_onboarding_install_app():
     """Build FableGear.app in ~/Applications using osacompile and optionally pin to Dock."""
-    import plistlib  # noqa: PLC0415 (needed for _pin_to_dock)
     import tempfile  # noqa: PLC0415
     import shutil   # noqa: PLC0415
 
