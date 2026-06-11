@@ -66,7 +66,8 @@ function finishScanBar() {
 function dismissScanBar() {
   document.getElementById('scan-bar').classList.remove('active');
   document.body.classList.remove('scan-active');
-  document.getElementById('chop-readout')?.classList.remove('running');
+  document.getElementById('scan-bar-spinner').classList.remove('active');
+  _chopReadoutDismiss();
 }
 
 /* ── Chop Shop scanner-window readout ─────────────────────────────────────────
@@ -111,6 +112,12 @@ function _chopReadoutFinish() {
   document.getElementById('chop-readout')?.classList.remove('running');
   const fill = document.getElementById('chop-prog-fill');
   if (fill && fill.style.width === '0%') fill.style.width = '100%';
+}
+function _chopReadoutDismiss() {
+  _chopReadoutFinish();
+  _chopReadoutReset('Idle — select a tool to begin');
+  document.getElementById('chop-readout-spinner')?.classList.remove('active');
+  document.getElementById('chop-readout')?.classList.remove('running');
 }
 
 /* ── Log panel ─────────────────────────────────────────────────────────────── */
@@ -350,4 +357,3 @@ function checkRbBlock(msgId) {
 function setAllButtons(disabled) {
   document.querySelectorAll('.btn').forEach(b => b.disabled = disabled);
 }
-
