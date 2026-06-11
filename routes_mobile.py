@@ -36,7 +36,6 @@ from helpers import (
     _evict_old_jobs,
     _detect_pioneer_drive_layout,
     _run_export,
-    REPO_ROOT,
 )
 
 bp = Blueprint("mobile", __name__)

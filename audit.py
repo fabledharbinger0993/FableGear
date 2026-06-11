@@ -162,7 +162,7 @@ class AuditReport:
         def _capped_list(items, cap, label):
             if not items:
                 return []
-            out = [f"", f"  ── {label} ──"]
+            out = ["", f"  ── {label} ──"]
             if len(items) > cap:
                 out.append(f"  ({len(items)} total — showing first {cap})")
             for item in items[:cap]:

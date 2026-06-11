@@ -928,7 +928,7 @@ def scan_duplicates(
     if index or tag_match:
         files = _candidate_pairs(all_files, index, tag_match=tag_match)
         print(
-            f"FABLEGEAR_PREFILTER: "
+            "FABLEGEAR_PREFILTER: "
             + json.dumps({
                 "total": len(all_files),
                 "candidates": len(files),

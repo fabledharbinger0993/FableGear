@@ -31,7 +31,6 @@ from flask import Flask, Response, jsonify, render_template, render_template_str
 # ── Shared helpers (base layer — no circular imports) ─────────────────────────
 from helpers import (
     REPO_ROOT,
-    CLI_PATH,
     limiter,
     sock,
     _rb_is_running,
@@ -261,8 +260,7 @@ def api_config():
     from helpers import _current_fablegear_mode, _backup_dir  # noqa: PLC0415
     try:
         from config import (  # noqa: PLC0415
-            DJMT_DB, MUSIC_ROOT, SKIP_DIRS,
-            ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
+            DJMT_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
             ARCHIVE_ENABLED, _archive_mode, _custom_archive,
         )
         from user_config import load_user_config as _luc  # noqa: PLC0415
@@ -952,7 +950,6 @@ def _pin_to_dock(app_path: str) -> None:
 @app.route("/api/onboarding/install-app", methods=["POST"])
 def api_onboarding_install_app():
     """Build FableGear.app in ~/Applications using osacompile and optionally pin to Dock."""
-    import plistlib  # noqa: PLC0415 (needed for _pin_to_dock)
     import tempfile  # noqa: PLC0415
     import shutil   # noqa: PLC0415
 

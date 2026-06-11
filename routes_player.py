@@ -28,8 +28,6 @@ def _is_user_mount(mountpoint: str) -> bool:
 from flask import Blueprint, jsonify, request, send_file
 
 from helpers import (
-    REPO_ROOT,
-    CLI_PATH,
     _EXPORT_JOBS,
     _EXPORT_LOCK,
     _MAX_EXPORT_JOBS,

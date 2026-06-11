@@ -372,7 +372,7 @@ def cmd_relocate(args: argparse.Namespace) -> None:
     not_found = by_strategy.get("not_found", 0)
     updated   = total - not_found - failed
 
-    lines = [f"Done updating RekordBox paths.", "", f"{updated} of {total} tracks were updated."]
+    lines = ["Done updating RekordBox paths.", "", f"{updated} of {total} tracks were updated."]
     if by_strategy.get("exact", 0):
         lines.append(f"  {by_strategy['exact']} matched by exact path.")
     if by_strategy.get("hash", 0):
@@ -458,14 +458,14 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
         print("  ╠══════════════════════════════════════════════════════════════╣")
         if result.unique_in_trash:
             print(f"  ║  {len(result.unique_in_trash):>5} tracks exist ONLY in a trash folder            ║")
-            print(f"  ║        → NOT included in the pruning CSV                    ║")
-            print(f"  ║        → FableGear does not offer an automated rescue step   ║")
-            print(f"  ║        → move these files manually before clearing trash    ║")
+            print("  ║        → NOT included in the pruning CSV                    ║")
+            print("  ║        → FableGear does not offer an automated rescue step   ║")
+            print("  ║        → move these files manually before clearing trash    ║")
         if trapped_keeps:
             print(f"  ║  {trapped_keeps:>5} duplicate groups have their best copy in trash   ║")
-            print(f"  ║        → marked keep_in_trash=YES in the CSV                ║")
-            print(f"  ║        → pruner will NOT delete them, but manual trash      ║")
-            print(f"  ║          cleanup would — move them first                    ║")
+            print("  ║        → marked keep_in_trash=YES in the CSV                ║")
+            print("  ║        → pruner will NOT delete them, but manual trash      ║")
+            print("  ║          cleanup would — move them first                    ║")
         print("  ╚══════════════════════════════════════════════════════════════╝")
 
     if not groups and not result.unique_in_trash:
@@ -984,14 +984,14 @@ def cmd_process(args: argparse.Namespace) -> None:
     if normalise and not detect_bpm and not detect_key:
         # Normalize-only mode
         report_lines = [
-            f"\nDone.\n",
+            "\nDone.\n",
             f"{normalised} tracks were re-encoded to match the loudness target.",
             f"{total - normalised - errored} were already at the right level and skipped.",
         ]
     elif normalise:
         # Full process mode
         report_lines = [
-            f"\nDone.\n",
+            "\nDone.\n",
             f"{total} files were analyzed.",
             f"  BPM written: {bpm_written} files.{f'  {skipped_bpm} already had one.' if skipped_bpm else ''}",
             f"  Key written: {key_written} files.{f'  {skipped_key} already had one.' if skipped_key else ''}",
@@ -1000,7 +1000,7 @@ def cmd_process(args: argparse.Namespace) -> None:
     else:
         # Tag-only mode
         report_lines = [
-            f"\nDone tagging.\n",
+            "\nDone tagging.\n",
             f"{total} files were analyzed.",
             f"  BPM written: {bpm_written} files.{f'  {skipped_bpm} already had one.' if skipped_bpm else ''}",
             f"  Key written: {key_written} files.{f'  {skipped_key} already had one.' if skipped_key else ''}",
@@ -1032,8 +1032,8 @@ def cmd_process(args: argparse.Namespace) -> None:
 
         if decode_results:
             report_lines.append(f"  ⚠  Audio Decode Failures ({len(decode_results)})")
-            report_lines.append(f"     File opened, but audio couldn't be decoded — BPM/key were skipped.")
-            report_lines.append(f"     → Convert these files to MP3 or AIFF first, then re-run Tag Tracks.")
+            report_lines.append("     File opened, but audio couldn't be decoded — BPM/key were skipped.")
+            report_lines.append("     → Convert these files to MP3 or AIFF first, then re-run Tag Tracks.")
             _MAX = 12
             for r in decode_results[:_MAX]:
                 report_lines.append(f"       • {r.path.name}")
@@ -1043,8 +1043,8 @@ def cmd_process(args: argparse.Namespace) -> None:
 
         if tag_fail_results:
             report_lines.append(f"  ⚠  Tag Write Failures ({len(tag_fail_results)})")
-            report_lines.append(f"     BPM/key detection succeeded, but writing the tag to the file failed.")
-            report_lines.append(f"     → Check file is not read-only, then re-run with Force tag-overwrite on.")
+            report_lines.append("     BPM/key detection succeeded, but writing the tag to the file failed.")
+            report_lines.append("     → Check file is not read-only, then re-run with Force tag-overwrite on.")
             for r in tag_fail_results[:12]:
                 err_short = next(
                     (e for e in r.errors if "tag write failed" in e or "normalisation failed" in e),
@@ -1057,9 +1057,9 @@ def cmd_process(args: argparse.Namespace) -> None:
 
         if corrupt_results:
             report_lines.append(f"  ✗  Corrupt / Unreadable — moved to Quarantine ({len(corrupt_results)})")
-            report_lines.append(f"     These files could not be opened at the audio-library level.")
+            report_lines.append("     These files could not be opened at the audio-library level.")
             report_lines.append(f"     Location: {_quarantine_dir}")
-            report_lines.append(f"     → Inspect in the Quarantine folder. Delete or restore manually.")
+            report_lines.append("     → Inspect in the Quarantine folder. Delete or restore manually.")
             for r in corrupt_results[:12]:
                 report_lines.append(f"       • {r.path.name}")
             if len(corrupt_results) > 12:
@@ -1213,7 +1213,7 @@ def cmd_convert(args: argparse.Namespace) -> None:
         root_sections.append((root, "\n".join(root_lines)))
 
     fmt_upper = target_format.upper()
-    lines = [f"Done converting.", "", f"{success_count} of {total} files were converted to {fmt_upper}."]
+    lines = ["Done converting.", "", f"{success_count} of {total} files were converted to {fmt_upper}."]
     if error_count:
         lines.append(f"{error_count} files had errors — check the log above.")
     else:
@@ -1227,7 +1227,6 @@ def cmd_convert(args: argparse.Namespace) -> None:
 
 def cmd_organize(args: argparse.Namespace) -> None:
     """Consolidate audio files into Artist / Album / Track hierarchy."""
-    import json as _json
     from pathlib import Path
     from library_organizer import organize_library
 

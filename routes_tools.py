@@ -24,7 +24,6 @@ from pathlib import Path
 from flask import Blueprint, Response, jsonify, request, send_file
 
 from helpers import (
-    REPO_ROOT,
     CLI_PATH,
     _sse_response,
     _sse_done,
