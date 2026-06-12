@@ -200,7 +200,7 @@ function _leFsTrackRow(t, idx) {
       <div class="le-col le-col-artist">${_esc(t.artist)}</div>
       <div class="le-col le-col-album">${_esc(t.album) || _esc(folder)}</div>
       <div class="le-col le-col-bpm">${t.bpm || '—'}</div>
-      <div class="le-col le-col-key">${t.key || '—'}</div>
+      <div class="le-col le-col-key">${typeof fgKeyBadge === 'function' ? fgKeyBadge(t.key) : (t.key || '—')}</div>
       <div class="le-col le-col-dur">${dur}</div>
       <div class="le-col le-col-date">—</div>
     </div>

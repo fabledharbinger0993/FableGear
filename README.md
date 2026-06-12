@@ -6,7 +6,24 @@
   <img src="https://raw.githubusercontent.com/fabledharbinger0993/FableGear/main/static/icon-logo-fablegear.png" width="200" alt="Download FableGear">
 </a>
 
-macOS · Free · Open source · No account required · No subscription
+macOS · Free · Open source (MIT) · No account required · No subscription
+
+---
+
+## Why this exists
+
+DJ technology runs on closed formats. One vendor controls the database your
+library lives in, the analysis files your cues and beat grids depend on, the
+export formats your players will accept — and the tools you're allowed to fix
+any of it with. When their software loses your paths, corrupts a database, or
+splits your own hardware across two incompatible export formats, the official
+answer is the official tool, take it or leave it.
+
+FableGear is the leave-it. It's a local-first, open-source toolkit that treats
+*your* library as *yours*: auditable, repairable, movable, and exportable with
+tools anyone can read, run, and improve. It stands on the shoulders of
+[pyrekordbox](https://github.com/dylanljones/pyrekordbox) and aims to be just
+as available — MIT licensed, no account, no telemetry, no permission required.
 
 ---
 
