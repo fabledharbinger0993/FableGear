@@ -37,7 +37,9 @@ log = logging.getLogger(__name__)
 
 _GITHUB_API    = "https://api.github.com/repos/fabledharbinger0993/FableGear/releases/latest"
 _DOWNLOAD_URL  = "https://github.com/fabledharbinger0993/FableGear/releases/latest/download/FableGear.zip"
-_STARTUP_DELAY = 20       # seconds after boot before first check (non-blocking)
+_STARTUP_DELAY = 5        # seconds after boot before first check (non-blocking) —
+                          # kept short so the first page load can surface the
+                          # permission modal on its 45 s re-check
 _REQUEST_TIMEOUT = 8      # seconds for the GitHub API call
 
 _lock: threading.Lock = threading.Lock()

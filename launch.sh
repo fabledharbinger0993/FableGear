@@ -6,7 +6,6 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV="$SCRIPT_DIR/venv"
 SENTINEL="$SCRIPT_DIR/.fablegear_ready"
-DOCK_SENTINEL="$SCRIPT_DIR/.dock_launcher_offered"
 LOG="$SCRIPT_DIR/fablegear.log"
 
 # ── Locate Homebrew (works on both Apple Silicon and Intel) ───────────────
@@ -56,14 +55,6 @@ if _setup_needed; then
   unset _waited
 fi
 
-# ── Offer native Dock launcher on first boot (one-time, before silence) ──
-# Skipped automatically if: already offered, already installed, or launched
-# from Automator/non-TTY (no point showing a dialog with no screen context).
-if [ ! -f "$DOCK_SENTINEL" ] && [ ! -d "$HOME/Applications/FableGear.app" ]; then
-  touch "$DOCK_SENTINEL"
-  bash "$SCRIPT_DIR/scripts/setup_dock_launcher.sh" || true
-fi
-
 # ── Silence all output — Automator treats any stdout as an error ──────────
 exec > /dev/null 2>&1
 
@@ -76,14 +67,12 @@ fi
 # ── Activate venv ─────────────────────────────────────────────────────────
 source "$VENV/bin/activate"
 
-# ── Pull latest from GitHub (skip in dev mode) ───────────────────────────
+# ── Updates ───────────────────────────────────────────────────────────────
+# No automatic git pull here. The app checks GitHub releases at open
+# (update_checker.py), asks the user for permission in the UI, and applies
+# the update via /api/update/apply — which pulls, reinstalls requirements,
+# and relaunches. Offline checks fail silently.
 cd "$SCRIPT_DIR"
-if [ ! -f "$SCRIPT_DIR/.dev" ]; then
-  git pull origin main --ff-only >> "$LOG" 2>&1
-  # After git pull, requirements may have changed — reinstall/upgrade quietly.
-  pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1
-  pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
-fi
 
 # ── Bring up Tailscale for FableGo remote access (best-effort, non-blocking) ─
 # FableGear runs fully offline without this. Tailscale just enables the mobile web app

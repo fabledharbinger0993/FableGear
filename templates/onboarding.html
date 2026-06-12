@@ -432,10 +432,29 @@
   <section class="ob-step" id="step-2">
     <div class="ob-icon">🔍</div>
     <h1 class="ob-title">Your Rekordbox library</h1>
-    <p class="ob-sub">FableGear scanned your drives for Rekordbox files. Confirm or adjust the
-      paths below before continuing.</p>
+    <p class="ob-sub">FableGear can find your Rekordbox files automatically, or you can
+      enter the paths yourself.</p>
 
-    <div id="scan-loading" class="ob-scanning">
+    <!-- Scan consent — nothing is scanned until the user allows it -->
+    <div id="scan-consent">
+      <div class="ob-card">
+        <div class="ob-card-title">May FableGear scan your drives?</div>
+        <div style="font-size:.86rem;color:var(--text-muted);line-height:1.55">
+          This looks across all connected drives and volumes for music-specific
+          files: Rekordbox databases (<code style="font-size:.78rem;color:var(--text)">master.db</code>),
+          playlist XML exports, Pioneer USB structures, and audio library folders.
+          It reads file names and locations only — nothing is opened, copied, or modified,
+          and nothing leaves this Mac.
+        </div>
+      </div>
+      <div class="ob-actions">
+        <button class="ob-btn ob-btn-secondary" onclick="goToStep(1)">← Back</button>
+        <button class="ob-btn ob-btn-ghost" onclick="declineScan()">Enter paths manually</button>
+        <button class="ob-btn ob-btn-primary" onclick="allowScan()">Allow scan →</button>
+      </div>
+    </div>
+
+    <div id="scan-loading" class="ob-scanning" style="display:none">
       <span class="spin"></span>Scanning drives and volumes…
     </div>
 
@@ -594,6 +613,7 @@
 var currentStep = 0;
 var scanData    = null;
 var confirmedPaths = {};
+var scanConsent = null;   // null = not asked yet, true = allowed, false = manual paths
 
 // ── Navigation ─────────────────────────────────────────────────────────────────
 function goToStep(n) {
@@ -611,7 +631,7 @@ function goToStep(n) {
   if (dotNext) { dotNext.classList.remove('done'); dotNext.classList.add('active'); }
 
   // Side effects per step
-  if (n === 2) triggerScan();
+  if (n === 2) prepareScanStep();
   if (n === 3) checkFDA();
 }
 
@@ -732,7 +752,40 @@ function installApp() {
 }
 
 // ── Step 3: Library scan ───────────────────────────────────────────────────────
+// Consent gate: nothing touches the filesystem until the user answers. Re-entry
+// via Back keeps the earlier answer — results (or manual inputs) are re-shown.
+function prepareScanStep() {
+  var consent = document.getElementById('scan-consent');
+  if (scanConsent === null) {
+    consent.style.display = '';
+    document.getElementById('scan-loading').style.display = 'none';
+    document.getElementById('scan-results').style.display = 'none';
+    document.getElementById('scan-actions').style.display = 'none';
+    return;
+  }
+  consent.style.display = 'none';
+  document.getElementById('scan-results').style.display = '';
+  document.getElementById('scan-actions').style.display = '';
+}
+
+function allowScan() {
+  scanConsent = true;
+  document.getElementById('scan-consent').style.display = 'none';
+  triggerScan();
+}
+
+function declineScan() {
+  scanConsent = false;
+  document.getElementById('scan-consent').style.display = 'none';
+  document.getElementById('scan-loading').style.display = 'none';
+  document.getElementById('scan-results').style.display = '';
+  document.getElementById('scan-actions').style.display = '';
+}
+
 function triggerScan() {
+  // Clicking Re-scan is itself an explicit request to scan.
+  scanConsent = true;
+  document.getElementById('scan-consent').style.display = 'none';
   var loading = document.getElementById('scan-loading');
   loading.style.display = '';
   loading.innerHTML = '<span class="spin"></span>Scanning drives and volumes…';
@@ -860,6 +913,7 @@ function confirmPaths() {
     music_root: musicRoot,
     db_read:  true,
     db_write: true,
+    drive_scan: scanConsent === true,
   };
   goToStep(3);
 }

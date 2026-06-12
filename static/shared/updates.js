@@ -53,9 +53,11 @@ function brewDismiss() {
 }
 
 /* ── FableGear update checker ────────────────────────────────────────────────── */
-let _rkbUpdateData = null;   // populated when update found; used by modal buttons
+let _rkbUpdateData   = null;   // populated when update found; used by modal buttons
+let _rkbModalShown   = false;  // ask permission at most once per session
 
 async function fablegearUpdateCheck() {
+  if (_rkbModalShown) return;
   try {
     const res = await fetch('/api/update/status');
     if (!res.ok) return;
@@ -63,6 +65,7 @@ async function fablegearUpdateCheck() {
     // Silently do nothing if no update or no connection
     if (!data.update_available) return;
     _rkbUpdateData = data;
+    _rkbModalShown = true;
     _rkbShowUpdateModal(data);
   } catch (_) {
     // No internet / server unreachable — silent, keep running current version
@@ -246,8 +249,11 @@ function runBrewUpgrade() {
 
 // Check on page load (non-blocking — banners appear only if updates found)
 brewCheckStatus();
-// Delay the update check slightly so the brew check fires first
+// Delay the update check slightly so the brew check fires first. The server's
+// own GitHub check runs ~5 s after boot, so the first page load may race it —
+// re-check at 45 s to catch the result on a fresh open (modal shows at most once).
 setTimeout(fablegearUpdateCheck, 1000);
+setTimeout(fablegearUpdateCheck, 45000);
 
 async function quitFableGear() {
   const msg = isRunning

@@ -159,7 +159,13 @@ ok "All Python packages installed"
 step "Creating FableGear.app launcher"
 
 APP_DEST="$HOME/Applications/FableGear.app"
-PACKAGED_APP="$SCRIPT_DIR/packaging/FableGear.app"
+
+# Locate the packaged launcher app — name casing differs across checkouts,
+# and case-sensitive filesystems won't match "FableGear.app" to "FABLEGEAR.app".
+PACKAGED_APP=""
+for candidate in "$SCRIPT_DIR/packaging/FableGear.app" "$SCRIPT_DIR/packaging/FABLEGEAR.app"; do
+  [ -d "$candidate" ] && PACKAGED_APP="$candidate" && break
+done
 
 mkdir -p "$HOME/Applications"
 
@@ -167,7 +173,7 @@ mkdir -p "$HOME/Applications"
 # "/bin/bash" alerts when the AppleScript do-shell-script wrapper fails.
 # The packaged .app already knows how to hand off to ~/FableGear/FableGear.
 rm -rf "$APP_DEST"
-if [ -d "$PACKAGED_APP" ]; then
+if [ -n "$PACKAGED_APP" ] && [ -d "$PACKAGED_APP" ]; then
   cp -R "$PACKAGED_APP" "$APP_DEST"
   chmod +x "$APP_DEST/Contents/MacOS/FableGear" 2>/dev/null || true
 else
@@ -196,6 +202,11 @@ if [ -d "$APP_DEST" ]; then
       -o "$APP_DEST/Contents/Resources/applet.icns" 2>/dev/null && \
       ok "Icon applied" || info "Icon apply skipped (iconutil unavailable)"
     rm -rf "$(dirname "$ICONSET")"
+    # Applet bundles ship an Assets.car whose compiled AppIcon outranks
+    # applet.icns in Finder/Dock — remove it so the custom icon wins, then
+    # touch the bundle so LaunchServices notices the change.
+    rm -f "$APP_DEST/Contents/Resources/Assets.car"
+    touch "$APP_DEST"
   fi
 
   info "Drag it to your Dock for one-click access."

@@ -21,6 +21,7 @@ import platform
 import psutil
 import signal
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -472,6 +473,26 @@ def api_update_apply():
     if pull.returncode != 0:
         err = (pull.stderr or pull.stdout or "").strip() or "git pull failed"
         return jsonify({"ok": False, "error": err}), 500
+
+    # Requirements may have changed with the release — reinstall before the
+    # relaunch (launch.sh no longer pulls or reinstalls on every open; this
+    # permission-gated path is now the only updater). Non-fatal: a pip
+    # hiccup shouldn't strand the user on a half-updated install.
+    for req_file in ("requirements_ui.txt", "requirements.txt"):
+        req_path = REPO_ROOT / req_file
+        if not req_path.exists():
+            continue
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--upgrade",
+                 "--quiet", "-r", str(req_path)],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                timeout=600,
+                check=False,
+            )
+        except Exception as exc:
+            app.logger.warning("update: pip install for %s failed — %s", req_file, exc)
 
     def _relaunch() -> None:
         import time
@@ -1074,6 +1095,10 @@ def api_onboarding_install_app():
                 capture_output=True, check=False,
             )
             shutil.rmtree(str(iconset_dir.parent), ignore_errors=True)
+            # The applet template ships an Assets.car whose compiled AppIcon
+            # outranks applet.icns — remove it so the custom icon wins.
+            (app_path / "Contents" / "Resources" / "Assets.car").unlink(missing_ok=True)
+            app_path.touch()
         except Exception:
             pass
 
@@ -1151,6 +1176,9 @@ def api_onboarding_save_config():
         "setup_complete": True,
         "db_read":  bool(data.get("db_read", True)),
         "db_write": bool(data.get("db_write", True)),
+        # Consent to scan connected drives/volumes for music-specific formats,
+        # granted (or declined) during onboarding — the only place that asks.
+        "drive_scan": bool(data.get("drive_scan", False)),
     }
     _FABLEGEAR_STATE.parent.mkdir(parents=True, exist_ok=True)
     _FABLEGEAR_STATE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
