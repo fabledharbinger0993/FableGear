@@ -22,7 +22,6 @@ PATCH_FILE="$STATE_DIR/patch.diff"
 AUTO_APPLY="${REKIT_AGENT_AUTO_APPLY:-0}"
 AUTO_COMMIT="${REKIT_AGENT_AUTO_COMMIT:-0}"
 AUTO_PUSH="${REKIT_AGENT_AUTO_PUSH:-0}"
-SYNC_PUBLIC="${REKIT_AGENT_SYNC_PUBLIC:-0}"
 PROMPT_PROFILE="${REKIT_AGENT_PROFILE:-default}"
 
 mkdir -p "$STATE_DIR"
@@ -217,9 +216,6 @@ commit_and_push_if_enabled() {
     log "auto-push disabled"
   fi
 
-  if [[ "$SYNC_PUBLIC" == "1" ]]; then
-    "$REPO_ROOT/scripts/sync_public_repo.sh" once
-  fi
 }
 
 run_once() {
@@ -303,7 +299,7 @@ show_status() {
   log "provider: ${REKIT_AGENT_PROVIDER:-ollama}"
   log "model: ${REKIT_AGENT_MODEL:-qwen2.5-coder:7b}"
   log "profile: $PROMPT_PROFILE"
-  log "auto_apply=$AUTO_APPLY auto_commit=$AUTO_COMMIT auto_push=$AUTO_PUSH sync_public=$SYNC_PUBLIC"
+  log "auto_apply=$AUTO_APPLY auto_commit=$AUTO_COMMIT auto_push=$AUTO_PUSH"
   log "state: $STATE_DIR"
   if [[ "$HAS_GIT" == "1" ]]; then
     log "git: enabled"
@@ -339,7 +335,6 @@ Environment flags:
   REKIT_AGENT_AUTO_APPLY=0|1
   REKIT_AGENT_AUTO_COMMIT=0|1
   REKIT_AGENT_AUTO_PUSH=0|1
-  REKIT_AGENT_SYNC_PUBLIC=0|1
 EOF
     exit 2
     ;;
