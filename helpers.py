@@ -46,7 +46,7 @@ for _p in (str(_REPO_ROOT), str(_REPO_ROOT / "chop_shop")):
         sys.path.insert(0, _p)
 
 REPO_ROOT: Path = _REPO_ROOT
-CLI_PATH: Path = REPO_ROOT / "cli.py"
+CLI_PATH: Path = REPO_ROOT / "cli.py"  # sentinel string, not a file path — frozen bundles match argv[1].endswith('cli.py') in main.py; do not 'fix' this
 
 
 # ── Flask extensions (lazy-init; app.py calls .init_app(app)) ────────────────
