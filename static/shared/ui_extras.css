@@ -97,6 +97,54 @@ body[data-theme="booth"] {
   --accent-rgb:    255, 90, 60;
   --accent2:       #e04a30;
   --accent2-dim:   rgba(224, 74, 48, 0.15);
+
+  /* Extended palette (mirrors the fablegear.css :root additions) —
+     every hue family red-shifted into the long-wavelength band. */
+  --text-bright:       #ffe9d6;
+  --text-rgb:          255, 217, 184;
+  --text-violet:       #ffd9c4;
+  --bg-deepest:        #080203;
+  --bg-deep:           #120607;
+  --surface-deep:      #1c0c0a;
+  --steel-rgb:         140, 95, 75;
+
+  --accent-bright:     #ff7a50;
+  --accent-bright-rgb: 255, 122, 80;
+  --accent-sky-rgb:    255, 122, 80;
+  --accent-deep:       #5c1a10;
+  --accent-deep-rgb:   180, 60, 30;
+  --accent-soft-rgb:   230, 130, 100;
+  --accent-muted-rgb:  212, 140, 109;
+  --accent-text-hi:    #ffe4cc;
+  --accent-text:       #ffc9a8;
+  --accent-text-dim:   #f0a880;
+  --accent2-rgb:       224, 74, 48;
+  --accent2-deep-rgb:  200, 66, 42;
+
+  --safe-rgb:          201, 122, 42;
+  --safe-bright:       #ffb060;
+  --safe-bright-rgb:   255, 176, 96;
+  --teal:              #f0935a;
+  --teal-rgb:          240, 147, 90;
+
+  --warn-rgb:          240, 154, 75;
+  --warn-bright:       #ffb054;
+  --warn-bright-rgb:   255, 176, 84;
+  --caution-rgb:       224, 138, 60;
+  --gold-rgb:          255, 170, 60;
+
+  --danger-rgb:        255, 68, 51;
+  --danger-bright:     #ff7a66;
+  --danger-bright-rgb: 255, 122, 102;
+
+  --info:              #e0a070;
+  --info-rgb:          224, 160, 112;
+  --info-bright:       #f0b890;
+  --info-bright-rgb:   240, 184, 144;
+
+  --holo-rgb:          230, 100, 60;
+  --holo-soft-rgb:     240, 150, 110;
+  --holo-text-rgb:     255, 200, 170;
 }
 body[data-theme="booth"] img,
 body[data-theme="booth"] video { filter: sepia(0.55) hue-rotate(-28deg) saturate(1.5) brightness(0.85); }
