@@ -173,6 +173,35 @@ def cmd_audit(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_usb_inspect(args: argparse.Namespace) -> None:
+    """Read-only inspection of a Pioneer export drive (dual-format check)."""
+    from usb_inspector import inspect_usb, NotAMountError
+
+    try:
+        report = inspect_usb(args.mount)
+    except NotAMountError as exc:
+        print(f"\u2717 {exc}", flush=True)
+        sys.exit(1)
+
+    def mark(ok):
+        return "\u2713" if ok else ("\u26a0" if ok is None else "\u2717")
+
+    print(f"USB inspection: {report.mount}", flush=True)
+    print(f"  PIONEER/ directory:  {mark(report.has_pioneer_dir)}", flush=True)
+    print(f"  DeviceSQL (CDJ-3000): {mark(report.devicesql.valid if report.devicesql.present else False)}  {report.devicesql.detail}", flush=True)
+    print(f"  OneLibrary (OMNIS):   {mark(report.onelibrary.valid if report.onelibrary.present else False)}  {report.onelibrary.detail}", flush=True)
+    print(f"  ANLZ analysis files:  {report.anlz_track_count:,} track(s)", flush=True)
+    if report.settings_files:
+        print(f"  Settings files:       {', '.join(Path(p).name for p in report.settings_files)}", flush=True)
+    for note in report.notes:
+        print(f"  note: {note}", flush=True)
+    verdict = ("DUAL-FORMAT \u2014 boots on both fleets" if report.dual_format
+               else "CDJ-3000 only" if report.cdj3000_ready
+               else "OneLibrary only" if report.onelibrary_ready
+               else "no readable device database")
+    print(f"  Verdict: {verdict}", flush=True)
+
+
 def cmd_dead_files(args: argparse.Namespace) -> None:
     """Find audio files on disk not referenced in any Rekordbox database."""
     from dead_file_scanner import scan_dead_files
@@ -1577,6 +1606,13 @@ Examples:
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
     # ── audit ──
+    p_usb = sub.add_parser(
+        "usb-inspect",
+        help="Read-only check of a Pioneer export drive (DeviceSQL + OneLibrary)",
+    )
+    p_usb.add_argument("mount", help="Mount point of the drive, e.g. /Volumes/GIGSTICK")
+    p_usb.set_defaults(func=cmd_usb_inspect)
+
     p_audit = sub.add_parser("audit", help="Read-only library health check")
     p_audit.add_argument(
         "--root",

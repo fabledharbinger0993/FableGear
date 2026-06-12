@@ -161,3 +161,58 @@ def test_dead_file_scan_skips_missing_db(flask_app, tmp_path):
 
     result = scan_dead_files([music], db_paths=[tmp_path / "nonexistent.db"])
     assert result is not None
+
+
+# ── USB inspector: dual-format detection ─────────────────────────────────────
+
+def _fake_stick(tmp_path, devicesql=True, onelibrary=True):
+    """Build a minimal fake Pioneer export tree."""
+    root = tmp_path / "stick"
+    (root / "PIONEER" / "rekordbox").mkdir(parents=True)
+    if devicesql:
+        # Plausible DeviceSQL header: 4 zero bytes, page=4096, tables=20
+        header = b"\x00" * 4 + (4096).to_bytes(4, "little") + (20).to_bytes(4, "little")
+        (root / "PIONEER" / "rekordbox" / "export.pdb").write_bytes(
+            header + b"\x00" * 4084
+        )
+    if onelibrary:
+        import sqlite3 as _sq
+        db = root / "PIONEER" / "rekordbox" / "exportLibrary.db"
+        con = _sq.connect(db)
+        con.execute("CREATE TABLE content (id INTEGER PRIMARY KEY, title TEXT)")
+        con.commit()
+        con.close()
+    anlz = root / "PIONEER" / "USBANLZ" / "P016" / "0000875E"
+    anlz.mkdir(parents=True)
+    (anlz / "ANLZ0000.DAT").write_bytes(b"PMAI" + b"\x00" * 60)
+    return root
+
+
+def test_usb_inspector_dual_format(flask_app, tmp_path):
+    from usb_inspector import inspect_usb  # noqa: PLC0415
+
+    report = inspect_usb(_fake_stick(tmp_path))
+    assert report.has_pioneer_dir
+    assert report.devicesql.valid is True
+    assert report.onelibrary.valid is True
+    assert report.anlz_track_count == 1
+    assert report.dual_format
+
+
+def test_usb_inspector_rejects_garbage_pdb(flask_app, tmp_path):
+    from usb_inspector import inspect_usb  # noqa: PLC0415
+
+    root = _fake_stick(tmp_path, devicesql=False, onelibrary=False)
+    (root / "PIONEER" / "rekordbox" / "export.pdb").write_bytes(b"NOTAPDB!" * 8)
+    report = inspect_usb(root)
+    assert report.devicesql.present
+    assert report.devicesql.valid is False
+    assert not report.cdj3000_ready
+
+
+def test_usb_inspector_not_a_mount(flask_app, tmp_path):
+    import pytest as _pt
+    from usb_inspector import inspect_usb, NotAMountError  # noqa: PLC0415
+
+    with _pt.raises(NotAMountError):
+        inspect_usb(tmp_path / "does-not-exist")
