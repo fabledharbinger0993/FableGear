@@ -1,0 +1,6 @@
+# Research captures are protected ground-truth — keep the committed ones,
+# but ignore new local experiment output so it isn't accidentally pushed.
+captures/*.pcap
+captures/*.txt
+!captures/20260506_053602_cdj_buttons.pcap
+!captures/20260506_053602_cdj_buttons.txt
