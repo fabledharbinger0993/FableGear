@@ -55,9 +55,29 @@ function openToolFloatModal(toolId) {
   const body = document.getElementById('tool-float-modal-body');
   if (body) body.appendChild(card);
 
+  // Spell out the "what is this?" help inline above the form when idle. When a
+  // tool is running we leave the explainers collapsed so the running tool's
+  // modal stays focused on progress.
+  const _tfmRunning = (typeof isRunning !== 'undefined' && isRunning);
+  const _tfmExpl = card.querySelector('.explainers');
+  if (_tfmExpl) {
+    _tfmExpl.classList.toggle('explainers-expanded', !_tfmRunning);
+    _tfmExpl.querySelectorAll('details').forEach(d => { d.open = !_tfmRunning; });
+  }
+  modal.classList.toggle('tfm-help-inline', !_tfmRunning);
+
   // Show modal + backdrop
   modal.style.display = 'flex';
   if (backdrop) backdrop.classList.add('active');
+
+  // In the Chop Shop the modal is docked (CSS-positioned). Drop any inline
+  // left/top/transform left over from a previous free-float drag so the
+  // docking rules take effect.
+  if (document.body.classList.contains('fg-space-chop')) {
+    modal.style.left = '';
+    modal.style.top = '';
+    modal.style.transform = '';
+  }
 
   // Sync scan bar state into modal footer
   _syncToolModalScanState();
@@ -114,6 +134,8 @@ function _initToolFloatModalDrag() {
 
   header.addEventListener('mousedown', (e) => {
     if (e.target.closest('button')) return;
+    // Docked in the Chop Shop — dragging is disabled there.
+    if (document.body.classList.contains('fg-space-chop')) return;
     dragging = true;
     const rect = modal.getBoundingClientRect();
     // Materialise explicit position, drop CSS transform centering
@@ -183,13 +205,55 @@ function _mirrorScanBarToModal() {
   if (spinner && tfmSpinner) tfmSpinner.classList.toggle('active', spinner.classList.contains('active'));
 }
 
-function openToolDrawer(stepId) {
-  // Redirect legacy calls to float modal
-  openToolFloatModal(stepId);
+/* ── Tool-icon dispatcher ────────────────────────────────────────────────────
+   Entry point for the prominent workflow-rail icons. Idle → open the single
+   morphing modal for the tool. If a tool is RUNNING and a *different* tool icon
+   is clicked, the running tool keeps the modal and the clicked tool's "what is
+   this?" help is surfaced in a read-only side panel instead. */
+function handleToolIconClick(toolId) {
+  const running = (typeof isRunning !== 'undefined' && isRunning);
+  if (running && _toolFloatActive && toolId !== _toolFloatActive) {
+    openToolHelpPanel(toolId);
+    return;
+  }
+  closeToolHelpPanel();
+  if (typeof openToolFloatModal === 'function') openToolFloatModal(toolId);
 }
 
-function closeToolDrawer() {
-  closeToolFloatModal();
+/* ── Running-tool "what is this?" side panel ──────────────────────────────────
+   Clones the clicked tool card's explainer text (read-only) so the user can
+   learn about another tool without interrupting the one that is running. */
+function openToolHelpPanel(toolId) {
+  const panel = document.getElementById('tool-help-panel');
+  const card  = document.getElementById(toolId);
+  if (!panel || !card) return;
+
+  const expl     = card.querySelector('.explainers');
+  const titleTxt = card.querySelector('.card-title')?.textContent?.trim()
+    || toolId.replace('step-', '').replace(/-/g, ' ');
+  const iconSrc  = card.querySelector('.card-icon img')?.src || '';
+
+  const thpIcon  = document.getElementById('thp-icon');
+  const thpTitle = document.getElementById('thp-title');
+  const thpBody  = document.getElementById('thp-body');
+  if (thpIcon)  { thpIcon.src = iconSrc; thpIcon.style.display = iconSrc ? '' : 'none'; }
+  if (thpTitle) thpTitle.textContent = titleTxt;
+  if (thpBody) {
+    thpBody.innerHTML = '';
+    if (expl) {
+      const clone = expl.cloneNode(true);
+      clone.classList.add('explainers-expanded');
+      clone.querySelectorAll('details').forEach(d => { d.open = true; });
+      thpBody.appendChild(clone);
+    } else {
+      thpBody.textContent = 'No description available for this tool.';
+    }
+  }
+  panel.classList.add('open');
+}
+
+function closeToolHelpPanel() {
+  document.getElementById('tool-help-panel')?.classList.remove('open');
 }
 
 function leSetStatus(label, count, totalCount) {
