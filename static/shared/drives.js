@@ -74,35 +74,80 @@ function _updateDrivesNavBadge(volumes) {
   badge.style.display = n > 0 ? 'inline-block' : 'none';
 }
 
+function _setDriveDropdownMessage(dropdown, text) {
+  const item = document.createElement('div');
+  item.className = 'folder-item folder-item-empty';
+  item.textContent = text;
+  dropdown.replaceChildren(item);
+}
+
+function _buildDriveDropdownItem(volume) {
+  const item = document.createElement('div');
+  item.className = 'folder-item drives-item';
+
+  const row = document.createElement('div');
+  row.className = 'drives-item-row';
+  row.addEventListener('click', () => openDriveInLibrary(volume.mountpoint));
+
+  const name = document.createElement('span');
+  name.className = 'drives-item-name';
+  name.textContent = volume.name || volume.mountpoint || 'Drive';
+  row.appendChild(name);
+
+  [
+    volume.has_pioneer_db ? ['drives-item-pill drives-pill-pioneer', 'Pioneer DB'] : null,
+    volume.is_music_root ? ['drives-item-pill drives-pill-root', 'Music Root'] : null,
+    volume.is_read_only ? ['drives-item-pill', 'Read-only'] : null,
+  ].filter(Boolean).forEach(([className, text]) => {
+    const pill = document.createElement('span');
+    pill.className = className;
+    pill.textContent = text;
+    row.appendChild(pill);
+  });
+
+  const meta = document.createElement('div');
+  meta.className = 'drives-item-meta';
+  const metaParts = [];
+  if (volume.free_gb != null && volume.total_gb != null) {
+    metaParts.push(`${volume.free_gb} GB free / ${volume.total_gb} GB`);
+  }
+  if (volume.fstype) metaParts.push(volume.fstype);
+  meta.textContent = metaParts.join(' ');
+
+  const actions = document.createElement('div');
+  actions.className = 'drives-item-actions';
+  [
+    ['drives-action-btn', 'Browse', 'Browse in file browser', () => openDriveInFileBrowser(volume.mountpoint)],
+    ['drives-action-btn', 'First Aid', 'Open Disk Utility for First Aid', () => openDriveFirstAid(volume.mountpoint)],
+    ['drives-action-btn drives-action-stage', '+ Queue', 'Add entire drive to Staging Queue', () => stagingAddPath(volume.mountpoint)],
+  ].forEach(([className, text, title, onClick]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = className;
+    button.title = title;
+    button.textContent = text;
+    button.addEventListener('click', onClick);
+    actions.appendChild(button);
+  });
+
+  item.append(row, meta, actions);
+  return item;
+}
+
 function loadDrivesDropdown(dropdown) {
-  dropdown.innerHTML = '<div class="folder-item folder-item-empty">Scanning…</div>';
+  _setDriveDropdownMessage(dropdown, 'Scanning…');
   fetch('/api/status')
     .then(r => r.json())
     .then(data => {
       const vols = data.volumes || [];
       if (vols.length === 0) {
-        dropdown.innerHTML = '<div class="folder-item folder-item-empty">No external drives mounted</div>';
+        _setDriveDropdownMessage(dropdown, 'No external drives mounted');
         return;
       }
-      dropdown.innerHTML = vols.map(v => `
-        <div class="folder-item drives-item">
-          <div class="drives-item-row" onclick="openDriveInLibrary('${v.mountpoint}')">
-            <span class="drives-item-name">${v.name}</span>
-            ${v.has_pioneer_db ? '<span class="drives-item-pill drives-pill-pioneer">Pioneer DB</span>' : ''}
-            ${v.is_music_root  ? '<span class="drives-item-pill drives-pill-root">Music Root</span>' : ''}
-            ${v.is_read_only   ? '<span class="drives-item-pill">Read-only</span>' : ''}
-          </div>
-          <div class="drives-item-meta">${v.free_gb != null ? v.free_gb + ' GB free / ' + v.total_gb + ' GB' : ''} &nbsp; ${v.fstype || ''}</div>
-          <div class="drives-item-actions">
-            <button type="button" class="drives-action-btn" onclick="openDriveInFileBrowser('${v.mountpoint}')" title="Browse in file browser">Browse</button>
-            <button type="button" class="drives-action-btn" onclick="openDriveFirstAid('${v.mountpoint}')" title="Open Disk Utility for First Aid">First Aid</button>
-            <button type="button" class="drives-action-btn drives-action-stage" onclick="stagingAddPath('${v.mountpoint}')" title="Add entire drive to Staging Queue">+ Queue</button>
-          </div>
-        </div>
-      `).join('');
+      dropdown.replaceChildren(...vols.map(_buildDriveDropdownItem));
     })
     .catch(() => {
-      dropdown.innerHTML = '<div class="folder-item folder-item-empty">Could not load drives</div>';
+      _setDriveDropdownMessage(dropdown, 'Could not load drives');
     });
 }
 
@@ -226,20 +271,60 @@ function initDriveList() {
         if (document.activeElement === _driveFlyoutTrigger || list.contains(document.activeElement)) list.focus();
         return;
       }
-      list.innerHTML = vols.map(v => `
-        <div class="lp-drives-item" role="button" tabindex="0"
-             onclick="openDriveInFileBrowser('${_escPath(v.mountpoint)}')"
-             onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openDriveInFileBrowser('${_escPath(v.mountpoint)}'); }">
-          <span class="lp-drives-name">${_esc(v.name)}</span>
-          ${v.has_pioneer_db ? '<span class="lp-drives-badge">Pioneer</span>' : ''}
-          ${v.is_read_only ? '<span class="lp-drives-badge">Read-only</span>' : ''}
-          ${v.free_gb != null ? `<span class="lp-drives-meta">${v.free_gb}/${v.total_gb} GB</span>` : ''}
-          <button type="button" class="le-stage-btn" title="Open Disk Utility First Aid" aria-label="Open Disk Utility First Aid"
-                  onclick="event.stopPropagation(); openDriveFirstAid('${_escAttr(v.mountpoint)}')">🩺</button>
-          <button type="button" class="le-stage-btn" title="Stage drive for Chop Shop"
-                  onclick="event.stopPropagation(); stagingAddPath('${_escAttr(v.mountpoint)}')">+Q</button>
-        </div>
-      `).join('');
+      list.replaceChildren(...vols.map(v => {
+        const item = document.createElement('div');
+        item.className = 'lp-drives-item';
+        item.setAttribute('role', 'button');
+        item.tabIndex = 0;
+        item.addEventListener('click', () => openDriveInFileBrowser(v.mountpoint));
+        item.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openDriveInFileBrowser(v.mountpoint);
+          }
+        });
+
+        const name = document.createElement('span');
+        name.className = 'lp-drives-name';
+        name.textContent = v.name || v.mountpoint || 'Drive';
+        item.appendChild(name);
+
+        [
+          v.has_pioneer_db ? 'Pioneer' : null,
+          v.is_read_only ? 'Read-only' : null,
+        ].filter(Boolean).forEach(text => {
+          const badge = document.createElement('span');
+          badge.className = 'lp-drives-badge';
+          badge.textContent = text;
+          item.appendChild(badge);
+        });
+
+        if (v.free_gb != null && v.total_gb != null) {
+          const meta = document.createElement('span');
+          meta.className = 'lp-drives-meta';
+          meta.textContent = `${v.free_gb}/${v.total_gb} GB`;
+          item.appendChild(meta);
+        }
+
+        [
+          ['Open Disk Utility First Aid', '🩺', () => openDriveFirstAid(v.mountpoint)],
+          ['Stage drive for Chop Shop', '+Q', () => stagingAddPath(v.mountpoint)],
+        ].forEach(([title, text, onClick]) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'le-stage-btn';
+          button.title = title;
+          button.setAttribute('aria-label', title);
+          button.textContent = text;
+          button.addEventListener('click', event => {
+            event.stopPropagation();
+            onClick();
+          });
+          item.appendChild(button);
+        });
+
+        return item;
+      }));
       _maybeFocusDriveFlyout(list);
     })
     .catch(() => {

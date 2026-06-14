@@ -316,6 +316,15 @@ function _leSourceLocationForPath(path) {
   return { key: parts.length ? `/${parts[0]}` : '/', label: parts[0] || '/' };
 }
 
+function _leNormalizePath(path) {
+  // Normalize separators, trim trailing slashes, and compare case-insensitively
+  // so source roots match consistently across mounted-volume path variants.
+  const text = String(path || '').trim().replace(/[\\/]+/g, '/');
+  if (!text) return '';
+  if (text === '/') return '/';
+  return text.replace(/\/+$/, '').toLowerCase();
+}
+
 function leRenderSourceLocations() {
   const container = document.getElementById('le-source-location-tree');
   if (!container) return;
@@ -327,18 +336,31 @@ function leRenderSourceLocations() {
     grouped.set(info.key, row);
   });
   const rows = [...grouped.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-  container.innerHTML = rows.map(row => `
-    <button type="button" class="le-tree-item" data-source-key="${_escAttr(row.key)}"
-            data-source-label="${_escAttr(row.label)}">
-      <span class="le-tree-icon">💿</span>
-      <span class="le-tree-label">${_leEsc(row.label)}</span>
-      <span class="le-tree-count">${row.count}</span>
-    </button>
-  `).join('');
-  container.querySelectorAll('.le-tree-item').forEach(btn => {
+  container.replaceChildren();
+  rows.forEach(row => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'le-tree-item';
+    btn.dataset.sourceKey = row.key;
+    btn.dataset.sourceLabel = row.label;
+
+    const icon = document.createElement('span');
+    icon.className = 'le-tree-icon';
+    icon.textContent = '💿';
+
+    const label = document.createElement('span');
+    label.className = 'le-tree-label';
+    label.textContent = row.label;
+
+    const count = document.createElement('span');
+    count.className = 'le-tree-count';
+    count.textContent = row.count;
+
+    btn.append(icon, label, count);
     btn.addEventListener('click', () => {
       leSelectSourceLocation(btn.dataset.sourceKey || '', btn.dataset.sourceLabel || '', btn);
     });
+    container.appendChild(btn);
   });
 }
 
@@ -349,9 +371,12 @@ function leSelectSourceLocation(sourceKey, label, buttonEl) {
   _leActivePlaylistId = null;
   _leActivePlaylistName = '';
   leSetActiveTreeItem(buttonEl);
+  const normalizedSourceKey = _leNormalizePath(sourceKey);
   leSetTrackView(_leAllTracks.filter(t => {
-    const path = String(t.file_path || '');
-    return path === sourceKey || path.startsWith(sourceKey + '/') || path.startsWith(sourceKey + '\\');
+    if (!normalizedSourceKey) return false;
+    const normalizedPath = _leNormalizePath(t.file_path);
+    if (normalizedSourceKey === '/') return normalizedPath.startsWith('/');
+    return normalizedPath === normalizedSourceKey || normalizedPath.startsWith(`${normalizedSourceKey}/`);
   }), `Source - ${label}`);
   leUpdateActionState();
 }

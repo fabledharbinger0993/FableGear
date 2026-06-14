@@ -324,7 +324,7 @@ def api_config():
     from helpers import _current_fablegear_mode, _backup_dir  # noqa: PLC0415
     try:
         from config import (  # noqa: PLC0415
-            BACKUP_DIR, DJMT_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
+            BACKUP_DIR, DJMT_DB, MUSIC_ROOT, ARCHIVE_ROOT, QUARANTINE_DIR, REPORTS_DIR,
             ARCHIVE_ENABLED, _archive_mode, _custom_archive,
         )
         from user_config import load_user_config as _luc  # noqa: PLC0415
@@ -963,6 +963,12 @@ def api_drives_apply_fix():
 @app.route("/api/drives/first-aid", methods=["POST"])
 def api_drives_first_aid():
     """Open Disk Utility for a mounted drive so the user can run First Aid."""
+    if _SYSTEM != "Darwin":
+        return jsonify({
+            "ok": False,
+            "error": "Disk Utility First Aid is only available on macOS.",
+        }), 400
+
     data = request.get_json(silent=True) or {}
     mountpoint = str(data.get("mountpoint", "")).strip()
     if not mountpoint:
