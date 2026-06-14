@@ -74,6 +74,8 @@ _WIZARD_DEFAULTS: dict = {
     "backup_dir": str(CONFIG_DIR / "backups"),
 }
 
+_AUDIO_EXTS = {".mp3", ".flac", ".aif", ".aiff", ".wav", ".m4a", ".ogg"}
+
 # Human-readable labels for each key, used in setup prompts and error messages
 KEY_LABELS: Dict[str, str] = {
     "local_db":      "Rekordbox local database",
@@ -217,6 +219,54 @@ def save_user_config(cfg: dict) -> None:
         except OSError:
             pass
         raise
+
+
+def archive_root_for_music_root(music_root: str | Path) -> Path:
+    """Return the default FableGear Archive root for a chosen music root."""
+    root = Path(music_root)
+    parent = root.parent
+    if parent == Path("/Volumes") or parent == Path("/"):
+        return root / "FableGear Archive"
+    return parent / "FableGear Archive"
+
+
+def count_audio_files(root: Path, *, max_depth: int | None = None) -> int:
+    """Count audio files under *root*, optionally depth-limited."""
+    total = 0
+    try:
+        for walk_root, dirs, files in os.walk(root):
+            depth = walk_root.replace(str(root), "").count(os.sep)
+            if max_depth is not None and depth > max_depth:
+                dirs.clear()
+                continue
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            total += sum(1 for fname in files if Path(fname).suffix.lower() in _AUDIO_EXTS)
+    except (PermissionError, OSError):
+        return total
+    return total
+
+
+def discover_music_roots(mounts: list[Path], *, min_audio_files: int = 5) -> list[dict]:
+    """Describe mounted drives that appear to contain music libraries."""
+    results: list[dict] = []
+    for mount in mounts:
+        audio_count = count_audio_files(mount)
+        if audio_count < min_audio_files:
+            continue
+        archive_root = archive_root_for_music_root(mount)
+        results.append({
+            "path": str(mount),
+            "label": f"Music on {mount.name}",
+            "volume": mount.name,
+            "audio_count": audio_count,
+            "recommended_archive_root": str(archive_root),
+            "recommended_backup_dir": str(archive_root / "Savepoints"),
+            "recommended_db_root": str(mount),
+        })
+    results.sort(key=lambda item: (-item["audio_count"], item["volume"].lower()))
+    if results:
+        results[0]["recommended_home"] = True
+    return results
 
 
 # ─── Dependency validation ────────────────────────────────────────────────────
@@ -620,10 +670,8 @@ def scan_for_rekordbox_assets() -> dict:
                 if p.is_dir():
                     mounts.append(p)
 
-    audio_exts = {".mp3", ".flac", ".aif", ".aiff", ".wav", ".m4a", ".ogg"}
     device_dbs: list[dict] = []
     xml_files: list[dict] = []
-    music_roots: list[dict] = []
     seen_xml_paths: set[str] = set()
 
     for mount in mounts:
@@ -668,34 +716,11 @@ def scan_for_rekordbox_assets() -> dict:
         except (PermissionError, OSError):
             pass
 
-        # Music root heuristic — at least 5 audio files in the first 3 levels
-        audio_count = 0
-        try:
-            for root, dirs, files in _os.walk(mount):
-                depth = root.replace(str(mount), "").count(_os.sep)
-                if depth > 3:
-                    dirs.clear()
-                    continue
-                dirs[:] = [d for d in dirs if not d.startswith(".")]
-                for fname in files:
-                    if Path(fname).suffix.lower() in audio_exts:
-                        audio_count += 1
-                        if audio_count >= 5:
-                            break
-                if audio_count >= 5:
-                    break
-        except (PermissionError, OSError):
-            pass
-
-        if audio_count >= 5:
-            music_roots.append({
-                "path": str(mount),
-                "label": f"Music on {mount.name}",
-                "volume": mount.name,
-            })
-
     results["device_dbs"] = sorted(device_dbs, key=lambda x: -x["mtime"])
     results["xml_files"] = sorted(xml_files, key=lambda x: -x.get("mtime", 0))
-    results["music_roots"] = music_roots
+    results["music_roots"] = discover_music_roots(mounts)
+    results["recommended_music_root"] = (
+        results["music_roots"][0]["path"] if results["music_roots"] else ""
+    )
 
     return results
