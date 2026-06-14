@@ -90,10 +90,12 @@ function loadDrivesDropdown(dropdown) {
             <span class="drives-item-name">${v.name}</span>
             ${v.has_pioneer_db ? '<span class="drives-item-pill drives-pill-pioneer">Pioneer DB</span>' : ''}
             ${v.is_music_root  ? '<span class="drives-item-pill drives-pill-root">Music Root</span>' : ''}
+            ${v.is_read_only   ? '<span class="drives-item-pill">Read-only</span>' : ''}
           </div>
           <div class="drives-item-meta">${v.free_gb != null ? v.free_gb + ' GB free / ' + v.total_gb + ' GB' : ''} &nbsp; ${v.fstype || ''}</div>
           <div class="drives-item-actions">
             <button type="button" class="drives-action-btn" onclick="openDriveInFileBrowser('${v.mountpoint}')" title="Browse in file browser">Browse</button>
+            <button type="button" class="drives-action-btn" onclick="openDriveFirstAid('${v.mountpoint}')" title="Open Disk Utility for First Aid">First Aid</button>
             <button type="button" class="drives-action-btn drives-action-stage" onclick="stagingAddPath('${v.mountpoint}')" title="Add entire drive to Staging Queue">+ Queue</button>
           </div>
         </div>
@@ -230,7 +232,10 @@ function initDriveList() {
              onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openDriveInFileBrowser('${_escPath(v.mountpoint)}'); }">
           <span class="lp-drives-name">${_esc(v.name)}</span>
           ${v.has_pioneer_db ? '<span class="lp-drives-badge">Pioneer</span>' : ''}
+          ${v.is_read_only ? '<span class="lp-drives-badge">Read-only</span>' : ''}
           ${v.free_gb != null ? `<span class="lp-drives-meta">${v.free_gb}/${v.total_gb} GB</span>` : ''}
+          <button type="button" class="le-stage-btn" title="Open Disk Utility First Aid"
+                  onclick="event.stopPropagation(); openDriveFirstAid('${_escAttr(v.mountpoint)}')">🩺</button>
           <button type="button" class="le-stage-btn" title="Stage drive for Chop Shop"
                   onclick="event.stopPropagation(); stagingAddPath('${_escAttr(v.mountpoint)}')">+Q</button>
         </div>
@@ -262,4 +267,17 @@ function openDriveInFileBrowser(mountpoint) {
       if (typeof toggleFileBrowser === 'function') toggleFileBrowser();
     }
   }
+}
+
+function openDriveFirstAid(mountpoint) {
+  fetch('/api/drives/first-aid', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mountpoint })
+  })
+    .then(r => r.json())
+    .then(data => {
+      showToast(data.ok ? (data.message || 'Disk Utility opened.') : (data.error || 'Could not open Disk Utility.'), data.ok ? 'success' : 'error');
+    })
+    .catch(() => showToast('Could not open Disk Utility.', 'error'));
 }
