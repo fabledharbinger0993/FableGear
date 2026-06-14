@@ -108,7 +108,9 @@ function _buildDriveDropdownItem(volume) {
   const meta = document.createElement('div');
   meta.className = 'drives-item-meta';
   const metaParts = [];
-  if (volume.free_gb != null) metaParts.push(`${volume.free_gb} GB free / ${volume.total_gb} GB`);
+  if (volume.free_gb != null && volume.total_gb != null) {
+    metaParts.push(`${volume.free_gb} GB free / ${volume.total_gb} GB`);
+  }
   if (volume.fstype) metaParts.push(volume.fstype);
   meta.textContent = metaParts.join(' ');
 
@@ -297,7 +299,7 @@ function initDriveList() {
           item.appendChild(badge);
         });
 
-        if (v.free_gb != null) {
+        if (v.free_gb != null && v.total_gb != null) {
           const meta = document.createElement('span');
           meta.className = 'lp-drives-meta';
           meta.textContent = `${v.free_gb}/${v.total_gb} GB`;

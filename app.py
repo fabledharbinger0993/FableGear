@@ -967,7 +967,7 @@ def api_drives_first_aid():
         return jsonify({
             "ok": False,
             "error": "Disk Utility First Aid is only available on macOS.",
-        }), 501
+        }), 400
 
     data = request.get_json(silent=True) or {}
     mountpoint = str(data.get("mountpoint", "")).strip()
