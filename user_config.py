@@ -743,7 +743,7 @@ def scan_for_rekordbox_assets() -> dict:
                 "audio_count": audio_count,
                 "archive_root": str(archive_root_for_music_root(chosen_root)),
                 "backup_dir": str(archive_root_for_music_root(chosen_root) / "Savepoints"),
-                "read_only": not os.access(chosen_root, os.W_OK),
+                "read_only": not _os.access(chosen_root, _os.W_OK),
             })
 
     results["device_dbs"] = sorted(device_dbs, key=lambda x: -x["mtime"])
