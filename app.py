@@ -963,6 +963,12 @@ def api_drives_apply_fix():
 @app.route("/api/drives/first-aid", methods=["POST"])
 def api_drives_first_aid():
     """Open Disk Utility for a mounted drive so the user can run First Aid."""
+    if _SYSTEM != "Darwin":
+        return jsonify({
+            "ok": False,
+            "error": "Disk Utility First Aid is only available on macOS.",
+        }), 501
+
     data = request.get_json(silent=True) or {}
     mountpoint = str(data.get("mountpoint", "")).strip()
     if not mountpoint:

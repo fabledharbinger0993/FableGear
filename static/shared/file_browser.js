@@ -53,6 +53,21 @@ function closeRightNavDropdown() {
   _activeDropdown = null;
 }
 
+function _dropdownMessage(dropdown, className, text) {
+  const item = document.createElement('div');
+  item.className = className;
+  item.textContent = text;
+  dropdown.replaceChildren(item);
+}
+
+function _makeDropdownIcon(src) {
+  const img = document.createElement('img');
+  img.src = src;
+  img.className = 'folder-item-icon';
+  img.alt = '';
+  return img;
+}
+
 // Click outside to close dropdown
 document.addEventListener('click', (e) => {
   if (!_activeDropdown) return;
@@ -69,22 +84,25 @@ document.addEventListener('click', (e) => {
 });
 
 function loadLibraryFolders(dropdown) {
-  dropdown.innerHTML = '<div class="folder-item folder-item-loading">Loading…</div>';
+  _dropdownMessage(dropdown, 'folder-item folder-item-loading', 'Loading…');
   fetch('/api/library/playlists')
     .then(r => r.json())
     .then(items => {
       // API already returns only root-level items in tree order
       const roots = Array.isArray(items) ? items : [];
       if (!roots.length) {
-        dropdown.innerHTML = '<div class="folder-item folder-item-empty">No playlists found</div>';
+        _dropdownMessage(dropdown, 'folder-item folder-item-empty', 'No playlists found');
         return;
       }
-      dropdown.innerHTML = '';
+      dropdown.replaceChildren();
       roots.forEach(p => {
         const icon = p.type === 'folder' ? '/static/icon-folder.png' : '/static/icon-fg-library.png';
         const div = document.createElement('div');
         div.className = 'folder-item';
-        div.innerHTML = `<img src="${icon}" class="folder-item-icon" alt=""><span>${_esc(p.name)}</span>`;
+        div.appendChild(_makeDropdownIcon(icon));
+        const name = document.createElement('span');
+        name.textContent = p.name || '';
+        div.appendChild(name);
         if (p.track_count) {
           const cnt = document.createElement('span');
           cnt.className = 'folder-item-count';
@@ -95,37 +113,60 @@ function loadLibraryFolders(dropdown) {
       });
     })
     .catch(() => {
-      dropdown.innerHTML = '<div class="folder-item folder-item-empty">Could not load library</div>';
+      _dropdownMessage(dropdown, 'folder-item folder-item-empty', 'Could not load library');
     });
 }
 
+function _appendFileBrowserShortcut(dropdown, label) {
+  const item = document.createElement('div');
+  item.className = 'folder-item';
+  item.appendChild(_makeDropdownIcon('/static/icon-fg-files.png'));
+  const span = document.createElement('span');
+  span.textContent = label;
+  item.appendChild(span);
+  item.addEventListener('click', () => {
+    toggleFileBrowser();
+    closeRightNavDropdown();
+  });
+  dropdown.appendChild(item);
+}
+
 function loadFileBrowserFolders(dropdown) {
-  dropdown.innerHTML = '<div class="folder-item folder-item-loading">Scanning drives…</div>';
+  _dropdownMessage(dropdown, 'folder-item folder-item-loading', 'Scanning drives…');
   fetch('/api/status')
     .then(r => r.json())
     .then(data => {
       const vols = data.volumes || [];
-      const rows = vols.map(v => `
-        <div class="folder-item" onclick="fbNavigateTo('${v.mountpoint}'); closeRightNavDropdown();">
-          <img src="/static/icon-folder.png" class="folder-item-icon" alt="">
-          <span>${v.name}</span>
-          ${v.has_pioneer_db ? '<span class="drives-item-pill drives-pill-pioneer" style="font-size:10px;margin-left:4px">Pioneer</span>' : ''}
-        </div>
-      `).join('');
-      dropdown.innerHTML = rows + `
-        <div class="folder-item" onclick="toggleFileBrowser(); closeRightNavDropdown();">
-          <img src="/static/icon-fg-files.png" class="folder-item-icon" alt="">
-          <span>Open file browser…</span>
-        </div>
-      `;
+      dropdown.replaceChildren();
+      vols.forEach(v => {
+        const item = document.createElement('div');
+        item.className = 'folder-item';
+        item.appendChild(_makeDropdownIcon('/static/icon-folder.png'));
+
+        const name = document.createElement('span');
+        name.textContent = v.name || v.mountpoint || 'Drive';
+        item.appendChild(name);
+
+        if (v.has_pioneer_db) {
+          const badge = document.createElement('span');
+          badge.className = 'drives-item-pill drives-pill-pioneer';
+          badge.style.fontSize = '10px';
+          badge.style.marginLeft = '4px';
+          badge.textContent = 'Pioneer';
+          item.appendChild(badge);
+        }
+
+        item.addEventListener('click', () => {
+          fbNavigateTo(v.mountpoint);
+          closeRightNavDropdown();
+        });
+        dropdown.appendChild(item);
+      });
+      _appendFileBrowserShortcut(dropdown, 'Open file browser…');
     })
     .catch(() => {
-      dropdown.innerHTML = `
-        <div class="folder-item" onclick="toggleFileBrowser(); closeRightNavDropdown();">
-          <img src="/static/icon-fg-files.png" class="folder-item-icon" alt="">
-          <span>Open file browser</span>
-        </div>
-      `;
+      dropdown.replaceChildren();
+      _appendFileBrowserShortcut(dropdown, 'Open file browser');
     });
 }
 
@@ -221,4 +262,3 @@ function fbUp() {
 }
 
 function fbHome() { fbNavigateTo(''); }
-

@@ -25,7 +25,7 @@ if sys.version_info < (3, 11):
 
 
 try:
-    from user_config import NotConfiguredError, load_user_config
+    from user_config import NotConfiguredError, archive_root_for_music_root, load_user_config
     _cfg = load_user_config()
 except NotConfiguredError as _exc:
     raise RuntimeError(str(_exc)) from _exc
@@ -71,15 +71,7 @@ ARCHIVE_ENABLED: bool = _archive_mode != "none"
 if _archive_mode == "custom" and _custom_archive:
     ARCHIVE_ROOT = Path(_custom_archive)
 else:
-    # Place the archive beside the music folder on the same drive.
-    # If music_root IS the drive root (e.g. /Volumes/Passport), then .parent is
-    # /Volumes — a macOS mount-point container, not a real drive — so put the
-    # archive *inside* the drive instead of at /Volumes/FableGear Archive.
-    _music_parent = MUSIC_ROOT.parent
-    if _music_parent == Path("/Volumes") or _music_parent == Path("/"):
-        ARCHIVE_ROOT = MUSIC_ROOT / "FableGear Archive"
-    else:
-        ARCHIVE_ROOT = _music_parent / "FableGear Archive"
+    ARCHIVE_ROOT = archive_root_for_music_root(MUSIC_ROOT)
 
 SAVEPOINTS_DIR = ARCHIVE_ROOT / "Savepoints"
 QUARANTINE_DIR = ARCHIVE_ROOT / "Quarantine"
