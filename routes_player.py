@@ -373,7 +373,7 @@ def api_library_fs_browse():
                 })
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
-        volumes.sort(key=lambda item: (-int(item.get("audio_estimate", 0)), item["name"].lower()))
+        volumes.sort(key=lambda item: (-int(item.get("audio_estimate", 0)), item.get("name", "").lower()))
 
         if recursive:
             total_tracks = sum(int(v.get("audio_estimate", 0)) for v in volumes)
@@ -991,5 +991,4 @@ def api_library_export_status(job_id):
     if job is None:
         return jsonify({"error": "Job not found"}), 404
     return jsonify(job)
-
 

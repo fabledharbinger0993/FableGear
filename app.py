@@ -390,18 +390,23 @@ def api_settings():
         import json as _json
         data = request.get_json(force=True) or {}
         cfg = load_user_config()
-        archive_mode = str(data.get("archive_mode", cfg.get("archive_mode", "auto"))).strip() or "auto"
+        raw_archive_mode = data.get("archive_mode")
+        archive_mode = str(
+            raw_archive_mode if raw_archive_mode not in (None, "") else cfg.get("archive_mode", "auto")
+        ).strip() or "auto"
         if archive_mode not in {"auto", "custom", "none"}:
-            return jsonify({"ok": False, "error": "Invalid archive mode"}), 400
+            return jsonify({"ok": False, "error": "Invalid archive mode. Must be one of: auto, custom, none"}), 400
         custom_archive_dir = str(data.get("custom_archive_dir", cfg.get("custom_archive_dir", ""))).strip()
         if archive_mode == "custom" and not custom_archive_dir:
-            return jsonify({"ok": False, "error": "Custom archive path required"}), 400
+            return jsonify({"ok": False, "error": "Custom archive path cannot be empty when archive_mode is custom"}), 400
         cfg["archive_mode"] = archive_mode
         cfg["custom_archive_dir"] = custom_archive_dir if archive_mode == "custom" else ""
         if archive_mode == "auto" and str(cfg.get("music_root", "")).strip():
             cfg["backup_dir"] = str(archive_root_for_music_root(cfg["music_root"]) / "Savepoints")
         elif archive_mode == "custom":
             cfg["backup_dir"] = str(Path(custom_archive_dir) / "Savepoints")
+        else:
+            cfg["backup_dir"] = str(cfg.get("backup_dir", "")).strip() or str(Path.home() / ".fablegear" / "backups")
         if "excluded_dirs" in data:
             cfg["excluded_dirs"] = [d for d in data["excluded_dirs"] if isinstance(d, str) and d.strip()]
         if "mode" in data and data["mode"] in ("rural", "suburban"):
@@ -1150,10 +1155,10 @@ def api_onboarding_save_config():
 
     archive_mode = str(data.get("archive_mode", "auto")).strip() or "auto"
     if archive_mode not in {"auto", "custom", "none"}:
-        return jsonify({"error": "Invalid archive mode"}), 400
+        return jsonify({"error": "Invalid archive mode. Must be one of: auto, custom, none"}), 400
     custom_archive_dir = str(data.get("custom_archive_dir", "")).strip()
     if archive_mode == "custom" and not custom_archive_dir:
-        return jsonify({"error": "Custom archive path required"}), 400
+        return jsonify({"error": "Custom archive path cannot be empty when archive_mode is custom"}), 400
     backup_dir = str(data.get("backup_dir", "")).strip()
     if not backup_dir:
         if archive_mode == "custom":
