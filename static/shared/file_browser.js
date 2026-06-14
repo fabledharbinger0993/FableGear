@@ -101,7 +101,7 @@ function loadLibraryFolders(dropdown) {
         div.className = 'folder-item';
         div.appendChild(_makeDropdownIcon(icon));
         const name = document.createElement('span');
-        name.textContent = p.name || '(unnamed)';
+        name.textContent = p.name || 'Playlist';
         div.appendChild(name);
         if (p.track_count) {
           const cnt = document.createElement('span');

@@ -107,7 +107,10 @@ function _buildDriveDropdownItem(volume) {
 
   const meta = document.createElement('div');
   meta.className = 'drives-item-meta';
-  meta.textContent = volume.free_gb != null ? `${volume.free_gb} GB free / ${volume.total_gb} GB ${volume.fstype || ''}`.trim() : (volume.fstype || '');
+  const metaParts = [];
+  if (volume.free_gb != null) metaParts.push(`${volume.free_gb} GB free / ${volume.total_gb} GB`);
+  if (volume.fstype) metaParts.push(volume.fstype);
+  meta.textContent = metaParts.join(' ');
 
   const actions = document.createElement('div');
   actions.className = 'drives-item-actions';
@@ -302,14 +305,14 @@ function initDriveList() {
         }
 
         [
-          ['Open Disk Utility First Aid', 'Open Disk Utility First Aid', '🩺', () => openDriveFirstAid(v.mountpoint)],
-          ['Stage drive for Chop Shop', 'Stage drive for Chop Shop', '+Q', () => stagingAddPath(v.mountpoint)],
-        ].forEach(([title, ariaLabel, text, onClick]) => {
+          ['Open Disk Utility First Aid', '🩺', () => openDriveFirstAid(v.mountpoint)],
+          ['Stage drive for Chop Shop', '+Q', () => stagingAddPath(v.mountpoint)],
+        ].forEach(([title, text, onClick]) => {
           const button = document.createElement('button');
           button.type = 'button';
           button.className = 'le-stage-btn';
           button.title = title;
-          if (ariaLabel) button.setAttribute('aria-label', ariaLabel);
+          button.setAttribute('aria-label', title);
           button.textContent = text;
           button.addEventListener('click', event => {
             event.stopPropagation();

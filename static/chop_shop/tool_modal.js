@@ -316,7 +316,7 @@ function _leSourceLocationForPath(path) {
   return { key: parts.length ? `/${parts[0]}` : '/', label: parts[0] || '/' };
 }
 
-function _leNormalizePathPrefix(path) {
+function _leNormalizePath(path) {
   // Normalize separators, trim trailing slashes, and compare case-insensitively
   // so source roots match consistently across mounted-volume path variants.
   const text = String(path || '').trim().replace(/[\\/]+/g, '/');
@@ -371,10 +371,11 @@ function leSelectSourceLocation(sourceKey, label, buttonEl) {
   _leActivePlaylistId = null;
   _leActivePlaylistName = '';
   leSetActiveTreeItem(buttonEl);
-  const normalizedSourceKey = _leNormalizePathPrefix(sourceKey);
+  const normalizedSourceKey = _leNormalizePath(sourceKey);
   leSetTrackView(_leAllTracks.filter(t => {
     if (!normalizedSourceKey) return false;
-    const normalizedPath = _leNormalizePathPrefix(t.file_path);
+    const normalizedPath = _leNormalizePath(t.file_path);
+    if (normalizedSourceKey === '/') return normalizedPath.startsWith('/');
     return normalizedPath === normalizedSourceKey || normalizedPath.startsWith(`${normalizedSourceKey}/`);
   }), `Source - ${label}`);
   leUpdateActionState();
