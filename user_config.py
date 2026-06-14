@@ -250,7 +250,7 @@ def discover_music_roots(mounts: list[Path], *, min_audio_files: int = 5) -> lis
     """Describe mounted drives that appear to contain music libraries."""
     results: list[dict] = []
     for mount in mounts:
-        audio_count = count_audio_files(mount)
+        audio_count = count_audio_files(mount, max_depth=8)
         if audio_count < min_audio_files:
             continue
         archive_root = archive_root_for_music_root(mount)
