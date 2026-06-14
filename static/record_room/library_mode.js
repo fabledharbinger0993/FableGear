@@ -122,20 +122,29 @@ async function leFsBrowse(path) {
       trackList.innerHTML = '<div class="le-empty-state"><div class="le-empty-music-icon">💿</div><div>No external drives found</div></div>';
       return;
     }
-    trackList.innerHTML = '<div class="le-vol-grid">' + vols.map(v => {
+    const cards = '<div class="le-vol-grid">' + vols.map(v => {
       const pioneer = v.has_pioneer_db ? '<span class="le-vol-badge le-vol-badge--pioneer" title="Pioneer DB found">Pioneer DB</span>' : '';
       const freeStr = v.free_gb != null ? `${v.free_gb} GB free` : '';
       const totalStr = v.total_gb != null ? `/ ${v.total_gb} GB` : '';
-      const countStr = v.audio_estimate > 0 ? `${v.audio_estimate}+ audio files` : 'No audio at root';
+      const rec = v.recommended_home ? '<span class="le-vol-badge" title="Largest detected library">Recommended</span>' : '';
+      const countStr = v.audio_estimate > 0 ? `${v.audio_estimate.toLocaleString()} audio files` : 'No music files found';
       return `<div class="le-vol-card" onclick="leFsBrowse('${_escPath(v.path)}')" title="Browse ${_esc(v.name)}">
         <div class="le-vol-icon">💿</div>
         <div class="le-vol-name">${_esc(v.name)}</div>
         <div class="le-vol-meta">${countStr}</div>
         <div class="le-vol-disk">${freeStr}${freeStr && totalStr ? ' ' : ''}${totalStr}</div>
         ${pioneer}
+        ${rec}
         <button type="button" class="le-vol-stage-btn" onclick="event.stopPropagation(); stagingAddPath('${_escAttr(v.path)}')" title="Stage entire drive for Chop Shop">+ Queue</button>
       </div>`;
     }).join('') + '</div>';
+    const recommended = vols.find(v => v.recommended_home) || vols[0];
+    const summary = recommended
+      ? `<div class="le-vol-root-summary">Recommended home drive: <strong>${_esc(recommended.name)}</strong>${recommended.recommended_archive_root ? ` — archive → ${_esc(recommended.recommended_archive_root)}` : ''}</div>`
+      : '';
+    const groupedRows = data.grouped_by_drive ? _leFsGroupedTrackRows(data.tracks || [], vols) : '';
+    trackList.innerHTML = cards + summary + groupedRows;
+    if (groupedRows) _bindFsTrackPlay();
     return;
   }
 
@@ -205,6 +214,27 @@ function _leFsTrackRow(t, idx) {
       <div class="le-col le-col-date">—</div>
     </div>
   `;
+}
+
+function _leFsGroupedTrackRows(tracks, volumes) {
+  if (!tracks.length) {
+    return '<div class="le-empty-state"><div class="le-empty-music-icon">🎚️</div><div>No music files found across connected drives</div></div>';
+  }
+  const volumeMap = new Map((volumes || []).map(v => [v.path, v]));
+  let currentDrive = null;
+  let rowIndex = 0;
+  return tracks.map((t) => {
+    let html = '';
+    if (t.drive_path !== currentDrive) {
+      currentDrive = t.drive_path;
+      const meta = volumeMap.get(t.drive_path) || {};
+      const count = meta.audio_estimate ? `${Number(meta.audio_estimate).toLocaleString()} tracks` : '';
+      html += `<div class="le-drive-divider"><strong>${_esc(t.drive_name || 'Drive')}</strong><span>${count}</span></div>`;
+    }
+    rowIndex += 1;
+    html += _leFsTrackRow(t, rowIndex - 1);
+    return html;
+  }).join('');
 }
 
 function _bindFsTrackPlay() {
@@ -313,4 +343,3 @@ function _leSplitTrackRow(t, col) {
     </div>
   `;
 }
-

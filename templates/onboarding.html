@@ -190,6 +190,44 @@
     }
     .ob-select:focus { outline: none; border-color: var(--accent); }
 
+    .ob-radio-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .ob-radio {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255,255,255,.01);
+    }
+    .ob-radio input[type="radio"] {
+      margin-top: 2px;
+      accent-color: var(--accent);
+      flex-shrink: 0;
+    }
+    .ob-radio strong {
+      display: block;
+      font-size: .84rem;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+    .ob-radio small {
+      display: block;
+      color: var(--text-muted);
+      line-height: 1.45;
+      font-size: .78rem;
+    }
+    .ob-inline-note {
+      font-size: .76rem;
+      color: var(--text-dim);
+      margin-top: 8px;
+      line-height: 1.5;
+    }
+
     /* ── Perm list ── */
     .perm-list { list-style: none; }
     .perm-list li {
@@ -509,6 +547,36 @@
         <div id="music-root-extra"></div>
       </div>
 
+      <div class="ob-card">
+        <div class="ob-card-title">FableGear archive home</div>
+        <div class="ob-radio-stack">
+          <label class="ob-radio">
+            <input type="radio" name="archive-mode" value="auto" checked onchange="updateArchiveModeUI()">
+            <div>
+              <strong>Keep the archive beside the selected music drive</strong>
+              <small id="archive-auto-copy">Recommended for the largest detected library.</small>
+            </div>
+          </label>
+          <label class="ob-radio">
+            <input type="radio" name="archive-mode" value="custom" onchange="updateArchiveModeUI()">
+            <div>
+              <strong>Choose a different archive folder</strong>
+              <small>Use Finder (or the native folder picker) if you need a nested location.</small>
+            </div>
+          </label>
+        </div>
+        <div id="archive-custom-wrap" style="display:none;margin-top:10px">
+          <div class="path-row" style="border-bottom:none;padding:0">
+            <span class="path-label">Folder</span>
+            <input class="path-input" id="inp-archive-root" type="text"
+                   placeholder="/Volumes/YourDrive/FableGear Archive">
+            <button class="path-browse" onclick="pickFolder('inp-archive-root')">Browse…</button>
+          </div>
+        </div>
+        <div id="archive-root-note" class="path-note"></div>
+        <div class="ob-inline-note" id="archive-backup-note"></div>
+      </div>
+
     </div><!-- /scan-results -->
 
     <div class="ob-actions" id="scan-actions" style="display:none">
@@ -574,7 +642,7 @@
       <div style="font-size:.86rem;color:var(--text-muted);line-height:1.55">
         Every write operation creates a timestamped copy of your database before it
         touches anything. Backups are stored at
-        <code style="font-size:.78rem;color:var(--text)">~/.fablegear/backups/</code>.
+        <code id="backup-guarantee-path" style="font-size:.78rem;color:var(--text)">~/.fablegear/backups/</code>.
         Rekordbox must be closed before FableGear will attempt a write.
       </div>
     </div>
@@ -809,6 +877,52 @@ function triggerScan() {
     });
 }
 
+function currentArchiveMode() {
+  return document.querySelector('input[name="archive-mode"]:checked')?.value || 'auto';
+}
+
+function _deriveArchiveRoot(musicRoot) {
+  var match = (scanData && Array.isArray(scanData.music_roots))
+    ? scanData.music_roots.find(function(item) { return item.path === musicRoot; })
+    : null;
+  if (match && match.recommended_archive_root) return match.recommended_archive_root;
+  if (!musicRoot) return '';
+  if (musicRoot === '/Volumes' || musicRoot === '/') return musicRoot + '/FableGear Archive';
+  var clean = musicRoot.replace(/[\/\\]+$/, '');
+  var idx = clean.lastIndexOf('/');
+  if (idx <= 0) return clean + '/FableGear Archive';
+  var parent = clean.slice(0, idx);
+  if (parent === '/Volumes' || parent === '') return clean + '/FableGear Archive';
+  return parent + '/FableGear Archive';
+}
+
+function updateArchiveRecommendation() {
+  var musicRoot = document.getElementById('inp-music-root').value.trim();
+  var archiveRoot = _deriveArchiveRoot(musicRoot);
+  var note = document.getElementById('archive-root-note');
+  var backup = document.getElementById('archive-backup-note');
+  if (currentArchiveMode() !== 'custom' && archiveRoot) {
+    document.getElementById('inp-archive-root').value = archiveRoot;
+  }
+  if (note) {
+    note.className = 'path-note ' + (archiveRoot ? 'ok' : 'miss');
+    note.innerHTML = archiveRoot
+      ? 'Recommended archive root: <code style="font-size:.78rem;color:var(--text)">' + escHtml(archiveRoot) + '</code>'
+      : 'Choose a music root first, then FableGear can recommend an archive home.';
+  }
+  if (backup) {
+    backup.innerHTML = archiveRoot
+      ? 'Database backups will land in <code style="font-size:.78rem;color:var(--text)">' + escHtml(archiveRoot + '/Savepoints') + '</code>.'
+      : '';
+  }
+}
+
+function updateArchiveModeUI() {
+  var custom = currentArchiveMode() === 'custom';
+  document.getElementById('archive-custom-wrap').style.display = custom ? 'block' : 'none';
+  updateArchiveRecommendation();
+}
+
 function populateScan(data) {
   // Local DB
   if (data.local_db && data.local_db.length) {
@@ -859,18 +973,26 @@ function populateScan(data) {
     if (data.music_roots.length > 1) {
       var msel = '<select class="ob-select" onchange="document.getElementById(\'inp-music-root\').value=this.value">';
       data.music_roots.forEach(function(m) {
-        msel += '<option value="' + escAttr(m.path) + '">' + escHtml(m.label) + '</option>';
+        var leader = m.recommended_home ? '★ ' : '';
+        var count = m.audio_count ? ' — ' + m.audio_count.toLocaleString() + ' tracks' : '';
+        msel += '<option value="' + escAttr(m.path) + '">' + leader + escHtml(m.label) + count + '</option>';
       });
       msel += '</select>';
       mc.innerHTML = msel;
     } else {
       mc.innerHTML =
-        '<div class="path-note ok">✓ Found on ' + escHtml(data.music_roots[0].volume) + '</div>';
+        '<div class="path-note ok">✓ Found on ' + escHtml(data.music_roots[0].volume)
+        + ' — ' + (data.music_roots[0].audio_count || 0).toLocaleString() + ' tracks</div>';
+    }
+    if (data.music_roots[0].recommended_home) {
+      mc.innerHTML += '<div class="path-note ok">Recommended home drive: '
+        + escHtml(data.music_roots[0].volume) + '</div>';
     }
   } else {
     mc.innerHTML =
       '<div class="path-note miss">No music library detected — connect your DJ drive or enter path manually.</div>';
   }
+  updateArchiveRecommendation();
 }
 
 // Native pickers via pywebview
@@ -902,19 +1024,31 @@ function confirmPaths() {
   var localDb   = document.getElementById('inp-local-db').value.trim();
   var deviceDb  = document.getElementById('inp-device-db').value.trim();
   var musicRoot = document.getElementById('inp-music-root').value.trim();
+  var archiveMode = currentArchiveMode();
+  var archiveRoot = archiveMode === 'custom'
+    ? document.getElementById('inp-archive-root').value.trim()
+    : _deriveArchiveRoot(musicRoot);
 
   if (!localDb || !deviceDb || !musicRoot) {
     obNotice('Please fill in all three paths before continuing.', 'warn');
+    return;
+  }
+  if (archiveMode === 'custom' && !archiveRoot) {
+    obNotice('Choose an archive folder or switch back to the recommended home-drive option.', 'warn');
     return;
   }
   confirmedPaths = {
     local_db:   localDb,
     device_db:  deviceDb,
     music_root: musicRoot,
+    archive_mode: archiveMode,
+    custom_archive_dir: archiveMode === 'custom' ? archiveRoot : '',
+    backup_dir: (archiveRoot ? archiveRoot + '/Savepoints' : ''),
     db_read:  true,
     db_write: true,
     drive_scan: scanConsent === true,
   };
+  document.getElementById('backup-guarantee-path').textContent = confirmedPaths.backup_dir || '~/.fablegear/backups/';
   goToStep(3);
 }
 
@@ -1010,6 +1144,8 @@ function escHtml(s) {
 function escAttr(s) { return escHtml(s); }
 
 // ── Boot ───────────────────────────────────────────────────────────────────────
+document.getElementById('inp-music-root').addEventListener('change', updateArchiveRecommendation);
+document.getElementById('inp-archive-root').addEventListener('change', updateArchiveRecommendation);
 checkDeps();
 </script>
 </body>
