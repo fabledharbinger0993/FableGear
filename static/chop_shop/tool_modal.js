@@ -349,7 +349,10 @@ function leSelectSourceLocation(sourceKey, label, buttonEl) {
   _leActivePlaylistId = null;
   _leActivePlaylistName = '';
   leSetActiveTreeItem(buttonEl);
-  leSetTrackView(_leAllTracks.filter(t => String(t.file_path || '').startsWith(sourceKey)), `Source - ${label}`);
+  leSetTrackView(_leAllTracks.filter(t => {
+    const path = String(t.file_path || '');
+    return path === sourceKey || path.startsWith(sourceKey + '/') || path.startsWith(sourceKey + '\\');
+  }), `Source - ${label}`);
   leUpdateActionState();
 }
 
