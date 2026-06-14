@@ -231,16 +231,16 @@ def archive_root_for_music_root(music_root: str | Path) -> Path:
 
 
 def count_audio_files(root: Path, *, max_depth: int | None = None) -> int:
-    """Count audio files under *root*, optionally depth-limited."""
+    """Count audio files under *root*; ``max_depth=0`` means root-only, ``None`` is unlimited."""
     total = 0
     try:
         for walk_root, dirs, files in os.walk(root):
-            depth = walk_root.replace(str(root), "").count(os.sep)
+            depth = len(Path(walk_root).relative_to(root).parts)
             if max_depth is not None and depth > max_depth:
                 dirs.clear()
                 continue
             dirs[:] = [d for d in dirs if not d.startswith(".")]
-            total += sum(1 for fname in files if Path(fname).suffix.lower() in _AUDIO_EXTS)
+            total += sum(1 for fname in files if os.path.splitext(fname)[1].lower() in _AUDIO_EXTS)
     except (PermissionError, OSError):
         return total
     return total
@@ -263,7 +263,7 @@ def discover_music_roots(mounts: list[Path], *, min_audio_files: int = 5) -> lis
             "recommended_backup_dir": str(archive_root / "Savepoints"),
             "recommended_db_root": str(mount),
         })
-    results.sort(key=lambda item: (-item["audio_count"], item["volume"].lower()))
+    results.sort(key=lambda item: (-item["audio_count"], item.get("volume", "").lower()))
     if results:
         results[0]["recommended_home"] = True
     return results

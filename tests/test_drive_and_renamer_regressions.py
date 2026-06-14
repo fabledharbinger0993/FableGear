@@ -12,6 +12,7 @@ RENAMER_PATH = REPO_ROOT / "chop_shop" / "renamer.py"
 
 
 def _load_renamer_module(monkeypatch):
+    """Import renamer.py with tiny stub modules so regression tests stay dependency-light."""
     config = types.ModuleType("config")
     config.AUDIO_EXTENSIONS = {".mp3"}
     config.BATCH_SIZE = 25
