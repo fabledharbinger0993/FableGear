@@ -1044,7 +1044,7 @@ def api_onboarding_install_app():
     install_dir = Path.home() / "Applications"
     app_path = install_dir / "FableGear.app"
     launch_sh = REPO_ROOT / "launch.sh"
-    icon_src = REPO_ROOT / "static" / "icon-logo-fablegear.png"
+    icon_src = REPO_ROOT / "static" / "icon-app-dock.png"
 
     install_dir.mkdir(parents=True, exist_ok=True)
 
