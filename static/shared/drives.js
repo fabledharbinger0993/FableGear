@@ -107,7 +107,7 @@ function _buildDriveDropdownItem(volume) {
 
   const meta = document.createElement('div');
   meta.className = 'drives-item-meta';
-  meta.textContent = volume.free_gb != null ? `${volume.free_gb} GB free / ${volume.total_gb} GB  ${volume.fstype || ''}` : (volume.fstype || '');
+  meta.textContent = volume.free_gb != null ? `${volume.free_gb} GB free / ${volume.total_gb} GB ${volume.fstype || ''}`.trim() : (volume.fstype || '');
 
   const actions = document.createElement('div');
   actions.className = 'drives-item-actions';

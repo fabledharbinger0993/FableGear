@@ -317,6 +317,8 @@ function _leSourceLocationForPath(path) {
 }
 
 function _leNormalizePathPrefix(path) {
+  // Normalize separators, trim trailing slashes, and compare case-insensitively
+  // so source roots match consistently across mounted-volume path variants.
   const text = String(path || '').trim().replace(/[\\/]+/g, '/');
   if (!text) return '';
   if (text === '/') return '/';
