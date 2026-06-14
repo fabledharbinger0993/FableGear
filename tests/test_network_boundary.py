@@ -216,3 +216,33 @@ def test_usb_inspector_not_a_mount(flask_app, tmp_path):
 
     with _pt.raises(NotAMountError):
         inspect_usb(tmp_path / "does-not-exist")
+
+
+# ── Update checker: the v1.0.0 self-update loop regression ───────────────────
+
+def test_update_sha_not_misparsed_as_version(flask_app):
+    """SHAs starting with a digit (12aff07, 9abf982) must NOT be read as
+    versions older than every release — that caused the perpetual update loop."""
+    from update_checker import _is_newer, _is_semver_tag  # noqa: PLC0415
+    for sha in ("12aff07", "9abf982", "7d62c0a", "0deadbe"):
+        assert _is_semver_tag(sha) is False
+        # tag not locally resolvable as the SHA -> semver guard rejects SHA -> False
+        assert _is_newer("v1.0.0", sha, is_git=True) is False
+
+
+def test_update_equal_version_no_loop(flask_app):
+    from update_checker import _is_newer  # noqa: PLC0415
+    assert _is_newer("v1.0.0", "v1.0.0", is_git=True) is False
+
+
+def test_update_real_upgrade_detected(flask_app):
+    from update_checker import _is_newer, _semver_gt  # noqa: PLC0415
+    assert _semver_gt("v1.1.0", "v1.0.0") is True
+    assert _semver_gt("v1.0.0", "v1.0") is False  # length-tolerant
+
+
+def test_update_zip_no_nag_without_version(flask_app):
+    from update_checker import _is_newer  # noqa: PLC0415
+    assert _is_newer("v1.0.0", None, is_git=False) is False
+    assert _is_newer("v1.0.0", "v1.0.0", is_git=False) is False
+    assert _is_newer("v1.0.0", "v0.9", is_git=False) is True
