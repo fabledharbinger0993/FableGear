@@ -307,7 +307,7 @@ function _leSourceLocationForPath(path) {
     return { key: `/Volumes/${volume}`, label: volume };
   }
   if (/^[A-Za-z]:[\\/]/.test(text)) {
-    return { key: text.slice(0, 3), label: text.slice(0, 2) };
+    return { key: text.slice(0, 2).toUpperCase(), label: text.slice(0, 2).toUpperCase() };
   }
   if (text.startsWith('/Users/')) {
     return { key: '/Users', label: 'Home' };

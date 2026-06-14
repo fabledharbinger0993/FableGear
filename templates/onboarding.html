@@ -942,10 +942,15 @@ function confirmPaths() {
 function openDiskUtilityForMusicRoot() {
   var musicRoot = document.getElementById('inp-music-root').value.trim();
   if (!musicRoot) return;
+  var mountpoint = musicRoot;
+  if (scanData && Array.isArray(scanData.music_roots)) {
+    var selected = scanData.music_roots.find(function(m) { return m.path === musicRoot; });
+    if (selected && selected.mountpoint) mountpoint = selected.mountpoint;
+  }
   fetch('/api/drives/first-aid', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mountpoint: musicRoot.split('/').slice(0, 3).join('/') || musicRoot })
+    body: JSON.stringify({ mountpoint: mountpoint })
   }).then(function(r) { return r.json(); })
     .then(function(d) {
       obNotice(d.ok ? (d.message || 'Disk Utility opened.') : ('Could not open Disk Utility: ' + (d.error || 'unknown error')), d.ok ? 'ok' : 'error');

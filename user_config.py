@@ -739,6 +739,7 @@ def scan_for_rekordbox_assets() -> dict:
                 "path": str(chosen_root),
                 "label": f"Music on {mount.name}",
                 "volume": mount.name,
+                "mountpoint": str(mount),
                 "audio_count": audio_count,
                 "archive_root": str(archive_root_for_music_root(chosen_root)),
                 "backup_dir": str(archive_root_for_music_root(chosen_root) / "Savepoints"),

@@ -234,7 +234,7 @@ function initDriveList() {
           ${v.has_pioneer_db ? '<span class="lp-drives-badge">Pioneer</span>' : ''}
           ${v.is_read_only ? '<span class="lp-drives-badge">Read-only</span>' : ''}
           ${v.free_gb != null ? `<span class="lp-drives-meta">${v.free_gb}/${v.total_gb} GB</span>` : ''}
-          <button type="button" class="le-stage-btn" title="Open Disk Utility First Aid"
+          <button type="button" class="le-stage-btn" title="Open Disk Utility First Aid" aria-label="Open Disk Utility First Aid"
                   onclick="event.stopPropagation(); openDriveFirstAid('${_escAttr(v.mountpoint)}')">🩺</button>
           <button type="button" class="le-stage-btn" title="Stage drive for Chop Shop"
                   onclick="event.stopPropagation(); stagingAddPath('${_escAttr(v.mountpoint)}')">+Q</button>

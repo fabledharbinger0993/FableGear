@@ -968,18 +968,24 @@ def api_drives_first_aid():
     if not mountpoint:
         return jsonify({"ok": False, "error": "mountpoint is required"}), 400
 
-    allowed_mounts = {v.get("mountpoint", "") for v in _mounted_volumes()}
-    if mountpoint not in allowed_mounts:
+    try:
+        requested_mount = str(Path(mountpoint).resolve())
+    except Exception:
+        return jsonify({"ok": False, "error": "Invalid mountpoint"}), 400
+
+    allowed_mounts = {str(Path(v.get("mountpoint", "")).resolve()) for v in _mounted_volumes() if v.get("mountpoint")}
+    if requested_mount not in allowed_mounts:
         return jsonify({"ok": False, "error": "Unknown mounted drive"}), 400
 
     try:
-        subprocess.Popen(["open", "-a", "Disk Utility", mountpoint])
+        subprocess.Popen(["open", "-a", "Disk Utility", requested_mount])
         return jsonify({
             "ok": True,
             "message": "Disk Utility opened. Run First Aid on the drive before retrying write access.",
         })
-    except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
+    except Exception:
+        app.logger.exception("Could not open Disk Utility for %s", requested_mount)
+        return jsonify({"ok": False, "error": "Could not open Disk Utility"}), 500
 
 
 # ── First-run onboarding ──────────────────────────────────────────────────────
