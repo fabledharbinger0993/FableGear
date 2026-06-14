@@ -324,7 +324,7 @@ def api_config():
     from helpers import _current_fablegear_mode, _backup_dir  # noqa: PLC0415
     try:
         from config import (  # noqa: PLC0415
-            DJMT_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
+            BACKUP_DIR, DJMT_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
             ARCHIVE_ENABLED, _archive_mode, _custom_archive,
         )
         from user_config import load_user_config as _luc  # noqa: PLC0415
@@ -333,7 +333,7 @@ def api_config():
         return jsonify({
             "music_root":       str(MUSIC_ROOT),
             "djmt_db":          str(DJMT_DB),
-            "backup_dir":       str(SAVEPOINTS_DIR),
+            "backup_dir":       str(BACKUP_DIR),
             "archive_root":     str(ARCHIVE_ROOT),
             "quarantine":       str(QUARANTINE_DIR),
             "reports":          str(REPORTS_DIR),
@@ -671,6 +671,7 @@ def _mounted_volumes() -> list:
                 "total_gb":       total_gb,
                 "has_pioneer_db": pioneer_db.exists(),
                 "is_music_root":  music_root_str.startswith(mp),
+                "is_read_only":   "ro" in {o.strip() for o in (part.opts or "").split(",")},
             })
     except Exception:
         pass
@@ -959,6 +960,34 @@ def api_drives_apply_fix():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+@app.route("/api/drives/first-aid", methods=["POST"])
+def api_drives_first_aid():
+    """Open Disk Utility for a mounted drive so the user can run First Aid."""
+    data = request.get_json(silent=True) or {}
+    mountpoint = str(data.get("mountpoint", "")).strip()
+    if not mountpoint:
+        return jsonify({"ok": False, "error": "mountpoint is required"}), 400
+
+    try:
+        requested_mount = str(Path(mountpoint).resolve())
+    except Exception:
+        return jsonify({"ok": False, "error": "Invalid mountpoint"}), 400
+
+    allowed_mounts = {str(Path(v.get("mountpoint", "")).resolve()) for v in _mounted_volumes() if v.get("mountpoint")}
+    if requested_mount not in allowed_mounts:
+        return jsonify({"ok": False, "error": "Unknown mounted drive"}), 400
+
+    try:
+        subprocess.Popen(["open", "-a", "Disk Utility", requested_mount])
+        return jsonify({
+            "ok": True,
+            "message": "Disk Utility opened. Run First Aid on the drive before retrying write access.",
+        })
+    except Exception:
+        app.logger.exception("Could not open Disk Utility for %s", requested_mount)
+        return jsonify({"ok": False, "error": "Could not open Disk Utility"}), 500
+
+
 # ── First-run onboarding ──────────────────────────────────────────────────────
 
 @app.route("/onboarding")
@@ -1149,7 +1178,7 @@ def api_onboarding_open_fda_prefs():
 @app.route("/api/onboarding/save-config", methods=["POST"])
 def api_onboarding_save_config():
     """Save confirmed paths to config.json and mark setup complete."""
-    from user_config import DEFAULTS, save_user_config  # noqa: PLC0415
+    from user_config import DEFAULTS, archive_root_for_music_root, save_user_config  # noqa: PLC0415
 
     data = request.get_json(silent=True) or {}
     required = {"local_db", "device_db", "music_root"}
@@ -1162,7 +1191,7 @@ def api_onboarding_save_config():
         "device_db":  str(data["device_db"]).strip(),
         "music_root": str(data["music_root"]).strip(),
         "backup_dir": str(data.get("backup_dir", "")).strip()
-                      or str(Path.home() / ".fablegear" / "backups"),
+                      or str(archive_root_for_music_root(data["music_root"]) / "Savepoints"),
     }
     for key, default in DEFAULTS.items():
         cfg.setdefault(key, default)

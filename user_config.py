@@ -12,7 +12,7 @@ Config file schema
   "local_db":        "/Users/name/Library/Pioneer/rekordbox/master.db",
   "device_db":       "/path/to/drive/PIONEER/Master/master.db",
   "music_root":      "/path/to/music",
-  "backup_dir":      "/Users/name/.fablegear/backups",
+  "backup_dir":      "/path/to/library/FableGear Archive/Savepoints",
   "target_lufs":     -8.0,
   "lufs_tolerance":  0.5,
   "excluded_dirs":   ["cache", "PROCESSING_CACHE"]
@@ -421,6 +421,20 @@ def print_dependency_report(results: Optional[List[Dict]] = None) -> bool:
 
 # ─── Setup wizard ─────────────────────────────────────────────────────────────
 
+def archive_root_for_music_root(music_root: Path | str) -> Path:
+    """
+    Resolve the FableGear Archive location for a given music-root path.
+
+    Mirrors config.py so onboarding and CLI setup can recommend the same
+    archive/savepoint path before config.py is importable.
+    """
+    music_path = Path(music_root).expanduser()
+    music_parent = music_path.parent
+    if music_parent == Path("/Volumes") or music_parent == Path("/"):
+        return music_path / "FableGear Archive"
+    return music_parent / "FableGear Archive"
+
+
 def _prompt(label: str, default: Optional[str] = None, must_exist: bool = False) -> str:
     """
     Prompt the user for a path string. Repeats until non-empty input is given.
@@ -504,7 +518,8 @@ def interactive_setup(*, update: bool = False) -> dict:
     cfg["backup_dir"] = _prompt(
         "Backup directory\n  "
         "(created automatically — backups are written here before every write)",
-        default=existing.get("backup_dir") or _WIZARD_DEFAULTS.get("backup_dir"),
+        default=existing.get("backup_dir")
+                or str(archive_root_for_music_root(cfg["music_root"]) / "Savepoints"),
         must_exist=False,  # Will be created on first write — doesn't need to exist yet
     )
 
@@ -581,6 +596,8 @@ def scan_for_rekordbox_assets() -> dict:
       device_dbs   — Pioneer device DB candidates on mounted volumes
       xml_files    — rekordbox.xml / fablegear.xml files found
       music_roots  — volume roots that appear to contain a music library
+      recommended_music_root / recommended_archive_root / recommended_backup_dir
+                  — the largest detected music library and its FableGear paths
     """
     import os as _os
 
@@ -589,6 +606,9 @@ def scan_for_rekordbox_assets() -> dict:
         "device_dbs": [],
         "xml_files": [],
         "music_roots": [],
+        "recommended_music_root": "",
+        "recommended_archive_root": "",
+        "recommended_backup_dir": "",
     }
 
     # ── Local Rekordbox DB ────────────────────────────────────────────────────
@@ -669,8 +689,35 @@ def scan_for_rekordbox_assets() -> dict:
             pass
 
         # Music root heuristic — at least 5 audio files in the first 3 levels
+        preferred_dirs = [
+            mount / "Music Library",
+            mount / "Music",
+            mount / "music",
+            mount / "Audio",
+            mount / "audio",
+        ]
+        chosen_root = mount
         audio_count = 0
         try:
+            best_named_count = 0
+            for candidate in preferred_dirs:
+                if not candidate.is_dir():
+                    continue
+                candidate_count = 0
+                for root, dirs, files in _os.walk(candidate):
+                    depth = root.replace(str(candidate), "").count(_os.sep)
+                    if depth > 2:
+                        dirs.clear()
+                        continue
+                    dirs[:] = [d for d in dirs if not d.startswith(".")]
+                    candidate_count += sum(
+                        1 for fname in files
+                        if Path(fname).suffix.lower() in audio_exts
+                    )
+                if candidate_count > best_named_count:
+                    best_named_count = candidate_count
+                    chosen_root = candidate
+
             for root, dirs, files in _os.walk(mount):
                 depth = root.replace(str(mount), "").count(_os.sep)
                 if depth > 3:
@@ -689,13 +736,23 @@ def scan_for_rekordbox_assets() -> dict:
 
         if audio_count >= 5:
             music_roots.append({
-                "path": str(mount),
+                "path": str(chosen_root),
                 "label": f"Music on {mount.name}",
                 "volume": mount.name,
+                "mountpoint": str(mount),
+                "audio_count": audio_count,
+                "archive_root": str(archive_root_for_music_root(chosen_root)),
+                "backup_dir": str(archive_root_for_music_root(chosen_root) / "Savepoints"),
+                "read_only": not _os.access(chosen_root, _os.W_OK),
             })
 
     results["device_dbs"] = sorted(device_dbs, key=lambda x: -x["mtime"])
     results["xml_files"] = sorted(xml_files, key=lambda x: -x.get("mtime", 0))
-    results["music_roots"] = music_roots
+    results["music_roots"] = sorted(music_roots, key=lambda x: (-x.get("audio_count", 0), x["path"]))
+    if results["music_roots"]:
+        best_root = results["music_roots"][0]
+        results["recommended_music_root"] = best_root["path"]
+        results["recommended_archive_root"] = best_root["archive_root"]
+        results["recommended_backup_dir"] = best_root["backup_dir"]
 
     return results

@@ -83,9 +83,7 @@ else:
 
 SAVEPOINTS_DIR = ARCHIVE_ROOT / "Savepoints"
 QUARANTINE_DIR = ARCHIVE_ROOT / "Quarantine"
-# Reports are intentionally stored on the local Mac user account so they remain
-# available even when external DJ volumes are disconnected.
-REPORTS_DIR    = Path.home() / ".fablegear" / "Reports"
+REPORTS_DIR    = ARCHIVE_ROOT / "Reports"
 LOGS_DIR       = ARCHIVE_ROOT / "Logs"
 
 LOG_DIRS: dict[str, Path] = {
