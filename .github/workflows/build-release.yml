@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: write
+
 jobs:
   create-release:
     name: Create GitHub Release
@@ -14,7 +17,7 @@ jobs:
     steps:
       - name: Create Release
         id: create
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           draft: false
           prerelease: false
@@ -82,7 +85,7 @@ jobs:
           cd ..
 
       - name: Upload macOS artifact to release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: dist/FableGear-macOS.zip
         env:
@@ -124,7 +127,7 @@ jobs:
           cd ..
 
       - name: Upload Windows artifact to release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: dist/FableGear-Windows.zip
         env:
