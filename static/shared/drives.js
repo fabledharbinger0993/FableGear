@@ -107,16 +107,108 @@ function loadDrivesDropdown(dropdown) {
 /* ── Left-rail drive list ─────────────────────────────────────────────────── */
 
 let _driveListOpen = false;
+let _driveFlyoutDismissTimer = null;
+let _driveFlyoutTrigger = null;
+
+function _maybeFocusDriveFlyout(list) {
+  if (!_driveListOpen || !list) return;
+  const active = document.activeElement;
+  if (active !== _driveFlyoutTrigger && !list.contains(active)) return;
+  list.querySelector('.lp-drives-item, button:not([disabled])')?.focus();
+}
 
 function toggleDriveList() {
   _driveListOpen = !_driveListOpen;
   const list = document.getElementById('drive-list');
+  const btn = document.querySelector('.lp-drives-hdr');
   if (!list) return;
   if (_driveListOpen) {
+    _driveFlyoutTrigger = btn || document.activeElement;
+    btn?.setAttribute('aria-expanded', 'true');
+    list.classList.add('lp-drives-flyout');
+    _positionDriveFlyout(list);
     initDriveList();
+    _bindDriveFlyoutDismiss();
   } else {
+    closeDriveList();
+  }
+}
+
+/* Anchor the fixed flyout to the right edge of the Drives button. The button's
+   vertical position is dynamic (window size, rail content), so measure at open. */
+function _positionDriveFlyout(list) {
+  const btn = document.querySelector('.lp-drives-hdr');
+  if (!btn) return;
+  const r = btn.getBoundingClientRect();
+  list.style.left = Math.round(r.right + 6) + 'px';
+  // Clamp so a tall list never runs off the bottom of the viewport.
+  const maxHeight = parseFloat(getComputedStyle(list).maxHeight) || (window.innerHeight * 0.6);
+  const top = Math.min(Math.round(r.top), window.innerHeight - Math.round(maxHeight) - 8);
+  list.style.top = Math.max(8, top) + 'px';
+}
+
+function closeDriveList({ restoreFocus = false } = {}) {
+  _driveListOpen = false;
+  const list = document.getElementById('drive-list');
+  const btn = document.querySelector('.lp-drives-hdr');
+  btn?.setAttribute('aria-expanded', 'false');
+  if (list) {
+    list.classList.remove('lp-drives-flyout');
+    list.removeAttribute('style');
     list.innerHTML = '';
   }
+  _unbindDriveFlyoutDismiss();
+  if (restoreFocus && _driveFlyoutTrigger && typeof _driveFlyoutTrigger.focus === 'function') {
+    _driveFlyoutTrigger.focus();
+  }
+}
+
+function _onDriveFlyoutDocClick(e) {
+  const target = e.target instanceof Element ? e.target : e.target?.parentElement;
+  if (target?.closest('#drive-list') || target?.closest('.lp-drives-hdr')) return;
+  closeDriveList();
+}
+function _onDriveFlyoutKey(e) {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeDriveList({ restoreFocus: true });
+    return;
+  }
+  if (e.key !== 'Tab' || !_driveListOpen) return;
+  const list = document.getElementById('drive-list');
+  if (!list?.classList.contains('lp-drives-flyout')) return;
+  const first = list.querySelector('.lp-drives-item, button:not([disabled])');
+  if (!first) return;
+  if (!e.shiftKey && document.activeElement === _driveFlyoutTrigger) {
+    e.preventDefault();
+    first.focus();
+    return;
+  }
+  if (e.shiftKey && (document.activeElement === first || document.activeElement === list)) {
+    e.preventDefault();
+    _driveFlyoutTrigger?.focus();
+  }
+}
+function _onDriveFlyoutResize() {
+  const list = document.getElementById('drive-list');
+  if (list && list.classList.contains('lp-drives-flyout')) _positionDriveFlyout(list);
+}
+function _bindDriveFlyoutDismiss() {
+  // Defer so the opening click doesn't immediately dismiss it.
+  clearTimeout(_driveFlyoutDismissTimer);
+  _driveFlyoutDismissTimer = setTimeout(() => {
+    document.addEventListener('click', _onDriveFlyoutDocClick);
+    _driveFlyoutDismissTimer = null;
+  }, 0);
+  document.addEventListener('keydown', _onDriveFlyoutKey);
+  window.addEventListener('resize', _onDriveFlyoutResize);
+}
+function _unbindDriveFlyoutDismiss() {
+  clearTimeout(_driveFlyoutDismissTimer);
+  _driveFlyoutDismissTimer = null;
+  document.removeEventListener('click', _onDriveFlyoutDocClick);
+  document.removeEventListener('keydown', _onDriveFlyoutKey);
+  window.removeEventListener('resize', _onDriveFlyoutResize);
 }
 
 function initDriveList() {
@@ -129,10 +221,13 @@ function initDriveList() {
       const vols = data.volumes || [];
       if (!vols.length) {
         list.innerHTML = '<div class="lp-drives-empty">No drives</div>';
+        if (document.activeElement === _driveFlyoutTrigger || list.contains(document.activeElement)) list.focus();
         return;
       }
       list.innerHTML = vols.map(v => `
-        <div class="lp-drives-item" onclick="openDriveInFileBrowser('${_escPath(v.mountpoint)}')">
+        <div class="lp-drives-item" role="button" tabindex="0"
+             onclick="openDriveInFileBrowser('${_escPath(v.mountpoint)}')"
+             onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openDriveInFileBrowser('${_escPath(v.mountpoint)}'); }">
           <span class="lp-drives-name">${_esc(v.name)}</span>
           ${v.has_pioneer_db ? '<span class="lp-drives-badge">Pioneer</span>' : ''}
           ${v.free_gb != null ? `<span class="lp-drives-meta">${v.free_gb}/${v.total_gb} GB</span>` : ''}
@@ -140,9 +235,13 @@ function initDriveList() {
                   onclick="event.stopPropagation(); stagingAddPath('${_escAttr(v.mountpoint)}')">+Q</button>
         </div>
       `).join('');
+      _maybeFocusDriveFlyout(list);
     })
     .catch(() => {
-      if (list) list.innerHTML = '<div class="lp-drives-empty">Unavailable</div>';
+      if (list) {
+        list.innerHTML = '<div class="lp-drives-empty">Unavailable</div>';
+        if (document.activeElement === _driveFlyoutTrigger || list.contains(document.activeElement)) list.focus();
+      }
     });
 }
 
@@ -154,6 +253,7 @@ function openDriveInLibrary(mountpoint) {
 
 function openDriveInFileBrowser(mountpoint) {
   closeRightNavDropdown();
+  closeDriveList();
   // Navigate the file browser sidebar to this drive's root
   if (typeof fbNavigateTo === 'function') {
     fbNavigateTo(mountpoint);
@@ -163,4 +263,3 @@ function openDriveInFileBrowser(mountpoint) {
     }
   }
 }
-

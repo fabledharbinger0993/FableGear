@@ -840,6 +840,49 @@ def api_library_remove_tracks_from_playlist(playlist_id):
         return jsonify({"error": str(exc)}), 500
 
 
+@bp.route("/api/library/playlists/<playlist_id>/tracks/order", methods=["PUT"])
+def api_library_reorder_playlist_tracks(playlist_id):
+    """Reorder tracks in a playlist. Body: {track_ids: [id, id, ...]} in desired order."""
+    from db_connection import write_db  # noqa: PLC0415
+    from config import LOCAL_DB as _DB  # noqa: PLC0415
+
+    data = request.get_json(silent=True) or {}
+    track_ids = data.get("track_ids")
+    if not isinstance(track_ids, list) or not track_ids:
+        return jsonify({"error": "track_ids required (ordered list)"}), 400
+
+    track_ids = [str(t).strip() for t in track_ids if str(t).strip()]
+
+    try:
+        with write_db(_DB) as db:
+            playlist = db.get_playlist(ID=playlist_id).one_or_none()
+            if playlist is None:
+                return jsonify({"error": "Playlist not found"}), 404
+            if int(getattr(playlist, "Attribute", 0) or 0) == 1:
+                return jsonify({"error": "Cannot reorder tracks in a folder"}), 400
+
+            songs = db.get_playlist_songs(PlaylistID=playlist.ID).all()
+            song_by_content: dict[str, object] = {}
+            for song in songs:
+                content_id = str(getattr(song, "ContentID", "") or "")
+                if content_id:
+                    song_by_content[content_id] = song
+
+            updated = 0
+            for new_pos, content_id in enumerate(track_ids, start=1):
+                song = song_by_content.get(content_id)
+                if song is not None:
+                    song.TrackNo = new_pos
+                    updated += 1
+
+            db.commit()
+            return jsonify({"ok": True, "updated": updated})
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 503
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @bp.route("/api/library/tracks/<track_id>", methods=["PATCH"])
 def api_library_patch_track(track_id):
     from db_connection import write_db  # noqa: PLC0415

@@ -31,8 +31,10 @@ function showScanBar(title) {
   document.getElementById('scan-bar').classList.add('active');
   document.body.classList.add('scan-active');
   _syncToolModalScanState();
+  _chopReadoutReset(title);
 }
 function updateScanBar(p) {
+  _chopReadoutUpdate(p);
   if (p.scanned != null) {
     document.getElementById('sb-scanned').textContent = p.scanned.toLocaleString();
     document.getElementById('sb-scanned-wrap').style.display = '';
@@ -59,10 +61,63 @@ function finishScanBar() {
   clearTimeout(_emergencyArmTimer);
   document.getElementById('scan-bar-dismiss').style.display = 'inline-block';
   _syncToolModalScanState();
+  _chopReadoutFinish();
 }
 function dismissScanBar() {
   document.getElementById('scan-bar').classList.remove('active');
   document.body.classList.remove('scan-active');
+  document.getElementById('scan-bar-spinner').classList.remove('active');
+  _chopReadoutDismiss();
+}
+
+/* ── Chop Shop scanner-window readout ─────────────────────────────────────────
+   Mirrors the live scan into the bottom-half readout (chop space only). All
+   look-ups are guarded so these are harmless no-ops in the Record Room. */
+function _chopSetText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+function _chopReadoutReset(title) {
+  _chopSetText('chop-readout-title', title || 'Running…');
+  _chopSetText('chop-prog-pct', '0');
+  _chopSetText('chop-tick-done', '0');
+  _chopSetText('chop-tick-remaining', '—');
+  _chopSetText('chop-stat-clean', '0');
+  _chopSetText('chop-stat-edited', '0');
+  _chopSetText('chop-stat-errors', '0');
+  _chopSetText('chop-stat-warnings', '0');
+  const fill = document.getElementById('chop-prog-fill'); if (fill) fill.style.width = '0%';
+  document.getElementById('chop-readout')?.classList.add('running');
+  document.getElementById('chop-readout-spinner')?.classList.add('active');
+}
+function _chopReadoutUpdate(p) {
+  if (p.scanned != null) {
+    _chopSetText('chop-readout-title', `Scanning library… ${p.scanned.toLocaleString()} checked`);
+    return;
+  }
+  const clean = p.clean || 0, edited = p.edited || 0, errors = p.errors || 0, quar = p.quarantined || 0;
+  const done = clean + edited + errors + quar;
+  const remaining = p.remaining || 0;
+  const total = done + remaining;
+  const pct = total > 0 ? Math.round((done / total) * 100) : (done > 0 ? 100 : 0);
+  _chopSetText('chop-tick-done', done.toLocaleString());
+  _chopSetText('chop-tick-remaining', remaining.toLocaleString());
+  _chopSetText('chop-prog-pct', String(pct));
+  _chopSetText('chop-stat-clean', clean.toLocaleString());
+  _chopSetText('chop-stat-edited', edited.toLocaleString());
+  _chopSetText('chop-stat-errors', errors.toLocaleString());
+  _chopSetText('chop-stat-warnings', scanWarnings.toLocaleString());
+  const fill = document.getElementById('chop-prog-fill'); if (fill) fill.style.width = pct + '%';
+}
+function _chopReadoutFinish() {
+  _chopSetText('chop-readout-title', 'Complete');
+  document.getElementById('chop-readout-spinner')?.classList.remove('active');
+  document.getElementById('chop-readout')?.classList.remove('running');
+  const fill = document.getElementById('chop-prog-fill');
+  if (fill && fill.style.width === '0%') fill.style.width = '100%';
+}
+function _chopReadoutDismiss() {
+  _chopReadoutFinish();
+  _chopReadoutReset('Idle — select a tool to begin');
+  document.getElementById('chop-readout-spinner')?.classList.remove('active');
+  document.getElementById('chop-readout')?.classList.remove('running');
 }
 
 /* ── Log panel ─────────────────────────────────────────────────────────────── */
@@ -302,4 +357,3 @@ function checkRbBlock(msgId) {
 function setAllButtons(disabled) {
   document.querySelectorAll('.btn').forEach(b => b.disabled = disabled);
 }
-

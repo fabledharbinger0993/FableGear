@@ -67,12 +67,32 @@ fi
 # ── Activate venv ─────────────────────────────────────────────────────────
 source "$VENV/bin/activate"
 
-# ── Updates ───────────────────────────────────────────────────────────────
-# No automatic git pull here. The app checks GitHub releases at open
-# (update_checker.py), asks the user for permission in the UI, and applies
-# the update via /api/update/apply — which pulls, reinstalls requirements,
-# and relaunches. Offline checks fail silently.
+# ── Update to the latest RELEASE (skip in dev mode) ──────────────────────
+# Release-gated: tracks GitHub's "latest release" tag, same endpoint the
+# in-app update_checker.py uses, so the launcher and the UI always agree.
+# Devs working from source opt out by touching a .dev sentinel in the repo root.
+# Offline-safe: if the API is unreachable, the app launches on current code.
 cd "$SCRIPT_DIR"
+if [ ! -f "$SCRIPT_DIR/.dev" ]; then
+  git fetch origin --tags --quiet >> "$LOG" 2>&1
+  LATEST_TAG=$(curl -fsSL --max-time 10 \
+    "https://api.github.com/repos/fabledharbinger0993/FableGear/releases/latest" 2>/dev/null \
+    | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
+  CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+  if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "$CURRENT_TAG" ]; then
+    if git merge-base --is-ancestor HEAD "$LATEST_TAG" 2>/dev/null; then
+      echo "FableGear: updating ${CURRENT_TAG:-untagged} -> $LATEST_TAG" >> "$LOG"
+      if git merge --ff-only "$LATEST_TAG" >> "$LOG" 2>&1; then
+        pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1
+        pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
+      else
+        echo "FableGear: fast-forward to $LATEST_TAG failed; staying on ${CURRENT_TAG:-current}" >> "$LOG"
+      fi
+    else
+      echo "FableGear: release $LATEST_TAG is not a forward update from current HEAD; skipping" >> "$LOG"
+    fi
+  fi
+fi
 
 # ── Bring up Tailscale for FableGo remote access (best-effort, non-blocking) ─
 # FableGear runs fully offline without this. Tailscale just enables the mobile web app

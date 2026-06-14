@@ -55,9 +55,29 @@ function openToolFloatModal(toolId) {
   const body = document.getElementById('tool-float-modal-body');
   if (body) body.appendChild(card);
 
+  // Spell out the "what is this?" help inline above the form when idle. When a
+  // tool is running we leave the explainers collapsed so the running tool's
+  // modal stays focused on progress.
+  const _tfmRunning = (typeof isRunning !== 'undefined' && isRunning);
+  const _tfmExpl = card.querySelector('.explainers');
+  if (_tfmExpl) {
+    _tfmExpl.classList.toggle('explainers-expanded', !_tfmRunning);
+    _tfmExpl.querySelectorAll('details').forEach(d => { d.open = !_tfmRunning; });
+  }
+  modal.classList.toggle('tfm-help-inline', !_tfmRunning);
+
   // Show modal + backdrop
   modal.style.display = 'flex';
   if (backdrop) backdrop.classList.add('active');
+
+  // In the Chop Shop the modal is docked (CSS-positioned). Drop any inline
+  // left/top/transform left over from a previous free-float drag so the
+  // docking rules take effect.
+  if (document.body.classList.contains('fg-space-chop')) {
+    modal.style.left = '';
+    modal.style.top = '';
+    modal.style.transform = '';
+  }
 
   // Sync scan bar state into modal footer
   _syncToolModalScanState();
@@ -114,6 +134,8 @@ function _initToolFloatModalDrag() {
 
   header.addEventListener('mousedown', (e) => {
     if (e.target.closest('button')) return;
+    // Docked in the Chop Shop — dragging is disabled there.
+    if (document.body.classList.contains('fg-space-chop')) return;
     dragging = true;
     const rect = modal.getBoundingClientRect();
     // Materialise explicit position, drop CSS transform centering
@@ -183,13 +205,55 @@ function _mirrorScanBarToModal() {
   if (spinner && tfmSpinner) tfmSpinner.classList.toggle('active', spinner.classList.contains('active'));
 }
 
-function openToolDrawer(stepId) {
-  // Redirect legacy calls to float modal
-  openToolFloatModal(stepId);
+/* ── Tool-icon dispatcher ────────────────────────────────────────────────────
+   Entry point for the prominent workflow-rail icons. Idle → open the single
+   morphing modal for the tool. If a tool is RUNNING and a *different* tool icon
+   is clicked, the running tool keeps the modal and the clicked tool's "what is
+   this?" help is surfaced in a read-only side panel instead. */
+function handleToolIconClick(toolId) {
+  const running = (typeof isRunning !== 'undefined' && isRunning);
+  if (running && _toolFloatActive && toolId !== _toolFloatActive) {
+    openToolHelpPanel(toolId);
+    return;
+  }
+  closeToolHelpPanel();
+  if (typeof openToolFloatModal === 'function') openToolFloatModal(toolId);
 }
 
-function closeToolDrawer() {
-  closeToolFloatModal();
+/* ── Running-tool "what is this?" side panel ──────────────────────────────────
+   Clones the clicked tool card's explainer text (read-only) so the user can
+   learn about another tool without interrupting the one that is running. */
+function openToolHelpPanel(toolId) {
+  const panel = document.getElementById('tool-help-panel');
+  const card  = document.getElementById(toolId);
+  if (!panel || !card) return;
+
+  const expl     = card.querySelector('.explainers');
+  const titleTxt = card.querySelector('.card-title')?.textContent?.trim()
+    || toolId.replace('step-', '').replace(/-/g, ' ');
+  const iconSrc  = card.querySelector('.card-icon img')?.src || '';
+
+  const thpIcon  = document.getElementById('thp-icon');
+  const thpTitle = document.getElementById('thp-title');
+  const thpBody  = document.getElementById('thp-body');
+  if (thpIcon)  { thpIcon.src = iconSrc; thpIcon.style.display = iconSrc ? '' : 'none'; }
+  if (thpTitle) thpTitle.textContent = titleTxt;
+  if (thpBody) {
+    thpBody.innerHTML = '';
+    if (expl) {
+      const clone = expl.cloneNode(true);
+      clone.classList.add('explainers-expanded');
+      clone.querySelectorAll('details').forEach(d => { d.open = true; });
+      thpBody.appendChild(clone);
+    } else {
+      thpBody.textContent = 'No description available for this tool.';
+    }
+  }
+  panel.classList.add('open');
+}
+
+function closeToolHelpPanel() {
+  document.getElementById('tool-help-panel')?.classList.remove('open');
 }
 
 function leSetStatus(label, count, totalCount) {
@@ -541,6 +605,8 @@ async function leSelectHistory(buttonEl) {
   leUpdateActionState();
 }
 
+let _leDragSrcId = null;
+
 function leRenderTracks(tracks) {
   const list = document.getElementById('le-track-list');
   if (!list) return;
@@ -558,7 +624,8 @@ function leRenderTracks(tracks) {
     return;
   }
   empty.style.display = 'none';
-  const sorted = leSorted(tracks);
+  const inPlaylist = _leActiveNodeType === 'playlist' && !!_leActivePlaylistId;
+  const sorted = inPlaylist ? tracks : leSorted(tracks);
   sorted.forEach((t, i) => {
     const row = document.createElement('div');
     row.className = 'le-track-row';
@@ -569,7 +636,9 @@ function leRenderTracks(tracks) {
     const bpm = t.bpm ? Math.round(t.bpm) : '—';
     const dur = t.duration ? leFormatDur(t.duration) : '—';
     const date = t.date_added ? t.date_added.slice(0, 10) : '—';
+    const handle = inPlaylist ? '<div class="le-drag-handle" title="Drag to reorder">⠿</div>' : '';
     row.innerHTML = `
+      ${handle}
       <div class="le-col le-col-play"><button class="le-play-btn${playbackState === 'pause' ? ' is-playing' : ''}" data-track-id="${t.id}" aria-label="${playbackState === 'pause' ? 'Pause track' : 'Play track'}">${playbackState === 'pause' ? '❚❚' : '▶'}</button></div>
       <div class="le-col le-col-num">${i + 1}</div>
       <div class="le-col le-col-title le-editable le-title-editable" data-field="title" data-id="${t.id}" title="Double-click to edit title">${_leEsc(t.title || '—')}</div>
@@ -582,8 +651,74 @@ function leRenderTracks(tracks) {
     row.querySelector('.le-play-btn')?.addEventListener('click', evt => leToggleTrackPlayback(t.id, evt));
     row.querySelector('.le-title-editable')?.addEventListener('dblclick', evt => leEditTrackTitle(t, evt));
     row.addEventListener('click', evt => leToggleTrackSelection(String(t.id), evt));
+    if (inPlaylist) _leBindDragReorder(row, t.id);
     list.appendChild(row);
   });
+}
+
+function _leBindDragReorder(row, trackId) {
+  row.setAttribute('draggable', 'true');
+  row.addEventListener('dragstart', e => {
+    _leDragSrcId = String(trackId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', _leDragSrcId);
+  });
+  row.addEventListener('dragend', () => {
+    document.querySelectorAll('.le-track-row.drag-over').forEach(r => r.classList.remove('drag-over'));
+    _leDragSrcId = null;
+  });
+  row.addEventListener('dragover', e => {
+    if (!_leDragSrcId || _leDragSrcId === String(trackId)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    document.querySelectorAll('.le-track-row.drag-over').forEach(r => r.classList.remove('drag-over'));
+    row.classList.add('drag-over');
+  });
+  row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+  row.addEventListener('drop', e => {
+    e.preventDefault();
+    row.classList.remove('drag-over');
+    const srcId = _leDragSrcId;
+    if (!srcId || srcId === String(trackId)) return;
+    _leApplyReorder(srcId, String(trackId));
+  });
+}
+
+async function _leApplyReorder(srcId, targetId) {
+  const list = document.getElementById('le-track-list');
+  if (!list) return;
+  const rows = [...list.querySelectorAll('.le-track-row[data-id]')];
+  const ids = rows.map(r => r.dataset.id);
+  const srcIdx = ids.indexOf(srcId);
+  const tgtIdx = ids.indexOf(targetId);
+  if (srcIdx === -1 || tgtIdx === -1 || srcIdx === tgtIdx) return;
+
+  ids.splice(srcIdx, 1);
+  ids.splice(tgtIdx, 0, srcId);
+
+  // Optimistic DOM reorder
+  const srcRow = rows[srcIdx];
+  const tgtRow = rows[tgtIdx];
+  if (srcIdx < tgtIdx) {
+    tgtRow.after(srcRow);
+  } else {
+    tgtRow.before(srcRow);
+  }
+  list.querySelectorAll('.le-col-num').forEach((el, i) => { el.textContent = i + 1; });
+
+  try {
+    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActivePlaylistId)}/tracks/order`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: ids }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      showToast(d.error || 'Could not save track order.', 'error');
+    }
+  } catch (_) {
+    showToast('Could not save track order.', 'error');
+  }
 }
 
 async function leEditTrackTitle(track, event) {
