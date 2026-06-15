@@ -262,6 +262,7 @@ def discover_music_roots(mounts: list[Path], *, min_audio_files: int = 5) -> lis
             "recommended_archive_root": str(archive_root),
             "recommended_backup_dir": str(archive_root / "Savepoints"),
             "recommended_db_root": str(mount),
+            "read_only": not os.access(mount, os.W_OK),
         })
     results.sort(key=lambda item: (-item["audio_count"], item.get("volume", "").lower()))
     if results:
@@ -736,80 +737,15 @@ def scan_for_rekordbox_assets() -> dict:
         except (PermissionError, OSError):
             pass
 
-<<<<<<< HEAD
     results["device_dbs"] = sorted(device_dbs, key=lambda x: -x["mtime"])
     results["xml_files"] = sorted(xml_files, key=lambda x: -x.get("mtime", 0))
     results["music_roots"] = discover_music_roots(mounts)
     results["recommended_music_root"] = (
         results["music_roots"][0]["path"] if results["music_roots"] else ""
     )
-=======
-        # Music root heuristic — at least 5 audio files in the first 3 levels
-        preferred_dirs = [
-            mount / "Music Library",
-            mount / "Music",
-            mount / "music",
-            mount / "Audio",
-            mount / "audio",
-        ]
-        chosen_root = mount
-        audio_count = 0
-        try:
-            best_named_count = 0
-            for candidate in preferred_dirs:
-                if not candidate.is_dir():
-                    continue
-                candidate_count = 0
-                for root, dirs, files in _os.walk(candidate):
-                    depth = root.replace(str(candidate), "").count(_os.sep)
-                    if depth > 2:
-                        dirs.clear()
-                        continue
-                    dirs[:] = [d for d in dirs if not d.startswith(".")]
-                    candidate_count += sum(
-                        1 for fname in files
-                        if Path(fname).suffix.lower() in audio_exts
-                    )
-                if candidate_count > best_named_count:
-                    best_named_count = candidate_count
-                    chosen_root = candidate
-
-            for root, dirs, files in _os.walk(mount):
-                depth = root.replace(str(mount), "").count(_os.sep)
-                if depth > 3:
-                    dirs.clear()
-                    continue
-                dirs[:] = [d for d in dirs if not d.startswith(".")]
-                for fname in files:
-                    if Path(fname).suffix.lower() in audio_exts:
-                        audio_count += 1
-                        if audio_count >= 5:
-                            break
-                if audio_count >= 5:
-                    break
-        except (PermissionError, OSError):
-            pass
-
-        if audio_count >= 5:
-            music_roots.append({
-                "path": str(chosen_root),
-                "label": f"Music on {mount.name}",
-                "volume": mount.name,
-                "mountpoint": str(mount),
-                "audio_count": audio_count,
-                "archive_root": str(archive_root_for_music_root(chosen_root)),
-                "backup_dir": str(archive_root_for_music_root(chosen_root) / "Savepoints"),
-                "read_only": not _os.access(chosen_root, _os.W_OK),
-            })
-
-    results["device_dbs"] = sorted(device_dbs, key=lambda x: -x["mtime"])
-    results["xml_files"] = sorted(xml_files, key=lambda x: -x.get("mtime", 0))
-    results["music_roots"] = sorted(music_roots, key=lambda x: (-x.get("audio_count", 0), x["path"]))
     if results["music_roots"]:
-        best_root = results["music_roots"][0]
-        results["recommended_music_root"] = best_root["path"]
-        results["recommended_archive_root"] = best_root["archive_root"]
-        results["recommended_backup_dir"] = best_root["backup_dir"]
->>>>>>> origin/main
+        best = results["music_roots"][0]
+        results["recommended_archive_root"] = best.get("recommended_archive_root", "")
+        results["recommended_backup_dir"] = best.get("recommended_backup_dir", "")
 
     return results

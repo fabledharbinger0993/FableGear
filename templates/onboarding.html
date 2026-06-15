@@ -641,14 +641,9 @@
       <div class="ob-card-title" style="color:var(--accent)">Backup guarantee</div>
       <div style="font-size:.86rem;color:var(--text-muted);line-height:1.55">
         Every write operation creates a timestamped copy of your database before it
-<<<<<<< HEAD
-        touches anything. Backups are stored at
-        <code id="backup-guarantee-path" style="font-size:.78rem;color:var(--text)">~/.fablegear/backups</code>.
-=======
         touches anything. Backups are stored in
-        <code style="font-size:.78rem;color:var(--text)">FableGear Archive/Savepoints</code>
+        <code id="backup-guarantee-path" style="font-size:.78rem;color:var(--text)">FableGear Archive/Savepoints</code>
         beside your chosen library (or inside a custom archive, if you set one later).
->>>>>>> origin/main
         Rekordbox must be closed before FableGear will attempt a write.
       </div>
     </div>
@@ -980,17 +975,12 @@ function populateScan(data) {
     if (data.music_roots.length > 1) {
       var msel = '<select class="ob-select" onchange="document.getElementById(\'inp-music-root\').value=this.value">';
       data.music_roots.forEach(function(m) {
-<<<<<<< HEAD
-        var leader = m.recommended_home ? '★ ' : '';
-        var count = m.audio_count ? ' — ' + m.audio_count.toLocaleString() + ' tracks' : '';
-        msel += '<option value="' + escAttr(m.path) + '">' + leader + escHtml(m.label) + count + '</option>';
-=======
         var bits = [m.label];
         if (m.audio_count) bits.push(m.audio_count + '+ tracks');
         if (m.read_only) bits.push('read-only');
+        var leader = m.recommended_home ? '★ ' : '';
         msel += '<option value="' + escAttr(m.path) + '"' + (m.path === recommendedRoot ? ' selected' : '') + '>'
-             + escHtml(bits.join(' - ')) + '</option>';
->>>>>>> origin/main
+             + escHtml(leader + bits.join(' - ')) + '</option>';
       });
       msel += '</select>';
       var rec = data.recommended_archive_root
@@ -1002,13 +992,6 @@ function populateScan(data) {
     } else {
       mc.innerHTML =
         '<div class="path-note ok">✓ Found on ' + escHtml(data.music_roots[0].volume)
-<<<<<<< HEAD
-        + ' — ' + (data.music_roots[0].audio_count || 0).toLocaleString() + ' tracks</div>';
-    }
-    if (data.music_roots[0].recommended_home) {
-      mc.innerHTML += '<div class="path-note ok">Recommended home drive: '
-        + escHtml(data.music_roots[0].volume) + '</div>';
-=======
         + (data.music_roots[0].audio_count ? ' - ' + escHtml(String(data.music_roots[0].audio_count)) + '+ tracks' : '')
         + '</div>';
     }
@@ -1016,7 +999,6 @@ function populateScan(data) {
     if (selected && selected.read_only) {
       mc.innerHTML += '<div class="path-note miss">This library is currently read-only - run First Aid in Disk Utility before enabling write tools.</div>'
         + '<div style="margin-top:8px"><button class="path-browse" type="button" onclick="openDiskUtilityForMusicRoot()">Open Disk Utility - First Aid</button></div>';
->>>>>>> origin/main
     }
   } else {
     mc.innerHTML =
@@ -1071,15 +1053,11 @@ function confirmPaths() {
     local_db:   localDb,
     device_db:  deviceDb,
     music_root: musicRoot,
-<<<<<<< HEAD
     archive_mode: archiveMode,
     custom_archive_dir: archiveMode === 'custom' ? archiveRoot : '',
-    backup_dir: (archiveRoot ? archiveRoot + '/Savepoints' : ''),
-=======
     backup_dir: (scanData && scanData.recommended_music_root === musicRoot && scanData.recommended_backup_dir)
       ? scanData.recommended_backup_dir
-      : '',
->>>>>>> origin/main
+      : (archiveRoot ? archiveRoot + '/Savepoints' : ''),
     db_read:  true,
     db_write: true,
     drive_scan: scanConsent === true,

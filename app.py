@@ -324,13 +324,8 @@ def api_config():
     from helpers import _current_fablegear_mode, _backup_dir  # noqa: PLC0415
     try:
         from config import (  # noqa: PLC0415
-<<<<<<< HEAD
-            DJMT_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
-            BACKUP_DIR, ARCHIVE_ENABLED, _archive_mode, _custom_archive,
-=======
             BACKUP_DIR, DJMT_DB, MUSIC_ROOT, ARCHIVE_ROOT, QUARANTINE_DIR, REPORTS_DIR,
             ARCHIVE_ENABLED, _archive_mode, _custom_archive,
->>>>>>> origin/main
         )
         from user_config import load_user_config as _luc  # noqa: PLC0415
         _ucfg = _luc()
@@ -1212,14 +1207,9 @@ def api_onboarding_save_config():
         "local_db":   str(data["local_db"]).strip(),
         "device_db":  str(data["device_db"]).strip(),
         "music_root": str(data["music_root"]).strip(),
-<<<<<<< HEAD
         "backup_dir": backup_dir,
         "archive_mode": archive_mode,
         "custom_archive_dir": custom_archive_dir if archive_mode == "custom" else "",
-=======
-        "backup_dir": str(data.get("backup_dir", "")).strip()
-                      or str(archive_root_for_music_root(data["music_root"]) / "Savepoints"),
->>>>>>> origin/main
     }
     for key, default in DEFAULTS.items():
         cfg.setdefault(key, default)
