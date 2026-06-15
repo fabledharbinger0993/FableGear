@@ -132,6 +132,27 @@ def test_lan_bearer_escape_hatch_reaches_handler(client):
     assert r.status_code != 403   # boundary passed; handler decides the rest
 
 
+def test_onboarding_save_config_defaults_backup_to_archive_savepoints(client):
+    music_root = "/Volumes/MainLibrary/Music Library"
+    r = client.post("/api/onboarding/save-config", json={
+        "local_db": "/tmp/local.db",
+        "device_db": "/tmp/device.db",
+        "music_root": music_root,
+        "db_read": True,
+        "db_write": False,
+    })
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+    cfg = json.loads((Path(os.environ["HOME"]) / ".fablegear" / "config.json").read_text())
+    assert cfg["backup_dir"] == "/Volumes/MainLibrary/FableGear Archive/Savepoints"
+
+
+def test_api_config_uses_archive_reports_path(client):
+    data = _hit(client, "/api/config", LOOPBACK).get_json()
+    assert data["reports"].endswith("/FableGear Archive/Reports")
+
+
 # ── Dead-file scanner: fail loud on unreadable DB ────────────────────────────
 
 def test_dead_file_scan_raises_on_unreadable_db(flask_app, tmp_path):
