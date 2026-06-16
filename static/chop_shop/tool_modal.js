@@ -724,9 +724,9 @@ function leRenderTracks(tracks) {
     const handle = inPlaylist ? '<div class="le-drag-handle" title="Drag to reorder">⠿</div>' : '';
     row.innerHTML = `
       ${handle}
-      <div class="le-col le-col-play"><button class="le-play-btn${playbackState === 'pause' ? ' is-playing' : ''}" data-track-id="${t.id}" aria-label="${playbackState === 'pause' ? 'Pause track' : 'Play track'}">${playbackState === 'pause' ? '❚❚' : '▶'}</button></div>
+      <div class="le-col le-col-play"><button class="le-play-btn${playbackState === 'pause' ? ' is-playing' : ''}" data-track-id="${_leEsc(t.id)}" aria-label="${playbackState === 'pause' ? 'Pause track' : 'Play track'}">${playbackState === 'pause' ? '❚❚' : '▶'}</button></div>
       <div class="le-col le-col-num">${i + 1}</div>
-      <div class="le-col le-col-title le-editable le-title-editable" data-field="title" data-id="${t.id}" title="Double-click to edit title">${_leEsc(t.title || '—')}</div>
+      <div class="le-col le-col-title le-editable le-title-editable" data-field="title" data-id="${_leEsc(t.id)}" title="Double-click to edit title">${_leEsc(t.title || '—')}</div>
       <div class="le-col le-col-artist">${_leEsc(t.artist || '—')}</div>
       <div class="le-col le-col-album">${_leEsc(t.album || '—')}</div>
       <div class="le-col le-col-bpm">${bpm}</div>
@@ -802,6 +802,10 @@ async function _leApplyReorder(srcId, targetId) {
       showToast(d.error || 'Could not save track order.', 'error');
       await leRestoreSelection({ id: _leActivePlaylistId, name: _leActivePlaylistName, type: 'playlist' });
     }
+  } catch (_) {
+    showToast('Could not save track order.', 'error');
+    await leRestoreSelection({ id: _leActivePlaylistId, name: _leActivePlaylistName, type: 'playlist' });
+  }
 }
 
 async function leEditTrackTitle(track, event) {
