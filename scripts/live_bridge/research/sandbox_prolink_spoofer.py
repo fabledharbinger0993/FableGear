@@ -69,10 +69,14 @@ class ProLinkActiveProtocol(asyncio.DatagramProtocol):
 
 async def main():
     log.warning("Starting FableGear Pro DJ Link ACTIVE Spoofer (Spoofing ID 5)...")
+    confirmation = input("DANGER: This script transmits spoofed Pro DJ Link packets. Type 'I UNDERSTAND' to continue: ").strip()
+    if confirmation != "I UNDERSTAND":
+        log.error("Aborting: confirmation not provided.")
+        return
+
     loop = asyncio.get_running_loop()
 
     protocol = ProLinkActiveProtocol(device_name="FableGear Live", device_id=5)
-    
     transport, prot = await loop.create_datagram_endpoint(
         lambda: protocol,
         local_addr=('0.0.0.0', 0), # Ephemeral port for sending
