@@ -800,10 +800,8 @@ async function _leApplyReorder(srcId, targetId) {
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
       showToast(d.error || 'Could not save track order.', 'error');
+      await leRestoreSelection({ id: _leActivePlaylistId, name: _leActivePlaylistName, type: 'playlist' });
     }
-  } catch (_) {
-    showToast('Could not save track order.', 'error');
-  }
 }
 
 async function leEditTrackTitle(track, event) {
