@@ -1,12 +1,16 @@
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/fabledharbinger0993/FableGear/main/static/icon-app-dock.png" width="140" alt="FableGear">
+
 # FableGear
 
 **A local-first rekordbox toolkit for DJs who need safer cleanup, recovery, and library maintenance tools.**
 
-<a href="https://github.com/fabledharbinger0993/FableGear/releases/latest/download/FableGear.zip">
-  <img src="https://raw.githubusercontent.com/fabledharbinger0993/FableGear/main/static/icon-logo-fablegear.png" width="200" alt="Download FableGear">
-</a>
+### [⬇️&nbsp; Download FableGear for macOS](https://github.com/fabledharbinger0993/FableGear/releases/latest/download/FableGear.zip)
 
-macOS · Free · Open source (MIT) · No account required · No subscription
+**macOS · Free · Open source (MIT) · No account · No subscription · No telemetry**
+
+</div>
 
 ---
 

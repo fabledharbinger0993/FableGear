@@ -298,6 +298,89 @@ function leActivateAllTracksSelection() {
   leUpdateActionState();
 }
 
+function _leSourceLocationForPath(path) {
+  const text = String(path || '').trim();
+  if (!text) return { key: 'unknown', label: 'Unknown location' };
+  if (text.startsWith('/Volumes/')) {
+    const parts = text.split('/').filter(Boolean);
+    const volume = parts[1] || 'Volume';
+    return { key: `/Volumes/${volume}`, label: volume };
+  }
+  if (/^[A-Za-z]:[\\/]/.test(text)) {
+    return { key: text.slice(0, 2).toUpperCase(), label: text.slice(0, 2).toUpperCase() };
+  }
+  if (text.startsWith('/Users/')) {
+    return { key: '/Users', label: 'Home' };
+  }
+  const parts = text.split('/').filter(Boolean);
+  return { key: parts.length ? `/${parts[0]}` : '/', label: parts[0] || '/' };
+}
+
+function _leNormalizePath(path) {
+  // Normalize separators, trim trailing slashes, and compare case-insensitively
+  // so source roots match consistently across mounted-volume path variants.
+  const text = String(path || '').trim().replace(/[\\/]+/g, '/');
+  if (!text) return '';
+  if (text === '/') return '/';
+  return text.replace(/\/+$/, '').toLowerCase();
+}
+
+function leRenderSourceLocations() {
+  const container = document.getElementById('le-source-location-tree');
+  if (!container) return;
+  const grouped = new Map();
+  (_leAllTracks || []).forEach(track => {
+    const info = _leSourceLocationForPath(track.file_path);
+    const row = grouped.get(info.key) || { ...info, count: 0 };
+    row.count += 1;
+    grouped.set(info.key, row);
+  });
+  const rows = [...grouped.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  container.replaceChildren();
+  rows.forEach(row => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'le-tree-item';
+    btn.dataset.sourceKey = row.key;
+    btn.dataset.sourceLabel = row.label;
+
+    const icon = document.createElement('span');
+    icon.className = 'le-tree-icon';
+    icon.textContent = '💿';
+
+    const label = document.createElement('span');
+    label.className = 'le-tree-label';
+    label.textContent = row.label;
+
+    const count = document.createElement('span');
+    count.className = 'le-tree-count';
+    count.textContent = row.count;
+
+    btn.append(icon, label, count);
+    btn.addEventListener('click', () => {
+      leSelectSourceLocation(btn.dataset.sourceKey || '', btn.dataset.sourceLabel || '', btn);
+    });
+    container.appendChild(btn);
+  });
+}
+
+function leSelectSourceLocation(sourceKey, label, buttonEl) {
+  _leActiveNodeId = sourceKey;
+  _leActiveNodeName = label || 'Source';
+  _leActiveNodeType = 'source';
+  _leActivePlaylistId = null;
+  _leActivePlaylistName = '';
+  leSetActiveTreeItem(buttonEl);
+  const normalizedSourceKey = _leNormalizePath(sourceKey);
+  leSetTrackView(_leAllTracks.filter(t => {
+    if (!normalizedSourceKey) return false;
+    const normalizedPath = _leNormalizePath(t.file_path);
+    if (normalizedSourceKey === '/') return normalizedPath.startsWith('/');
+    return normalizedPath === normalizedSourceKey || normalizedPath.startsWith(`${normalizedSourceKey}/`);
+  }), `Source - ${label}`);
+  leUpdateActionState();
+}
+
 async function leEnsureAllTracksLoaded() {
   if (_leTracksLoaded) return true;
 
@@ -315,6 +398,7 @@ async function leEnsureAllTracksLoaded() {
     _leTracksLoaded = true;
     document.getElementById('le-all-count').textContent = _leAllTracks.length;
     libBuildGenreSelect();
+    leRenderSourceLocations();
     return true;
   } catch (_) {
     leSetStatus('Could not load tracks — is the database connected?');
@@ -508,6 +592,7 @@ async function leLoadLibrary() {
       _leTracksLoaded = true;
       document.getElementById('le-all-count').textContent = _leAllTracks.length;
       libBuildGenreSelect();
+      leRenderSourceLocations();
     }
     if (playlistsRes.ok) {
       const playlists = await playlistsRes.json();
@@ -980,4 +1065,3 @@ async function leRemoveSelectionFromActivePlaylist() {
     showToast('Could not remove selected tracks from playlist.', 'error');
   }
 }
-

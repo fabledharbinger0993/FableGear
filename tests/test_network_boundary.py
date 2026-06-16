@@ -132,6 +132,27 @@ def test_lan_bearer_escape_hatch_reaches_handler(client):
     assert r.status_code != 403   # boundary passed; handler decides the rest
 
 
+def test_onboarding_save_config_defaults_backup_to_archive_savepoints(client):
+    music_root = "/Volumes/MainLibrary/Music Library"
+    r = client.post("/api/onboarding/save-config", json={
+        "local_db": "/tmp/local.db",
+        "device_db": "/tmp/device.db",
+        "music_root": music_root,
+        "db_read": True,
+        "db_write": False,
+    })
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+    cfg = json.loads((Path(os.environ["HOME"]) / ".fablegear" / "config.json").read_text())
+    assert cfg["backup_dir"] == "/Volumes/MainLibrary/FableGear Archive/Savepoints"
+
+
+def test_api_config_uses_archive_reports_path(client):
+    data = _hit(client, "/api/config", LOOPBACK).get_json()
+    assert data["reports"].endswith("/FableGear Archive/Reports")
+
+
 # ── Dead-file scanner: fail loud on unreadable DB ────────────────────────────
 
 def test_dead_file_scan_raises_on_unreadable_db(flask_app, tmp_path):
@@ -216,3 +237,33 @@ def test_usb_inspector_not_a_mount(flask_app, tmp_path):
 
     with _pt.raises(NotAMountError):
         inspect_usb(tmp_path / "does-not-exist")
+
+
+# ── Update checker: the v1.0.0 self-update loop regression ───────────────────
+
+def test_update_sha_not_misparsed_as_version(flask_app):
+    """SHAs starting with a digit (12aff07, 9abf982) must NOT be read as
+    versions older than every release — that caused the perpetual update loop."""
+    from update_checker import _is_newer, _is_semver_tag  # noqa: PLC0415
+    for sha in ("12aff07", "9abf982", "7d62c0a", "0deadbe"):
+        assert _is_semver_tag(sha) is False
+        # tag not locally resolvable as the SHA -> semver guard rejects SHA -> False
+        assert _is_newer("v1.0.0", sha, is_git=True) is False
+
+
+def test_update_equal_version_no_loop(flask_app):
+    from update_checker import _is_newer  # noqa: PLC0415
+    assert _is_newer("v1.0.0", "v1.0.0", is_git=True) is False
+
+
+def test_update_real_upgrade_detected(flask_app):
+    from update_checker import _is_newer, _semver_gt  # noqa: PLC0415
+    assert _semver_gt("v1.1.0", "v1.0.0") is True
+    assert _semver_gt("v1.0.0", "v1.0") is False  # length-tolerant
+
+
+def test_update_zip_no_nag_without_version(flask_app):
+    from update_checker import _is_newer  # noqa: PLC0415
+    assert _is_newer("v1.0.0", None, is_git=False) is False
+    assert _is_newer("v1.0.0", "v1.0.0", is_git=False) is False
+    assert _is_newer("v1.0.0", "v0.9", is_git=False) is True

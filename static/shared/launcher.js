@@ -84,7 +84,13 @@
   }
 
   // Expose globally — Welcome button in the header calls this.
-  window.openFableGearLauncher = openLauncher;
+  window.openFableGearLauncher = function () {
+    if (typeof openWelcome === 'function') {
+      openWelcome();
+      return;
+    }
+    openLauncher();
+  };
 
   // ── Keyboard handlers ─────────────────────────────────────────────────
   document.addEventListener('keydown', (e) => {
@@ -112,6 +118,10 @@
     const welcome = document.getElementById('welcome-backdrop');
     if (welcome && !welcome.classList.contains('hidden')) {
       setTimeout(maybeOpenLauncher, 800);
+      return;
+    }
+    if (typeof openWelcome === 'function') {
+      openWelcome();
       return;
     }
     openLauncher();
