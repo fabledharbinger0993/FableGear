@@ -324,8 +324,8 @@ def api_config():
     from helpers import _current_fablegear_mode, _backup_dir  # noqa: PLC0415
     try:
         from config import (  # noqa: PLC0415
-            BACKUP_DIR, DJMT_DB, MUSIC_ROOT, ARCHIVE_ROOT, QUARANTINE_DIR, REPORTS_DIR,
-            ARCHIVE_ENABLED, _archive_mode, _custom_archive,
+            DJMT_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
+            BACKUP_DIR, ARCHIVE_ENABLED, _archive_mode, _custom_archive,
         )
         from user_config import load_user_config as _luc  # noqa: PLC0415
         _ucfg = _luc()
