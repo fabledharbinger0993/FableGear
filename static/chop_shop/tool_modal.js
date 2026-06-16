@@ -690,6 +690,8 @@ async function leSelectHistory(buttonEl) {
   leUpdateActionState();
 }
 
+let _leDragSrcId = null;
+
 function leRenderTracks(tracks) {
   const list = document.getElementById('le-track-list');
   if (!list) return;
@@ -707,7 +709,8 @@ function leRenderTracks(tracks) {
     return;
   }
   empty.style.display = 'none';
-  const sorted = leSorted(tracks);
+  const inPlaylist = _leActiveNodeType === 'playlist' && !!_leActivePlaylistId;
+  const sorted = inPlaylist ? tracks : leSorted(tracks);
   sorted.forEach((t, i) => {
     const row = document.createElement('div');
     row.className = 'le-track-row';
@@ -718,7 +721,9 @@ function leRenderTracks(tracks) {
     const bpm = t.bpm ? Math.round(t.bpm) : '—';
     const dur = t.duration ? leFormatDur(t.duration) : '—';
     const date = t.date_added ? t.date_added.slice(0, 10) : '—';
+    const handle = inPlaylist ? '<div class="le-drag-handle" title="Drag to reorder">⠿</div>' : '';
     row.innerHTML = `
+      ${handle}
       <div class="le-col le-col-play"><button class="le-play-btn${playbackState === 'pause' ? ' is-playing' : ''}" data-track-id="${t.id}" aria-label="${playbackState === 'pause' ? 'Pause track' : 'Play track'}">${playbackState === 'pause' ? '❚❚' : '▶'}</button></div>
       <div class="le-col le-col-num">${i + 1}</div>
       <div class="le-col le-col-title le-editable le-title-editable" data-field="title" data-id="${t.id}" title="Double-click to edit title">${_leEsc(t.title || '—')}</div>
@@ -731,8 +736,72 @@ function leRenderTracks(tracks) {
     row.querySelector('.le-play-btn')?.addEventListener('click', evt => leToggleTrackPlayback(t.id, evt));
     row.querySelector('.le-title-editable')?.addEventListener('dblclick', evt => leEditTrackTitle(t, evt));
     row.addEventListener('click', evt => leToggleTrackSelection(String(t.id), evt));
+    if (inPlaylist) _leBindDragReorder(row, t.id);
     list.appendChild(row);
   });
+}
+
+function _leBindDragReorder(row, trackId) {
+  row.setAttribute('draggable', 'true');
+  row.addEventListener('dragstart', e => {
+    _leDragSrcId = String(trackId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', _leDragSrcId);
+  });
+  row.addEventListener('dragend', () => {
+    document.querySelectorAll('.le-track-row.drag-over').forEach(r => r.classList.remove('drag-over'));
+    _leDragSrcId = null;
+  });
+  row.addEventListener('dragover', e => {
+    if (!_leDragSrcId || _leDragSrcId === String(trackId)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    document.querySelectorAll('.le-track-row.drag-over').forEach(r => r.classList.remove('drag-over'));
+    row.classList.add('drag-over');
+  });
+  row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+  row.addEventListener('drop', e => {
+    e.preventDefault();
+    row.classList.remove('drag-over');
+    const srcId = _leDragSrcId;
+    if (!srcId || srcId === String(trackId)) return;
+    _leApplyReorder(srcId, String(trackId));
+  });
+}
+
+async function _leApplyReorder(srcId, targetId) {
+  const list = document.getElementById('le-track-list');
+  if (!list) return;
+  const rows = [...list.querySelectorAll('.le-track-row[data-id]')];
+  const ids = rows.map(r => r.dataset.id);
+  const srcIdx = ids.indexOf(srcId);
+  const tgtIdx = ids.indexOf(targetId);
+  if (srcIdx === -1 || tgtIdx === -1 || srcIdx === tgtIdx) return;
+
+  ids.splice(srcIdx, 1);
+  ids.splice(tgtIdx, 0, srcId);
+
+  // Optimistic DOM reorder
+  const srcRow = rows[srcIdx];
+  const tgtRow = rows[tgtIdx];
+  if (srcIdx < tgtIdx) {
+    tgtRow.after(srcRow);
+  } else {
+    tgtRow.before(srcRow);
+  }
+  list.querySelectorAll('.le-col-num').forEach((el, i) => { el.textContent = i + 1; });
+
+  try {
+    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActivePlaylistId)}/tracks/order`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: ids }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      showToast(d.error || 'Could not save track order.', 'error');
+      await leRestoreSelection({ id: _leActivePlaylistId, name: _leActivePlaylistName, type: 'playlist' });
+    }
 }
 
 async function leEditTrackTitle(track, event) {

@@ -271,6 +271,17 @@ function initDriveList() {
         if (document.activeElement === _driveFlyoutTrigger || list.contains(document.activeElement)) list.focus();
         return;
       }
+      list.innerHTML = vols.map(v => `
+        <div class="lp-drives-item" role="button" tabindex="0"
+             onclick="openDriveInFileBrowser('${_escPath(v.mountpoint)}')"
+             onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openDriveInFileBrowser('${_escPath(v.mountpoint)}'); }">
+          <span class="lp-drives-name">${_esc(v.name)}</span>
+          ${v.has_pioneer_db ? '<span class="lp-drives-badge">Pioneer</span>' : ''}
+          ${v.free_gb != null ? `<span class="lp-drives-meta">${v.free_gb}/${v.total_gb} GB</span>` : ''}
+          <button type="button" class="le-stage-btn" title="Stage drive for Chop Shop"
+                  onclick="event.stopPropagation(); stagingAddPath('${_escAttr(v.mountpoint)}')">+Q</button>
+        </div>
+      `).join('');
       list.replaceChildren(...vols.map(v => {
         const item = document.createElement('div');
         item.className = 'lp-drives-item';

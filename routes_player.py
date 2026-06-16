@@ -840,6 +840,55 @@ def api_library_remove_tracks_from_playlist(playlist_id):
         return jsonify({"error": str(exc)}), 500
 
 
+@bp.route("/api/library/playlists/<playlist_id>/tracks/order", methods=["PUT"])
+def api_library_reorder_playlist_tracks(playlist_id):
+    """Reorder tracks in a playlist. Body: {track_ids: [id, id, ...]} in desired order."""
+    from db_connection import write_db  # noqa: PLC0415
+    from config import LOCAL_DB as _DB  # noqa: PLC0415
+
+    data = request.get_json(silent=True) or {}
+    track_ids = data.get("track_ids")
+    if not isinstance(track_ids, list) or not track_ids:
+        return jsonify({"error": "track_ids required (ordered list)"}), 400
+
+    track_ids = [str(t).strip() for t in track_ids if str(t).strip()]
+
+    try:
+        with write_db(_DB) as db:
+            playlist = db.get_playlist(ID=playlist_id).one_or_none()
+            if playlist is None:
+                return jsonify({"error": "Playlist not found"}), 404
+            if int(getattr(playlist, "Attribute", 0) or 0) == 1:
+                return jsonify({"error": "Cannot reorder tracks in a folder"}), 400
+
+            songs = db.get_playlist_songs(PlaylistID=playlist.ID).all()
+            songs_by_content = {}
+            for song in songs:
+                content_id = str(getattr(song, "ContentID", "") or "")
+                if not content_id:
+                    continue
+                songs_by_content.setdefault(content_id, []).append(song)
+
+            dupes = [cid for cid, ss in songs_by_content.items() if len(ss) > 1]
+            if dupes:
+                return jsonify({"error": "Playlist contains duplicate tracks; reorder requires per-row identifiers"}), 400
+
+            expected = set(songs_by_content.keys())
+            if len(set(track_ids)) != len(track_ids) or set(track_ids) != expected:
+                return jsonify({"error": "track_ids must include every track in the playlist exactly once"}), 400
+
+            for new_pos, content_id in enumerate(track_ids, start=1):
+                songs_by_content[content_id][0].TrackNo = new_pos
+
+            updated = len(track_ids)
+            db.commit()
+            return jsonify({"ok": True, "updated": updated})
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 503
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @bp.route("/api/library/tracks/<track_id>", methods=["PATCH"])
 def api_library_patch_track(track_id):
     from db_connection import write_db  # noqa: PLC0415
