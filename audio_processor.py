@@ -281,7 +281,8 @@ def _get_ffmpeg_codec_args(path: Path) -> list[str]:
         try:
             info = sf.info(str(path))
             codec = "pcm_s24le" if "24" in info.subtype else "pcm_s16le"
-        except Exception:
+        except Exception as e:
+            log.warning("sf.info failed for %s, falling back to pcm_s16le. Err: %s", path.name, e)
             codec = "pcm_s16le"
         return ["-codec:a", codec]
     elif ext == ".wav":
@@ -410,7 +411,8 @@ def _convert_file(path: Path, target_format: str) -> tuple[bool, str]:
             try:
                 info = sf.info(str(path))
                 codec = "pcm_s24le" if "24" in info.subtype else "pcm_s16le"
-            except Exception:
+            except Exception as e:
+                log.warning("sf.info failed for %s, falling back to pcm_s16le. Err: %s", path.name, e)
                 codec = "pcm_s16le"
             codec_args = ["-codec:a", codec]
         elif target_format == "wav":
@@ -539,7 +541,8 @@ def _write_enriched_tags(path: Path, meta: dict, *, force: bool = False) -> list
     if audio.tags is None:
         try:
             audio.add_tags()
-        except Exception:
+        except Exception as e:
+            log.warning("Failed to add tags to %s. Err: %s", path.name, e)
             return []
 
     tag_type = type(audio.tags).__name__
@@ -559,7 +562,8 @@ def _write_enriched_tags(path: Path, meta: dict, *, force: bool = False) -> list
             else:
                 f = audio.tags.get(id3_key)
                 return f is None or not str(f).strip()
-        except Exception:
+        except Exception as e:
+            log.warning("Failed to check if field is empty for %s. Err: %s", path.name, e)
             return True
 
     def _write_field(label, value, id3_cls, id3_key, vorbis_key, mp4_key=None):
@@ -865,7 +869,8 @@ def process_directory(
         # Build scan index entry — duration via soundfile header (fast, no decode)
         try:
             duration_sec = round(sf.info(str(r.path)).duration, 1)
-        except Exception:
+        except Exception as e:
+            log.warning("Could not read duration for %s. Err: %s", r.path.name, e)
             duration_sec = None
         try:
             file_size = r.path.stat().st_size
@@ -973,12 +978,15 @@ def process_directory(
                 # Atomic rename (POSIX guarantees atomicity)
                 Path(temp_path).replace(index_path)
                 log.info("Scan index written: %s (%d entries)", index_path, len(existing))
-            except Exception:
+            except Exception as io_err:
                 # Clean up temp file on failure
                 Path(temp_path).unlink(missing_ok=True)
-                raise
+                raise io_err
         except Exception as exc:
-            log.warning("Could not write scan index: %s", exc)
+            msg = f"Could not write scan index: {exc}"
+            log.warning(msg)
+            # Bubble up the failure so the UI reports the scan index error instead of swallowing it locally
+            results.append(ProcessResult(path=index_path, errors=[msg]))
 
     # Emit structured error summary so the UI can build actionable next steps.
     # Emitted as FABLEGEAR_ERROR_SUMMARY: {json} — parsed by the JS SSE handler.
