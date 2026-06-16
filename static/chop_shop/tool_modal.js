@@ -213,6 +213,12 @@ function _mirrorScanBarToModal() {
 function handleToolIconClick(toolId) {
   const running = (typeof isRunning !== 'undefined' && isRunning);
   if (running && _toolFloatActive && toolId !== _toolFloatActive) {
+    // A tool is already running — we can't start a second one. Surface a clear
+    // toast (the read-only help panel alone reads as "nothing happened") so the
+    // click doesn't look like the tool silently failed to fire.
+    if (typeof showToast === 'function') {
+      showToast('A tool is still running — click Interrupt to stop it before starting another.', 'warning');
+    }
     openToolHelpPanel(toolId);
     return;
   }

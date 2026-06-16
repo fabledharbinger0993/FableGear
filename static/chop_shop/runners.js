@@ -364,7 +364,9 @@ function runNovelty() {
 
 /* ── Rename Files ─────────────────────────────────────────────────────────── */
 
-let renamePreflightState = null;
+// renamePreflightState is declared in shared/state.js (these slices share one
+// global scope). Re-declaring it here with `let` is a parse-time SyntaxError
+// that aborts this whole file, silently undefining every runner. Do not re-add.
 
 function renameZoneAdd() {
   const input = document.getElementById('rename-zone-text');

@@ -72,6 +72,52 @@ def _sanitize_folder(name: str, max_len: int = 100) -> str:
     return (name[:max_len] if name else "Unknown")
 
 
+# A single path component is capped at 255 bytes on macOS/APFS and exFAT. Stay
+# well under that so the organizer can still append a "_NN" conflict suffix.
+_MAX_NAME_BYTES = 200
+
+# Matches a stem that is one phrase repeated back-to-back — e.g. the corruption
+# mode where a name is its own data copied several times: "Title Title Title",
+# "TitleTitle", "Title_Title". `.+?` is non-greedy so it captures the smallest
+# repeating unit.
+_TANDEM_REPEAT = re.compile(r'^(.+?)(?:[\s._\-]*\1)+$')
+
+
+def _cap_bytes(stem: str, max_bytes: int) -> str:
+    """Truncate so the UTF-8 encoding fits in max_bytes, on a character boundary."""
+    encoded = stem.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return stem
+    return encoded[:max_bytes].decode("utf-8", "ignore").rstrip(" ._-")
+
+
+def _sanitize_filename(name: str) -> str:
+    """
+    Clean a destination *file* name so pathological names move successfully
+    instead of failing with ENAMETOOLONG. Unsafe characters are always stripped;
+    the more aggressive repairs (collapsing repeated data, hard truncation) only
+    kick in when the name actually exceeds the filesystem's per-component limit,
+    so ordinary names — including legitimate repeated titles like
+    "New York New York" — pass through untouched. The extension is preserved.
+    """
+    p = Path(name)
+    stem, suffix = p.stem, p.suffix
+    stem = _UNSAFE_CHARS.sub(" ", stem)
+    stem = _MULTI_SPACE.sub(" ", stem).strip()
+
+    budget = max(_MAX_NAME_BYTES - len(suffix.encode("utf-8")) - 4, 1)
+    if len(stem.encode("utf-8")) > budget:
+        # Over the component limit. First try collapsing a name that is the same
+        # data repeated back-to-back (cuts the corruption away cleanly); then
+        # hard-truncate by bytes if it is still too long.
+        m = _TANDEM_REPEAT.match(stem)
+        if m and len(m.group(1).strip()) >= 4:
+            stem = m.group(1).strip()
+        stem = _cap_bytes(stem, budget)
+
+    return (stem + suffix) if stem else ("untitled" + suffix)
+
+
 def _normalize_artist(name: str) -> str:
     """
     Strip RekordBox / Camelot key prefixes that sometimes get written into
@@ -161,7 +207,7 @@ def _canonical_dest(
 ) -> Path:
     """Compute the canonical destination path for a track (no I/O performed)."""
     year  = _year_str(src, track.year)
-    fname = src.name
+    fname = _sanitize_filename(src.name)
 
     # Long-form content (mixes, live sets, radio shows)
     if track.duration_seconds is not None and track.duration_seconds >= threshold:
@@ -391,15 +437,41 @@ def organize_library(
     return results
 
 
+# OS-generated metadata that should not keep an otherwise-empty source folder
+# alive. These accumulate on macOS and on exFAT drives (e.g. a Samsung SSD) and
+# are exactly why "empty" folders survive a move.
+_DIR_JUNK = {
+    ".DS_Store", "Thumbs.db", "desktop.ini", ".localized",
+    ".Spotlight-V100", ".Trashes", ".fseventsd", ".TemporaryItems",
+}
+
+
+def _is_dir_junk(entry: Path) -> bool:
+    return entry.name in _DIR_JUNK or entry.name.startswith("._")
+
+
 def _prune_empty_dirs(root: Path) -> None:
-    """Remove empty leaf directories bottom-up; never removes root itself."""
+    """
+    Remove empty source directories bottom-up. A folder counts as empty when the
+    only things left in it are OS-metadata junk (.DS_Store, AppleDouble ._*
+    files, Thumbs.db, …); that junk is deleted so the now-truly-empty folder can
+    be pruned. Folders that still hold real files (cover art, docs, stray audio)
+    are left untouched, and the root itself is never removed.
+    """
     for dirpath, _dirs, _files in os.walk(root, topdown=False):
         p = Path(dirpath)
         if p == root:
             continue
         try:
-            if not any(p.iterdir()):
-                p.rmdir()
-                log.info("Pruned empty dir: %s", p)
+            entries = list(p.iterdir())
+            if any(not _is_dir_junk(e) for e in entries):
+                continue  # real content remains — leave the folder alone
+            for junk in entries:
+                try:
+                    junk.unlink()
+                except OSError as exc:
+                    log.warning("Could not remove junk file %s: %s", junk, exc)
+            p.rmdir()
+            log.info("Pruned empty dir: %s", p)
         except OSError as exc:
             log.warning("Could not remove empty dir %s: %s", p, exc)

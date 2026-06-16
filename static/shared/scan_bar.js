@@ -92,10 +92,17 @@ function _chopReadoutUpdate(p) {
     _chopSetText('chop-readout-title', `Scanning library… ${p.scanned.toLocaleString()} checked`);
     return;
   }
-  const clean = p.clean || 0, edited = p.edited || 0, errors = p.errors || 0, quar = p.quarantined || 0;
-  const done = clean + edited + errors + quar;
+  const clean = p.clean || 0, errors = p.errors || 0, quar = p.quarantined || 0;
+  // Tools that move/copy files (organizer, novelty) report an explicit `done`
+  // count and a `moved`/`copied` count, and do NOT populate the clean/edited
+  // buckets. Tools that classify files (tag tracks, import, link) report the
+  // per-bucket counts instead. Honor an explicit `done`/`total` when present and
+  // fall back to summing buckets — recomputing from buckets alone leaves the DONE
+  // tick stuck at 0 for the move/copy tools.
+  const edited = (p.edited != null) ? p.edited : (p.moved || p.copied || 0);
+  const done = (p.done != null) ? p.done : (clean + edited + errors + quar);
   const remaining = p.remaining || 0;
-  const total = done + remaining;
+  const total = (p.total != null) ? p.total : (done + remaining);
   const pct = total > 0 ? Math.round((done / total) * 100) : (done > 0 ? 100 : 0);
   _chopSetText('chop-tick-done', done.toLocaleString());
   _chopSetText('chop-tick-remaining', remaining.toLocaleString());
