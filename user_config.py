@@ -233,8 +233,12 @@ def archive_root_for_music_root(music_root: str | Path) -> Path:
     return parent / "FableGear Archive"
 
 
-def count_audio_files(root: Path, *, max_depth: int | None = None) -> int:
-    """Count audio files under *root*; ``max_depth=0`` means root-only, ``None`` is unlimited."""
+def count_audio_files(root: Path, *, max_depth: int | None = None, cap: int | None = 5000) -> int:
+    """Count/estimate audio files under *root*.
+
+    ``max_depth=0`` means root-only; ``None`` is unlimited. If ``cap`` is set,
+    stop once the count reaches the cap (keeps drive discovery responsive).
+    """
     total = 0
     try:
         for walk_root, dirs, files in os.walk(root):
@@ -243,7 +247,11 @@ def count_audio_files(root: Path, *, max_depth: int | None = None) -> int:
                 dirs.clear()
                 continue
             dirs[:] = [d for d in dirs if not d.startswith(".")]
-            total += sum(1 for fname in files if os.path.splitext(fname)[1].lower() in _AUDIO_EXTS)
+            for fname in files:
+                if os.path.splitext(fname)[1].lower() in _AUDIO_EXTS:
+                    total += 1
+                    if cap is not None and total >= cap:
+                        return total
     except (PermissionError, OSError):
         return total
     return total
