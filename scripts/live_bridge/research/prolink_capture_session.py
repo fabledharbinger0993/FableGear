@@ -2,7 +2,7 @@
 Capture and summarize Pro DJ Link packets for CDJ control decoding.
 
 This helper wraps tcpdump so an experiment is not lost to terminal scrollback.
-It writes three files under scripts/live_bridge/captures/:
+It writes three files under scripts/live_bridge/research/captures/:
   - .pcap: raw capture
   - .txt: tcpdump -XX text dump
   - .csv: one-row-per-packet summary for quick diffing
