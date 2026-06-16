@@ -174,34 +174,84 @@ def _local_version() -> tuple[str | None, bool]:
     return None, True
 
 
+def _is_semver_tag(s: str) -> bool:
+    """True only for strict version strings like 'v1.2.3' or '1.2' — NOT for
+    commit SHAs that merely happen to start with a digit (e.g. '12aff07')."""
+    import re
+    return bool(re.fullmatch(r"v?\d+(\.\d+)*", s or ""))
+
+
+def _semver_gt(a: str, b: str) -> bool:
+    """True if version `a` is strictly greater than `b`, length-tolerant
+    (1.0 vs 1.0.0 compare equal). Both must be semver-shaped."""
+    def parts(t: str) -> tuple[int, ...]:
+        return tuple(int(x) for x in t.lstrip("v").split(".") if x.isdigit())
+    pa, pb = parts(a), parts(b)
+    n = max(len(pa), len(pb))
+    pa += (0,) * (n - len(pa))
+    pb += (0,) * (n - len(pb))
+    return pa > pb
+
+
+def _local_tag_is_current(latest_tag: str) -> "bool | None":
+    """Authoritative git check: is `latest_tag`'s commit already in local HEAD?
+
+    Returns True if HEAD already contains the release tag's commit (no update
+    needed), False if the release tag is a commit we don't have (update
+    available), or None if it can't be determined (tag not fetched locally)."""
+    script_dir = Path(__file__).parent
+    try:
+        rev = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"{latest_tag}^{{commit}}"],
+            cwd=script_dir, capture_output=True, text=True, timeout=5,
+        )
+        if rev.returncode != 0 or not rev.stdout.strip():
+            return None  # tag not present locally — can't compare via git
+        tag_commit = rev.stdout.strip()
+        anc = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", tag_commit, "HEAD"],
+            cwd=script_dir, capture_output=True, timeout=5,
+        )
+        # exit 0 => tag_commit is an ancestor of HEAD => we already have it
+        return anc.returncode == 0
+    except Exception:
+        return None
+
+
 def _is_newer(latest_tag: str, current: str | None, is_git: bool) -> bool:
     """
     Return True if the latest GitHub release is newer than the local install.
 
-    - ZIP installs (not git): always show the update banner so they can download.
-    - Git installs with a tag: compare semver-style (v1.2.3 > v1.0.0).
-    - Git installs with only a SHA: can't compare; stay silent.
+    - ZIP installs (not git): offer the download only if the bundled version is
+      a real, older semver than the release. If our version is unknown, stay
+      silent rather than nag forever.
+    - Git installs: prefer an authoritative git ancestry check; fall back to
+      strict semver comparison only when BOTH sides are real version tags.
     """
     if not latest_tag:
         return False
 
     if not is_git:
-        # Non-git user — always offer the download
-        return True
+        return bool(current) and _is_semver_tag(current) and _is_semver_tag(latest_tag) \
+            and _semver_gt(latest_tag, current)
 
     if not current:
         return False
 
-    # If current looks like a tag (starts with v or digit), compare version tuples
-    if current.startswith("v") or (current and current[0].isdigit()):
-        try:
-            def _parts(tag: str) -> tuple[int, ...]:
-                return tuple(int(x) for x in tag.lstrip("v").split(".") if x.isdigit())
-            return _parts(latest_tag) > _parts(current)
-        except Exception:
-            pass
+    # Authoritative: does HEAD already contain the release commit?
+    git_answer = _local_tag_is_current(latest_tag)
+    if git_answer is True:
+        return False
+    if git_answer is False:
+        return True
 
-    # Current is a raw SHA — can't determine order; stay silent
+    # Tag not fetched locally — fall back to semver, but ONLY if BOTH strings
+    # are real versions. A commit SHA is never a version. This is the fix for
+    # the loop: SHAs like '12aff07' previously parsed to an empty tuple and
+    # compared as older than every release, so the banner never cleared.
+    if _is_semver_tag(current) and _is_semver_tag(latest_tag):
+        return _semver_gt(latest_tag, current)
+
     return False
 
 

@@ -325,7 +325,7 @@ def api_config():
     try:
         from config import (  # noqa: PLC0415
             DJMT_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
-            ARCHIVE_ENABLED, _archive_mode, _custom_archive,
+            BACKUP_DIR, ARCHIVE_ENABLED, _archive_mode, _custom_archive,
         )
         from user_config import load_user_config as _luc  # noqa: PLC0415
         _ucfg = _luc()
@@ -333,7 +333,7 @@ def api_config():
         return jsonify({
             "music_root":       str(MUSIC_ROOT),
             "djmt_db":          str(DJMT_DB),
-            "backup_dir":       str(SAVEPOINTS_DIR),
+            "backup_dir":       str(BACKUP_DIR),
             "archive_root":     str(ARCHIVE_ROOT),
             "quarantine":       str(QUARANTINE_DIR),
             "reports":          str(REPORTS_DIR),
@@ -386,14 +386,27 @@ def api_setup_archive():
 def api_settings():
     """Save archive mode and custom path to user config."""
     try:
-        from user_config import load_user_config, CONFIG_PATH  # noqa: PLC0415
+        from user_config import archive_root_for_music_root, load_user_config, CONFIG_PATH  # noqa: PLC0415
         import json as _json
         data = request.get_json(force=True) or {}
         cfg = load_user_config()
-        if "archive_mode" in data:
-            cfg["archive_mode"] = data["archive_mode"]
-        if "custom_archive_dir" in data:
-            cfg["custom_archive_dir"] = data["custom_archive_dir"]
+        raw_archive_mode = data.get("archive_mode")
+        archive_mode = str(
+            raw_archive_mode if raw_archive_mode not in (None, "") else cfg.get("archive_mode", "auto")
+        ).strip() or "auto"
+        if archive_mode not in {"auto", "custom", "none"}:
+            return jsonify({"ok": False, "error": "Invalid archive mode. Must be one of: auto, custom, none"}), 400
+        custom_archive_dir = str(data.get("custom_archive_dir", cfg.get("custom_archive_dir", ""))).strip()
+        if archive_mode == "custom" and not custom_archive_dir:
+            return jsonify({"ok": False, "error": "Custom archive path cannot be empty when archive_mode is custom"}), 400
+        cfg["archive_mode"] = archive_mode
+        cfg["custom_archive_dir"] = custom_archive_dir if archive_mode == "custom" else ""
+        if archive_mode == "auto" and str(cfg.get("music_root", "")).strip():
+            cfg["backup_dir"] = str(archive_root_for_music_root(cfg["music_root"]) / "Savepoints")
+        elif archive_mode == "custom":
+            cfg["backup_dir"] = str(Path(custom_archive_dir) / "Savepoints")
+        else:
+            cfg["backup_dir"] = str(cfg.get("backup_dir", "")).strip() or str(Path.home() / ".fablegear" / "backups")
         if "excluded_dirs" in data:
             cfg["excluded_dirs"] = [d for d in data["excluded_dirs"] if isinstance(d, str) and d.strip()]
         if "mode" in data and data["mode"] in ("rural", "suburban"):
@@ -671,6 +684,7 @@ def _mounted_volumes() -> list:
                 "total_gb":       total_gb,
                 "has_pioneer_db": pioneer_db.exists(),
                 "is_music_root":  music_root_str.startswith(mp),
+                "is_read_only":   "ro" in {o.strip() for o in (part.opts or "").split(",")},
             })
     except Exception:
         pass
@@ -864,15 +878,13 @@ def api_drives_autodetect():
     can confirm and apply them with one click via /api/drives/apply-fix.
     Works on macOS, Windows, and Linux.
     """
-    import os as _os  # noqa: PLC0415
+    from user_config import discover_music_roots  # noqa: PLC0415
 
     device_db_candidates: list[str] = []
-    music_root_candidates: list[str] = []
-    audio_exts = {".mp3", ".flac", ".aif", ".aiff", ".wav", ".m4a", ".ogg"}
 
     mounts = _mounted_volumes()
     if not mounts:
-        return jsonify({"device_db": [], "music_root": []})
+        return jsonify({"device_db": [], "music_root": [], "music_root_details": [], "recommended_music_root": ""})
 
     for mount in mounts:
         vol = Path(mount["mountpoint"])
@@ -882,29 +894,14 @@ def api_drives_autodetect():
         candidate_db = vol / "PIONEER" / "Master" / "master.db"
         if candidate_db.exists():
             device_db_candidates.append(str(candidate_db))
-        # Music root heuristic: at least 5 audio files anywhere in the first 3 levels
-        audio_count = 0
-        try:
-            for root, _dirs, files in _os.walk(vol):
-                depth = root.replace(str(vol), "").count(_os.sep)
-                if depth > 3:
-                    _dirs.clear()
-                    continue
-                for f in files:
-                    if Path(f).suffix.lower() in audio_exts:
-                        audio_count += 1
-                        if audio_count >= 5:
-                            break
-                if audio_count >= 5:
-                    break
-        except PermissionError:
-            pass
-        if audio_count >= 5:
-            music_root_candidates.append(str(vol))
+    music_root_details = discover_music_roots([Path(m["mountpoint"]) for m in mounts if Path(m["mountpoint"]).is_dir()])
+    music_root_candidates = [item["path"] for item in music_root_details]
 
     return jsonify({
         "device_db":   device_db_candidates,
         "music_root":  music_root_candidates,
+        "music_root_details": music_root_details,
+        "recommended_music_root": music_root_details[0]["path"] if music_root_details else "",
     })
 
 
@@ -957,6 +954,40 @@ def api_drives_apply_fix():
         return jsonify({"ok": True, "patched": list(patch.keys())})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/drives/first-aid", methods=["POST"])
+def api_drives_first_aid():
+    """Open Disk Utility for a mounted drive so the user can run First Aid."""
+    if _SYSTEM != "Darwin":
+        return jsonify({
+            "ok": False,
+            "error": "Disk Utility First Aid is only available on macOS.",
+        }), 400
+
+    data = request.get_json(silent=True) or {}
+    mountpoint = str(data.get("mountpoint", "")).strip()
+    if not mountpoint:
+        return jsonify({"ok": False, "error": "mountpoint is required"}), 400
+
+    try:
+        requested_mount = str(Path(mountpoint).resolve())
+    except Exception:
+        return jsonify({"ok": False, "error": "Invalid mountpoint"}), 400
+
+    allowed_mounts = {str(Path(v.get("mountpoint", "")).resolve()) for v in _mounted_volumes() if v.get("mountpoint")}
+    if requested_mount not in allowed_mounts:
+        return jsonify({"ok": False, "error": "Unknown mounted drive"}), 400
+
+    try:
+        subprocess.Popen(["open", "-a", "Disk Utility", requested_mount])
+        return jsonify({
+            "ok": True,
+            "message": "Disk Utility opened. Run First Aid on the drive before retrying write access.",
+        })
+    except Exception:
+        app.logger.exception("Could not open Disk Utility for %s", requested_mount)
+        return jsonify({"ok": False, "error": "Could not open Disk Utility"}), 500
 
 
 # ── First-run onboarding ──────────────────────────────────────────────────────
@@ -1044,7 +1075,7 @@ def api_onboarding_install_app():
     install_dir = Path.home() / "Applications"
     app_path = install_dir / "FableGear.app"
     launch_sh = REPO_ROOT / "launch.sh"
-    icon_src = REPO_ROOT / "static" / "icon-logo-fablegear.png"
+    icon_src = REPO_ROOT / "static" / "icon-app-dock.png"
 
     install_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1149,7 +1180,7 @@ def api_onboarding_open_fda_prefs():
 @app.route("/api/onboarding/save-config", methods=["POST"])
 def api_onboarding_save_config():
     """Save confirmed paths to config.json and mark setup complete."""
-    from user_config import DEFAULTS, save_user_config  # noqa: PLC0415
+    from user_config import DEFAULTS, archive_root_for_music_root, save_user_config  # noqa: PLC0415
 
     data = request.get_json(silent=True) or {}
     required = {"local_db", "device_db", "music_root"}
@@ -1157,12 +1188,28 @@ def api_onboarding_save_config():
     if missing:
         return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
 
+    archive_mode = str(data.get("archive_mode", "auto")).strip() or "auto"
+    if archive_mode not in {"auto", "custom", "none"}:
+        return jsonify({"error": "Invalid archive mode. Must be one of: auto, custom, none"}), 400
+    custom_archive_dir = str(data.get("custom_archive_dir", "")).strip()
+    if archive_mode == "custom" and not custom_archive_dir:
+        return jsonify({"error": "Custom archive path cannot be empty when archive_mode is custom"}), 400
+    backup_dir = str(data.get("backup_dir", "")).strip()
+    if not backup_dir:
+        if archive_mode == "custom":
+            backup_dir = str(Path(custom_archive_dir) / "Savepoints")
+        elif archive_mode == "auto":
+            backup_dir = str(archive_root_for_music_root(str(data["music_root"]).strip()) / "Savepoints")
+        else:
+            backup_dir = str(Path.home() / ".fablegear" / "backups")
+
     cfg: dict = {
         "local_db":   str(data["local_db"]).strip(),
         "device_db":  str(data["device_db"]).strip(),
         "music_root": str(data["music_root"]).strip(),
-        "backup_dir": str(data.get("backup_dir", "")).strip()
-                      or str(Path.home() / ".fablegear" / "backups"),
+        "backup_dir": backup_dir,
+        "archive_mode": archive_mode,
+        "custom_archive_dir": custom_archive_dir if archive_mode == "custom" else "",
     }
     for key, default in DEFAULTS.items():
         cfg.setdefault(key, default)

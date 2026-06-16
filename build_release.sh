@@ -95,7 +95,7 @@ echo "  ✓ Info.plist written"
 
 # ── Apply FableGear icon ───────────────────────────────────────────────────────
 # Prefer new branded icon, fall back to legacy logo
-ICON_SRC="$SCRIPT_DIR/static/icon-fablegear-app.png"
+ICON_SRC="$SCRIPT_DIR/static/icon-app-dock.png"
 [[ ! -f "$ICON_SRC" ]] && ICON_SRC="$SCRIPT_DIR/static/RB_LOGO.png"
 
 if [[ -f "$ICON_SRC" ]]; then

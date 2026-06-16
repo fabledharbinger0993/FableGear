@@ -20,7 +20,7 @@ APP_NAME="FableGear"
 INSTALL_DIR="$HOME/Applications"
 APP_PATH="$INSTALL_DIR/$APP_NAME.app"
 LAUNCH_SH="$REPO_ROOT/launch.sh"
-ICON_SRC="$REPO_ROOT/static/icon-logo-fablegear.png"
+ICON_SRC="$REPO_ROOT/static/icon-app-dock.png"
 
 # ── Ask the user ──────────────────────────────────────────────────────────
 DIALOG_MSG="Add FableGear to your Dock?

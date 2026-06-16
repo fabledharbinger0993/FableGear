@@ -187,7 +187,7 @@ if [ -d "$APP_DEST" ]; then
   ok "FableGear.app created at ~/Applications/FableGear.app"
 
   # ── Apply icon (sips + iconutil) ────────────────────────────────────────
-  ICON_SRC="$SCRIPT_DIR/static/icon-logo-fablegear.png"
+  ICON_SRC="$SCRIPT_DIR/static/icon-app-dock.png"
   if [ -f "$ICON_SRC" ]; then
     ICONSET="$(mktemp -d)/fg.iconset"
     mkdir -p "$ICONSET"

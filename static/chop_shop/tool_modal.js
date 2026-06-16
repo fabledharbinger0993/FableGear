@@ -298,6 +298,89 @@ function leActivateAllTracksSelection() {
   leUpdateActionState();
 }
 
+function _leSourceLocationForPath(path) {
+  const text = String(path || '').trim();
+  if (!text) return { key: 'unknown', label: 'Unknown location' };
+  if (text.startsWith('/Volumes/')) {
+    const parts = text.split('/').filter(Boolean);
+    const volume = parts[1] || 'Volume';
+    return { key: `/Volumes/${volume}`, label: volume };
+  }
+  if (/^[A-Za-z]:[\\/]/.test(text)) {
+    return { key: text.slice(0, 2).toUpperCase(), label: text.slice(0, 2).toUpperCase() };
+  }
+  if (text.startsWith('/Users/')) {
+    return { key: '/Users', label: 'Home' };
+  }
+  const parts = text.split('/').filter(Boolean);
+  return { key: parts.length ? `/${parts[0]}` : '/', label: parts[0] || '/' };
+}
+
+function _leNormalizePath(path) {
+  // Normalize separators, trim trailing slashes, and compare case-insensitively
+  // so source roots match consistently across mounted-volume path variants.
+  const text = String(path || '').trim().replace(/[\\/]+/g, '/');
+  if (!text) return '';
+  if (text === '/') return '/';
+  return text.replace(/\/+$/, '').toLowerCase();
+}
+
+function leRenderSourceLocations() {
+  const container = document.getElementById('le-source-location-tree');
+  if (!container) return;
+  const grouped = new Map();
+  (_leAllTracks || []).forEach(track => {
+    const info = _leSourceLocationForPath(track.file_path);
+    const row = grouped.get(info.key) || { ...info, count: 0 };
+    row.count += 1;
+    grouped.set(info.key, row);
+  });
+  const rows = [...grouped.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  container.replaceChildren();
+  rows.forEach(row => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'le-tree-item';
+    btn.dataset.sourceKey = row.key;
+    btn.dataset.sourceLabel = row.label;
+
+    const icon = document.createElement('span');
+    icon.className = 'le-tree-icon';
+    icon.textContent = '💿';
+
+    const label = document.createElement('span');
+    label.className = 'le-tree-label';
+    label.textContent = row.label;
+
+    const count = document.createElement('span');
+    count.className = 'le-tree-count';
+    count.textContent = row.count;
+
+    btn.append(icon, label, count);
+    btn.addEventListener('click', () => {
+      leSelectSourceLocation(btn.dataset.sourceKey || '', btn.dataset.sourceLabel || '', btn);
+    });
+    container.appendChild(btn);
+  });
+}
+
+function leSelectSourceLocation(sourceKey, label, buttonEl) {
+  _leActiveNodeId = sourceKey;
+  _leActiveNodeName = label || 'Source';
+  _leActiveNodeType = 'source';
+  _leActivePlaylistId = null;
+  _leActivePlaylistName = '';
+  leSetActiveTreeItem(buttonEl);
+  const normalizedSourceKey = _leNormalizePath(sourceKey);
+  leSetTrackView(_leAllTracks.filter(t => {
+    if (!normalizedSourceKey) return false;
+    const normalizedPath = _leNormalizePath(t.file_path);
+    if (normalizedSourceKey === '/') return normalizedPath.startsWith('/');
+    return normalizedPath === normalizedSourceKey || normalizedPath.startsWith(`${normalizedSourceKey}/`);
+  }), `Source - ${label}`);
+  leUpdateActionState();
+}
+
 async function leEnsureAllTracksLoaded() {
   if (_leTracksLoaded) return true;
 
@@ -315,6 +398,7 @@ async function leEnsureAllTracksLoaded() {
     _leTracksLoaded = true;
     document.getElementById('le-all-count').textContent = _leAllTracks.length;
     libBuildGenreSelect();
+    leRenderSourceLocations();
     return true;
   } catch (_) {
     leSetStatus('Could not load tracks — is the database connected?');
@@ -508,6 +592,7 @@ async function leLoadLibrary() {
       _leTracksLoaded = true;
       document.getElementById('le-all-count').textContent = _leAllTracks.length;
       libBuildGenreSelect();
+      leRenderSourceLocations();
     }
     if (playlistsRes.ok) {
       const playlists = await playlistsRes.json();
@@ -605,6 +690,8 @@ async function leSelectHistory(buttonEl) {
   leUpdateActionState();
 }
 
+let _leDragSrcId = null;
+
 function leRenderTracks(tracks) {
   const list = document.getElementById('le-track-list');
   if (!list) return;
@@ -622,7 +709,8 @@ function leRenderTracks(tracks) {
     return;
   }
   empty.style.display = 'none';
-  const sorted = leSorted(tracks);
+  const inPlaylist = _leActiveNodeType === 'playlist' && !!_leActivePlaylistId;
+  const sorted = inPlaylist ? tracks : leSorted(tracks);
   sorted.forEach((t, i) => {
     const row = document.createElement('div');
     row.className = 'le-track-row';
@@ -633,10 +721,12 @@ function leRenderTracks(tracks) {
     const bpm = t.bpm ? Math.round(t.bpm) : '—';
     const dur = t.duration ? leFormatDur(t.duration) : '—';
     const date = t.date_added ? t.date_added.slice(0, 10) : '—';
+    const handle = inPlaylist ? '<div class="le-drag-handle" title="Drag to reorder">⠿</div>' : '';
     row.innerHTML = `
-      <div class="le-col le-col-play"><button class="le-play-btn${playbackState === 'pause' ? ' is-playing' : ''}" data-track-id="${t.id}" aria-label="${playbackState === 'pause' ? 'Pause track' : 'Play track'}">${playbackState === 'pause' ? '❚❚' : '▶'}</button></div>
+      ${handle}
+      <div class="le-col le-col-play"><button class="le-play-btn${playbackState === 'pause' ? ' is-playing' : ''}" data-track-id="${_leEsc(t.id)}" aria-label="${playbackState === 'pause' ? 'Pause track' : 'Play track'}">${playbackState === 'pause' ? '❚❚' : '▶'}</button></div>
       <div class="le-col le-col-num">${i + 1}</div>
-      <div class="le-col le-col-title le-editable le-title-editable" data-field="title" data-id="${t.id}" title="Double-click to edit title">${_leEsc(t.title || '—')}</div>
+      <div class="le-col le-col-title le-editable le-title-editable" data-field="title" data-id="${_leEsc(t.id)}" title="Double-click to edit title">${_leEsc(t.title || '—')}</div>
       <div class="le-col le-col-artist">${_leEsc(t.artist || '—')}</div>
       <div class="le-col le-col-album">${_leEsc(t.album || '—')}</div>
       <div class="le-col le-col-bpm">${bpm}</div>
@@ -646,8 +736,76 @@ function leRenderTracks(tracks) {
     row.querySelector('.le-play-btn')?.addEventListener('click', evt => leToggleTrackPlayback(t.id, evt));
     row.querySelector('.le-title-editable')?.addEventListener('dblclick', evt => leEditTrackTitle(t, evt));
     row.addEventListener('click', evt => leToggleTrackSelection(String(t.id), evt));
+    if (inPlaylist) _leBindDragReorder(row, t.id);
     list.appendChild(row);
   });
+}
+
+function _leBindDragReorder(row, trackId) {
+  row.setAttribute('draggable', 'true');
+  row.addEventListener('dragstart', e => {
+    _leDragSrcId = String(trackId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', _leDragSrcId);
+  });
+  row.addEventListener('dragend', () => {
+    document.querySelectorAll('.le-track-row.drag-over').forEach(r => r.classList.remove('drag-over'));
+    _leDragSrcId = null;
+  });
+  row.addEventListener('dragover', e => {
+    if (!_leDragSrcId || _leDragSrcId === String(trackId)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    document.querySelectorAll('.le-track-row.drag-over').forEach(r => r.classList.remove('drag-over'));
+    row.classList.add('drag-over');
+  });
+  row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+  row.addEventListener('drop', e => {
+    e.preventDefault();
+    row.classList.remove('drag-over');
+    const srcId = _leDragSrcId;
+    if (!srcId || srcId === String(trackId)) return;
+    _leApplyReorder(srcId, String(trackId));
+  });
+}
+
+async function _leApplyReorder(srcId, targetId) {
+  const list = document.getElementById('le-track-list');
+  if (!list) return;
+  const rows = [...list.querySelectorAll('.le-track-row[data-id]')];
+  const ids = rows.map(r => r.dataset.id);
+  const srcIdx = ids.indexOf(srcId);
+  const tgtIdx = ids.indexOf(targetId);
+  if (srcIdx === -1 || tgtIdx === -1 || srcIdx === tgtIdx) return;
+
+  ids.splice(srcIdx, 1);
+  ids.splice(tgtIdx, 0, srcId);
+
+  // Optimistic DOM reorder
+  const srcRow = rows[srcIdx];
+  const tgtRow = rows[tgtIdx];
+  if (srcIdx < tgtIdx) {
+    tgtRow.after(srcRow);
+  } else {
+    tgtRow.before(srcRow);
+  }
+  list.querySelectorAll('.le-col-num').forEach((el, i) => { el.textContent = i + 1; });
+
+  try {
+    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActivePlaylistId)}/tracks/order`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: ids }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      showToast(d.error || 'Could not save track order.', 'error');
+      await leRestoreSelection({ id: _leActivePlaylistId, name: _leActivePlaylistName, type: 'playlist' });
+    }
+  } catch (_) {
+    showToast('Could not save track order.', 'error');
+    await leRestoreSelection({ id: _leActivePlaylistId, name: _leActivePlaylistName, type: 'playlist' });
+  }
 }
 
 async function leEditTrackTitle(track, event) {
@@ -909,4 +1067,3 @@ async function leRemoveSelectionFromActivePlaylist() {
     showToast('Could not remove selected tracks from playlist.', 'error');
   }
 }
-

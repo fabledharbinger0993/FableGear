@@ -306,7 +306,10 @@
               <div class="settings-radio-label">🟡 Custom — point and shoot</div>
               <div class="settings-radio-desc">Direct all logs, savepoints, quarantine files, and reports to any folder you choose. Useful if you want everything on a separate archive drive.</div>
               <div id="settings-custom-path">
-                <input type="text" id="settings-custom-input" placeholder="/path/to/your/archive/folder">
+                <div class="settings-path-row">
+                  <input type="text" id="settings-custom-input" placeholder="/path/to/your/archive/folder">
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="pickSettingsArchiveFolder()">Browse…</button>
+                </div>
               </div>
             </div>
           </label>
@@ -419,6 +422,16 @@
         </div>
         <button type="button" class="welcome-got-it" onclick="closeWelcome()">Dismiss</button>
       </div>
+    </div>
+
+    <div class="settings-section-sep">
+      <label class="settings-excl-label">🧭 Setup &amp; permissions</label>
+      <div class="settings-excl-note">
+        Re-open the welcome wizard any time to revisit drive discovery, archive placement, and database permissions.
+      </div>
+      <button type="button" class="btn btn-secondary btn-xs settings-reconfigure-btn" onclick="reopenOnboardingWizard()">
+        Re-run setup / permissions
+      </button>
     </div>
 
   </div>
@@ -713,6 +726,8 @@
             <span class="le-tree-label">All Tracks</span>
             <span class="le-tree-count" id="le-all-count">—</span>
           </button>
+          <div class="le-sidebar-section">Source Locations</div>
+          <div id="le-source-location-tree"></div>
           <div class="le-sidebar-section">Playlists</div>
           <div id="le-playlist-tree"></div>
           <div class="le-sidebar-section le-sidebar-bottom">History</div>
