@@ -21,7 +21,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 CAPTURE_DIR = Path(__file__).resolve().parent / "captures"
 DEFAULT_FILTER = "udp and (port 50001 or port 50002)"
 PACKET_RE = re.compile(
