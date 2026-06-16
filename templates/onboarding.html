@@ -641,8 +641,9 @@
       <div class="ob-card-title" style="color:var(--accent)">Backup guarantee</div>
       <div style="font-size:.86rem;color:var(--text-muted);line-height:1.55">
         Every write operation creates a timestamped copy of your database before it
-        touches anything. Backups are stored at
-        <code id="backup-guarantee-path" style="font-size:.78rem;color:var(--text)">~/.fablegear/backups</code>.
+        touches anything. Backups are stored in
+        <code id="backup-guarantee-path" style="font-size:.78rem;color:var(--text)">FableGear Archive/Savepoints</code>
+        beside your chosen library (or inside a custom archive, if you set one later).
         Rekordbox must be closed before FableGear will attempt a write.
       </div>
     </div>
@@ -969,24 +970,35 @@ function populateScan(data) {
   // Music root
   var mc = document.getElementById('music-root-extra');
   if (data.music_roots && data.music_roots.length) {
-    document.getElementById('inp-music-root').value = data.music_roots[0].path;
+    var recommendedRoot = data.recommended_music_root || data.music_roots[0].path;
+    document.getElementById('inp-music-root').value = recommendedRoot;
     if (data.music_roots.length > 1) {
       var msel = '<select class="ob-select" onchange="document.getElementById(\'inp-music-root\').value=this.value">';
       data.music_roots.forEach(function(m) {
+        var bits = [m.label];
+        if (m.audio_count) bits.push(m.audio_count + '+ tracks');
+        if (m.read_only) bits.push('read-only');
         var leader = m.recommended_home ? '★ ' : '';
-        var count = m.audio_count ? ' — ' + m.audio_count.toLocaleString() + ' tracks' : '';
-        msel += '<option value="' + escAttr(m.path) + '">' + leader + escHtml(m.label) + count + '</option>';
+        msel += '<option value="' + escAttr(m.path) + '"' + (m.path === recommendedRoot ? ' selected' : '') + '>'
+             + escHtml(leader + bits.join(' - ')) + '</option>';
       });
       msel += '</select>';
-      mc.innerHTML = msel;
+      var rec = data.recommended_archive_root
+        ? '<div class="path-note ok">Recommended main library - ' + escHtml(recommendedRoot)
+          + '<br>Archive - ' + escHtml(data.recommended_archive_root)
+          + '<br>Backups - ' + escHtml(data.recommended_backup_dir || '') + '</div>'
+        : '';
+      mc.innerHTML = rec + msel;
     } else {
       mc.innerHTML =
         '<div class="path-note ok">✓ Found on ' + escHtml(data.music_roots[0].volume)
-        + ' — ' + (data.music_roots[0].audio_count || 0).toLocaleString() + ' tracks</div>';
+        + (data.music_roots[0].audio_count ? ' - ' + escHtml(String(data.music_roots[0].audio_count)) + '+ tracks' : '')
+        + '</div>';
     }
-    if (data.music_roots[0].recommended_home) {
-      mc.innerHTML += '<div class="path-note ok">Recommended home drive: '
-        + escHtml(data.music_roots[0].volume) + '</div>';
+    var selected = data.music_roots.find(function(m) { return m.path === recommendedRoot; }) || data.music_roots[0];
+    if (selected && selected.read_only) {
+      mc.innerHTML += '<div class="path-note miss">This library is currently read-only - run First Aid in Disk Utility before enabling write tools.</div>'
+        + '<div style="margin-top:8px"><button class="path-browse" type="button" onclick="openDiskUtilityForMusicRoot()">Open Disk Utility - First Aid</button></div>';
     }
   } else {
     mc.innerHTML =
@@ -1043,13 +1055,36 @@ function confirmPaths() {
     music_root: musicRoot,
     archive_mode: archiveMode,
     custom_archive_dir: archiveMode === 'custom' ? archiveRoot : '',
-    backup_dir: (archiveRoot ? archiveRoot + '/Savepoints' : ''),
+    backup_dir: (scanData && scanData.recommended_music_root === musicRoot && scanData.recommended_backup_dir)
+      ? scanData.recommended_backup_dir
+      : (archiveRoot ? archiveRoot + '/Savepoints' : ''),
     db_read:  true,
     db_write: true,
     drive_scan: scanConsent === true,
   };
   document.getElementById('backup-guarantee-path').textContent = confirmedPaths.backup_dir || '~/.fablegear/backups';
   goToStep(3);
+}
+
+function openDiskUtilityForMusicRoot() {
+  var musicRoot = document.getElementById('inp-music-root').value.trim();
+  if (!musicRoot) return;
+  var mountpoint = musicRoot;
+  if (scanData && Array.isArray(scanData.music_roots)) {
+    var selected = scanData.music_roots.find(function(m) { return m.path === musicRoot; });
+    if (selected && selected.mountpoint) mountpoint = selected.mountpoint;
+  }
+  fetch('/api/drives/first-aid', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mountpoint: mountpoint })
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      obNotice(d.ok ? (d.message || 'Disk Utility opened.') : ('Could not open Disk Utility: ' + (d.error || 'unknown error')), d.ok ? 'ok' : 'error');
+    })
+    .catch(function() {
+      obNotice('Could not open Disk Utility.', 'error');
+    });
 }
 
 // ── Step 4: Read permission ────────────────────────────────────────────────────

@@ -684,6 +684,7 @@ def _mounted_volumes() -> list:
                 "total_gb":       total_gb,
                 "has_pioneer_db": pioneer_db.exists(),
                 "is_music_root":  music_root_str.startswith(mp),
+                "is_read_only":   "ro" in {o.strip() for o in (part.opts or "").split(",")},
             })
     except Exception:
         pass
@@ -953,6 +954,40 @@ def api_drives_apply_fix():
         return jsonify({"ok": True, "patched": list(patch.keys())})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/drives/first-aid", methods=["POST"])
+def api_drives_first_aid():
+    """Open Disk Utility for a mounted drive so the user can run First Aid."""
+    if _SYSTEM != "Darwin":
+        return jsonify({
+            "ok": False,
+            "error": "Disk Utility First Aid is only available on macOS.",
+        }), 400
+
+    data = request.get_json(silent=True) or {}
+    mountpoint = str(data.get("mountpoint", "")).strip()
+    if not mountpoint:
+        return jsonify({"ok": False, "error": "mountpoint is required"}), 400
+
+    try:
+        requested_mount = str(Path(mountpoint).resolve())
+    except Exception:
+        return jsonify({"ok": False, "error": "Invalid mountpoint"}), 400
+
+    allowed_mounts = {str(Path(v.get("mountpoint", "")).resolve()) for v in _mounted_volumes() if v.get("mountpoint")}
+    if requested_mount not in allowed_mounts:
+        return jsonify({"ok": False, "error": "Unknown mounted drive"}), 400
+
+    try:
+        subprocess.Popen(["open", "-a", "Disk Utility", requested_mount])
+        return jsonify({
+            "ok": True,
+            "message": "Disk Utility opened. Run First Aid on the drive before retrying write access.",
+        })
+    except Exception:
+        app.logger.exception("Could not open Disk Utility for %s", requested_mount)
+        return jsonify({"ok": False, "error": "Could not open Disk Utility"}), 500
 
 
 # ── First-run onboarding ──────────────────────────────────────────────────────

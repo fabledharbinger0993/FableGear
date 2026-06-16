@@ -26,8 +26,7 @@ jobs:
 
             | Platform | Download |
             |---|---|
-            | **macOS** (12+, Intel + Apple Silicon) — full bundle | FableGear-macOS.zip |
-            | **macOS** — bootstrap installer (clones repo, auto-updates) | FableGear.zip |
+            | **macOS** (10.15+, Intel + Apple Silicon) | FableGear.zip |
             | **Windows** (10/11, 64-bit) | FableGear-Windows.zip |
 
             The README download button and the in-app updater both use
@@ -35,8 +34,10 @@ jobs:
             PyInstaller bundle — no Python or git required.
 
             ### macOS install
-            1. Download FableGear-macOS.zip → unzip → drag FableGear.app to Applications
-            2. First launch: right-click → Open → Open Anyway (Gatekeeper)
+            1. Download FableGear.zip → unzip → drag FableGear.app to Applications
+            2. First launch: right-click → Open → Open Anyway (Gatekeeper). A Terminal
+               window opens to finish setup and start FableGear; later launches are
+               instant and auto-update to the latest release.
 
             ### Windows install
             1. Download FableGear-Windows.zip → unzip to any folder

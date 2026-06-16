@@ -12,7 +12,7 @@ Config file schema
   "local_db":        "/Users/name/Library/Pioneer/rekordbox/master.db",
   "device_db":       "/path/to/drive/PIONEER/Master/master.db",
   "music_root":      "/path/to/music",
-  "backup_dir":      "/Users/name/.fablegear/backups",
+  "backup_dir":      "/path/to/library/FableGear Archive/Savepoints",
   "target_lufs":     -8.0,
   "lufs_tolerance":  0.5,
   "excluded_dirs":   ["cache", "PROCESSING_CACHE"]
@@ -250,7 +250,7 @@ def discover_music_roots(mounts: list[Path], *, min_audio_files: int = 5) -> lis
     """Describe mounted drives that appear to contain music libraries."""
     results: list[dict] = []
     for mount in mounts:
-        audio_count = count_audio_files(mount)
+        audio_count = count_audio_files(mount, max_depth=8)
         if audio_count < min_audio_files:
             continue
         archive_root = archive_root_for_music_root(mount)
@@ -262,6 +262,7 @@ def discover_music_roots(mounts: list[Path], *, min_audio_files: int = 5) -> lis
             "recommended_archive_root": str(archive_root),
             "recommended_backup_dir": str(archive_root / "Savepoints"),
             "recommended_db_root": str(mount),
+            "read_only": not os.access(mount, os.W_OK),
         })
     results.sort(key=lambda item: (-item["audio_count"], item.get("volume", "").lower()))
     if results:
@@ -471,6 +472,20 @@ def print_dependency_report(results: Optional[List[Dict]] = None) -> bool:
 
 # ─── Setup wizard ─────────────────────────────────────────────────────────────
 
+def archive_root_for_music_root(music_root: Path | str) -> Path:
+    """
+    Resolve the FableGear Archive location for a given music-root path.
+
+    Mirrors config.py so onboarding and CLI setup can recommend the same
+    archive/savepoint path before config.py is importable.
+    """
+    music_path = Path(music_root).expanduser()
+    music_parent = music_path.parent
+    if music_parent == Path("/Volumes") or music_parent == Path("/"):
+        return music_path / "FableGear Archive"
+    return music_parent / "FableGear Archive"
+
+
 def _prompt(label: str, default: Optional[str] = None, must_exist: bool = False) -> str:
     """
     Prompt the user for a path string. Repeats until non-empty input is given.
@@ -554,7 +569,8 @@ def interactive_setup(*, update: bool = False) -> dict:
     cfg["backup_dir"] = _prompt(
         "Backup directory\n  "
         "(created automatically — backups are written here before every write)",
-        default=existing.get("backup_dir") or _WIZARD_DEFAULTS.get("backup_dir"),
+        default=existing.get("backup_dir")
+                or str(archive_root_for_music_root(cfg["music_root"]) / "Savepoints"),
         must_exist=False,  # Will be created on first write — doesn't need to exist yet
     )
 
@@ -631,6 +647,8 @@ def scan_for_rekordbox_assets() -> dict:
       device_dbs   — Pioneer device DB candidates on mounted volumes
       xml_files    — rekordbox.xml / fablegear.xml files found
       music_roots  — volume roots that appear to contain a music library
+      recommended_music_root / recommended_archive_root / recommended_backup_dir
+                  — the largest detected music library and its FableGear paths
     """
     import os as _os
 
@@ -639,6 +657,9 @@ def scan_for_rekordbox_assets() -> dict:
         "device_dbs": [],
         "xml_files": [],
         "music_roots": [],
+        "recommended_music_root": "",
+        "recommended_archive_root": "",
+        "recommended_backup_dir": "",
     }
 
     # ── Local Rekordbox DB ────────────────────────────────────────────────────
@@ -722,5 +743,9 @@ def scan_for_rekordbox_assets() -> dict:
     results["recommended_music_root"] = (
         results["music_roots"][0]["path"] if results["music_roots"] else ""
     )
+    if results["music_roots"]:
+        best = results["music_roots"][0]
+        results["recommended_archive_root"] = best.get("recommended_archive_root", "")
+        results["recommended_backup_dir"] = best.get("recommended_backup_dir", "")
 
     return results
