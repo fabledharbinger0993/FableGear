@@ -74,7 +74,10 @@ _WIZARD_DEFAULTS: dict = {
     "backup_dir": str(CONFIG_DIR / "backups"),
 }
 
-_AUDIO_EXTS = {".mp3", ".flac", ".aif", ".aiff", ".wav", ".m4a", ".ogg"}
+_AUDIO_EXTS = {
+    ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac", ".m4a", ".m4p", ".mp4", ".m4v",
+    ".ogg", ".opus", ".wma", ".ape", ".mpc", ".mp+", ".wv", ".aac", ".ac3", ".dff", ".dsf",
+}
 
 # Human-readable labels for each key, used in setup prompts and error messages
 KEY_LABELS: Dict[str, str] = {
