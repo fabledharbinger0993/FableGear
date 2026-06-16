@@ -23,8 +23,7 @@ These can run on a live network without announcing FableGear's presence.
 
 - `sandbox_prolink_spoofer.py` — **impersonates a Rekordbox instance**
   (announces itself as a player/collection on the Pro DJ Link network).
-- `sandbox_prolink_sniffer.py` — may send discovery/keepalive packets.
-
+- `sandbox_prolink_sniffer.py` — binds Pro DJ Link ports to log received traffic; does not send packets
 **Never run the active tools on a network with live CDJs you care about,
 and never at a gig.** A rogue Rekordbox announcement can confuse real
 players mid-set — dropped tracks, link errors, a frozen deck in front of a
