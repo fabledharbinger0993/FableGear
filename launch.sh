@@ -82,9 +82,15 @@ if [ ! -f "$SCRIPT_DIR/.dev" ]; then
   if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "$CURRENT_TAG" ]; then
     if git merge-base --is-ancestor HEAD "$LATEST_TAG" 2>/dev/null; then
       echo "FableGear: updating ${CURRENT_TAG:-untagged} -> $LATEST_TAG" >> "$LOG"
+      PREV_HEAD=$(git rev-parse HEAD)
       if git merge --ff-only "$LATEST_TAG" >> "$LOG" 2>&1; then
-        pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1
-        pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
+        if pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1 \
+          && pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1; then
+          :
+        else
+          echo "FableGear: dependency install failed after update; rolling back" >> "$LOG"
+          git reset --hard "$PREV_HEAD" >> "$LOG" 2>&1
+        fi
       else
         echo "FableGear: fast-forward to $LATEST_TAG failed; staying on ${CURRENT_TAG:-current}" >> "$LOG"
       fi
