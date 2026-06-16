@@ -472,19 +472,9 @@ def print_dependency_report(results: Optional[List[Dict]] = None) -> bool:
 
 # ─── Setup wizard ─────────────────────────────────────────────────────────────
 
-def archive_root_for_music_root(music_root: Path | str) -> Path:
-    """
-    Resolve the FableGear Archive location for a given music-root path.
-
-    Mirrors config.py so onboarding and CLI setup can recommend the same
-    archive/savepoint path before config.py is importable.
-    """
-    music_path = Path(music_root).expanduser()
-    music_parent = music_path.parent
-    if music_parent == Path("/Volumes") or music_parent == Path("/"):
-        return music_path / "FableGear Archive"
-    return music_parent / "FableGear Archive"
-
+# NOTE: archive_root_for_music_root() is defined above.
+# Keep a single implementation to avoid accidental divergence (Python will
+# otherwise silently overwrite the earlier definition).
 
 def _prompt(label: str, default: Optional[str] = None, must_exist: bool = False) -> str:
     """
