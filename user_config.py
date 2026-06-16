@@ -12,7 +12,7 @@ Config file schema
   "local_db":        "/Users/name/Library/Pioneer/rekordbox/master.db",
   "device_db":       "/path/to/drive/PIONEER/Master/master.db",
   "music_root":      "/path/to/music",
-  "backup_dir":      "/Users/name/.fablegear/backups",
+  "backup_dir":      "/path/to/library/FableGear Archive/Savepoints",
   "target_lufs":     -8.0,
   "lufs_tolerance":  0.5,
   "excluded_dirs":   ["cache", "PROCESSING_CACHE"]
@@ -72,6 +72,11 @@ _WIZARD_DEFAULTS: dict = {
                   if platform.system() == "Darwin"
                   else str(Path.home() / "AppData/Roaming/Pioneer/rekordbox/master.db"),
     "backup_dir": str(CONFIG_DIR / "backups"),
+}
+
+_AUDIO_EXTS = {
+    ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac", ".m4a", ".m4p", ".mp4", ".m4v",
+    ".ogg", ".opus", ".wma", ".ape", ".mpc", ".mp+", ".wv", ".aac", ".ac3", ".dff", ".dsf",
 }
 
 # Human-readable labels for each key, used in setup prompts and error messages
@@ -217,6 +222,63 @@ def save_user_config(cfg: dict) -> None:
         except OSError:
             pass
         raise
+
+
+def archive_root_for_music_root(music_root: str | Path) -> Path:
+    """Return the default FableGear Archive root for a chosen music root."""
+    root = Path(music_root)
+    parent = root.parent
+    if parent == Path("/Volumes") or parent == Path("/"):
+        return root / "FableGear Archive"
+    return parent / "FableGear Archive"
+
+
+def count_audio_files(root: Path, *, max_depth: int | None = None, cap: int | None = 5000) -> int:
+    """Count/estimate audio files under *root*.
+
+    ``max_depth=0`` means root-only; ``None`` is unlimited. If ``cap`` is set,
+    stop once the count reaches the cap (keeps drive discovery responsive).
+    """
+    total = 0
+    try:
+        for walk_root, dirs, files in os.walk(root):
+            depth = len(Path(walk_root).relative_to(root).parts)
+            if max_depth is not None and depth > max_depth:
+                dirs.clear()
+                continue
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for fname in files:
+                if os.path.splitext(fname)[1].lower() in _AUDIO_EXTS:
+                    total += 1
+                    if cap is not None and total >= cap:
+                        return total
+    except (PermissionError, OSError):
+        return total
+    return total
+
+
+def discover_music_roots(mounts: list[Path], *, min_audio_files: int = 5) -> list[dict]:
+    """Describe mounted drives that appear to contain music libraries."""
+    results: list[dict] = []
+    for mount in mounts:
+        audio_count = count_audio_files(mount, max_depth=8)
+        if audio_count < min_audio_files:
+            continue
+        archive_root = archive_root_for_music_root(mount)
+        results.append({
+            "path": str(mount),
+            "label": f"Music on {mount.name}",
+            "volume": mount.name,
+            "audio_count": audio_count,
+            "recommended_archive_root": str(archive_root),
+            "recommended_backup_dir": str(archive_root / "Savepoints"),
+            "recommended_db_root": str(mount),
+            "read_only": not os.access(mount, os.W_OK),
+        })
+    results.sort(key=lambda item: (-item["audio_count"], item.get("volume", "").lower()))
+    if results:
+        results[0]["recommended_home"] = True
+    return results
 
 
 # ─── Dependency validation ────────────────────────────────────────────────────
@@ -421,6 +483,10 @@ def print_dependency_report(results: Optional[List[Dict]] = None) -> bool:
 
 # ─── Setup wizard ─────────────────────────────────────────────────────────────
 
+# NOTE: archive_root_for_music_root() is defined above.
+# Keep a single implementation to avoid accidental divergence (Python will
+# otherwise silently overwrite the earlier definition).
+
 def _prompt(label: str, default: Optional[str] = None, must_exist: bool = False) -> str:
     """
     Prompt the user for a path string. Repeats until non-empty input is given.
@@ -504,7 +570,8 @@ def interactive_setup(*, update: bool = False) -> dict:
     cfg["backup_dir"] = _prompt(
         "Backup directory\n  "
         "(created automatically — backups are written here before every write)",
-        default=existing.get("backup_dir") or _WIZARD_DEFAULTS.get("backup_dir"),
+        default=existing.get("backup_dir")
+                or str(archive_root_for_music_root(cfg["music_root"]) / "Savepoints"),
         must_exist=False,  # Will be created on first write — doesn't need to exist yet
     )
 
@@ -581,6 +648,8 @@ def scan_for_rekordbox_assets() -> dict:
       device_dbs   — Pioneer device DB candidates on mounted volumes
       xml_files    — rekordbox.xml / fablegear.xml files found
       music_roots  — volume roots that appear to contain a music library
+      recommended_music_root / recommended_archive_root / recommended_backup_dir
+                  — the largest detected music library and its FableGear paths
     """
     import os as _os
 
@@ -589,6 +658,9 @@ def scan_for_rekordbox_assets() -> dict:
         "device_dbs": [],
         "xml_files": [],
         "music_roots": [],
+        "recommended_music_root": "",
+        "recommended_archive_root": "",
+        "recommended_backup_dir": "",
     }
 
     # ── Local Rekordbox DB ────────────────────────────────────────────────────
@@ -620,10 +692,8 @@ def scan_for_rekordbox_assets() -> dict:
                 if p.is_dir():
                     mounts.append(p)
 
-    audio_exts = {".mp3", ".flac", ".aif", ".aiff", ".wav", ".m4a", ".ogg"}
     device_dbs: list[dict] = []
     xml_files: list[dict] = []
-    music_roots: list[dict] = []
     seen_xml_paths: set[str] = set()
 
     for mount in mounts:
@@ -668,34 +738,15 @@ def scan_for_rekordbox_assets() -> dict:
         except (PermissionError, OSError):
             pass
 
-        # Music root heuristic — at least 5 audio files in the first 3 levels
-        audio_count = 0
-        try:
-            for root, dirs, files in _os.walk(mount):
-                depth = root.replace(str(mount), "").count(_os.sep)
-                if depth > 3:
-                    dirs.clear()
-                    continue
-                dirs[:] = [d for d in dirs if not d.startswith(".")]
-                for fname in files:
-                    if Path(fname).suffix.lower() in audio_exts:
-                        audio_count += 1
-                        if audio_count >= 5:
-                            break
-                if audio_count >= 5:
-                    break
-        except (PermissionError, OSError):
-            pass
-
-        if audio_count >= 5:
-            music_roots.append({
-                "path": str(mount),
-                "label": f"Music on {mount.name}",
-                "volume": mount.name,
-            })
-
     results["device_dbs"] = sorted(device_dbs, key=lambda x: -x["mtime"])
     results["xml_files"] = sorted(xml_files, key=lambda x: -x.get("mtime", 0))
-    results["music_roots"] = music_roots
+    results["music_roots"] = discover_music_roots(mounts)
+    results["recommended_music_root"] = (
+        results["music_roots"][0]["path"] if results["music_roots"] else ""
+    )
+    if results["music_roots"]:
+        best = results["music_roots"][0]
+        results["recommended_archive_root"] = best.get("recommended_archive_root", "")
+        results["recommended_backup_dir"] = best.get("recommended_backup_dir", "")
 
     return results
