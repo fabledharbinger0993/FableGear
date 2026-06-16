@@ -862,19 +862,25 @@ def api_library_reorder_playlist_tracks(playlist_id):
                 return jsonify({"error": "Cannot reorder tracks in a folder"}), 400
 
             songs = db.get_playlist_songs(PlaylistID=playlist.ID).all()
-            song_by_content: dict[str, object] = {}
+            songs_by_content = {}
             for song in songs:
                 content_id = str(getattr(song, "ContentID", "") or "")
-                if content_id:
-                    song_by_content[content_id] = song
+                if not content_id:
+                    continue
+                songs_by_content.setdefault(content_id, []).append(song)
 
-            updated = 0
+            dupes = [cid for cid, ss in songs_by_content.items() if len(ss) > 1]
+            if dupes:
+                return jsonify({"error": "Playlist contains duplicate tracks; reorder requires per-row identifiers"}), 400
+
+            expected = set(songs_by_content.keys())
+            if len(set(track_ids)) != len(track_ids) or set(track_ids) != expected:
+                return jsonify({"error": "track_ids must include every track in the playlist exactly once"}), 400
+
             for new_pos, content_id in enumerate(track_ids, start=1):
-                song = song_by_content.get(content_id)
-                if song is not None:
-                    song.TrackNo = new_pos
-                    updated += 1
+                songs_by_content[content_id][0].TrackNo = new_pos
 
+            updated = len(track_ids)
             db.commit()
             return jsonify({"ok": True, "updated": updated})
     except RuntimeError as exc:
