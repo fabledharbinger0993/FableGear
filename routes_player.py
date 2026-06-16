@@ -387,7 +387,7 @@ def api_library_fs_browse():
                 if int(vol.get("audio_estimate", 0)) <= 0:
                     continue
                 try:
-                    for item in sorted(vol_path.rglob("*"), key=lambda x: x.name.lower()):
+                    for item in vol_path.rglob("*"):
                         if item.name.startswith("."):
                             continue
                         if item.is_file() and item.suffix.lower() in _FS_AUDIO_EXTS:
