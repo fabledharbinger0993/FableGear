@@ -3988,7 +3988,8 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   color: var(--accent-text);
 }
 .le-track-row.drag-over {
-  border-top: 2px solid var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
   background: rgba(var(--accent-rgb), 0.12);
 }
 .le-track-row[draggable="true"] { cursor: grab; }
