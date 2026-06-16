@@ -11,7 +11,7 @@ All metadata remains in the ID3 tags for database searchability.
 Design:
   - Reads metadata via mutagen (same as scanner.py)
   - Artist priority: vocal/lead (TPE1) > album artist/band (TPE2) > fallback
-  - Generates clean filenames: "{Artist}: {Title}.{ext}" or "{Artist}: {Title} (2).{ext}"
+  - Generates clean filenames: "{Artist} - {Title}.{ext}" or "{Artist} - {Title} (2).{ext}"
   - Preserves copy markers: (2), (3), (copy), (duplicate), (v2) from original filename
   - Falls back to original filename if title missing
   - Handles collisions: if file exists, uses (2), (3), ... until free slot found
@@ -24,7 +24,7 @@ Supported naming patterns (detected and cleaned):
   - "918223_SomethingElse.mp3" → extracts title, removes ID prefix
   - "Something_918223.mp3" → extracts title, removes ID suffix
   - "Track (remix).mp3" or "Track (dub).mp3" → preserves remix/version markers
-  - "Track (2).mp3" → preserves copy marker as "Artist: Track (2).mp3"
+  - "Track (2).mp3" → preserves copy marker as "Artist - Track (2).mp3"
   - Remixes: Uses original artist, preserves remixer in title marker
     E.g., "Donna Summer: On the Radio (Felix da-Housecat remix)"
   - Standard "Artist - Title.mp3" → extracted with artist prioritization
@@ -37,9 +37,9 @@ Artist Priority Examples:
   - If nothing in tags → tries filename parsing
 
 Copy Suffix Examples:
-  - "Track (2).mp3" → "Artist: Track (2).mp3"
-  - "Remix (copy).mp3" → "Artist: Remix (copy).mp3"
-  - Duplicates after rename: "Artist: Track (2).mp3", "Artist: Track (3).mp3", etc.
+  - "Track (2).mp3" → "Artist - Track (2).mp3"
+  - "Remix (copy).mp3" → "Artist - Remix (copy).mp3"
+  - Duplicates after rename: "Artist - Track (2).mp3", "Artist - Track (3).mp3", etc.
 """
 
 import json
@@ -77,6 +77,8 @@ _VERSION_MARKERS = re.compile(
 )                                                        # Version/remix markers to preserve
 _NO_NAME_FOLDER = "No-Name tracks for Tagging"
 _NO_NAME_MANIFEST = "_quarantine_manifest.json"
+FILENAME_SEPARATOR = " - "
+_LEGACY_FILENAME_SEPARATORS = (FILENAME_SEPARATOR, ": ")
 
 
 def _is_key_token(token: str) -> bool:
@@ -645,9 +647,13 @@ def _extract_artist_title(
                 title = anchored_title
 
     # Parse "Artist - Title" from filename before underscore replacement.
-    if ' - ' in stem and (not artist or not title):
-        parts = stem.split(' - ', 1)
-        if len(parts) == 2:
+    if not artist or not title:
+        for separator in _LEGACY_FILENAME_SEPARATORS:
+            if separator not in stem:
+                continue
+            parts = stem.split(separator, 1)
+            if len(parts) != 2:
+                continue
             left = parts[0].strip()
             right = parts[1].strip()
             if not artist and not _looks_like_junk_artist(left):
@@ -656,6 +662,7 @@ def _extract_artist_title(
                     artist = rules.canonical_artist(artist) or artist
             if not title:
                 title = right
+            break
 
     # Underscore fallback: "artist_title_version".
     if (not artist or not title) and '_' in stem:
@@ -700,7 +707,7 @@ def _sanitize_filename(text: str, max_len: int = 200) -> str:
 def _generate_filename(artist: str | None, title: str | None, ext: str, copy_suffix: str | None = None) -> str:
     """
     Generate a clean filename with artist, title, and optional copy suffix.
-    Format: "Artist: Title.ext" or "Artist: Title (2).ext"
+    Format: "Artist - Title.ext" or "Artist - Title (2).ext"
     
     Artist and title are both included in filename for clear visual identification.
     Copy suffix (e.g., "(2)", "(copy)") is appended before the extension if present.
@@ -710,7 +717,7 @@ def _generate_filename(artist: str | None, title: str | None, ext: str, copy_suf
     title = _sanitize_filename(title or "Unknown")
     title = _strip_leading_artist_from_title(artist, title)
     suffix_str = f" {copy_suffix}" if copy_suffix else ""
-    return f"{artist}: {title}{suffix_str}{ext}"
+    return f"{artist}{FILENAME_SEPARATOR}{title}{suffix_str}{ext}"
 
 
 def _resolve_filename_collision(dest: Path) -> Path:

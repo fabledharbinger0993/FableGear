@@ -114,6 +114,23 @@ async function saveSettings() {
   }
 }
 
+function pickSettingsArchiveFolder() {
+  const api = window.pywebview && window.pywebview.api;
+  if (api && api.pick_folder) {
+    api.pick_folder().then(p => {
+      if (p) document.getElementById('settings-custom-input').value = p;
+    });
+    return;
+  }
+  const cur = document.getElementById('settings-custom-input').value;
+  const p = window.prompt('Enter archive folder path:', cur);
+  if (p) document.getElementById('settings-custom-input').value = p;
+}
+
+function reopenOnboardingWizard() {
+  window.location.href = '/onboarding?reconfigure=1';
+}
+
 /* Clicking a locked card re-opens the onboarding wizard so the user can grant
    the permission it needs. Permission consent lives entirely in /onboarding;
    `reconfigure=1` allows re-entry after setup is already complete. */
@@ -121,6 +138,5 @@ document.addEventListener('click', e => {
   const card = e.target.closest('.card.permission-locked');
   if (!card) return;
   e.stopPropagation();
-  window.location.href = '/onboarding?reconfigure=1';
+  reopenOnboardingWizard();
 }, true);
-

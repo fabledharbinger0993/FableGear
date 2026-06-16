@@ -326,7 +326,8 @@ def api_library_fs_browse():
         _is_vol_root = not path_str or Path(path_str).resolve() in (volumes_root, Path("/mnt"))
 
     if _is_vol_root:
-        _AUDIO = {".mp3", ".flac", ".aac", ".wav", ".aiff", ".aif", ".m4a", ".ogg", ".opus", ".wv", ".alac"}
+        from user_config import discover_music_roots  # noqa: PLC0415
+
         volumes = []
 
         # Build the list of root dirs to scan — platform-specific
@@ -341,17 +342,15 @@ def api_library_fs_browse():
             scan_roots = sorted(volumes_root.iterdir()) if volumes_root and volumes_root.exists() else []
             vroot_str = str(volumes_root)
 
+        discovered = discover_music_roots([Path(v) for v in scan_roots if Path(v).is_dir()])
+        discovered_by_path = {item["path"]: item for item in discovered}
+
         try:
             for vol in scan_roots:
                 if not vol.is_dir() or (hasattr(vol, "name") and vol.name.startswith(".")):
                     continue
-                audio_estimate = 0
-                try:
-                    for entry in os.scandir(vol):
-                        if entry.is_file() and Path(entry.name).suffix.lower() in _AUDIO:
-                            audio_estimate += 1
-                except PermissionError:
-                    pass
+                discovered_info = discovered_by_path.get(str(vol), {})
+                audio_estimate = int(discovered_info.get("audio_count", 0))
                 total_gb = free_gb = None
                 try:
                     usage = shutil.disk_usage(vol)
@@ -368,9 +367,58 @@ def api_library_fs_browse():
                     "total_gb": total_gb,
                     "free_gb": free_gb,
                     "has_pioneer_db": has_pioneer_db,
+                    "recommended_home": bool(discovered_info.get("recommended_home")),
+                    "recommended_archive_root": discovered_info.get("recommended_archive_root", ""),
+                    "recommended_backup_dir": discovered_info.get("recommended_backup_dir", ""),
                 })
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
+        volumes.sort(key=lambda item: (-int(item.get("audio_estimate", 0)), item.get("name", "").lower()))
+
+        if recursive:
+            total_tracks = sum(int(v.get("audio_estimate", 0)) for v in volumes)
+            truncated = total_tracks > _FS_RECURSIVE_LIMIT
+            grouped_tracks: list[dict] = []
+            track_paths: list[tuple[Path, str, str]] = []
+            for vol in volumes:
+                if len(track_paths) >= _FS_RECURSIVE_LIMIT:
+                    break
+                vol_path = Path(vol["path"])
+                if int(vol.get("audio_estimate", 0)) <= 0:
+                    continue
+                try:
+                    for item in sorted(vol_path.rglob("*"), key=lambda x: x.name.lower()):
+                        if item.name.startswith("."):
+                            continue
+                        if item.is_file() and item.suffix.lower() in _FS_AUDIO_EXTS:
+                            track_paths.append((item, vol["name"], vol["path"]))
+                            if len(track_paths) >= _FS_RECURSIVE_LIMIT:
+                                break
+                except PermissionError:
+                    continue
+
+            tag_limit = _FS_TAG_LIMIT if not truncated else min(_FS_TAG_LIMIT, len(track_paths))
+            for item, drive_name, drive_path in track_paths[:tag_limit]:
+                payload = _fs_track_payload(item)
+                payload["drive_name"] = drive_name
+                payload["drive_path"] = drive_path
+                grouped_tracks.append(payload)
+
+            return jsonify({
+                "path": vroot_str,
+                "is_volumes_root": True,
+                "music_root": str(_MR),
+                "parent": None,
+                "volumes": volumes,
+                "subdirs": [],
+                "tracks": grouped_tracks,
+                "track_count": total_tracks,
+                "truncated": truncated,
+                "recursive": True,
+                "grouped_by_drive": True,
+                "recommended_music_root": discovered[0]["path"] if discovered else "",
+            })
+
         return jsonify({
             "path":           vroot_str,
             "is_volumes_root": True,
@@ -379,6 +427,7 @@ def api_library_fs_browse():
             "volumes":        volumes,
             "subdirs":        [],
             "tracks":         [],
+            "recommended_music_root": discovered[0]["path"] if discovered else "",
         })
 
     # ── Normal path browse ───────────────────────────────────────────────────
@@ -991,6 +1040,4 @@ def api_library_export_status(job_id):
     if job is None:
         return jsonify({"error": "Job not found"}), 404
     return jsonify(job)
-
-
 
