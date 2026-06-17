@@ -118,10 +118,32 @@ def _sanitize_filename(name: str) -> str:
     return (stem + suffix) if stem else ("untitled" + suffix)
 
 
+def _collapse_repeats(text: str) -> str:
+    """
+    Collapse an artist string that is one phrase repeated back-to-back down to a
+    single copy — handles exact repeats and a dangling partial final repeat:
+      "the timewriter the timewriter the timewriter the" -> "the timewriter"
+
+    Requires 3+ repeats so legitimate doubles (e.g. "Duran Duran") are preserved.
+    """
+    tokens = text.split()
+    n = len(tokens)
+    for unit_len in range(1, (n // 3) + 1):
+        unit = tokens[:unit_len]
+        reps = 0
+        while tokens[reps * unit_len:(reps + 1) * unit_len] == unit:
+            reps += 1
+        remainder = tokens[reps * unit_len:]
+        if reps >= 3 and remainder == unit[:len(remainder)]:
+            return " ".join(unit)
+    return text
+
+
 def _normalize_artist(name: str) -> str:
     """
     Strip RekordBox / Camelot key prefixes that sometimes get written into
-    artist tags, e.g. "10A 9A - Kenny Dope" → "Kenny Dope".
+    artist tags, e.g. "10A 9A - Kenny Dope" → "Kenny Dope", and collapse
+    repeated-data artist strings (a corruption mode) down to one copy.
 
     Applies the strip in a loop to handle doubled prefixes like
     "12A 11A - 12A 11A - Brother 2 Brother".
@@ -131,6 +153,7 @@ def _normalize_artist(name: str) -> str:
         if stripped == name:
             break
         name = stripped
+    name = _collapse_repeats(name)
     return name or "Unknown"
 
 

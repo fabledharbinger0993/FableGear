@@ -2208,6 +2208,55 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 .welcome-got-it:hover { opacity: .88; }
 .welcome-got-it:disabled { opacity: .4; cursor: not-allowed; }
 
+/* ── Welcome launch view — branded room picker (intro step only) ─────────── */
+/* Hide the shared modal header on the intro step so the wordmark is the hero;
+   the header still shows for the onboarding/permission wizard steps. */
+#welcome-modal:has(#wstep-intro.active) .welcome-header { display: none; }
+#wstep-intro.fgwin { position: relative; padding: 0; overflow: hidden; }
+.fgwin-close {
+  position: absolute; top: 14px; right: 16px; z-index: 2;
+  background: none; border: none; color: var(--text-dim);
+  font-size: 1.1rem; line-height: 1; cursor: pointer; padding: 2px 6px;
+}
+.fgwin-close:hover { color: var(--text); }
+.fgwin-logo {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+}
+.fgwin-logo img { width: 62%; max-width: 430px; height: auto; opacity: .18; filter: blur(3px); }
+.fgwin-body { position: relative; z-index: 1; text-align: center; padding: 44px 38px 32px; }
+.fgwin-mark {
+  font-size: 3.1rem; font-weight: 800; letter-spacing: .06em; margin: 0 0 8px;
+  background: linear-gradient(90deg, #39e7ff, #b06bff 55%, #ff45e6);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.fgwin-tag { font-size: .86rem; line-height: 1.55; color: var(--text-muted); max-width: 460px; margin: 0 auto 26px; }
+.fgwin-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+.fgwin-card {
+  text-align: left; padding: 18px; border-radius: 13px; cursor: pointer;
+  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+  transition: border-color .15s, box-shadow .15s, transform .1s;
+}
+.fgwin-card.rec  { border-color: rgba(57,231,255,.32); }
+.fgwin-card.chop { border-color: rgba(255,69,230,.32); }
+.fgwin-card:hover { transform: translateY(-1px); }
+.fgwin-card.rec:hover  { box-shadow: 0 0 22px rgba(57,231,255,.14);  border-color: rgba(57,231,255,.6); }
+.fgwin-card.chop:hover { box-shadow: 0 0 22px rgba(255,69,230,.14); border-color: rgba(255,69,230,.6); }
+.fgwin-ct { font-size: .95rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 5px; }
+.fgwin-card.rec  .fgwin-ct { color: #7df0ff; }
+.fgwin-card.chop .fgwin-ct { color: #ff8bef; }
+.fgwin-cd { font-size: .76rem; line-height: 1.5; color: var(--text-muted); }
+.fgwin-pills { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.fgwin-pill {
+  font-size: .76rem; font-weight: 500; color: var(--text); cursor: pointer;
+  padding: 8px 18px; border-radius: 999px;
+  background: rgba(255,255,255,.03); border: 1px solid rgba(125,160,255,.28);
+  transition: background .15s, border-color .15s;
+}
+.fgwin-pill:hover { background: rgba(125,160,255,.12); border-color: rgba(125,160,255,.5); }
+.fgwin-new { margin-top: 20px; font-size: .7rem; color: var(--text-dim); }
+.fgwin-new b { color: var(--accent); font-weight: 500; }
+
 /* ── Report modal ──────────────────────────────────────────────────────── */
 #report-modal-backdrop {
   position: fixed; inset: 0; z-index: 11000;

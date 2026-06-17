@@ -22,6 +22,8 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from chop_shop.library_organizer import (  # noqa: E402
     _MAX_NAME_BYTES,
+    _collapse_repeats,
+    _normalize_artist,
     _prune_empty_dirs,
     _sanitize_filename,
 )
@@ -37,6 +39,32 @@ def test_normal_name_unchanged():
 def test_legit_repeated_title_within_limit_unchanged():
     # Must NOT collapse a real title that happens to repeat — it's under the cap.
     assert _sanitize_filename("New York New York.flac") == "New York New York.flac"
+
+
+# ── _collapse_repeats / _normalize_artist (repeated-data artist names) ────────
+
+def test_collapse_triple_repeat():
+    assert _collapse_repeats("Gayle Adams Gayle Adams Gayle Adams") == "Gayle Adams"
+
+
+def test_collapse_partial_trailing_repeat():
+    # 3 full repeats + a dangling partial — the common corruption mode.
+    assert _collapse_repeats(
+        "the timewriter the timewriter the timewriter the"
+    ) == "the timewriter"
+
+
+def test_collapse_preserves_legit_doubles():
+    # 3x threshold: a single name and legitimate 2x doubles are untouched.
+    assert _collapse_repeats("Daft Punk") == "Daft Punk"
+    assert _collapse_repeats("New York New York") == "New York New York"
+    assert _collapse_repeats("Duran Duran") == "Duran Duran"
+
+
+def test_normalize_artist_collapses_and_strips_key_prefix():
+    assert _normalize_artist("10A 9A - Kenny Dope") == "Kenny Dope"
+    assert _normalize_artist("Kenny Dope Kenny Dope Kenny Dope") == "Kenny Dope"
+    assert _normalize_artist("Duran Duran") == "Duran Duran"  # legit double preserved
 
 
 def test_pathological_repeated_name_is_collapsed():

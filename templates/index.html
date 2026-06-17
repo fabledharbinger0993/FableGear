@@ -398,29 +398,28 @@
     </div>
 
     <!-- What's New + room picker -->
-    <div class="welcome-step active" id="wstep-intro">
-      <div class="welcome-step-body">
-        <p class="welcome-step-title">What's new</p>
-        <div class="welcome-tool-list" style="margin-top:.6rem">
-          <div class="welcome-tool-item"><strong>✓ Updates ask first</strong><span>FableGear checks GitHub for new releases at open and asks before installing — no more silent auto-updates.</span></div>
-          <div class="welcome-tool-item"><strong>✓ First-run wizard</strong><span>All permissions now live in onboarding: dependencies, app install, drive scan, and database read/write consent.</span></div>
-          <div class="welcome-tool-item"><strong>✓ Room picker on startup</strong><span>Choose your starting room on every launch. Switch any time with ⌘1 / ⌘2.</span></div>
-        </div>
-      </div>
-      <div class="welcome-footer">
-        <div class="fg-launcher-grid" style="margin-bottom:.5rem">
-          <button type="button" class="fg-launcher-card fg-launcher-card-record" onclick="closeWelcome(); if(typeof setFableGearSpace==='function') setFableGearSpace('record');" style="padding:.9rem 1rem">
-            <div class="fg-launcher-card-icon">🎚️</div>
-            <div class="fg-launcher-card-title">Record Room</div>
-            <div class="fg-launcher-card-desc">Library, playlists, Pioneer export</div>
+    <div class="welcome-step active fgwin" id="wstep-intro">
+      <button type="button" class="fgwin-close" onclick="closeWelcome()" aria-label="Close">✕</button>
+      <div class="fgwin-logo" aria-hidden="true"><img src="/static/FableGear-logo.png" alt=""></div>
+      <div class="fgwin-body">
+        <div class="fgwin-mark">FABLE&nbsp;GEAR</div>
+        <p class="fgwin-tag">Your all-in-one local DJ toolkit — browse, build, and clean a flawless Rekordbox library. Nothing ever leaves your machine.</p>
+        <div class="fgwin-cards">
+          <button type="button" class="fgwin-card rec" onclick="closeWelcome(); if(typeof setFableGearSpace==='function') setFableGearSpace('record');">
+            <div class="fgwin-ct">Record Room</div>
+            <div class="fgwin-cd">Browse, listen &amp; build playlists. Multi-view control, export straight to Rekordbox.</div>
           </button>
-          <button type="button" class="fg-launcher-card fg-launcher-card-chop" onclick="closeWelcome(); if(typeof setFableGearSpace==='function') setFableGearSpace('chop');" style="padding:.9rem 1rem">
-            <div class="fg-launcher-card-icon">🛠️</div>
-            <div class="fg-launcher-card-title">Chop Shop</div>
-            <div class="fg-launcher-card-desc">Tag, rename, dedupe, organize</div>
+          <button type="button" class="fgwin-card chop" onclick="closeWelcome(); if(typeof setFableGearSpace==='function') setFableGearSpace('chop');">
+            <div class="fgwin-ct">Chop Shop</div>
+            <div class="fgwin-cd">Tag, rename, dedupe, normalize, convert &amp; organize — DJ-ready in seconds.</div>
           </button>
         </div>
-        <button type="button" class="welcome-got-it" onclick="closeWelcome()">Dismiss</button>
+        <div class="fgwin-pills">
+          <button type="button" class="fgwin-pill" onclick="if(typeof reopenOnboardingWizard==='function') reopenOnboardingWizard()">Permissions</button>
+          <button type="button" class="fgwin-pill" onclick="if(typeof fablegearUpdateCheck==='function') fablegearUpdateCheck()">Updates</button>
+          <button type="button" class="fgwin-pill" onclick="closeWelcome(); if(typeof openDbPanel==='function') openDbPanel('audit')">Database</button>
+        </div>
+        <div class="fgwin-new"><b>What's new</b> · Updates ask first · First-run wizard · Room picker on startup</div>
       </div>
     </div>
 

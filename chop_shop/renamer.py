@@ -140,17 +140,23 @@ def _normalize_artist_text(raw: str | None) -> str | None:
     s = re.sub(r'\s*[/|;,]+\s*', ' ', s)
     s = _MULTI_SPACE.sub(" ", s).strip()
 
-    # Collapse repeated token sequences of any length:
+    # Collapse a repeated leading token sequence down to a single copy. Handles
+    # both exact repeats and a dangling PARTIAL final repeat (a common corruption
+    # mode), so all of these collapse to the unit:
     #   "Gayle Adams Gayle Adams" -> "Gayle Adams"
     #   "DJ PP Jack Mood DJ PP Jack Mood DJ PP Jack Mood" -> "DJ PP Jack Mood"
+    #   "the timewriter the timewriter the timewriter the" -> "the timewriter"
     tokens = s.split()
     n = len(tokens)
     for unit_len in range(1, (n // 2) + 1):
-        if n % unit_len != 0:
-            continue
         unit = tokens[:unit_len]
-        repeats = n // unit_len
-        if repeats > 1 and unit * repeats == tokens:
+        reps = 0
+        while tokens[reps * unit_len:(reps + 1) * unit_len] == unit:
+            reps += 1
+        remainder = tokens[reps * unit_len:]
+        # The whole string is this unit repeated >=2x, optionally ending on a
+        # partial repeat (a leading slice of the unit).
+        if reps >= 2 and remainder == unit[:len(remainder)]:
             s = " ".join(unit)
             break
 
@@ -318,6 +324,22 @@ def _label_code(stem: str) -> str | None:
     return match.group(1).upper() if match else None
 
 
+# A phrase of 4+ chars repeated back-to-back 3 or more times — the corruption
+# mode where a filename is its own data copied several times. The `{2,}` (i.e.
+# 3+ total occurrences) keeps legitimate doubles like "New York New York" intact.
+_REPEAT_RUN = re.compile(r'(.{4,}?)(?:\s*\1){2,}', re.IGNORECASE)
+
+
+def _collapse_repeat_runs(text: str) -> str:
+    """Collapse any 3x+ back-to-back repeated phrase down to a single copy,
+    preserving the surrounding text (e.g. a real title after the repeats)."""
+    prev = None
+    while prev != text:
+        prev = text
+        text = _REPEAT_RUN.sub(r'\1', text)
+    return text
+
+
 def _strip_release_junk(stem: str) -> str:
     stem = _COPY_SUFFIX.sub("", stem).strip()
     stem = _PN_SUFFIX.sub("", stem).strip()
@@ -325,6 +347,7 @@ def _strip_release_junk(stem: str) -> str:
     stem = _ID_SUFFIX.sub("", stem).strip()
     stem = _strip_leading_key_bpm_prefix(stem)
     stem = _UNDERSCORE.sub(" ", stem).strip()
+    stem = _collapse_repeat_runs(stem)
     stem = _MULTI_SPACE.sub(" ", stem).strip()
     return stem
 
