@@ -6099,7 +6099,10 @@ footer {
    All rules are scoped to body.fg-space-chop so the Record Room is untouched.
    ──────────────────────────────────────────────────────────────────────────── */
 :root {
-  --chop-scanner-h: 40vh;
+  /* Bottom scanner reserves space below the docked tool modal. Clamp it so it
+     never eats half a short window (it used to be a flat 40vh, which crushed the
+     modal into a slit on laptop-height windows). */
+  --chop-scanner-h: clamp(140px, 28vh, 240px);
   --chop-zone-top: calc(var(--titlebar-h) + var(--header-h) + 58px);
 }
 
@@ -6117,7 +6120,12 @@ body.fg-space-chop #chop-banner-dock {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  pointer-events: none;
+  /* Cap the dock height (boot.js publishes offsetHeight as --chop-banner-h to
+     push the modal down). A tall alert used to push the modal off-screen; cap
+     it and let it scroll instead. */
+  max-height: 110px;
+  overflow-y: auto;
+  pointer-events: auto;
 }
 body.fg-space-chop #chop-banner-dock > * {
   position: static !important;
@@ -6138,6 +6146,10 @@ body.fg-space-chop #tool-float-modal {
   bottom: calc(var(--chop-scanner-h) + 4px);
   width: auto;
   max-height: none;
+  /* Never collapse to a slit: when the banner + scanner squeeze the top/bottom
+     anchors, keep a usable minimum height (it grows downward over the scanner,
+     which is fine — the running tool has its own terminal). */
+  min-height: clamp(240px, 50vh, 420px);
   transform: none !important;
   border-radius: 0;
   border-left: none;
