@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "fablegear": {
+      "command": "/Users/cameronkelly/FABLEDHARBINGER/GIT_REPOS_MAIN/FableGear-MCP/venv/bin/python3",
+      "args": ["/Users/cameronkelly/FABLEDHARBINGER/GIT_REPOS_MAIN/FableGear-MCP/mcp_server.py"]
+    }
+  }
+}
