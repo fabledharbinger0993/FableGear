@@ -64,7 +64,16 @@ DEFAULTS: dict = {
     "excluded_dirs":       [],   # extra folder names to skip when scanning music root
     "acoustid_api_key":    "",   # AcoustID API key for fingerprint lookup
     "mode": "suburban",  # 'rural' (no AI) or 'suburban' (AI enabled)
+    # MCP (AI agent access) settings
+    "mcp_enabled":   False,
+    "mcp_autostart": False,
+    "mcp_port":      5002,
+    "mcp_token":     "",
+    "mcp_expose":    False,
 }
+
+MCP_PORT_DEFAULT = 5002
+MCP_PORT_RANGE = range(5002, 5011)  # 5002–5010
 
 # Smart defaults for the setup wizard (platform-aware where relevant)
 _WIZARD_DEFAULTS: dict = {
@@ -750,3 +759,75 @@ def scan_for_rekordbox_assets() -> dict:
         results["recommended_backup_dir"] = best.get("recommended_backup_dir", "")
 
     return results
+
+
+# ─── MCP helpers ─────────────────────────────────────────────────────────────
+
+def generate_mcp_token() -> str:
+    """Generate a 32-byte hex token for MCP bearer auth."""
+    import secrets  # noqa: PLC0415
+    return secrets.token_hex(32)
+
+
+def find_available_mcp_port(preferred: int = MCP_PORT_DEFAULT) -> int:
+    """Return *preferred* if open, otherwise probe MCP_PORT_RANGE for a free port."""
+    import socket  # noqa: PLC0415
+    for port in ([preferred] if preferred in MCP_PORT_RANGE else []) + list(MCP_PORT_RANGE):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", port))
+                return port
+            except OSError:
+                continue
+    return preferred
+
+
+def enable_mcp(cfg: dict, *, autostart: bool = False, expose: bool = False) -> dict:
+    """Enable MCP in the given config dict, generating token and port as needed."""
+    cfg["mcp_enabled"] = True
+    cfg["mcp_autostart"] = autostart
+    cfg["mcp_expose"] = expose
+    if not cfg.get("mcp_token"):
+        cfg["mcp_token"] = generate_mcp_token()
+    if not cfg.get("mcp_port"):
+        cfg["mcp_port"] = MCP_PORT_DEFAULT
+    cfg["mcp_port"] = find_available_mcp_port(cfg["mcp_port"])
+    return cfg
+
+
+def mcp_config_snippet(client: str, cfg: dict) -> str:
+    """Return a ready-to-paste config snippet for the given MCP client."""
+    port = cfg.get("mcp_port", MCP_PORT_DEFAULT)
+    token = cfg.get("mcp_token", "")
+    expose = cfg.get("mcp_expose", False)
+
+    if expose and token:
+        url = f"http://localhost:{port}/sse?token={token}"
+    else:
+        url = f"http://localhost:{port}/sse"
+
+    if client == "claude-desktop":
+        return json.dumps({
+            "mcpServers": {
+                "fablegear": {"url": url}
+            }
+        }, indent=2)
+
+    if client == "claude-code":
+        return json.dumps({
+            "mcpServers": {
+                "fablegear": {"url": url}
+            }
+        }, indent=2)
+
+    if client == "cursor":
+        return json.dumps({
+            "mcpServers": {
+                "fablegear": {
+                    "url": url,
+                    "transport": "sse",
+                }
+            }
+        }, indent=2)
+
+    return f"MCP Endpoint: {url}"

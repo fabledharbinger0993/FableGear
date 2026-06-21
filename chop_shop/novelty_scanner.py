@@ -161,9 +161,13 @@ def _dest_candidates(
     returned as a candidate — better to fingerprint it than miss a match.
     """
     candidates = []
+    no_src_metadata = (track_bpm is None and track_key is None and track_dur is None)
     for dest_path, meta in dest_index.items():
-        # No metadata → always a candidate
+        # No metadata on either side → skip; fingerprinting the entire library
+        # is prohibitively slow and the module philosophy is "when in doubt, copy"
         if not meta:
+            if no_src_metadata:
+                continue
             candidates.append(dest_path)
             continue
 

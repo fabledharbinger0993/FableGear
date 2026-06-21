@@ -317,8 +317,8 @@ const PIPE_STEPS = {
   relocate:   { name: 'Fix Broken Paths',   icon: '/static/icon-move.png',           desc: 'Update RekordBox after files have moved' },
   import:     { name: 'Import Tracks',      icon: '/static/icon-import.png',         desc: 'Add new audio files to RekordBox database' },
   link:       { name: 'Link Playlists',     icon: '/static/icon-link.png',           desc: 'Connect tracks to playlists by folder name' },
-  normalize:  { name: 'Balance Loudness',   icon: '/static/icon-normalize.png',      desc: 'Bring every track to the same volume' },
-  convert:    { name: 'Convert Format',     icon: '/static/icon-convert.png',        desc: 'Change files to AIFF, MP3, WAV, or FLAC' },
+  normalize:  { name: 'Balance Loudness',   icon: '/static/icon-normalizer.png',     desc: 'Bring every track to the same volume' },
+  convert:    { name: 'Convert Format',     icon: '/static/icon-converter.png',      desc: 'Change files to AIFF, MP3, WAV, or FLAC' },
   organize:   { name: 'Organize Library',   icon: '/static/icon-organizer.png',      desc: 'Move files into Artist / Album / Track' },
   novelty:    { name: 'Novelty Scan',       icon: '/static/icon-novelty.png',        desc: 'Copy unique tracks from source to home library' },
 };

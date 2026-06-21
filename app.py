@@ -57,6 +57,14 @@ app = Flask(
 limiter.init_app(app)
 sock.init_app(app)
 
+# Cache-bust token — changes every server start so WKWebView picks up new assets
+import time as _time
+_CACHE_BUST = str(int(_time.time()))
+
+@app.context_processor
+def inject_cache_bust():
+    return {"cb": _CACHE_BUST}
+
 
 # ── Network boundary ──────────────────────────────────────────────────────────
 # main.py binds 0.0.0.0 so FableGo can reach the mobile API over Tailscale/LAN.
@@ -318,13 +326,62 @@ def api_health():
     })
 
 
+@app.route("/api/health/fix", methods=["POST"])
+def api_health_fix():
+    """Execute a health fix action by finding ID."""
+    data = request.get_json(silent=True) or {}
+    finding_id = data.get("id", "").strip()
+    action = data.get("action", "").strip()
+    if not finding_id:
+        return jsonify({"error": "id is required"}), 400
+
+    try:
+        from health import run_health_checks  # noqa: PLC0415
+        findings = run_health_checks()
+        target = next((f for f in findings if f.id == finding_id), None)
+        if not target:
+            return jsonify({"error": f"Finding '{finding_id}' not found or already resolved"}), 404
+
+        if action == "move_backup_dir":
+            new_dir = data.get("path", "").strip()
+            if not new_dir:
+                return jsonify({"error": "path is required for move_backup_dir"}), 400
+            from user_config import load_user_config, save_user_config  # noqa: PLC0415
+            new_path = Path(new_dir)
+            new_path.mkdir(parents=True, exist_ok=True)
+            cfg = load_user_config()
+            cfg["backup_dir"] = str(new_path)
+            save_user_config(cfg)
+            # Reload config module so BACKUP_DIR and friends pick up the new path
+            import importlib, config as _config_mod  # noqa: PLC0415, E401
+            importlib.reload(_config_mod)
+            _refresh_health_cache(force=True)
+            return jsonify({"ok": True, "message": f"Backup directory moved to {new_path}"})
+
+        if action == "create_backup_dir" and target.auto_fixable and target.auto_fix_fn:
+            target.auto_fix_fn()
+            import importlib, config as _config_mod  # noqa: PLC0415, E401
+            importlib.reload(_config_mod)
+            _refresh_health_cache(force=True)
+            return jsonify({"ok": True, "message": "Backup directory created"})
+
+        if target.auto_fixable and target.auto_fix_fn:
+            target.auto_fix_fn()
+            _refresh_health_cache(force=True)
+            return jsonify({"ok": True, "message": f"Fixed: {target.title}"})
+
+        return jsonify({"error": "This finding cannot be auto-fixed"}), 400
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/config")
 def api_config():
     """Expose the configured default paths so the UI can pre-fill forms."""
     from helpers import _current_fablegear_mode, _backup_dir  # noqa: PLC0415
     try:
         from config import (  # noqa: PLC0415
-            DJMT_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
+            DJMT_DB, LOCAL_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
             BACKUP_DIR, ARCHIVE_ENABLED, _archive_mode, _custom_archive,
         )
         from user_config import load_user_config as _luc  # noqa: PLC0415
@@ -332,6 +389,7 @@ def api_config():
         current_mode = _current_fablegear_mode()
         return jsonify({
             "music_root":       str(MUSIC_ROOT),
+            "local_db":         str(LOCAL_DB),
             "djmt_db":          str(DJMT_DB),
             "backup_dir":       str(BACKUP_DIR),
             "archive_root":     str(ARCHIVE_ROOT),
@@ -1248,13 +1306,134 @@ def api_quit():
     return jsonify({"ok": True})
 
 
+# ── MCP (AI agent access) routes ─────────────────────────────────────────────
+
+@app.route("/api/mcp/status")
+def api_mcp_status():
+    """Return current MCP server status and config."""
+    from user_config import load_user_config, MCP_PORT_DEFAULT  # noqa: PLC0415
+    try:
+        cfg = load_user_config()
+    except Exception:
+        cfg = {}
+
+    try:
+        from mcp_server import get_embedded_status  # noqa: PLC0415
+        status = get_embedded_status()
+    except Exception:
+        status = {"running": False, "host": None, "port": None, "dev_mode": False, "url": None}
+
+    status["enabled"] = cfg.get("mcp_enabled", False)
+    status["autostart"] = cfg.get("mcp_autostart", False)
+    status["expose"] = cfg.get("mcp_expose", False)
+    status["configured_port"] = cfg.get("mcp_port", MCP_PORT_DEFAULT)
+    return jsonify(status)
+
+
+@app.route("/api/mcp/start", methods=["POST"])
+def api_mcp_start():
+    """Start the embedded MCP server."""
+    from user_config import load_user_config, enable_mcp, save_user_config, find_available_mcp_port  # noqa: PLC0415
+    from mcp_server import start_embedded, is_running  # noqa: PLC0415
+
+    if is_running():
+        return jsonify({"ok": True, "message": "Already running"})
+
+    try:
+        cfg = load_user_config()
+    except Exception:
+        cfg = {}
+
+    if not cfg.get("mcp_enabled"):
+        cfg = enable_mcp(cfg)
+        save_user_config(cfg)
+
+    port = find_available_mcp_port(cfg.get("mcp_port", 5002))
+    host = "0.0.0.0" if cfg.get("mcp_expose") else "127.0.0.1"
+    token = cfg.get("mcp_token", "")
+
+    if cfg.get("mcp_port") != port:
+        cfg["mcp_port"] = port
+        save_user_config(cfg)
+
+    ok = start_embedded(host=host, port=port, token=token)
+    if ok:
+        return jsonify({"ok": True, "port": port, "host": host})
+    return jsonify({"ok": False, "error": "MCP server failed to start"}), 500
+
+
+@app.route("/api/mcp/stop", methods=["POST"])
+def api_mcp_stop():
+    """Stop the embedded MCP server."""
+    from mcp_server import stop_embedded  # noqa: PLC0415
+    was_running = stop_embedded()
+    return jsonify({"ok": True, "was_running": was_running})
+
+
+@app.route("/api/mcp/enable", methods=["POST"])
+def api_mcp_enable():
+    """Enable MCP and configure it. Body: {autostart?, expose?}"""
+    from user_config import load_user_config, enable_mcp, save_user_config  # noqa: PLC0415
+    try:
+        cfg = load_user_config()
+    except Exception:
+        cfg = {}
+
+    data = request.get_json(silent=True) or {}
+    cfg = enable_mcp(
+        cfg,
+        autostart=bool(data.get("autostart", False)),
+        expose=bool(data.get("expose", False)),
+    )
+    save_user_config(cfg)
+    return jsonify({
+        "ok": True,
+        "mcp_enabled": True,
+        "mcp_port": cfg["mcp_port"],
+        "mcp_autostart": cfg["mcp_autostart"],
+        "mcp_token": cfg["mcp_token"],
+    })
+
+
+@app.route("/api/mcp/disable", methods=["POST"])
+def api_mcp_disable():
+    """Disable MCP. Stops the server if running."""
+    from user_config import load_user_config, save_user_config  # noqa: PLC0415
+    from mcp_server import stop_embedded  # noqa: PLC0415
+
+    stop_embedded()
+    try:
+        cfg = load_user_config()
+        cfg["mcp_enabled"] = False
+        cfg["mcp_autostart"] = False
+        save_user_config(cfg)
+    except Exception:
+        pass
+    return jsonify({"ok": True})
+
+
+@app.route("/api/mcp/config-snippet")
+def api_mcp_config_snippet():
+    """Return a ready-to-paste config snippet for the given client.
+    Query param: ?client=claude-desktop|claude-code|cursor|generic
+    """
+    from user_config import load_user_config, mcp_config_snippet  # noqa: PLC0415
+    client = request.args.get("client", "generic")
+    try:
+        cfg = load_user_config()
+    except Exception:
+        return jsonify({"error": "FableGear not configured"}), 500
+    snippet = mcp_config_snippet(client, cfg)
+    return jsonify({"client": client, "snippet": snippet})
+
+
 # ── After-request headers ─────────────────────────────────────────────────────
 
 @app.after_request
 def disable_cache_on_static_files(response):
     """Disable caching for static files; add CSP for defense-in-depth."""
     if request.path.startswith("/static/"):
-        response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
 

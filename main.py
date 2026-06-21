@@ -141,6 +141,23 @@ if __name__ == '__main__':
             print('FableGear: server failed to start', file=sys.stderr)
             sys.exit(1)
 
+    # ── MCP server (AI agent access) ─────────────────────────────────────────
+    try:
+        from user_config import load_user_config, find_available_mcp_port
+        _cfg = load_user_config()
+        if _cfg.get('mcp_enabled') and _cfg.get('mcp_autostart'):
+            from mcp_server import start_embedded as _start_mcp
+            _mcp_port = _cfg.get('mcp_port', 5002)
+            _mcp_port = find_available_mcp_port(_mcp_port)
+            _mcp_host = '0.0.0.0' if _cfg.get('mcp_expose') else '127.0.0.1'
+            _mcp_token = _cfg.get('mcp_token', '')
+            if _start_mcp(host=_mcp_host, port=_mcp_port, token=_mcp_token):
+                print(f'FableGear: MCP server started on {_mcp_host}:{_mcp_port}')
+            else:
+                print('FableGear: MCP server failed to start', file=sys.stderr)
+    except Exception as _mcp_err:
+        print(f'FableGear: MCP autostart skipped — {_mcp_err}', file=sys.stderr)
+
     # Splash: play intro video on every launch if the file exists
     _splash_video = _ROOT / 'static' / 'fablegear-splash.mp4'
     start_url = f'http://127.0.0.1:{_PORT}/splash' if _splash_video.exists() else _LOCAL_URL

@@ -205,8 +205,16 @@ function toggleLog() {
 /* ── SSE runner ────────────────────────────────────────────────────────────── */
 function runCommand(url, logTitle, onDone, useBar = true, showPrefilter = false) {
   if (isRunning) {
-    showToast('A tool is already running — wait for it to finish or click Interrupt.', 'warning');
-    return;
+    // Stale lock — no active SSE connection means the prior run ended without cleanup
+    if (!activeSource || activeSource.readyState === EventSource.CLOSED) {
+      activeSource = null;
+      isRunning = false;
+      setSpinner(false);
+      setAllButtons(false);
+    } else {
+      showToast('A tool is already running — wait for it to finish or click Interrupt.', 'warning');
+      return;
+    }
   }
   initLog(logTitle);
   showScanBar(logTitle);

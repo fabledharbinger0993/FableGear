@@ -67,6 +67,11 @@ fi
 # ── Activate venv ─────────────────────────────────────────────────────────
 source "$VENV/bin/activate"
 
+# ── Ensure core dependencies are installed ────────────────────────────────
+# setup.sh handles first-run, but cloned repos or manual venv resets can
+# leave the venv without packages. Quick no-op when everything is current.
+pip install --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
+
 # ── Update to the latest RELEASE (skip in dev mode) ──────────────────────
 # Release-gated: tracks GitHub's "latest release" tag, same endpoint the
 # in-app update_checker.py uses, so the launcher and the UI always agree.

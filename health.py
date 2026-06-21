@@ -45,8 +45,11 @@ class HealthFinding:
     auto_fixable: bool = False     # safe to fix without user input
     auto_fix_fn: Callable | None = field(default=None, repr=False)
 
+    fix_action: str = ""               # machine-readable action ID for UI fix button
+    fix_action_label: str = ""         # label for the fix button
+
     def as_dict(self) -> dict:
-        return {
+        d = {
             "id":           self.id,
             "severity":     self.severity,
             "title":        self.title,
@@ -54,6 +57,10 @@ class HealthFinding:
             "fix_hint":     self.fix_hint,
             "auto_fixable": self.auto_fixable,
         }
+        if self.fix_action:
+            d["fix_action"] = self.fix_action
+            d["fix_action_label"] = self.fix_action_label or "Run Fix"
+        return d
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -354,6 +361,8 @@ def _check_backup_same_volume() -> HealthFinding | None:
                     "Move the backup directory to a separate drive. "
                     "Update backup_dir in ~/.fablegear/config.json."
                 ),
+                fix_action="move_backup_dir",
+                fix_action_label="Move Backups to Another Drive",
             )
     except Exception:
         pass
@@ -396,8 +405,26 @@ def _check_backup_dir_missing() -> HealthFinding | None:
         if backup_path.exists():
             return None
 
+        # Walk up to find an existing ancestor to check writability
+        check = backup_path
+        while not check.exists() and check != check.parent:
+            check = check.parent
+        volume_readonly = check.exists() and _is_readonly_mount(check)
+
         def _create_backup_dir():
             backup_path.mkdir(parents=True, exist_ok=True)
+
+        if volume_readonly:
+            return HealthFinding(
+                id="backup_dir_missing",
+                severity="warn",
+                title="Backup directory does not exist yet",
+                detail=f"{backup_path} has not been created. Backups will fail until it exists.",
+                fix_hint=(
+                    "The target volume is read-only — cannot create the directory automatically. "
+                    "Move backups to a writable drive via Settings → Paths, or fix the volume permissions."
+                ),
+            )
 
         return HealthFinding(
             id="backup_dir_missing",
@@ -407,6 +434,8 @@ def _check_backup_dir_missing() -> HealthFinding | None:
             fix_hint="This will be created automatically when a backup is first needed.",
             auto_fixable=True,
             auto_fix_fn=_create_backup_dir,
+            fix_action="create_backup_dir",
+            fix_action_label="Create Backup Directory Now",
         )
     except Exception:
         pass
