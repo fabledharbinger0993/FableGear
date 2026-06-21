@@ -564,13 +564,11 @@ body.fg-space-record #chop-shop-workspace { display: none; }
   left: var(--left-panel-w);
   right: var(--nav-bar-right-w);
   z-index: 30;
-  min-height: 74px;
-  padding: 6px 0;
+  padding: 2px 0;
   align-items: center;
   justify-content: space-evenly;
-  overflow-x: auto;
+  overflow: visible;
   background: rgba(8, 12, 18, .92);
-  border-bottom: 1px solid var(--border);
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
 }
@@ -597,9 +595,9 @@ body:has(#fb-panel.fb-open) .workflow-rail { left: calc(var(--left-panel-w) + va
   opacity: .55;
 }
 .step-tab:hover {
-  transform: scale(1.08);
+  transform: scale(1.06);
   opacity: .9;
-  filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), .5));
+  filter: drop-shadow(0 0 5px rgba(var(--accent-rgb), .35));
 }
 .step-tab:hover,
 .step-tab.active {
@@ -607,15 +605,15 @@ body:has(#fb-panel.fb-open) .workflow-rail { left: calc(var(--left-panel-w) + va
 }
 .step-tab.active {
   opacity: 1;
-  transform: scale(1.18);
-  filter: drop-shadow(0 0 14px rgba(var(--accent-rgb), .65));
+  transform: scale(1.12);
+  filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), .45));
 }
 .step-num { display: block; font-size: 1rem; line-height: 1; margin-bottom: 4px; }
 .step-icon {
   display: block;
-  height: 64px;
-  width: 64px;
-  margin: 0 auto 2px;
+  height: 56px;
+  width: 56px;
+  margin: 0 auto 1px;
   object-fit: contain;
 }
 
@@ -6233,7 +6231,7 @@ footer {
      --chop-readout-h:  height of the compact progress strip. */
   --chop-terminal-w: clamp(260px, 28vw, 380px);
   --chop-readout-h: clamp(110px, 16vh, 170px);
-  --chop-zone-top: calc(var(--titlebar-h) + var(--header-h) + 80px);
+  --chop-zone-top: calc(var(--titlebar-h) + var(--header-h) + 66px);
 }
 
 /* Hide the scrolling card stack + intro — the docked modal is the tool surface */
@@ -6245,7 +6243,7 @@ body.fg-space-chop #chop-banner-dock {
   position: fixed;
   left: calc(var(--left-panel-w) + var(--chop-terminal-w) + 14px);
   right: calc(var(--nav-bar-right-w) + 14px);
-  top: calc(var(--titlebar-h) + var(--header-h) + 64px);
+  top: calc(var(--titlebar-h) + var(--header-h) + 62px);
   z-index: 80;
   display: flex;
   flex-direction: column;
