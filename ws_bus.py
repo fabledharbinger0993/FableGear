@@ -1,4 +1,4 @@
-"""ws_bus.py — Thread-safe WebSocket broadcast registry for FableGo.
+"""ws_bus.py — Thread-safe WebSocket broadcast registry for FableGear.
 
 All mobile_events WebSocket connections register here on connect and
 unregister on disconnect.  Background threads (analysis, export, download)
@@ -40,7 +40,6 @@ def broadcast(message: str) -> None:
     socket causes the socket to be removed from the registry immediately,
     rather than waiting for the receive loop to notice.
     
-    INFO-02 FIX: Added debug logging for WebSocket event debugging.
     """
     with _lock:
         targets = set(_clients)          # snapshot so we don't hold the lock during sends

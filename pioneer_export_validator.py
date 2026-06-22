@@ -52,7 +52,7 @@ class PathCollisionError(PioneerExportError):
         self.sanitized = sanitized
 
 
-class FileNotFoundError(PioneerExportError):
+class ExportFileNotFoundError(PioneerExportError):
     """Copied file does not exist on target USB drive."""
     def __init__(self, path: str):
         super().__init__(
@@ -95,7 +95,7 @@ def validate_file_exists(path: str) -> None:
     """Raise FileNotFoundError if the file does not exist."""
     p = Path(path)
     if not p.exists():
-        raise FileNotFoundError(str(p))
+        raise ExportFileNotFoundError(str(p))
 
 
 # ─── Export Path Builders ──────────────────────────────────────────────────────

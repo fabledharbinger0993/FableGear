@@ -166,7 +166,7 @@ def load_user_config() -> dict:
     """
     if not CONFIG_FILE.exists():
         raise NotConfiguredError(
-            f"rekordbox-toolkit has not been configured yet.\n"
+            f"FableGear has not been configured yet.\n"
             f"  Config expected at: {CONFIG_FILE}\n"
             f"  Run:  python3 cli.py setup"
         )
@@ -469,7 +469,7 @@ def print_dependency_report(results: Optional[List[Dict]] = None) -> bool:
 
     print()
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print("  rekordbox-toolkit — dependency check")
+    print("  FableGear — dependency check")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     for r in results:
         status = "✓" if r["ok"] else "✗  NOT FOUND"
@@ -545,8 +545,8 @@ def interactive_setup(*, update: bool = False) -> dict:
 
     print()
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print("  rekordbox-toolkit — first-run setup" if not update else
-          "  rekordbox-toolkit — update settings")
+    print("  FableGear — first-run setup" if not update else
+          "  FableGear — update settings")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print()
     print("  Press Enter to accept the value shown in [brackets].")

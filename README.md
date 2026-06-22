@@ -4,229 +4,179 @@
 
 # FableGear
 
-**A local-first rekordbox toolkit for DJs who need safer cleanup, recovery, and library maintenance tools.**
+**Local-first Rekordbox library toolkit for macOS**
 
-### [⬇️&nbsp; Download FableGear for macOS](https://github.com/fabledharbinger0993/FableGear/releases/latest/download/FableGear.zip)
+### [Download FableGear for macOS](https://github.com/fabledharbinger0993/FableGear/releases/latest/download/FableGear.zip)
 
-**macOS · Free · Open source (MIT) · No account · No subscription · No telemetry**
+![macOS](https://img.shields.io/badge/macOS-Monterey_12.0%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![No Telemetry](https://img.shields.io/badge/telemetry-none-lightgrey)
+
+**Free -- Open source (MIT) -- No account -- No cloud -- No telemetry**
 
 </div>
 
 ---
 
-## Why this exists
-
-DJ technology runs on closed formats. One vendor controls the database your
-library lives in, the analysis files your cues and beat grids depend on, the
-export formats your players will accept — and the tools you're allowed to fix
-any of it with. When their software loses your paths, corrupts a database, or
-splits your own hardware across two incompatible export formats, the official
-answer is the official tool, take it or leave it.
-
-FableGear is the leave-it. It's a local-first, open-source toolkit that treats
-*your* library as *yours*: auditable, repairable, movable, and exportable with
-tools anyone can read, run, and improve. It stands on the shoulders of
-[pyrekordbox](https://github.com/dylanljones/pyrekordbox) and aims to be just
-as available — MIT licensed, no account, no telemetry, no permission required.
-
----
-
 ## What is FableGear?
 
-FableGear is a companion toolkit for rekordbox libraries. It helps you repair broken paths, audit large collections, find true duplicates, normalize files, tag tracks, reorganize folders, and manage playlists without turning your music library into a guessing game.
+FableGear is a desktop app for DJs who use Rekordbox. It gives you tools to clean up, repair, and manage your music library that go beyond what Rekordbox offers on its own.
 
-It is built for DJs with large or long-lived collections where the usual pain points start stacking up:
-
-- drives that remount under a different name
-- rekordbox entries pointing at missing files
-- duplicates that slipped past filename-based checks
-- tracks with missing BPM or key tags
-- inconsistent file naming
-- messy folder structures after years of imports, downloads, and migrations
-
-FableGear keeps things local and keeps rekordbox as the source of truth. It opens in a native desktop window, runs on your machine, and does not depend on a cloud backend.
+Everything runs on your Mac. There is no cloud service, no login, and no data leaves your machine. FableGear reads and writes your Rekordbox database and audio files directly, so you stay in full control of your collection.
 
 ---
 
-## Why use it?
+## How it is organized
 
-FableGear is designed for maintenance work that is tedious, risky, or awkward inside rekordbox itself.
+FableGear has two main workspaces. **Record Room** handles everything tied to your Rekordbox database -- browsing tracks, managing playlists, fixing broken paths. **Chop Shop** works on your actual audio files -- tagging, deduping, normalizing loudness, renaming, converting formats.
 
-### Use FableGear when you need to:
+```mermaid
+graph TD
+    FG[FableGear] --> RR[Record Room]
+    FG --> CS[Chop Shop]
+    FG --> PW[Pipeline Wizard]
+    FG --> HM[Health Monitor]
+    FG --> GO[FableGo Mobile]
 
-- audit a library before a big cleanup
-- repair path breakage after moving drives or folders
-- detect duplicates by audio content instead of filename alone
-- write BPM and musical key into actual file tags
-- normalize loudness across tracks
-- reorganize a collection into a cleaner folder structure
-- batch-import music with previews and backups
-- manage playlists and export to Pioneer USB media
+    RR --> RR1[Library Browser + Player]
+    RR --> RR2[Library Audit]
+    RR --> RR3[Import Tracks]
+    RR --> RR4[Fix Broken Paths]
+    RR --> RR5[Link Playlists]
+    RR --> RR6[Playlist Management]
+    RR --> RR7[Pioneer USB Export]
+
+    CS --> CS1[Tag Tracks]
+    CS --> CS2[Find Duplicates]
+    CS --> CS3[Rename Files]
+    CS --> CS4[Organize Library]
+    CS --> CS5[Normalize Loudness]
+    CS --> CS6[Convert Format]
+    CS --> CS7[Novelty Scanner]
+```
 
 ---
 
-## Safety first
+## Record Room -- Rekordbox database tools
 
-FableGear is intentionally cautious.
-
-- **Rekordbox must be closed before write operations**
-- **Write actions require explicit confirmation**
-- **Dry-run and preview flows are used where practical**
-- **Backups are created before destructive database operations**
-- **Health checks surface risky conditions before you proceed**
-
-The goal is not just power — it is giving you safer ways to perform jobs that are easy to get wrong when done manually.
-
----
-
-## What you can do with FableGear
-
-FableGear is organized around two kinds of work: **Rekordbox DB** operations and **physical library** operations on your audio files.
-
-### Rekordbox DB tools
+These tools read from and write to your Rekordbox database.
 
 | Tool | What it does |
 |---|---|
-| **Library Audit** | Cross-checks the rekordbox database against your actual drives to find broken paths, orphaned entries, missing files, and untagged tracks. |
-| **Import** | Adds new audio files to the rekordbox database with dry-run support and automatic backup before writes. |
-| **Fix Broken Paths** | Bulk-updates stored database paths when drives remount under a different name or files have moved. |
-| **Link Playlists** | Maps your folder structure to rekordbox playlist names automatically after imports or reorganizations. |
+| **Library Browser + Player** | Browse your tracks with BPM, key, duration, and file path. Play tracks with waveform display. Split-view browsing of your filesystem alongside database entries. |
+| **Library Audit** | Scans your Rekordbox database against your actual drives. Finds broken paths, orphaned entries, missing files, and tracks with no BPM or key tags. |
+| **Import Tracks** | Adds new audio files to Rekordbox. Supports dry-run previews and creates a backup before any writes. |
+| **Fix Broken Paths** | Bulk-updates file paths in the database when a drive remounts with a different name or files have been moved. |
+| **Link Playlists** | Maps your folder structure to Rekordbox playlist names after imports or reorganizations. |
+| **Playlist Management** | Create, rename, delete, and reorder playlists. Add and remove tracks. |
+| **Pioneer USB Export** | Exports playlists to a USB drive in the directory format Pioneer players expect. |
 
-### Physical library tools
+---
+
+## Chop Shop -- audio file tools
+
+These tools work on your physical audio files, not the Rekordbox database.
 
 | Tool | What it does |
 |---|---|
-| **Tag Tracks** | Analyzes audio and writes BPM and musical key into the file tags so metadata survives database rebuilds and works outside rekordbox. |
-| **Find & Prune Duplicates** | Uses acoustic fingerprinting to detect the same recording even when filenames, formats, or bitrates differ. |
-| **Rename Files** | Batch renames files using patterns or inferred rules from example pairs, with preview before execution. |
-| **Organize Library** | Rebuilds folder structure from embedded metadata, using album artist intelligently to avoid messy feature-credit folder sprawl. |
-| **Normalize Loudness** | Measures integrated loudness and re-encodes tracks outside your target level, with preview and backup behavior. |
-| **Convert Format** | Re-encodes a folder of audio files into a target format before import. |
-| **Novelty Scanner** | Scans another drive for tracks not already acoustically present in your main library. |
-
-### Pipeline builder
-
-Chain multiple tools into a single automated run.
-
-You can either:
-
-- run in **auto mode** for a straight-through workflow, or
-- use **confirm between steps** to pause and review each stage
-
-The step controls support:
-
-- **↻ Re-do** — replay the same step
-- **✓ Finish** — stop here
-- **⏭ Skip** — skip this result and continue
-- **⏹ Stop** — abort immediately
+| **Tag Tracks** | Analyzes your audio and writes BPM and musical key into the file's metadata tags. This means the info survives even if you rebuild your Rekordbox database or use the files outside Rekordbox. |
+| **Find and Prune Duplicates** | Uses acoustic fingerprinting to detect the same recording even when the filenames, formats, or bitrates are different. Not just a filename check -- it listens to the audio. |
+| **Rename Files** | Batch rename files using patterns or learned rules from example pairs. Shows you a preview before anything changes. |
+| **Organize Library** | Rebuilds your folder structure based on embedded metadata (artist, album, etc.). Handles album artist intelligently so featured artists don't create extra folders. |
+| **Normalize Loudness** | Measures loudness (EBU R128) and re-encodes tracks that fall outside your target level. Preview and backup included. |
+| **Convert Format** | Re-encodes a folder of audio files into a target format (e.g., FLAC to AIFF, WAV to MP3). |
+| **Novelty Scanner** | Scans another drive for tracks that are not already in your main library, based on acoustic fingerprints. Useful for finding new music across external drives or a friend's collection. |
 
 ---
 
-## Library health monitor
+## Pipeline Wizard
 
-FableGear includes a startup and on-demand health scanner that checks for conditions likely to cause trouble before or during maintenance work.
+The Pipeline Wizard lets you chain multiple Chop Shop tools into a single automated run. Instead of running each tool one at a time, you build a sequence and let it execute.
 
-It can detect issues such as:
+Two modes:
 
-- rekordbox being open during a write attempt
-- iCloud or Dropbox sync activity on the library folder
-- suspicious database size regression
-- read-only volume mounts
-- backups living on the same physical volume as the main database
-- low free disk space on library drives
-- database symlinks instead of real files
+- **Auto mode** -- runs straight through every step
+- **Confirm between steps** -- pauses after each step so you can review the results before continuing
 
-Findings are shown with severity levels, and safe auto-fixes are applied where appropriate.
+At each pause you can re-do the step, skip it, or stop the pipeline entirely.
 
 ---
 
-## Library view and built-in player
+## Safety -- how FableGear protects your library
 
-FableGear also includes a library browser and audio player backed directly by the rekordbox database.
+FableGear is built to be cautious. Writing to a Rekordbox database incorrectly can break your library, so every write operation has guardrails.
 
-Features include:
+- **Rekordbox must be closed** before any write operation. FableGear checks for this.
+- **Write actions require your explicit confirmation.** Nothing changes without you saying yes.
+- **Dry-run and preview modes** are available wherever practical, so you can see what will happen before it happens.
+- **Automatic backups** are created before destructive database operations.
+- **Health Monitor** runs at startup and on demand, checking for risky conditions before you proceed.
 
-- browsing tracks with BPM, key, duration, and file path
-- split-view browsing of the filesystem alongside database tracks
-- hotplug detection for connected drives
-- playlist create / rename / delete / reorder flows
-- audio playback with waveform display
-- export to Pioneer USB in the expected directory format
-- path integrity checking against what is actually on disk
+The Health Monitor looks for things like:
+
+- Rekordbox still running during a write attempt
+- iCloud or Dropbox syncing your library folder (this causes corruption)
+- Suspicious database size changes
+- Read-only volume mounts
+- Backups stored on the same drive as the database
+- Low disk space
+- Symlinked database files
+
+Findings are shown with severity levels. Safe auto-fixes are applied where appropriate.
 
 ---
 
-## FableGo: mobile web companion
+## FableGo -- mobile companion
 
-FableGo is the built-in mobile companion for FableGear.
+FableGo is a mobile web interface that connects to FableGear over your local Wi-Fi network. If you use Tailscale, it also works remotely.
 
-It can connect over your local network, and optionally over Tailscale for remote access.
+From your phone or tablet you can:
 
-### What FableGo can do
+- Browse your music folders
+- Trigger downloads with live progress
+- Browse, create, edit, and delete Rekordbox playlists
+- Add and remove tracks from playlists
+- Trigger BPM and key analysis jobs
+- Browse connected drives and export playlists to Pioneer USB
 
-- browse your music folders remotely
-- trigger server-side downloads with live progress
-- browse, create, edit, and delete rekordbox playlists
-- add and remove tracks from playlists
-- trigger BPM and key analysis jobs remotely
-- browse connected drives and export playlists to Pioneer USB
-
-FableGo uses bearer token authentication from your local config. The desktop app/server must be running for FableGo to work.
+FableGo uses token-based authentication from your local config. The FableGear desktop app must be running for FableGo to connect.
 
 ---
 
 ## Install
 
-### Recommended: one-command install on macOS
+### One-command install (recommended)
 
-Open Terminal and run:
+Open Terminal and paste this:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/fabledharbinger0993/FableGear/main/install.sh | bash
 ```
 
-This bootstraps dependencies, clones the repo, and launches FableGear. On first run, a setup window walks through anything that still needs to be configured.
+This installs dependencies, clones the repository, and launches FableGear. A setup window walks you through anything that still needs configuring.
 
 ### Manual download
 
-1. Click **Download FableGear** above
+1. Click **Download FableGear for macOS** at the top of this page
 2. Unzip the archive
 3. Open **FableGear.app**
 4. If macOS blocks the first launch, right-click the app and choose **Open**
 
-On first launch, FableGear can also offer to create a native Dock launcher locally on your Mac.
+On first launch, FableGear can also create a native Dock launcher on your Mac.
 
 ---
 
 ## Requirements
 
-### Current practical target
-
-The current install and launch flow is primarily geared toward **macOS**.
-
-### Runtime requirements
-
 - macOS Monterey 12.0 or later
 - Apple Silicon or Intel Mac
-- internet connection for first-time setup / dependency install
-- rekordbox closed for any write operation
+- Internet connection for first-time setup (to install dependencies)
+- Rekordbox must be closed for any write operation
 
-### System dependencies
+### System dependencies (installed via Homebrew)
 
-FableGear relies on these system tools for core media workflows:
-
-- `ffmpeg`
-- `chromaprint` / `fpcalc`
-
-Python dependencies are installed from `requirements.txt` and include:
-
-- Flask + Waitress for the local app server
-- pyrekordbox for rekordbox database access
-- librosa for BPM and key analysis
-- mutagen for tag reading/writing
-- pyacoustid / Chromaprint for duplicate detection
-- pyloudnorm for loudness measurement
-- pywebview for the native desktop window
+- `ffmpeg` -- audio processing and format conversion
+- `chromaprint` / `fpcalc` -- acoustic fingerprinting for duplicate detection
 
 ---
 
@@ -234,48 +184,36 @@ Python dependencies are installed from `requirements.txt` and include:
 
 1. Install and launch FableGear
 2. Let the first-run setup complete
-3. Point it at your rekordbox database and music root
-4. Start with **Library Audit** before changing anything
-5. Review health warnings before running write operations
-6. Use dry-run / preview flows whenever available
+3. Point it at your Rekordbox database and music root folder
+4. Run **Library Audit** first -- always audit before changing anything
+5. Review any health warnings before running write operations
+6. Use dry-run and preview modes whenever they are available
 
-If you are working with a large or older library, the safest path is usually:
+For large or older libraries, a safe order of operations is:
 
-**Audit → fix paths → detect duplicates → tag / normalize → organize → import / relink playlists**
+```
+Audit --> Fix paths --> Detect duplicates --> Tag / Normalize --> Organize --> Import --> Relink playlists
+```
 
 ---
 
 ## Under the hood
 
+FableGear is a Flask app that runs a local server on port 5001 and opens in a native macOS window via pywebview. The UI is vanilla HTML/CSS/JS -- no frontend framework.
+
 | Library | Purpose |
 |---|---|
-| [pyrekordbox](https://github.com/dylanljones/pyrekordbox) | Direct read/write access to the rekordbox SQLite database |
-| [librosa](https://librosa.org) | BPM detection, beat tracking, key detection, and chroma analysis |
+| [pyrekordbox](https://github.com/dylanljones/pyrekordbox) | Read/write access to the Rekordbox SQLite database |
+| [librosa](https://librosa.org) | BPM detection, beat tracking, key detection, chroma analysis |
 | [Chromaprint / fpcalc](https://acoustid.org/chromaprint) | Acoustic fingerprinting for duplicate detection |
-| [mutagen](https://mutagen.readthedocs.io) | Audio metadata reading and writing |
+| [mutagen](https://mutagen.readthedocs.io) | Audio metadata (tag) reading and writing |
 | [pyloudnorm](https://github.com/csteinmetz1/pyloudnorm) | EBU R128 integrated loudness measurement |
 | [Flask](https://flask.palletsprojects.com) + [Waitress](https://docs.pylonsproject.org/projects/waitress) | Local application server |
 | [pywebview](https://pywebview.flowrl.com) | Native desktop window wrapper |
 | [flask-sock](https://flask-sock.readthedocs.io) | WebSocket support for live progress and companion-device events |
 
-FableGear runs locally and uses a native window shell backed by a local Flask app. The desktop UI opens on your machine, while companion features are served by the same local app stack.
-
----
-
-## Releasing
-
-```bash
-# Tag and publish a release
-./scripts/release.sh v2.x.x
-
-# Or with custom release notes
-./scripts/release.sh v2.x.x .github/release-notes.md
-```
-
-GitHub Actions attaches `FableGear.zip` and `install.sh` to published releases automatically.
-
 ---
 
 ## Built by
 
-**Guthrie Entertainment LLC** · Free and open source · [github.com/fabledharbinger0993](https://github.com/fabledharbinger0993)
+**Guthrie Entertainment LLC** -- Free and open source -- [github.com/fabledharbinger0993](https://github.com/fabledharbinger0993)

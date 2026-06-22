@@ -1455,9 +1455,8 @@ def disable_cache_on_static_files(response):
 
 if __name__ == "__main__":
     print()
-    print("  ┌─────────────────────────────────────┐")
-    print("  │  FableGear  ·  rekordbox-toolkit UI  │")
-    print("  │  http://localhost:5001              │")
-    print("  └─────────────────────────────────────┘")
+    print("  ┌──────────────────────────────────┐")
+    print("  │  FableGear · http://localhost:5001  │")
+    print("  └──────────────────────────────────┘")
     print()
     app.run(host="127.0.0.1", port=5001, debug=False)

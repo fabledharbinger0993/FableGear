@@ -24,7 +24,7 @@ def load_state(library_root: str) -> dict:
     if not path.exists():
         return {
             "library_root": str(library_root),
-            "fablegear_version": "1.4.0",
+            "fablegear_version": os.environ.get("FABLEGEAR_VERSION", "unknown"),
             "steps_completed": {},
             "last_updated": datetime.now(timezone.utc).isoformat()
         }
