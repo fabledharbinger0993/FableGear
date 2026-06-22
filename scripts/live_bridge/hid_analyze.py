@@ -260,6 +260,151 @@ def cmd_hexdump(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_scan(args: argparse.Namespace) -> int:
+    """Find all byte offsets that change within a capture, across the full frame."""
+    reports = [hex_to_bytes(r["hex"]) for r in iter_reports(args.capture)]
+    if not reports:
+        print("No reports found.")
+        return 1
+
+    max_len = max(len(r) for r in reports)
+    print(f"Capture: {args.capture}")
+    print(f"Reports: {len(reports)}, Frame size: {max_len} bytes")
+    print()
+
+    # For each byte offset, track: unique values, change count, min, max
+    results = []
+    for offset in range(max_len):
+        values = [r[offset] for r in reports if offset < len(r)]
+        unique = set(values)
+        if len(unique) <= 1:
+            continue
+        changes = sum(1 for i in range(1, len(values)) if values[i] != values[i - 1])
+        min_val, max_val = min(values), max(values)
+        results.append({
+            "offset": offset,
+            "unique": len(unique),
+            "changes": changes,
+            "change_rate": round(changes / max(len(values) - 1, 1), 3),
+            "min": min_val,
+            "max": max_val,
+            "range": max_val - min_val,
+            "sample_values": sorted(unique)[:20],
+        })
+
+    results.sort(key=lambda r: r["change_rate"], reverse=True)
+
+    if not results:
+        print("No byte offsets changed across the entire capture.")
+        return 0
+
+    print(f"ACTIVE BYTE OFFSETS ({len(results)} of {max_len} changed):")
+    print(f"{'Offset':<12} {'Changes':<10} {'Rate':<8} {'Range':<12} {'Unique':<8} {'Values (sample)'}")
+    print("-" * 90)
+
+    limit = args.top if hasattr(args, "top") and args.top else 40
+    for r in results[:limit]:
+        vals_str = ", ".join(f"0x{v:02X}" for v in r["sample_values"][:8])
+        if len(r["sample_values"]) > 8:
+            vals_str += f" (+{len(r['sample_values']) - 8} more)"
+        print(
+            f"0x{r['offset']:02X} ({r['offset']:>3d})  "
+            f"{r['changes']:<10} {r['change_rate']:<8.3f} "
+            f"[{r['min']:>3d}-{r['max']:>3d}]   "
+            f"{r['unique']:<8} {vals_str}"
+        )
+
+    # Highlight likely analog controls (high range, high change rate)
+    analog = [r for r in results if r["range"] > 100 and r["change_rate"] > 0.05]
+    if analog:
+        print(f"\n  LIKELY ANALOG CONTROLS ({len(analog)} offsets with range>100, rate>0.05):")
+        for r in analog[:10]:
+            print(f"    0x{r['offset']:02X} ({r['offset']:>3d}): range {r['range']}, rate {r['change_rate']:.3f}")
+
+    return 0
+
+
+def cmd_slice(args: argparse.Namespace) -> int:
+    """Print values of specific byte offsets over time (track a control)."""
+    offsets = []
+    for part in args.offsets.split(","):
+        part = part.strip()
+        if part.startswith("0x") or part.startswith("0X"):
+            offsets.append(int(part, 16))
+        else:
+            offsets.append(int(part))
+
+    if not offsets:
+        print("Specify at least one offset.")
+        return 1
+
+    prev_values: list[int] | None = None
+    count = 0
+    shown = 0
+
+    header_parts = ["   Seq", "  Elapsed"]
+    for off in offsets:
+        header_parts.append(f"0x{off:02X}")
+    print("  ".join(header_parts))
+    print("-" * (20 + 8 * len(offsets)))
+
+    for report in iter_reports(args.capture):
+        raw = hex_to_bytes(report["hex"])
+        seq = report.get("seq", "?")
+        elapsed = report.get("elapsed_ms", 0)
+        count += 1
+
+        current = [raw[o] if o < len(raw) else 0 for o in offsets]
+
+        if prev_values is None or current != prev_values:
+            parts = [f"{seq:>6}", f"{elapsed:>10.1f}ms"]
+            for i, val in enumerate(current):
+                changed = prev_values is not None and val != prev_values[i]
+                marker = "*" if changed else " "
+                parts.append(f"{marker}{val:>3d}(0x{val:02X})")
+            print("  ".join(parts))
+            shown += 1
+
+            if hasattr(args, "max_lines") and args.max_lines and shown >= args.max_lines:
+                print(f"  ... (stopped at {args.max_lines} lines, {count} reports read)")
+                break
+
+        prev_values = current
+
+    print(f"\n{shown} state changes shown from {count} reports.")
+    return 0
+
+
+def cmd_transitions(args: argparse.Namespace) -> int:
+    """Show the first N reports where a specific offset changes value."""
+    offset = int(args.offset, 0) if args.offset.startswith("0x") or args.offset.startswith("0X") else int(args.offset)
+    prev_val: int | None = None
+    shown = 0
+    limit = args.count
+
+    print(f"Transitions at offset 0x{offset:02X} ({offset}):")
+    print(f"{'Seq':>8}  {'Elapsed':>12}  {'From':>8}  {'To':>8}  {'Delta':>8}")
+    print("-" * 55)
+
+    for report in iter_reports(args.capture):
+        raw = hex_to_bytes(report["hex"])
+        if offset >= len(raw):
+            continue
+        val = raw[offset]
+        if prev_val is not None and val != prev_val:
+            seq = report.get("seq", "?")
+            elapsed = report.get("elapsed_ms", 0)
+            delta = val - prev_val
+            print(f"{seq:>8}  {elapsed:>10.1f}ms  0x{prev_val:02X}({prev_val:>3d})  0x{val:02X}({val:>3d})  {delta:>+4d}")
+            shown += 1
+            if shown >= limit:
+                break
+        prev_val = val
+
+    print(f"\n{shown} transitions found.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Analyze HID capture files from hid_capture.py.")
     sub = p.add_subparsers(dest="command", required=True)
@@ -279,6 +424,20 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument("capture", type=Path)
     h.add_argument("report_num", type=int, nargs="?", default=1, help="Report sequence number.")
 
+    sc = sub.add_parser("scan", help="Find all byte offsets that change within a capture (full frame).")
+    sc.add_argument("capture", type=Path)
+    sc.add_argument("--top", type=int, default=40, help="Show top N most-active offsets.")
+
+    sl = sub.add_parser("slice", help="Track specific byte offsets over time.")
+    sl.add_argument("capture", type=Path)
+    sl.add_argument("offsets", help="Comma-separated byte offsets (decimal or 0xHex). E.g. '2,5,0x10'.")
+    sl.add_argument("--max-lines", type=int, default=200, help="Max state-change lines to print.")
+
+    tr = sub.add_parser("transitions", help="Show value transitions at a single byte offset.")
+    tr.add_argument("capture", type=Path)
+    tr.add_argument("offset", help="Byte offset (decimal or 0xHex).")
+    tr.add_argument("--count", type=int, default=100, help="Max transitions to show.")
+
     return p
 
 
@@ -289,6 +448,9 @@ def main(argv: list[str] | None = None) -> int:
         "diff": cmd_diff,
         "watch": cmd_watch,
         "hexdump": cmd_hexdump,
+        "scan": cmd_scan,
+        "slice": cmd_slice,
+        "transitions": cmd_transitions,
     }
     return cmd[args.command](args)
 
