@@ -412,6 +412,15 @@
 <body>
 <div class="ob-wrap">
 
+  <!-- Update banner — shown immediately if a newer release exists -->
+  <div id="ob-update-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:100;
+    background:var(--accent);color:#fff;text-align:center;padding:8px 16px;font-size:.82rem;
+    font-weight:600;cursor:pointer;-webkit-app-region:no-drag"
+    onclick="obUpdateGo()">
+    <span id="ob-update-msg">A new version of FableGear is available.</span>
+    <span style="margin-left:12px;opacity:.8;font-weight:400">Click to update</span>
+  </div>
+
   <div class="ob-notice" id="ob-notice"></div>
 
   <!-- Progress dots -->
@@ -1231,6 +1240,69 @@ function escHtml(s) {
     .replace(/"/g, '&quot;');
 }
 function escAttr(s) { return escHtml(s); }
+
+// ── Update check (runs before anything else) ────────────────────────────────
+var _obUpdateData = null;
+
+function obUpdateCheck() {
+  fetch('/api/update/status')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data.update_available) return;
+      _obUpdateData = data;
+      var msg = data.latest_version
+        ? 'FableGear ' + data.latest_version + ' is available'
+        : 'A new version of FableGear is available';
+      document.getElementById('ob-update-msg').textContent = msg;
+      document.getElementById('ob-update-banner').style.display = '';
+    })
+    .catch(function() {});
+}
+
+function obUpdateGo() {
+  if (!_obUpdateData) return;
+  if (!_obUpdateData.is_git_install) {
+    var url = _obUpdateData.download_url || _obUpdateData.release_url;
+    if (url) window.open(url, '_blank', 'noopener');
+    return;
+  }
+  var banner = document.getElementById('ob-update-banner');
+  banner.style.cursor = 'default';
+  banner.onclick = null;
+  document.getElementById('ob-update-msg').textContent = 'Updating — pulling latest release…';
+  fetch('/api/update/apply', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d || !d.ok) {
+        document.getElementById('ob-update-msg').textContent =
+          'Update failed — ' + (d && d.error ? d.error : 'try again later');
+        return;
+      }
+      document.getElementById('ob-update-msg').textContent =
+        'Restarting FableGear — page will reload automatically…';
+      _obWaitForReload();
+    })
+    .catch(function() {
+      document.getElementById('ob-update-msg').textContent =
+        'Could not reach the server — try again later';
+    });
+}
+
+function _obWaitForReload() {
+  var attempts = 0;
+  var poll = setInterval(function() {
+    attempts++;
+    if (attempts > 30) { clearInterval(poll); return; }
+    fetch('/api/update/status')
+      .then(function() { clearInterval(poll); window.location.reload(); })
+      .catch(function() {});
+  }, 2000);
+}
+
+// Fire the check immediately, and again after 10s in case the server's
+// background checker hasn't finished its GitHub call yet.
+obUpdateCheck();
+setTimeout(obUpdateCheck, 10000);
 
 // ── Boot ───────────────────────────────────────────────────────────────────────
 document.getElementById('inp-music-root').addEventListener('change', updateArchiveRecommendation);
