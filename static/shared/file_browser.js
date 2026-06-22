@@ -150,7 +150,7 @@ function loadFileBrowserFolders(dropdown) {
         if (v.has_pioneer_db) {
           const badge = document.createElement('span');
           badge.className = 'drives-item-pill drives-pill-pioneer';
-          badge.style.fontSize = '10px';
+          badge.style.fontSize = '20px';
           badge.style.marginLeft = '4px';
           badge.textContent = 'Pioneer';
           item.appendChild(badge);

@@ -97,7 +97,7 @@
 
 /* ── Reset ─────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 10px; }
+html { font-size: 20px; }
 body {
   background: var(--bg);
   color: var(--text);
@@ -262,7 +262,7 @@ input[type="range"] { -webkit-app-region: no-drag; }
 .tl-green    { background: #28c840; }
 .tl::after {
   opacity: 0; position: absolute;
-  font-size: 7px; font-weight: 900; color: rgba(0,0,0,.65);
+  font-size: 14px; font-weight: 900; color: rgba(0,0,0,.65);
   line-height: 1; pointer-events: none;
   transition: opacity .1s;
 }
@@ -784,7 +784,7 @@ details[open] > summary { color: var(--text); }
 .explain-body li { margin-bottom: 3px; }
 .explain-body strong { color: var(--text); }
 .explain-body code {
-  font-family: var(--mono); font-size: .82em;
+  font-family: var(--mono); font-size: 1.64em;
   background: var(--border); padding: 1px 4px; border-radius: 3px;
   color: var(--accent);
 }
@@ -2217,7 +2217,7 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
   font-size: .82rem; color: var(--text-muted); line-height: 1.6; margin: 0 0 12px;
 }
 .welcome-permission code {
-  font-family: var(--mono); font-size: .78em;
+  font-family: var(--mono); font-size: 1.56em;
   background: var(--border); padding: 1px 5px; border-radius: 3px;
   color: var(--text);
 }
@@ -2524,7 +2524,7 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 .gls-card-body p:last-child { margin-bottom: 0; }
 .gls-card-body strong { color: var(--text); }
 .gls-card-body code {
-  font-family: var(--mono); font-size: .78em;
+  font-family: var(--mono); font-size: 1.56em;
   background: var(--border); padding: 1px 4px; border-radius: 3px;
   color: var(--accent);
 }
@@ -4770,7 +4770,7 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   background: rgba(255, 95, 87, 0.85);
   border: 1px solid rgba(255, 95, 87, 0.4);
   color: rgba(40, 10, 10, 0.95);
-  font-size: 24px;
+  font-size: 48px;
   line-height: 1;
   cursor: pointer;
   transition: transform 0.15s, background 0.15s;
@@ -4920,7 +4920,7 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   background: rgba(255, 95, 87, 0.85);
   border: 1px solid rgba(255, 95, 87, 0.4);
   color: rgba(40, 10, 10, 0.95);
-  font-size: 18px;
+  font-size: 36px;
   line-height: 1;
   cursor: pointer;
   display: flex;
@@ -5827,7 +5827,7 @@ footer {
   background: rgba(255,255,255,.08);
   border: 1px solid rgba(255,255,255,.14);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: .82em;
+  font-size: 1.64em;
 }
 
 #fg-room-launcher .fg-launcher-grid {
