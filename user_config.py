@@ -242,15 +242,24 @@ def archive_root_for_music_root(music_root: str | Path) -> Path:
     return parent / "FableGear Archive"
 
 
-def count_audio_files(root: Path, *, max_depth: int | None = None, cap: int | None = 5000) -> int:
+def count_audio_files(
+    root: Path, *, max_depth: int | None = None, cap: int | None = 5000,
+    timeout: float = 30.0,
+) -> int:
     """Count/estimate audio files under *root*.
 
     ``max_depth=0`` means root-only; ``None`` is unlimited. If ``cap`` is set,
     stop once the count reaches the cap (keeps drive discovery responsive).
+    ``timeout`` (seconds) aborts the walk if a volume is too large to scan
+    quickly — returns whatever count was reached so far.
     """
+    import time as _time
     total = 0
+    deadline = _time.monotonic() + timeout
     try:
         for walk_root, dirs, files in os.walk(root):
+            if _time.monotonic() > deadline:
+                return total
             depth = len(Path(walk_root).relative_to(root).parts)
             if max_depth is not None and depth > max_depth:
                 dirs.clear()
@@ -695,11 +704,24 @@ def scan_for_rekordbox_assets() -> dict:
     mounts: list[Path] = []
     volumes_dir = Path("/Volumes")
     if volumes_dir.is_dir():
+        boot_real = _os.path.realpath("/")
         for name in _os.listdir(volumes_dir):
-            if not name.startswith("."):
-                p = volumes_dir / name
-                if p.is_dir():
-                    mounts.append(p)
+            if name.startswith("."):
+                continue
+            p = volumes_dir / name
+            if not p.is_dir():
+                continue
+            # Skip the boot volume and system snapshots — scanning them
+            # walks /Applications, /usr, /System etc. and stalls the UI.
+            try:
+                real = _os.path.realpath(p)
+            except OSError:
+                continue
+            if real == boot_real:
+                continue
+            if name.lower().startswith("com.apple.timemachine"):
+                continue
+            mounts.append(p)
 
     device_dbs: list[dict] = []
     xml_files: list[dict] = []
@@ -721,8 +743,12 @@ def scan_for_rekordbox_assets() -> dict:
             })
 
         # rekordbox.xml / fablegear.xml — scan up to 4 levels deep
+        import time as _time
+        _xml_deadline = _time.monotonic() + 15
         try:
             for root, dirs, files in _os.walk(mount):
+                if _time.monotonic() > _xml_deadline:
+                    break
                 depth = root.replace(str(mount), "").count(_os.sep)
                 if depth > 4:
                     dirs.clear()
