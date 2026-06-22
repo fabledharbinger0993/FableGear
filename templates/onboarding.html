@@ -96,6 +96,26 @@
     .dep-ok   { color: #2ecc71; }
     .dep-fail { color: #e74c3c; }
 
+    /* ── Music root picker ── */
+    .ob-music-root-options {
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .ob-music-root-pick {
+      display: flex; flex-direction: column; gap: 2px;
+      width: 100%; text-align: left;
+      background: rgba(255,255,255,.04); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px;
+      cursor: pointer; transition: border-color .15s, background .15s;
+    }
+    .ob-music-root-pick:hover {
+      border-color: var(--accent); background: rgba(255,255,255,.07);
+    }
+    .ob-music-root-pick.selected {
+      border-color: var(--accent); background: rgba(var(--accent-rgb, 100,140,255), .12);
+    }
+    .ob-mr-label { font-size: .85rem; font-weight: 600; color: var(--text); }
+    .ob-mr-path  { font-size: .72rem; font-family: var(--mono, monospace); color: var(--text-dim); }
+
     /* ── Toggle rows ── */
     .toggle-row {
       display: flex;
@@ -392,6 +412,15 @@
 <body>
 <div class="ob-wrap">
 
+  <!-- Update banner — shown immediately if a newer release exists -->
+  <div id="ob-update-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:100;
+    background:var(--accent);color:#fff;text-align:center;padding:8px 16px;font-size:.82rem;
+    font-weight:600;cursor:pointer;-webkit-app-region:no-drag"
+    onclick="obUpdateGo()">
+    <span id="ob-update-msg">A new version of FableGear is available.</span>
+    <span style="margin-left:12px;opacity:.8;font-weight:400">Click to update</span>
+  </div>
+
   <div class="ob-notice" id="ob-notice"></div>
 
   <!-- Progress dots -->
@@ -537,14 +566,20 @@
 
       <!-- Music root -->
       <div class="ob-card">
-        <div class="ob-card-title">Music library root</div>
-        <div class="path-row">
-          <span class="path-label">Path</span>
-          <input class="path-input" id="inp-music-root" type="text"
-                 placeholder="/Volumes/DJDRIVE/Music">
-          <button class="path-browse" onclick="pickFolder('inp-music-root')">Browse…</button>
-        </div>
+        <div class="ob-card-title">Home library folder</div>
+        <p class="ob-card-hint" style="font-size:.82rem;color:var(--text-muted);margin-bottom:10px;line-height:1.5">
+          Choose the folder that contains your main music library.
+          FableGear will use this as the default source for all tools.
+        </p>
         <div id="music-root-extra"></div>
+        <div class="path-row" style="margin-top:8px">
+          <span class="path-label">Path</span>
+          <input class="path-input" id="inp-music-root" type="text" readonly
+                 placeholder="Select a folder below or browse…"
+                 style="cursor:default;color:var(--text-muted)">
+          <button class="ob-btn ob-btn-primary" style="padding:5px 14px;font-size:.82rem;white-space:nowrap"
+                  onclick="pickFolder('inp-music-root')">Open Finder…</button>
+        </div>
       </div>
 
       <div class="ob-card">
@@ -967,42 +1002,30 @@ function populateScan(data) {
     document.getElementById('xml-list').innerHTML = xhtml;
   }
 
-  // Music root
+  // Music root — show discovered roots as selectable options, don't auto-pick
   var mc = document.getElementById('music-root-extra');
+  var musicInput = document.getElementById('inp-music-root');
+  musicInput.value = '';
   if (data.music_roots && data.music_roots.length) {
-    var recommendedRoot = data.recommended_music_root || data.music_roots[0].path;
-    document.getElementById('inp-music-root').value = recommendedRoot;
-    if (data.music_roots.length > 1) {
-      var msel = '<select class="ob-select" onchange="document.getElementById(\'inp-music-root\').value=this.value">';
-      data.music_roots.forEach(function(m) {
-        var bits = [m.label];
-        if (m.audio_count) bits.push(m.audio_count + '+ tracks');
-        if (m.read_only) bits.push('read-only');
-        var leader = m.recommended_home ? '★ ' : '';
-        msel += '<option value="' + escAttr(m.path) + '"' + (m.path === recommendedRoot ? ' selected' : '') + '>'
-             + escHtml(leader + bits.join(' - ')) + '</option>';
-      });
-      msel += '</select>';
-      var rec = data.recommended_archive_root
-        ? '<div class="path-note ok">Recommended main library - ' + escHtml(recommendedRoot)
-          + '<br>Archive - ' + escHtml(data.recommended_archive_root)
-          + '<br>Backups - ' + escHtml(data.recommended_backup_dir || '') + '</div>'
-        : '';
-      mc.innerHTML = rec + msel;
-    } else {
-      mc.innerHTML =
-        '<div class="path-note ok">✓ Found on ' + escHtml(data.music_roots[0].volume)
-        + (data.music_roots[0].audio_count ? ' - ' + escHtml(String(data.music_roots[0].audio_count)) + '+ tracks' : '')
-        + '</div>';
-    }
-    var selected = data.music_roots.find(function(m) { return m.path === recommendedRoot; }) || data.music_roots[0];
-    if (selected && selected.read_only) {
-      mc.innerHTML += '<div class="path-note miss">This library is currently read-only - run First Aid in Disk Utility before enabling write tools.</div>'
-        + '<div style="margin-top:8px"><button class="path-browse" type="button" onclick="openDiskUtilityForMusicRoot()">Open Disk Utility - First Aid</button></div>';
-    }
+    var html = '<div class="ob-music-root-options">';
+    data.music_roots.forEach(function(m) {
+      var bits = [m.label];
+      if (m.audio_count) bits.push(m.audio_count + '+ tracks');
+      if (m.read_only) bits.push('read-only');
+      var leader = m.recommended_home ? '★ ' : '';
+      var readOnlyAttr = m.read_only ? ' data-readonly="1"' : '';
+      html += '<button type="button" class="ob-music-root-pick"'
+           + readOnlyAttr
+           + ' onclick="selectMusicRoot(\'' + escAttr(m.path) + '\')">'
+           + '<span class="ob-mr-label">' + escHtml(leader + bits.join(' — ')) + '</span>'
+           + '<span class="ob-mr-path">' + escHtml(m.path) + '</span>'
+           + '</button>';
+    });
+    html += '</div>';
+    mc.innerHTML = html;
   } else {
     mc.innerHTML =
-      '<div class="path-note miss">No music library detected — connect your DJ drive or enter path manually.</div>';
+      '<div class="path-note miss">No music folders detected — use Open Finder to select your library folder.</div>';
   }
   updateArchiveRecommendation();
 }
@@ -1024,12 +1047,48 @@ function pickFolder(inputId) {
   var api = window.pywebview && window.pywebview.api;
   if (api && api.pick_folder) {
     api.pick_folder()
-      .then(function(p) { if (p) document.getElementById(inputId).value = p; });
+      .then(function(p) {
+        if (!p) return;
+        document.getElementById(inputId).value = p;
+        if (inputId === 'inp-music-root') _onMusicRootChosen(p);
+      });
   } else {
     var cur = document.getElementById(inputId).value;
     var p = window.prompt('Enter folder path:', cur);
-    if (p) document.getElementById(inputId).value = p;
+    if (p) {
+      document.getElementById(inputId).value = p;
+      if (inputId === 'inp-music-root') _onMusicRootChosen(p);
+    }
   }
+}
+
+function selectMusicRoot(path) {
+  document.getElementById('inp-music-root').value = path;
+  _onMusicRootChosen(path);
+}
+
+function _onMusicRootChosen(path) {
+  var inp = document.getElementById('inp-music-root');
+  inp.style.color = 'var(--text)';
+  // highlight selected button, deselect others
+  document.querySelectorAll('.ob-music-root-pick').forEach(function(btn) {
+    btn.classList.toggle('selected', btn.getAttribute('onclick').indexOf(path) !== -1);
+  });
+  // check read-only
+  var mc = document.getElementById('music-root-extra');
+  var existing = mc.querySelector('.path-note.miss.readonly-warn');
+  if (existing) existing.remove();
+  var match = scanData && scanData.music_roots
+    ? scanData.music_roots.find(function(m) { return m.path === path; })
+    : null;
+  if (match && match.read_only) {
+    var warn = document.createElement('div');
+    warn.className = 'path-note miss readonly-warn';
+    warn.innerHTML = 'This library is currently read-only — run First Aid in Disk Utility before enabling write tools.'
+      + '<div style="margin-top:8px"><button class="path-browse" type="button" onclick="openDiskUtilityForMusicRoot()">Open Disk Utility — First Aid</button></div>';
+    mc.appendChild(warn);
+  }
+  updateArchiveRecommendation();
 }
 
 function confirmPaths() {
@@ -1041,8 +1100,12 @@ function confirmPaths() {
     ? document.getElementById('inp-archive-root').value.trim()
     : _deriveArchiveRoot(musicRoot);
 
-  if (!localDb || !deviceDb || !musicRoot) {
-    obNotice('Please fill in all three paths before continuing.', 'warn');
+  if (!localDb || !deviceDb) {
+    obNotice('Please fill in the database paths before continuing.', 'warn');
+    return;
+  }
+  if (!musicRoot) {
+    obNotice('Select your home library folder — pick one from the list or use Open Finder.', 'warn');
     return;
   }
   if (archiveMode === 'custom' && !archiveRoot) {
@@ -1177,6 +1240,69 @@ function escHtml(s) {
     .replace(/"/g, '&quot;');
 }
 function escAttr(s) { return escHtml(s); }
+
+// ── Update check (runs before anything else) ────────────────────────────────
+var _obUpdateData = null;
+
+function obUpdateCheck() {
+  fetch('/api/update/status')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data.update_available) return;
+      _obUpdateData = data;
+      var msg = data.latest_version
+        ? 'FableGear ' + data.latest_version + ' is available'
+        : 'A new version of FableGear is available';
+      document.getElementById('ob-update-msg').textContent = msg;
+      document.getElementById('ob-update-banner').style.display = '';
+    })
+    .catch(function() {});
+}
+
+function obUpdateGo() {
+  if (!_obUpdateData) return;
+  if (!_obUpdateData.is_git_install) {
+    var url = _obUpdateData.download_url || _obUpdateData.release_url;
+    if (url) window.open(url, '_blank', 'noopener');
+    return;
+  }
+  var banner = document.getElementById('ob-update-banner');
+  banner.style.cursor = 'default';
+  banner.onclick = null;
+  document.getElementById('ob-update-msg').textContent = 'Updating — pulling latest release…';
+  fetch('/api/update/apply', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d || !d.ok) {
+        document.getElementById('ob-update-msg').textContent =
+          'Update failed — ' + (d && d.error ? d.error : 'try again later');
+        return;
+      }
+      document.getElementById('ob-update-msg').textContent =
+        'Restarting FableGear — page will reload automatically…';
+      _obWaitForReload();
+    })
+    .catch(function() {
+      document.getElementById('ob-update-msg').textContent =
+        'Could not reach the server — try again later';
+    });
+}
+
+function _obWaitForReload() {
+  var attempts = 0;
+  var poll = setInterval(function() {
+    attempts++;
+    if (attempts > 30) { clearInterval(poll); return; }
+    fetch('/api/update/status')
+      .then(function() { clearInterval(poll); window.location.reload(); })
+      .catch(function() {});
+  }, 2000);
+}
+
+// Fire the check immediately, and again after 10s in case the server's
+// background checker hasn't finished its GitHub call yet.
+obUpdateCheck();
+setTimeout(obUpdateCheck, 10000);
 
 // ── Boot ───────────────────────────────────────────────────────────────────────
 document.getElementById('inp-music-root').addEventListener('change', updateArchiveRecommendation);

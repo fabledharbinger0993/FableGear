@@ -20,7 +20,7 @@
 .cam-badge {
   display: inline-block;
   font-family: var(--mono);
-  font-size: 0.78em;
+  font-size: 1.56em;
   font-weight: 600;
   line-height: 1;
   padding: 3px 7px;
@@ -174,7 +174,7 @@ body[data-theme="booth"] .cam-badge { filter: sepia(0.35) hue-rotate(-15deg); }
   border-bottom: 1px solid var(--border);
   color: var(--text);
   font-family: var(--mono);
-  font-size: 15px;
+  font-size: 30px;
   padding: 14px 16px;
 }
 #fg-palette-list { max-height: 46vh; overflow-y: auto; }
@@ -188,7 +188,7 @@ body[data-theme="booth"] .cam-badge { filter: sepia(0.35) hue-rotate(-15deg); }
 .fg-palette-item .fg-pi-hint {
   margin-left: auto;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 22px;
   color: var(--text-dim);
 }
 .fg-palette-item.active,
@@ -199,6 +199,6 @@ body[data-theme="booth"] .cam-badge { filter: sepia(0.35) hue-rotate(-15deg); }
 .fg-palette-empty {
   padding: 18px 16px;
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: 26px;
   text-align: center;
 }
