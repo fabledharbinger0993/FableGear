@@ -134,11 +134,13 @@ from routes_player     import bp as player_bp      # noqa: E402
 from routes_tools      import bp as tools_bp        # noqa: E402
 from routes_rekordbox  import bp as rekordbox_bp    # noqa: E402
 from routes_mobile     import bp as mobile_bp       # noqa: E402
+from routes_undo       import bp as undo_bp         # noqa: E402
 
 app.register_blueprint(player_bp)
 app.register_blueprint(tools_bp)
 app.register_blueprint(rekordbox_bp)
 app.register_blueprint(mobile_bp)
+app.register_blueprint(undo_bp)
 
 # ── Startup side-effects ──────────────────────────────────────────────────────
 

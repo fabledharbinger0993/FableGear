@@ -1,0 +1,58 @@
+<!-- ══ Undo Wizard Panel ═══════════════════════════════════════════════════
+     Slide-in panel. Browse job history, restore savepoints, recover pruned files.
+     ══════════════════════════════════════════════════════════════════════ -->
+<div id="undo-panel">
+  <div class="sidebar-resize-handle"></div>
+  <div class="undo-panel-header">
+    <span id="undo-panel-title">Undo Wizard</span>
+    <button type="button" class="undo-panel-close" onclick="closeUndoPanel()" title="Close">✕</button>
+  </div>
+  <nav class="undo-panel-nav" role="tablist">
+    <button type="button" class="undo-tab-btn active" id="undo-tab-timeline" role="tab" onclick="undoSwitchTab('timeline')">Timeline</button>
+    <button type="button" class="undo-tab-btn" id="undo-tab-savepoints" role="tab" onclick="undoSwitchTab('savepoints')">Savepoints</button>
+    <button type="button" class="undo-tab-btn" id="undo-tab-trash" role="tab" onclick="undoSwitchTab('trash')">Trash</button>
+  </nav>
+
+  <div class="undo-panel-body">
+
+    <!-- ── Timeline tab ── -->
+    <div class="undo-section active" id="undo-sec-timeline">
+      <div class="undo-toolbar">
+        <select id="undo-filter-tool" onchange="undoLoadTimeline()" title="Filter by tool">
+          <option value="">All tools</option>
+          <option value="process">Tag Tracks</option>
+          <option value="normalize">Normalize</option>
+          <option value="organize">Organize</option>
+          <option value="rename">Rename</option>
+          <option value="prune">Prune</option>
+          <option value="convert">Convert</option>
+          <option value="import">Import</option>
+          <option value="relocate">Relocate</option>
+          <option value="dedupe">Dedup</option>
+          <option value="audit">Audit</option>
+        </select>
+        <select id="undo-filter-state" onchange="undoLoadTimeline()" title="Filter by status">
+          <option value="">All states</option>
+          <option value="done">Done</option>
+          <option value="failed">Failed</option>
+          <option value="running">Running</option>
+        </select>
+      </div>
+      <div id="undo-timeline-list" class="undo-list"></div>
+    </div>
+
+    <!-- ── Savepoints tab ── -->
+    <div class="undo-section" id="undo-sec-savepoints">
+      <p class="undo-blurb">FableGear takes a snapshot of your database before every write operation. Restore any snapshot to roll back changes.</p>
+      <div id="undo-savepoints-list" class="undo-list"></div>
+    </div>
+
+    <!-- ── Trash tab ── -->
+    <div class="undo-section" id="undo-sec-trash">
+      <p class="undo-blurb">Files removed by the Prune tool are moved to Trash, not deleted. Restore them to your music library.</p>
+      <div id="undo-trash-list" class="undo-list"></div>
+    </div>
+
+  </div>
+</div>
+<div id="undo-panel-backdrop" onclick="closeUndoPanel()"></div>
