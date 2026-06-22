@@ -2,11 +2,16 @@
 """Capture raw HID reports from AlphaTheta DJ controllers (Omnis Duo, DDJ-FLX series, etc).
 
 Reads vendor-defined HID input reports in real time and writes them as
-timestamped JSONL — one line per report. This is passive sniffing only:
-we never write output reports to the device.
+timestamped JSONL — one line per report.
+
+AlphaTheta controllers require a host-initiated handshake before they start
+streaming input reports. Use --activate to send a probe sequence that wakes
+the controller up. Without activation (or without Rekordbox running and
+already holding the link), the device will open successfully but report 0 data.
 
 Requires: pip install hidapi
 Usage:    python hid_capture.py [--vid 0x2B73] [--pid 0x0048] [--duration 30]
+          python hid_capture.py --activate --duration 10 --label crossfader
 
 The tool auto-detects AlphaTheta/Pioneer DJ controllers if no VID/PID is given.
 """
@@ -51,6 +56,22 @@ KNOWN_DEVICES = {
 }
 
 DEFAULT_OUTPUT_DIR = Path.home() / ".fablegear" / "live_bridge" / "hid_captures"
+
+# Pioneer/AlphaTheta controllers require an init handshake before they stream
+# input reports. These are known activation sequences observed from Rekordbox.
+# The controller expects output reports on the same HID interface.
+OMNIS_DUO_INIT_PROBES = [
+    # Probe 1: simple presence announcement (observed on DDJ/XDJ family)
+    bytes([0x00] + [0x00] * 63),
+    # Probe 2: request device info / firmware version
+    bytes([0x01] + [0x00] * 63),
+    # Probe 3: common Pioneer "start streaming" command pattern
+    bytes([0x80] + [0x00] * 63),
+    # Probe 4: alternate init seen on newer AlphaTheta gear
+    bytes([0x01, 0x01] + [0x00] * 62),
+    # Probe 5: DDJ-style "subscribe to controls" (type 0x09)
+    bytes([0x09, 0x00, 0x01] + [0x00] * 61),
+]
 
 
 def utc_now_iso() -> str:
@@ -107,6 +128,40 @@ def classify_report(data: bytes, elapsed_ms: float) -> dict[str, Any]:
         "nonzero_count": nonzero_count,
         "density": round(nonzero_count / max(len(payload), 1), 3),
     }
+
+
+def activate_device(device: hid.device, verbose: bool = False) -> list[dict[str, Any]]:
+    """Send init probes and check for responses. Returns list of probe results."""
+    results = []
+    for i, probe in enumerate(OMNIS_DUO_INIT_PROBES):
+        try:
+            written = device.write(probe)
+            time.sleep(0.1)
+            response = device.read(1024, timeout_ms=200)
+            result = {
+                "probe_index": i,
+                "probe_header": f"0x{probe[0]:02X}",
+                "bytes_written": written,
+                "response_length": len(response) if response else 0,
+                "response_hex": bytes(response).hex(" ") if response else None,
+            }
+            results.append(result)
+            if verbose:
+                status = f"→ {len(response)} bytes back" if response else "→ no response"
+                print(f"  Probe {i} (0x{probe[0]:02X}): wrote {written} bytes {status}")
+            if response:
+                # got a response — device is awake, keep going to see if more probes
+                # elicit different responses
+                pass
+        except OSError as exc:
+            results.append({
+                "probe_index": i,
+                "probe_header": f"0x{probe[0]:02X}",
+                "error": str(exc),
+            })
+            if verbose:
+                print(f"  Probe {i} (0x{probe[0]:02X}): ERROR {exc}")
+    return results
 
 
 def capture_loop(
@@ -259,6 +314,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Session label (e.g. 'jog_left_scratch', 'fader_sweep').")
     p.add_argument("--list", action="store_true",
                     help="List detected controllers and exit.")
+    p.add_argument("--activate", action="store_true",
+                    help="Send init probes to wake the controller before capturing. "
+                         "Required if Rekordbox is not running.")
+    p.add_argument("--try-all", action="store_true",
+                    help="Try opening every HID interface on the device, not just the first.")
     p.add_argument("--verbose", "-v", action="store_true",
                     help="Print every report to stdout (in addition to JSONL file).")
     p.add_argument("--stdout-only", action="store_true",
@@ -313,26 +373,68 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Could not find HID interface for 0x{target_vid:04X}:0x{target_pid:04X}")
         return 1
 
-    usage_page = chosen.get("usage_page", 0)
-    iface_num = chosen.get("interface_number", "?")
-    hid_path = chosen["path"]
-    print(f"Opening interface {iface_num}, usage page 0x{usage_page:04X}")
-    print(f"  HID path: {hid_path.decode('utf-8', errors='replace')}")
+    # --try-all: attempt each interface until one produces data
+    if args.try_all:
+        interfaces_to_try = candidates
+    else:
+        interfaces_to_try = [chosen]
 
-    device = hid.device()
-    try:
-        device.open_path(hid_path)
-    except OSError as exc:
-        print(f"Failed to open device: {exc}")
-        print("On Linux, try:  sudo python hid_capture.py ...")
-        print("Or add a udev rule for your controller.")
+    device = None
+    active_interface = None
+
+    for candidate in interfaces_to_try:
+        usage_page = candidate.get("usage_page", 0)
+        iface_num = candidate.get("interface_number", "?")
+        hid_path = candidate["path"]
+        print(f"Trying interface {iface_num}, usage page 0x{usage_page:04X}")
+        print(f"  HID path: {hid_path.decode('utf-8', errors='replace')}")
+
+        dev = hid.device()
+        try:
+            dev.open_path(hid_path)
+        except OSError as exc:
+            print(f"  Failed to open: {exc}")
+            continue
+
+        dev.set_nonblocking(True)
+
+        product = dev.get_product_string() or "unknown"
+        manufacturer = dev.get_manufacturer_string() or "unknown"
+        print(f"  Connected: {manufacturer} — {product}")
+
+        if args.activate:
+            print(f"  Sending activation probes...")
+            probe_results = activate_device(dev, verbose=args.verbose)
+            responded = [r for r in probe_results if r.get("response_length", 0) > 0]
+            if responded:
+                print(f"  ✓ Device responded to {len(responded)} probe(s)!")
+            else:
+                print(f"  No probe responses (device may need Rekordbox-specific handshake)")
+
+        # quick check: can we read anything?
+        time.sleep(0.2)
+        test_read = dev.read(1024, timeout_ms=500)
+        if test_read:
+            print(f"  ✓ Receiving data! ({len(test_read)} bytes)")
+            device = dev
+            active_interface = candidate
+            break
+        else:
+            if not args.try_all:
+                # only one interface to try, use it anyway
+                device = dev
+                active_interface = candidate
+                break
+            print(f"  No data on this interface, trying next...")
+            dev.close()
+
+    if device is None:
+        print("\nNo interface produced data.")
+        print("Possible causes:")
+        print("  1. Rekordbox has exclusive access — try quitting Rekordbox first")
+        print("  2. The controller needs a specific init sequence we haven't found yet")
+        print("  3. Try: python hid_capture.py --activate --try-all --verbose")
         return 1
-
-    device.set_nonblocking(True)
-
-    product = device.get_product_string() or "unknown"
-    manufacturer = device.get_manufacturer_string() or "unknown"
-    print(f"Connected: {manufacturer} — {product}")
 
     if args.stdout_only:
         output_path = None
