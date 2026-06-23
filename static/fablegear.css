@@ -2571,7 +2571,7 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 #fb-panel {
   position: fixed;
   left: var(--left-panel-w);
-  top: 0; bottom: 0;
+  top: var(--titlebar-h); bottom: 0;
   width: var(--sidebar-w);
   background: var(--surface);
   border-right: 1px solid var(--border-hi);

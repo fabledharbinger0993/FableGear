@@ -185,7 +185,7 @@ async function fbNavigateTo(path) {
 
   let data;
   try {
-    const url = path ? `/api/fs/list?path=${encodeURIComponent(path)}` : '/api/fs/list';
+    const url = path ? `/api/fs/list?audio_only=1&path=${encodeURIComponent(path)}` : '/api/fs/list?audio_only=1';
     const res = await fetch(url);
     if (!res.ok) throw new Error(await res.text());
     data = await res.json();
