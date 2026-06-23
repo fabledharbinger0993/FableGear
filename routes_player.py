@@ -270,6 +270,70 @@ def _fs_track_payload(path: Path) -> dict:
     return payload
 
 
+def _enumerate_drive_audio(limit=_FS_RECURSIVE_LIMIT):
+    """Walk every connected drive for audio files, pooled across all volumes.
+
+    Returns (entries, total_estimate, truncated, volumes) where:
+      entries        – list of (Path, drive_name, drive_path) up to `limit`
+      total_estimate – best-effort total audio count across all drives
+      truncated      – True when the pooled count exceeds `limit`
+      volumes        – per-drive metadata dicts (name/path/audio_estimate/…)
+    """
+    from user_config import discover_music_roots  # noqa: PLC0415
+
+    if _SYSTEM == "Windows":
+        import string as _str  # noqa: PLC0415
+        scan_roots = [
+            Path(f"{d}:\\") for d in _str.ascii_uppercase
+            if d not in ("A", "B") and Path(f"{d}:\\").exists()
+        ]
+    elif _SYSTEM == "Darwin":
+        vroot = Path("/Volumes")
+        scan_roots = sorted(vroot.iterdir()) if vroot.exists() else []
+    else:
+        import getpass as _gp  # noqa: PLC0415
+        media = Path("/media") / _gp.getuser()
+        base = media if media.is_dir() else Path("/media")
+        scan_roots = sorted(base.iterdir()) if base.exists() else []
+
+    dirs = [Path(v) for v in scan_roots if Path(v).is_dir() and not Path(v).name.startswith(".")]
+    discovered = discover_music_roots(dirs)
+    disc_by_path = {item["path"]: item for item in discovered}
+
+    volumes = []
+    for vol in dirs:
+        info = disc_by_path.get(str(vol), {})
+        volumes.append({
+            "name":           vol.name or str(vol).rstrip("/\\"),
+            "path":           str(vol),
+            "audio_estimate": int(info.get("audio_count", 0)),
+            "has_pioneer_db": (vol / "PIONEER" / "rekordbox" / "master.db").exists(),
+        })
+    volumes.sort(key=lambda v: (-int(v.get("audio_estimate", 0)), v.get("name", "").lower()))
+
+    entries: list = []
+    for vol in volumes:
+        if len(entries) >= limit:
+            break
+        if int(vol.get("audio_estimate", 0)) <= 0:
+            continue
+        vp = Path(vol["path"])
+        try:
+            for item in vp.rglob("*"):
+                if item.name.startswith("."):
+                    continue
+                if item.is_file() and item.suffix.lower() in _FS_AUDIO_EXTS:
+                    entries.append((item, vol["name"], vol["path"]))
+                    if len(entries) >= limit:
+                        break
+        except (PermissionError, OSError):
+            continue
+
+    total = sum(int(v.get("audio_estimate", 0)) for v in volumes)
+    truncated = total > limit
+    return entries, total, truncated, volumes
+
+
 # ── Library track routes ──────────────────────────────────────────────────────
 
 def _resolve_db(db_param):
@@ -523,70 +587,66 @@ def api_library_fs_browse():
 
 @bp.route("/api/library/split-data")
 def api_library_split_data():
-    """Three-way library split:
-    • in_library  — rekordbox tracks whose path is inside MUSIC_ROOT (canonical)
-    • scattered   — rekordbox tracks whose path is outside MUSIC_ROOT, grouped by folder
-    • unimported  — filesystem audio files in fs_path not tracked by rekordbox DB
+    """Integrated three-library view:
+    • all_music  — every audio file pooled across all connected drives (filesystem,
+                   independent of rekordbox), grouped by drive
+    • rekordbox  — every track in the rekordbox library database
+    • unimported — filesystem audio files (from the all_music scan) whose path is
+                   NOT present in the rekordbox database (i.e. not yet imported)
 
-    fs_path query param (optional): directory to scan for unimported files.
+    The filesystem scan is shared between all_music and unimported, so the third
+    column is exactly "what's on disk minus what rekordbox knows about".
     """
     from db_connection import read_db  # noqa: PLC0415
     from config import LOCAL_DB as _DB, MUSIC_ROOT as _MR  # noqa: PLC0415
 
     music_root = str(_MR)
 
-    # ── Load rekordbox DB ────────────────────────────────────────────────────
+    # ── Column 2: Rekordbox library (all DB tracks) ──────────────────────────
     try:
         with read_db(_DB) as db:
-            all_db_tracks = [_library_track_payload(t) for t in db.get_content().all()]
+            rekordbox_tracks = [_library_track_payload(t) for t in db.get_content().all()]
     except Exception as exc:
         return jsonify({"error": f"rekordbox DB unavailable: {exc}"}), 500
 
-    # ── Classify by path ─────────────────────────────────────────────────────
-    in_library: list = []
-    scattered_map: dict = {}
     db_path_set: set = set()
-
-    for track in all_db_tracks:
+    db_name_set: set = set()
+    for track in rekordbox_tracks:
         fp = (track.get("file_path") or "").strip()
-        db_path_set.add(fp)
-        if fp.startswith(music_root):
-            in_library.append(track)
-        else:
-            folder = str(Path(fp).parent) if fp else "Unknown location"
-            scattered_map.setdefault(folder, []).append(track)
+        if fp:
+            db_path_set.add(fp)
+            db_name_set.add(Path(fp).name.lower())
 
-    # Flatten scattered into folder-header + track rows
-    scattered: list = []
-    for folder, folder_tracks in sorted(scattered_map.items()):
-        scattered.append({"type": "folder_header", "path": folder, "count": len(folder_tracks)})
-        scattered.extend(folder_tracks)
+    # ── Columns 1 & 3: filesystem scan pooled across every connected drive ───
+    entries, fs_total, truncated, volumes = _enumerate_drive_audio()
+    tag_limit = _FS_TAG_LIMIT if not truncated else min(_FS_TAG_LIMIT, len(entries))
 
-    # ── Filesystem unimported scan ────────────────────────────────────────────
+    all_music: list = []
     unimported: list = []
-    fs_path_str = request.args.get("fs_path", "")
-    if fs_path_str:
-        try:
-            fp_dir = Path(fs_path_str).resolve()
-            if fp_dir.is_dir():
-                for item in sorted(fp_dir.iterdir(), key=lambda x: x.name.lower()):
-                    if item.name.startswith(".") or not item.is_file():
-                        continue
-                    if item.suffix.lower() not in _FS_AUDIO_EXTS:
-                        continue
-                    if str(item) not in db_path_set:
-                        unimported.append({"path": str(item), "filename": item.name, "title": item.stem})
-        except Exception:
-            pass
+    for item, drive_name, drive_path in entries[:tag_limit]:
+        payload = _fs_track_payload(item)
+        payload["drive_name"] = drive_name
+        payload["drive_path"] = drive_path
+        all_music.append(payload)
+        # Not in rekordbox if neither the exact path nor the filename is known.
+        if str(item) not in db_path_set and item.name.lower() not in db_name_set:
+            unimported.append({
+                "path":       str(item),
+                "filename":   item.name,
+                "title":      payload.get("title") or item.stem,
+                "drive_name": drive_name,
+            })
 
     return jsonify({
         "music_root":        music_root,
-        "in_library":        in_library,
-        "in_library_count":  len(in_library),
-        "scattered":         scattered,
-        "scattered_count":   sum(1 for r in scattered if r.get("type") != "folder_header"),
+        "all_music":         all_music,
+        "all_music_count":   fs_total,
+        "rekordbox":         rekordbox_tracks,
+        "rekordbox_count":   len(rekordbox_tracks),
         "unimported":        unimported,
         "unimported_count":  len(unimported),
+        "truncated":         truncated,
+        "volumes":           volumes,
     })
 
 

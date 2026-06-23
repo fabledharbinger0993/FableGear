@@ -269,76 +269,74 @@ function _playFsTrack(streamUrl, triggerBtn) {
 
 /* ── Split view ──────────────────────────────────────────────────────────── */
 
-async function leLoadSplitView(fsScanPath = null) {
-  const listLibrary    = document.getElementById('le-split-list-library');
-  const listScattered  = document.getElementById('le-split-list-scattered');
+async function leLoadSplitView() {
+  const listAll        = document.getElementById('le-split-list-allmusic');
+  const listRekordbox  = document.getElementById('le-split-list-rekordbox');
   const listUnimported = document.getElementById('le-split-list-unimported');
-  const cntLib  = document.getElementById('le-split-cnt-library');
-  const cntScat = document.getElementById('le-split-cnt-scattered');
+  const cntAll  = document.getElementById('le-split-cnt-allmusic');
+  const cntRb   = document.getElementById('le-split-cnt-rekordbox');
   const cntUnim = document.getElementById('le-split-cnt-unimported');
-  const hint    = document.getElementById('le-split-unimported-hint');
 
-  [listLibrary, listScattered, listUnimported].forEach(el => {
-    if (el) el.innerHTML = '<div class="le-split-loading">⏳ Loading…</div>';
+  [listAll, listRekordbox, listUnimported].forEach(el => {
+    if (el) el.innerHTML = '<div class="le-split-loading">⏳ Scanning drives…</div>';
   });
-
-  const scanParam = fsScanPath || _leFsCurrentPath || '';
-  const url = `/api/library/split-data${scanParam ? '?fs_path=' + encodeURIComponent(scanParam) : ''}`;
 
   let data;
   try {
-    const res = await fetch(url);
+    const res = await fetch('/api/library/split-data');
     if (!res.ok) throw new Error(await res.text());
     data = await res.json();
   } catch (e) {
-    [listLibrary, listScattered, listUnimported].forEach(el => {
+    [listAll, listRekordbox, listUnimported].forEach(el => {
       if (el) el.innerHTML = `<div class="le-split-err">⚠ ${e.message}</div>`;
     });
     return;
   }
 
-  // In-library column
-  if (cntLib)  cntLib.textContent  = `(${data.in_library_count})`;
-  if (listLibrary) {
-    listLibrary.innerHTML = (data.in_library || []).length === 0
-      ? '<div class="le-split-empty">No tracks</div>'
-      : (data.in_library || []).map(t => _leSplitTrackRow(t, 'library')).join('');
+  // Column 1 — All Music (filesystem, every drive)
+  if (cntAll) {
+    cntAll.textContent = data.truncated
+      ? `(${(data.all_music || []).length} of ${Number(data.all_music_count).toLocaleString()})`
+      : `(${data.all_music_count})`;
+  }
+  if (listAll) {
+    listAll.innerHTML = (data.all_music || []).length === 0
+      ? '<div class="le-split-empty">No music files found on connected drives</div>'
+      : (data.all_music || []).map(t => _leSplitTrackRow(t, 'allmusic')).join('');
   }
 
-  // Scattered column
-  if (cntScat) cntScat.textContent = `(${data.scattered_count})`;
-  if (listScattered) {
-    const rows = (data.scattered || []).map(item => {
-      if (item.type === 'folder_header') {
-        return `<div class="le-split-folder-hdr">📁 ${_esc(item.path)} <span class="le-split-fhdr-count">${item.count}</span></div>`;
-      }
-      return _leSplitTrackRow(item, 'scattered');
-    }).join('');
-    listScattered.innerHTML = rows || '<div class="le-split-empty">None — all tracks are in library root</div>';
+  // Column 2 — Rekordbox library
+  if (cntRb) cntRb.textContent = `(${data.rekordbox_count})`;
+  if (listRekordbox) {
+    listRekordbox.innerHTML = (data.rekordbox || []).length === 0
+      ? '<div class="le-split-empty">No tracks in rekordbox database</div>'
+      : (data.rekordbox || []).map(t => _leSplitTrackRow(t, 'rekordbox')).join('');
   }
 
-  // Unimported column
+  // Column 3 — Not in Rekordbox (on disk, not imported)
   if (cntUnim) cntUnim.textContent = `(${data.unimported_count})`;
   if (listUnimported) {
-    if (hint) hint.style.display = data.unimported_count > 0 || scanParam ? 'none' : '';
     listUnimported.innerHTML = (data.unimported || []).length === 0
-      ? (scanParam ? '<div class="le-split-empty">All files in this folder are in rekordbox ✓</div>'
-                   : '<div class="le-split-empty">Browse a folder in Filesystem mode first</div>')
+      ? '<div class="le-split-empty">Every file on disk is in rekordbox ✓</div>'
       : (data.unimported || []).map(t => `
-          <div class="le-split-track le-split-unimported-row">
+          <div class="le-split-track le-split-unimported-row" data-path="${_escAttr(t.path)}">
             <span class="le-split-title">${_esc(t.title)}</span>
-            <span class="le-split-meta">${_esc(t.filename)}</span>
+            <span class="le-split-meta">${_esc(t.drive_name ? t.drive_name + ' · ' : '')}${_esc(t.filename)}</span>
+            <button type="button" class="le-stage-btn le-split-stage" onclick="stagingAddPath('${_escAttr(t.path)}')" title="Stage for Chop Shop">+Q</button>
           </div>
         `).join('');
   }
 }
 
 function _leSplitTrackRow(t, col) {
-  const label = t.title || t.file_path || t.filename || '—';
-  const meta  = t.artist ? `${t.artist}${t.bpm ? ' · ' + t.bpm + ' BPM' : ''}` : (t.bpm ? t.bpm + ' BPM' : '');
+  const fullPath = t.file_path || t.path || '';
+  const label = t.title || t.filename || fullPath || '—';
+  const drive = t.drive_name ? t.drive_name + ' · ' : '';
+  const meta  = t.artist ? `${drive}${t.artist}${t.bpm ? ' · ' + t.bpm + ' BPM' : ''}`
+                         : (t.bpm ? `${drive}${t.bpm} BPM` : drive.replace(/ · $/, ''));
   return `
-    <div class="le-split-track le-split-track-${col}">
-      <span class="le-split-title" title="${_escAttr(t.file_path || '')}"> ${_esc(label)}</span>
+    <div class="le-split-track le-split-track-${col}" data-path="${_escAttr(fullPath)}">
+      <span class="le-split-title" title="${_escAttr(fullPath)}">${_esc(label)}</span>
       ${meta ? `<span class="le-split-meta">${_esc(meta)}</span>` : ''}
     </div>
   `;

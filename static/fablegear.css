@@ -5637,6 +5637,22 @@ footer {
 
 .le-split-count { font-weight: 400; opacity: .6; font-size: .7rem; }
 
+.le-split-col-sub {
+  padding: 4px 12px 6px;
+  font-size: .62rem;
+  color: var(--text-dim);
+  letter-spacing: .02em;
+  border-bottom: 1px solid rgba(255,255,255,.04);
+  flex-shrink: 0;
+}
+
+.le-split-stage {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.le-split-unimported-row { flex-direction: row; align-items: center; gap: 8px; }
+.le-split-unimported-row .le-split-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .le-split-col-list {
   flex: 1 1 0;
   overflow-y: auto;

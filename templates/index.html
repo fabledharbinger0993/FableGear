@@ -846,12 +846,12 @@
         <span class="le-title">Record Room</span>
         <!-- Library source mode toggle -->
         <div class="le-mode-toggle" id="le-mode-toggle" role="group" aria-label="Library source">
-          <button type="button" class="le-mode-btn le-mode-active" data-mode="db"
-                  onclick="setLibraryMode('db')" title="Rekordbox DB view">Rekordbox DB</button>
           <button type="button" class="le-mode-btn" data-mode="fs"
-                  onclick="setLibraryMode('fs')" title="Browse all files on disk">Filesystem</button>
+                  onclick="setLibraryMode('fs')" title="All music pooled from every connected drive, regardless of rekordbox">All Music</button>
+          <button type="button" class="le-mode-btn le-mode-active" data-mode="db"
+                  onclick="setLibraryMode('db')" title="Your rekordbox library database">Rekordbox</button>
           <button type="button" class="le-mode-btn" data-mode="split"
-                  onclick="setLibraryMode('split')" title="3-way comparison: canonical / scattered / unimported">Split View</button>
+                  onclick="setLibraryMode('split')" title="Integrated view: all music + rekordbox + tracks not yet imported">Integrated</button>
         </div>
         <!-- DB source picker (only relevant when mode=db) -->
         <div class="le-db-toggle" id="le-db-toggle" role="group" aria-label="Database source">
@@ -982,19 +982,21 @@
       <!-- Center: Track list (DB + FS mode) / Split view -->
       <div class="le-main" id="le-main">
 
-        <!-- Split view container (3 columns) — hidden unless mode=split -->
+        <!-- Integrated view container (3 libraries) — hidden unless mode=split -->
         <div id="le-split-view" style="display:none">
-          <div class="le-split-col" id="le-split-col-library">
-            <div class="le-split-col-header le-split-green">In Library <span class="le-split-count" id="le-split-cnt-library"></span></div>
-            <div class="le-split-col-list" id="le-split-list-library"></div>
+          <div class="le-split-col" id="le-split-col-allmusic">
+            <div class="le-split-col-header le-split-green">All Music <span class="le-split-count" id="le-split-cnt-allmusic"></span></div>
+            <div class="le-split-col-sub">Every track on every connected drive</div>
+            <div class="le-split-col-list" id="le-split-list-allmusic"></div>
           </div>
-          <div class="le-split-col" id="le-split-col-scattered">
-            <div class="le-split-col-header le-split-amber">Scattered <span class="le-split-count" id="le-split-cnt-scattered"></span></div>
-            <div class="le-split-col-list" id="le-split-list-scattered"></div>
+          <div class="le-split-col" id="le-split-col-rekordbox">
+            <div class="le-split-col-header le-split-blue">Rekordbox Library <span class="le-split-count" id="le-split-cnt-rekordbox"></span></div>
+            <div class="le-split-col-sub">Tracks in your rekordbox database</div>
+            <div class="le-split-col-list" id="le-split-list-rekordbox"></div>
           </div>
           <div class="le-split-col" id="le-split-col-unimported">
-            <div class="le-split-col-header le-split-blue">Not in Rekordbox <span class="le-split-count" id="le-split-cnt-unimported"></span></div>
-            <div class="le-split-list-hint" id="le-split-unimported-hint">Open a folder in Filesystem mode to compare against rekordbox</div>
+            <div class="le-split-col-header le-split-amber">Not in Rekordbox <span class="le-split-count" id="le-split-cnt-unimported"></span></div>
+            <div class="le-split-col-sub">On disk but not yet imported</div>
             <div class="le-split-col-list" id="le-split-list-unimported"></div>
           </div>
         </div>
