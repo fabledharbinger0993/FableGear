@@ -28,7 +28,7 @@ function toggleRightNavDropdown(type) {
   
   // Open this one
   dropdown.classList.add('visible');
-  btn.classList.add('active');
+  btn.classList.add('dropdown-open');
   _activeDropdown = type;
   
   // Load content based on type
@@ -48,7 +48,7 @@ function closeRightNavDropdown() {
   const btn = document.getElementById(`nav-btn-${_activeDropdown}`);
   
   if (dropdown) dropdown.classList.remove('visible');
-  if (btn) btn.classList.remove('active');
+  if (btn) btn.classList.remove('dropdown-open');
   
   _activeDropdown = null;
 }
@@ -71,15 +71,14 @@ function _makeDropdownIcon(src) {
 // Click outside to close dropdown
 document.addEventListener('click', (e) => {
   if (!_activeDropdown) return;
-  
-  const navBar = document.getElementById('nav-bar-right');
+
+  const rail = document.getElementById('workflow-rail');
   const dropdown = document.getElementById(`dropdown-${_activeDropdown}`);
-  
-  if (!navBar || !dropdown) return;
-  
-  // Don't close if clicking inside nav bar or dropdown
-  if (navBar.contains(e.target) || dropdown.contains(e.target)) return;
-  
+
+  if (!dropdown) return;
+
+  if ((rail && rail.contains(e.target)) || dropdown.contains(e.target)) return;
+
   closeRightNavDropdown();
 });
 

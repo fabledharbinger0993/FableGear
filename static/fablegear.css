@@ -91,7 +91,7 @@
   --sidebar-w: 260px;
   --header-h: 56px;
   --titlebar-h: 28px;
-  --nav-bar-right-w: 52px;
+  --nav-bar-right-w: 0px;
   --left-panel-w: 80px;
 }
 
@@ -562,11 +562,12 @@ body.fg-space-record #chop-shop-workspace { display: none; }
   position: fixed;
   top: calc(var(--titlebar-h) + var(--header-h));
   left: var(--left-panel-w);
-  right: var(--nav-bar-right-w);
+  right: 0;
   z-index: 30;
-  padding: 2px 0;
+  padding: 4px 12px;
   align-items: center;
-  justify-content: space-evenly;
+  justify-content: center;
+  gap: 0;
   overflow: visible;
   background: rgba(8, 12, 18, .92);
   -webkit-backdrop-filter: blur(16px);
@@ -577,25 +578,22 @@ body:has(#fb-panel.fb-open) .workflow-rail { left: calc(var(--left-panel-w) + va
 .fb-close-btn { margin-left: 4px; flex-shrink: 0; }
 .step-tab {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  flex: 1 1 0;
   border: none;
   border-radius: 0;
   background: none;
   color: var(--text-muted);
-  padding: 2px 4px;
-  font-size: .6rem;
-  font-weight: 700;
-  letter-spacing: .04em;
-  text-transform: uppercase;
+  padding: 4px 0;
+  font-size: 0;
   cursor: pointer;
   transition: filter .2s, transform .2s, color .15s, opacity .15s;
   opacity: .55;
+  position: relative;
 }
 .step-tab:hover {
-  transform: scale(1.06);
+  transform: scale(1.08);
   opacity: .9;
   filter: drop-shadow(0 0 5px rgba(var(--accent-rgb), .35));
 }
@@ -605,16 +603,35 @@ body:has(#fb-panel.fb-open) .workflow-rail { left: calc(var(--left-panel-w) + va
 }
 .step-tab.active {
   opacity: 1;
-  transform: scale(1.12);
+  transform: scale(1.14);
   filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), .45));
 }
 .step-num { display: block; font-size: 1rem; line-height: 1; margin-bottom: 4px; }
 .step-icon {
   display: block;
-  height: 56px;
-  width: 56px;
-  margin: 0 auto 1px;
+  height: 44px;
+  width: 44px;
+  margin: 0 auto;
   object-fit: contain;
+}
+
+.workflow-rail-divider {
+  width: 2px;
+  height: 36px;
+  flex-shrink: 0;
+  margin: 0 8px;
+  background: var(--accent);
+  border-radius: 2px;
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), .5), 0 0 14px rgba(var(--accent-rgb), .25);
+}
+
+.step-tab-util {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+}
+.step-tab-util.dropdown-open {
+  opacity: 1;
+  filter: drop-shadow(0 0 6px rgba(var(--accent-rgb), .4));
 }
 
 /* Offset so tool cards land below the fixed titlebar + header + workflow rail
@@ -1576,70 +1593,17 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
   }
 }
 
-/* ══ Right Navigation Bar ═════════════════════════════════════════════════ */
-#nav-bar-right {
-  position: fixed;
-  right: 0; top: var(--titlebar-h); bottom: 0;
-  width: var(--nav-bar-right-w);
-  z-index: 180;
-  display: flex; flex-direction: column; align-items: center;
-  gap: 0;
-  padding: 8px 0;
-  background: var(--surface);
-  border-left: 1px solid var(--border);
-}
+/* ══ Right Navigation Bar (legacy — items moved into workflow rail) ═══════ */
+#nav-bar-right { display: none; }
 
-.nav-right-btn {
-  position: relative;
-  display: flex; 
-  flex-direction: column;
-  align-items: center; 
-  justify-content: center;
-  width: 100%;
-  min-height: 52px;
-  padding: 8px;
-  gap: 4px;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: all .15s;
-  -webkit-user-select: none;
-  user-select: none;
-  text-align: center;
-}
-.nav-right-btn:hover {
-  background: var(--accent-dim);
-}
-.nav-right-btn.active {
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
-  border-left: 2px solid var(--accent);
-}
-.nav-right-icon {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-  opacity: .7;
-  transition: opacity .15s;
-}
-.nav-right-btn:hover .nav-right-icon,
-.nav-right-btn.active .nav-right-icon { opacity: 1; }
-.nav-right-label {
-  font-size: .62rem;
-  font-weight: 500;
-  color: var(--text-dim);
-  transition: color .15s;
-}
-.nav-right-btn:hover .nav-right-label { color: var(--text-muted); }
-.nav-right-btn.active .nav-right-label { color: var(--accent); }
-
-/* Folder dropdown overlay */
+/* Folder dropdown overlay — now positioned from workflow rail buttons */
 .folder-dropdown {
-  position: absolute;
-  top: 0;
-  right: calc(var(--nav-bar-right-w) + 8px);
+  position: fixed;
+  top: calc(var(--titlebar-h) + var(--header-h) + 56px);
+  right: 8px;
   min-width: 240px;
   max-width: 320px;
-  max-height: calc(100vh - var(--header-h) - 20px);
+  max-height: calc(100vh - var(--header-h) - 100px);
   background: var(--surface);
   border: 1px solid var(--border-hi);
   border-radius: var(--radius);
@@ -1648,13 +1612,13 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
   overflow-y: auto;
   z-index: 200;
   opacity: 0;
-  transform: translateX(8px);
+  transform: translateY(-8px);
   pointer-events: none;
   transition: opacity .2s, transform .2s;
 }
 .folder-dropdown.visible {
   opacity: 1;
-  transform: translateX(0);
+  transform: translateY(0);
   pointer-events: all;
 }
 .folder-item {
@@ -2048,16 +2012,17 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 /* ── Session summary pills ─────────────────────────────────────────────── */
 
 #session-pills-container {
+  position: fixed;
+  bottom: calc(var(--log-h) + var(--scan-bar-h) + 8px);
+  right: 8px;
   display: flex;
   flex-direction: column;
   gap: 6px;
   align-items: center;
-  padding: 8px 4px;
-  width: 100%;
-  border-top: 1px solid var(--border);
-  margin-top: auto;
+  padding: 6px;
+  z-index: 50;
   overflow-y: auto;
-  max-height: 40vh;
+  max-height: 30vh;
 }
 .summary-pill {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -3897,22 +3862,23 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
 .le-header {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 0 20px;
-  height: 52px;
+  gap: 10px;
+  padding: 6px 14px;
+  min-height: 48px;
   background: rgba(4, 10, 16, 0.78);
   -webkit-backdrop-filter: blur(18px) saturate(1.4);
   backdrop-filter: blur(18px) saturate(1.4);
   border-bottom: 1px solid rgba(var(--accent2-deep-rgb), 0.22);
   flex-shrink: 0;
+  flex-wrap: wrap;
   box-shadow: 0 1px 0 rgba(var(--accent2-rgb), 0.1);
 }
-.le-header-left  { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.le-header-center { flex: 1; max-width: 460px; }
-.le-header-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.le-header-left  { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+.le-header-center { flex: 1; max-width: 460px; min-width: 120px; }
+.le-header-right { display: flex; align-items: center; gap: 5px; margin-left: auto; flex-wrap: wrap; }
 
 .le-title {
-  font-size: .86rem;
+  font-size: .76rem;
   font-weight: 700;
   letter-spacing: .06em;
   text-transform: uppercase;
@@ -3943,12 +3909,13 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   border: 1px solid rgba(var(--accent-rgb), 0.38);
   color: var(--accent);
   border-radius: 7px;
-  padding: 5px 14px;
-  font-size: .76rem;
+  padding: 4px 10px;
+  font-size: .68rem;
   font-weight: 600;
   letter-spacing: .03em;
   cursor: pointer;
   transition: background .15s, box-shadow .15s;
+  white-space: nowrap;
 }
 .le-header-btn:hover {
   background: rgba(var(--accent-rgb), 0.24);
@@ -5450,10 +5417,10 @@ footer {
   background: transparent;
   border: none;
   color: var(--text-dim);
-  font-size: .72rem;
+  font-size: .64rem;
   font-weight: 600;
   letter-spacing: .04em;
-  padding: 4px 10px;
+  padding: 3px 8px;
   border-radius: 6px;
   cursor: pointer;
   transition: background .15s, color .15s;
@@ -5480,10 +5447,10 @@ footer {
   background: transparent;
   border: none;
   color: var(--text-dim);
-  font-size: .70rem;
+  font-size: .62rem;
   font-weight: 600;
   letter-spacing: .04em;
-  padding: 4px 9px;
+  padding: 3px 7px;
   border-radius: 6px;
   cursor: pointer;
   transition: background .15s, color .15s;
@@ -5558,8 +5525,8 @@ footer {
 .le-header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: nowrap;
+  gap: 6px;
+  flex-wrap: wrap;
   min-width: 0;
   flex: 1;
 }

@@ -69,25 +69,41 @@
 <!-- ══ Chop Shop tool rail ═══════════════════════════════════════════════════ -->
 <nav class="workflow-rail" id="workflow-rail">
   <button type="button" class="step-tab active" data-target="step-process">
-    <img class="step-icon" src="/static/icon-track-tagger.png" alt=""> Tag Tracks
+    <img class="step-icon" src="/static/icon-track-tagger.png" alt="Tag Tracks">
   </button>
   <button type="button" class="step-tab" data-target="step-rename">
-    <img class="step-icon" src="/static/icon-renamer.png" alt=""> Rename
+    <img class="step-icon" src="/static/icon-renamer.png" alt="Rename">
   </button>
   <button type="button" class="step-tab" data-target="step-convert">
-    <img class="step-icon" src="/static/icon-converter.png" alt=""> Convert
+    <img class="step-icon" src="/static/icon-converter.png" alt="Convert">
   </button>
   <button type="button" class="step-tab" data-target="step-normalize">
-    <img class="step-icon" src="/static/icon-normalizer.png" alt=""> Normalize
+    <img class="step-icon" src="/static/icon-normalizer.png" alt="Normalize">
   </button>
   <button type="button" class="step-tab" data-target="step-organize">
-    <img class="step-icon" src="/static/icon-organizer.png" alt=""> Organize
+    <img class="step-icon" src="/static/icon-organizer.png" alt="Organize">
   </button>
   <button type="button" class="step-tab" data-target="step-duplicates">
-    <img class="step-icon" src="/static/icon-deduper.png" alt=""> Duplicates
+    <img class="step-icon" src="/static/icon-deduper.png" alt="Duplicates">
   </button>
   <button type="button" class="step-tab" data-target="step-novelty">
-    <img class="step-icon" src="/static/icon-novelty.png" alt=""> Novelty
+    <img class="step-icon" src="/static/icon-novelty.png" alt="Novelty">
+  </button>
+
+  <div class="workflow-rail-divider" aria-hidden="true"></div>
+
+  <button type="button" class="step-tab step-tab-util" id="nav-btn-library" onclick="toggleRightNavDropdown('library')" title="Library">
+    <img class="step-icon" src="/static/icon-fg-library.png" alt="Library">
+  </button>
+  <button type="button" class="step-tab step-tab-util" id="nav-btn-files" onclick="toggleRightNavDropdown('files')" title="Files">
+    <img class="step-icon" src="/static/icon-fg-files.png" alt="Files">
+  </button>
+  <button type="button" class="step-tab step-tab-util" id="nav-btn-drives" onclick="toggleRightNavDropdown('drives')" title="Drives">
+    <img class="step-icon" src="/static/icon-fg-drives.png" alt="Drives">
+    <span class="nav-drives-badge" id="nav-drives-badge" style="display:none"></span>
+  </button>
+  <button type="button" class="step-tab step-tab-util" id="nav-btn-db" onclick="openDbPanel('audit')" title="DB Maintenance">
+    <img class="step-icon" src="/static/icon-fg-rb-tools.png" alt="DB Fix">
   </button>
 </nav>
 
@@ -244,38 +260,13 @@
   <div id="fb-drag-hint">Drag any item to a drop zone ↗</div>
 </div>
 
-<!-- ══ Right Navigation Bar ══════════════════════════════════════════════════ -->
-<div id="nav-bar-right">
-  <button type="button" id="nav-btn-library" class="nav-right-btn" onclick="toggleRightNavDropdown('library')" title="Library">
-    <img src="/static/icon-fg-library.png" class="nav-right-icon" alt="Library">
-    <span class="nav-right-label">Library</span>
-  </button>
-  <button type="button" id="nav-btn-files" class="nav-right-btn" onclick="toggleRightNavDropdown('files')" title="Files">
-    <img src="/static/icon-fg-files.png" class="nav-right-icon" alt="Files">
-    <span class="nav-right-label">Files</span>
-  </button>
-  <button type="button" id="nav-btn-drives" class="nav-right-btn" onclick="toggleRightNavDropdown('drives')" title="Connected Drives">
-    <img src="/static/icon-fg-drives.png" class="nav-right-icon" alt="Drives">
-    <span class="nav-right-label">Drives</span>
-    <span class="nav-drives-badge" id="nav-drives-badge" style="display:none"></span>
-  </button>
-  <button type="button" id="nav-btn-db" class="nav-right-btn" onclick="openDbPanel('audit')" title="RekordBox Maintenance">
-    <img src="/static/icon-fg-rb-tools.png" class="nav-right-icon" alt="DB Maintenance">
-    <span class="nav-right-label">DB Fix</span>
-  </button>
+<!-- ══ Toolbar dropdowns (positioned from workflow rail) ════════════════════ -->
+<div id="dropdown-library" class="folder-dropdown"></div>
+<div id="dropdown-files" class="folder-dropdown"></div>
+<div id="dropdown-drives" class="folder-dropdown"></div>
 
-  <!-- Library dropdown -->
-  <div id="dropdown-library" class="folder-dropdown"></div>
-
-  <!-- Files dropdown -->
-  <div id="dropdown-files" class="folder-dropdown"></div>
-
-  <!-- Drives dropdown -->
-  <div id="dropdown-drives" class="folder-dropdown"></div>
-
-  <!-- Session summary pills — stacked at bottom of right toolbar -->
-  <div id="session-pills-container"></div>
-</div>
+<!-- Session summary pills — float at bottom-right -->
+<div id="session-pills-container"></div>
 
 <!-- ══ Settings modal ═══════════════════════════════════════════════════════ -->
 <div id="settings-backdrop" class="hidden">
