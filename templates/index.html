@@ -69,25 +69,41 @@
 <!-- ══ Chop Shop tool rail ═══════════════════════════════════════════════════ -->
 <nav class="workflow-rail" id="workflow-rail">
   <button type="button" class="step-tab active" data-target="step-process">
-    <img class="step-icon" src="/static/icon-track-tagger.png" alt=""> Tag Tracks
+    <img class="step-icon" src="/static/icon-track-tagger.png" alt="Tag Tracks">
   </button>
   <button type="button" class="step-tab" data-target="step-rename">
-    <img class="step-icon" src="/static/icon-renamer.png" alt=""> Rename
+    <img class="step-icon" src="/static/icon-renamer.png" alt="Rename">
   </button>
   <button type="button" class="step-tab" data-target="step-convert">
-    <img class="step-icon" src="/static/icon-converter.png" alt=""> Convert
+    <img class="step-icon" src="/static/icon-converter.png" alt="Convert">
   </button>
   <button type="button" class="step-tab" data-target="step-normalize">
-    <img class="step-icon" src="/static/icon-normalizer.png" alt=""> Normalize
+    <img class="step-icon" src="/static/icon-normalizer.png" alt="Normalize">
   </button>
   <button type="button" class="step-tab" data-target="step-organize">
-    <img class="step-icon" src="/static/icon-organizer.png" alt=""> Organize
+    <img class="step-icon" src="/static/icon-organizer.png" alt="Organize">
   </button>
   <button type="button" class="step-tab" data-target="step-duplicates">
-    <img class="step-icon" src="/static/icon-deduper.png" alt=""> Duplicates
+    <img class="step-icon" src="/static/icon-deduper.png" alt="Duplicates">
   </button>
   <button type="button" class="step-tab" data-target="step-novelty">
-    <img class="step-icon" src="/static/icon-novelty.png" alt=""> Novelty
+    <img class="step-icon" src="/static/icon-novelty.png" alt="Novelty">
+  </button>
+
+  <div class="workflow-rail-divider" aria-hidden="true"></div>
+
+  <button type="button" class="step-tab step-tab-util" id="nav-btn-library" onclick="toggleRightNavDropdown('library')" title="Library">
+    <img class="step-icon" src="/static/icon-fg-library.png" alt="Library">
+  </button>
+  <button type="button" class="step-tab step-tab-util" id="nav-btn-files" onclick="toggleRightNavDropdown('files')" title="Files">
+    <img class="step-icon" src="/static/icon-fg-files.png" alt="Files">
+  </button>
+  <button type="button" class="step-tab step-tab-util" id="nav-btn-drives" onclick="toggleRightNavDropdown('drives')" title="Drives">
+    <img class="step-icon" src="/static/icon-fg-drives.png" alt="Drives">
+    <span class="nav-drives-badge" id="nav-drives-badge" style="display:none"></span>
+  </button>
+  <button type="button" class="step-tab step-tab-util" id="nav-btn-db" onclick="openDbPanel('audit')" title="DB Maintenance">
+    <img class="step-icon" src="/static/icon-fg-rb-tools.png" alt="DB Fix">
   </button>
 </nav>
 
@@ -191,6 +207,8 @@
 
 {% include 'partials/staging_panel.html' %}
 
+{% include 'partials/undo_wizard.html' %}
+
 {% include 'partials/physical_library/pipeline_wizard.html' %}
 
 <!-- ══ Step completion report modal ════════════════════════════════════════ -->
@@ -242,38 +260,13 @@
   <div id="fb-drag-hint">Drag any item to a drop zone ↗</div>
 </div>
 
-<!-- ══ Right Navigation Bar ══════════════════════════════════════════════════ -->
-<div id="nav-bar-right">
-  <button type="button" id="nav-btn-library" class="nav-right-btn" onclick="toggleRightNavDropdown('library')" title="Library">
-    <img src="/static/icon-fg-library.png" class="nav-right-icon" alt="Library">
-    <span class="nav-right-label">Library</span>
-  </button>
-  <button type="button" id="nav-btn-files" class="nav-right-btn" onclick="toggleRightNavDropdown('files')" title="Files">
-    <img src="/static/icon-fg-files.png" class="nav-right-icon" alt="Files">
-    <span class="nav-right-label">Files</span>
-  </button>
-  <button type="button" id="nav-btn-drives" class="nav-right-btn" onclick="toggleRightNavDropdown('drives')" title="Connected Drives">
-    <img src="/static/icon-fg-drives.png" class="nav-right-icon" alt="Drives">
-    <span class="nav-right-label">Drives</span>
-    <span class="nav-drives-badge" id="nav-drives-badge" style="display:none"></span>
-  </button>
-  <button type="button" id="nav-btn-db" class="nav-right-btn" onclick="openDbPanel('audit')" title="RekordBox Maintenance">
-    <img src="/static/icon-fg-rb-tools.png" class="nav-right-icon" alt="DB Maintenance">
-    <span class="nav-right-label">DB Fix</span>
-  </button>
+<!-- ══ Toolbar dropdowns (positioned from workflow rail) ════════════════════ -->
+<div id="dropdown-library" class="folder-dropdown"></div>
+<div id="dropdown-files" class="folder-dropdown"></div>
+<div id="dropdown-drives" class="folder-dropdown"></div>
 
-  <!-- Library dropdown -->
-  <div id="dropdown-library" class="folder-dropdown"></div>
-
-  <!-- Files dropdown -->
-  <div id="dropdown-files" class="folder-dropdown"></div>
-
-  <!-- Drives dropdown -->
-  <div id="dropdown-drives" class="folder-dropdown"></div>
-
-  <!-- Session summary pills — stacked at bottom of right toolbar -->
-  <div id="session-pills-container"></div>
-</div>
+<!-- Session summary pills — float at bottom-right -->
+<div id="session-pills-container"></div>
 
 <!-- ══ Settings modal ═══════════════════════════════════════════════════════ -->
 <div id="settings-backdrop" class="hidden">
@@ -809,6 +802,7 @@
 <script src="/static/shared/state_tracker.js?v={{ cb }}"></script>
 <script src="/static/shared/boot.js?v={{ cb }}"></script>
 <script src="/static/shared/staging.js?v={{ cb }}"></script>
+<script src="/static/shared/undo.js?v={{ cb }}"></script>
 <script src="/static/shared/launcher.js?v={{ cb }}"></script>
 
 <!-- ══ DB Panel ══════════════════════════════════════════════════════════════
@@ -852,12 +846,12 @@
         <span class="le-title">Record Room</span>
         <!-- Library source mode toggle -->
         <div class="le-mode-toggle" id="le-mode-toggle" role="group" aria-label="Library source">
-          <button type="button" class="le-mode-btn le-mode-active" data-mode="db"
-                  onclick="setLibraryMode('db')" title="Rekordbox DB view">Rekordbox DB</button>
           <button type="button" class="le-mode-btn" data-mode="fs"
-                  onclick="setLibraryMode('fs')" title="Browse all files on disk">Filesystem</button>
+                  onclick="setLibraryMode('fs')" title="All music pooled from every connected drive, regardless of rekordbox">All Music</button>
+          <button type="button" class="le-mode-btn le-mode-active" data-mode="db"
+                  onclick="setLibraryMode('db')" title="Your rekordbox library database">Rekordbox</button>
           <button type="button" class="le-mode-btn" data-mode="split"
-                  onclick="setLibraryMode('split')" title="3-way comparison: canonical / scattered / unimported">Split View</button>
+                  onclick="setLibraryMode('split')" title="Integrated view: all music + rekordbox + tracks not yet imported">Integrated</button>
         </div>
         <!-- DB source picker (only relevant when mode=db) -->
         <div class="le-db-toggle" id="le-db-toggle" role="group" aria-label="Database source">
@@ -988,19 +982,21 @@
       <!-- Center: Track list (DB + FS mode) / Split view -->
       <div class="le-main" id="le-main">
 
-        <!-- Split view container (3 columns) — hidden unless mode=split -->
+        <!-- Integrated view container (3 libraries) — hidden unless mode=split -->
         <div id="le-split-view" style="display:none">
-          <div class="le-split-col" id="le-split-col-library">
-            <div class="le-split-col-header le-split-green">In Library <span class="le-split-count" id="le-split-cnt-library"></span></div>
-            <div class="le-split-col-list" id="le-split-list-library"></div>
+          <div class="le-split-col" id="le-split-col-allmusic">
+            <div class="le-split-col-header le-split-green">All Music <span class="le-split-count" id="le-split-cnt-allmusic"></span></div>
+            <div class="le-split-col-sub">Every track on every connected drive</div>
+            <div class="le-split-col-list" id="le-split-list-allmusic"></div>
           </div>
-          <div class="le-split-col" id="le-split-col-scattered">
-            <div class="le-split-col-header le-split-amber">Scattered <span class="le-split-count" id="le-split-cnt-scattered"></span></div>
-            <div class="le-split-col-list" id="le-split-list-scattered"></div>
+          <div class="le-split-col" id="le-split-col-rekordbox">
+            <div class="le-split-col-header le-split-blue">Rekordbox Library <span class="le-split-count" id="le-split-cnt-rekordbox"></span></div>
+            <div class="le-split-col-sub">Tracks in your rekordbox database</div>
+            <div class="le-split-col-list" id="le-split-list-rekordbox"></div>
           </div>
           <div class="le-split-col" id="le-split-col-unimported">
-            <div class="le-split-col-header le-split-blue">Not in Rekordbox <span class="le-split-count" id="le-split-cnt-unimported"></span></div>
-            <div class="le-split-list-hint" id="le-split-unimported-hint">Open a folder in Filesystem mode to compare against rekordbox</div>
+            <div class="le-split-col-header le-split-amber">Not in Rekordbox <span class="le-split-count" id="le-split-cnt-unimported"></span></div>
+            <div class="le-split-col-sub">On disk but not yet imported</div>
             <div class="le-split-col-list" id="le-split-list-unimported"></div>
           </div>
         </div>

@@ -134,11 +134,13 @@ from routes_player     import bp as player_bp      # noqa: E402
 from routes_tools      import bp as tools_bp        # noqa: E402
 from routes_rekordbox  import bp as rekordbox_bp    # noqa: E402
 from routes_mobile     import bp as mobile_bp       # noqa: E402
+from routes_undo       import bp as undo_bp         # noqa: E402
 
 app.register_blueprint(player_bp)
 app.register_blueprint(tools_bp)
 app.register_blueprint(rekordbox_bp)
 app.register_blueprint(mobile_bp)
+app.register_blueprint(undo_bp)
 
 # ── Startup side-effects ──────────────────────────────────────────────────────
 
@@ -790,6 +792,7 @@ def api_fs_list():
         default_root = "/Volumes"
     else:
         default_root = "/media"
+    audio_only = request.args.get("audio_only", "0") == "1"
     path_str = (request.args.get("path") or "").strip() or default_root
     try:
         p = Path(path_str).resolve()
@@ -799,17 +802,39 @@ def api_fs_list():
         return jsonify({"error": "Forbidden"}), 403
     if not p.exists() or not p.is_dir():
         return jsonify({"error": f"Not a directory: {path_str}"}), 400
+
+    def _dir_has_audio(d: Path, depth: int = 3) -> bool:
+        if depth <= 0:
+            return False
+        try:
+            for child in d.iterdir():
+                if child.name.startswith("."):
+                    continue
+                if child.is_file() and child.suffix.lower() in AUDIO_EXTS:
+                    return True
+                if child.is_dir() and _dir_has_audio(child, depth - 1):
+                    return True
+        except (PermissionError, OSError):
+            pass
+        return False
+
     try:
         entries = []
         for item in sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
             if item.name.startswith("."):
                 continue
             is_dir = item.is_dir()
+            is_audio = not is_dir and item.suffix.lower() in AUDIO_EXTS
+            if audio_only:
+                if is_dir and not _dir_has_audio(item):
+                    continue
+                if not is_dir and not is_audio:
+                    continue
             entries.append({
                 "name":     item.name,
                 "path":     str(item),
                 "is_dir":   is_dir,
-                "is_audio": not is_dir and item.suffix.lower() in AUDIO_EXTS,
+                "is_audio": is_audio,
             })
     except PermissionError:
         return jsonify({"error": "Permission denied"}), 403

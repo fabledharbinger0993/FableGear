@@ -538,6 +538,15 @@ def _run_shared_report(args, all_results, root_sections, _quarantine_dir) -> Non
     skipped_bpm = sum(1 for r in all_results if r.skipped_bpm)
     skipped_key = sum(1 for r in all_results if r.skipped_key)
 
+    # Summarise which roots were scanned so multi-drive runs are clear
+    source_names = [str(r) for r, _ in root_sections] if root_sections else []
+    if len(source_names) > 1:
+        sources_line = "Sources scanned: " + ", ".join(source_names)
+    elif len(source_names) == 1:
+        sources_line = "Source: " + source_names[0]
+    else:
+        sources_line = ""
+
     if normalise and not detect_bpm and not detect_key:
         report_lines = [
             "\nDone.\n",
@@ -559,6 +568,9 @@ def _run_shared_report(args, all_results, root_sections, _quarantine_dir) -> Non
             f"  BPM written: {bpm_written} files.{f'  {skipped_bpm} already had one.' if skipped_bpm else ''}",
             f"  Key written: {key_written} files.{f'  {skipped_key} already had one.' if skipped_key else ''}",
         ]
+
+    if sources_line:
+        report_lines.insert(1, sources_line)
         enrich_written = sum(1 for r in all_results if getattr(r, "enrich_written", False))
         if getattr(args, "enrich_tags", False) and enrich_written:
             report_lines.append(f"  MusicBrainz enriched: {enrich_written} files.")
@@ -848,11 +860,19 @@ def cmd_process(args: argparse.Namespace) -> None:
             )
             all_results.append(r)
 
-        # Re-use the normal report builder — fake root_sections
-        root_sections: list[tuple[Path, str]] = [
-            (specific_paths[0].parent,
-             f"{total} file(s) retried.  {total - errors} OK, {errors} still errored.")
-        ]
+        # Build root_sections from smart-skip metadata if available,
+        # otherwise fall back to a single entry for retry mode.
+        smart_roots = getattr(args, "_smart_skip_roots", None)
+        if smart_roots and len(smart_roots) > 0:
+            root_sections: list[tuple[Path, str]] = [
+                (root, f"{count} file(s) needed tagging.")
+                for root, count in smart_roots
+            ]
+        else:
+            root_sections: list[tuple[Path, str]] = [
+                (specific_paths[0].parent,
+                 f"{total} file(s) retried.  {total - errors} OK, {errors} still errored.")
+            ]
         # Patch args so the shared report block below works unchanged
         args._all_results_override = all_results
         args._root_sections_override = root_sections
@@ -886,21 +906,25 @@ def cmd_process(args: argparse.Namespace) -> None:
         from scanner import scan_directory  # noqa: PLC0415
         import json as _json  # noqa: PLC0415
         pending: list[Path] = []
+        pending_per_root: dict[Path, int] = {}
         total_scanned = 0
         skipped_complete = 0
         for root in roots:
+            root_pending = 0
             for track in scan_directory(root):
                 total_scanned += 1
                 needs_bpm = detect_bpm and track.bpm is None
                 needs_key = detect_key and track.key is None
                 if needs_bpm or needs_key:
                     pending.append(track.path)
+                    root_pending += 1
                 else:
                     skipped_complete += 1
                 print(
                     "FABLEGEAR_PROGRESS: " + _json.dumps({"scanned": total_scanned}),
                     flush=True,
                 )
+            pending_per_root[root] = root_pending
         log.info(
             "Smart Skip: %d/%d file(s) need work; %d already complete and skipped.",
             len(pending), total_scanned, skipped_complete,
@@ -908,6 +932,11 @@ def cmd_process(args: argparse.Namespace) -> None:
         if not pending:
             print("Smart Skip: all files already tagged — nothing to do.")
             return
+        # Stash per-root counts so the report can show which sources were scanned
+        args._smart_skip_roots = [
+            (root, count) for root, count in pending_per_root.items() if count > 0
+        ]
+        args._smart_skip_skipped = skipped_complete
         # Reuse the paths-file branch: write pending list and re-enter
         import tempfile as _tf  # noqa: PLC0415
         with _tf.NamedTemporaryFile(
