@@ -6,15 +6,25 @@ Handles all read/write operations on the Rekordbox library tree, plus
 in-process audio playback for the desktop UI.
 """
 
-import mimetypes
+from pathlib import Path
 import os
 import platform
+import mimetypes
 import threading
 import uuid
-from pathlib import Path
 
 _SYSTEM = platform.system()
 
+def is_safe_path(path: str, allowed_roots: list[str]) -> bool:
+    """Validate that the path is contained within at least one allowed root."""
+    try:
+        resolved_path = Path(path).resolve()
+        for root in allowed_roots:
+            if resolved_path.is_relative_to(Path(root).resolve()):
+                return True
+        return False
+    except Exception:
+        return False
 
 def _is_user_mount(mountpoint: str) -> bool:
     if _SYSTEM == "Darwin":
@@ -277,15 +287,17 @@ def _enumerate_drive_audio(
     skip_primary_os_drive: bool = True,
 ):
     from user_config import discover_music_roots
-    
-    # 1. Identify valid volumes, optionally filtering out system drives
-    all_volumes = get_connected_volumes() # Ensure this helper exists
+
+    def _is_system_drive(path: Path) -> bool:
+        if platform.system() == "Windows":
+            return path.drive.upper() == "C:"
+        return path.parts == ("/",)
+
+    all_volumes = get_connected_volumes()
     if skip_primary_os_drive:
         all_volumes = [v for v in all_volumes if not _is_system_drive(Path(v["path"]))]
 
-    # 2. Get roots only for the volumes we are scanning
     volume_roots = discover_music_roots(all_volumes)
-    
     entries = []
     total_estimate = 0
     truncated = False
@@ -311,8 +323,12 @@ def _enumerate_drive_audio(
         total_estimate += vol_count
 
     return entries, total_estimate, truncated, all_volumes
-
 # ── Library track routes ──────────────────────────────────────────────────────
+# Before resolving the path:
+path_str = request.args.get("path", "")
+if not is_safe_path(path_str, [str(_MR), "/Volumes", "/media"]): # Add your safe roots
+    return jsonify({"error": "Access denied"}), 403
+p = Path(path_str).resolve()
 
 def _resolve_db(db_param):
     """Return the DB path for a ?db= query param.  'device' → DJMT_DB, else LOCAL_DB."""
@@ -1043,6 +1059,14 @@ def api_library_export_start():
     if not drive_path:
         return jsonify({"error": "drive_path required"}), 400
 
+    # 1. Security Check: Path Traversal Protection
+    target_path = Path(drive_path).resolve()
+    # Assuming get_connected_volumes() or a similar helper returns list of mount paths
+    all_volumes = [Path(v["path"]) for v in get_connected_volumes()]
+    if not any(target_path.is_relative_to(m) for m in all_volumes):
+        return jsonify({"error": "Invalid export destination"}), 403
+
+    # 2. Pioneer Structure Check
     drive_info = _detect_pioneer_drive_layout(drive_path)
     if not drive_info.get("pioneer"):
         return jsonify({"error": f"No Pioneer export structure detected on {drive_path}"}), 400
@@ -1069,7 +1093,6 @@ def api_library_export_start():
     ).start()
 
     return jsonify({"job_id": job_id}), 202
-
 
 @bp.route("/api/library/export/<job_id>")
 def api_library_export_status(job_id):
