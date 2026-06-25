@@ -324,11 +324,6 @@ def _enumerate_drive_audio(
 
     return entries, total_estimate, truncated, all_volumes
 # ── Library track routes ──────────────────────────────────────────────────────
-# Before resolving the path:
-path_str = request.args.get("path", "")
-if not is_safe_path(path_str, [str(_MR), "/Volumes", "/media"]): # Add your safe roots
-    return jsonify({"error": "Access denied"}), 403
-p = Path(path_str).resolve()
 
 def _resolve_db(db_param):
     """Return the DB path for a ?db= query param.  'device' → DJMT_DB, else LOCAL_DB."""
@@ -353,21 +348,25 @@ def api_library_tracks():
 
 @bp.route("/api/library/fs-browse")
 def api_library_fs_browse():
-    """Browse a directory for audio files — filesystem-first, no rekordbox needed.
-    Returns subdirectories + audio tracks in the requested folder.
-    Falls back to the platform default root when no path is given.
+    """Browse a directory for audio files — filesystem-first, no rekordbox needed."""
+    
+    # 1. Standard imports needed for this route
+    from config import MUSIC_ROOT as _MR
+    import shutil
 
-    Query params:
-      path      – directory to browse (default: platform root → volume picker)
-      recursive – if "1" or "true", walk all subdirectories and return every
-                  audio file at any depth.  Subdirs list is omitted in this mode.
-                  Capped at _FS_RECURSIVE_LIMIT tracks; truncated=true when hit.
-    """
-    from config import MUSIC_ROOT as _MR  # noqa: PLC0415
-    import shutil  # noqa: PLC0415
-
+    # 2. Extract inputs
     path_str = request.args.get("path", "")
     recursive = request.args.get("recursive", "0").lower() in ("1", "true", "yes")
+
+    # 3. Security Check (Must happen after _MR is defined)
+    if path_str and not is_safe_path(path_str, [str(_MR), "/Volumes", "/media"]):
+        return jsonify({"error": "Access denied"}), 403
+
+    # 4. Resolve path
+    try:
+        p = Path(path_str).resolve() if path_str else None
+    except Exception:
+        return jsonify({"error": "Invalid path"}), 400
 
     # ── Volume-root sentinel — return drive picker payload ──────────────────
     if _SYSTEM == "Windows":
