@@ -270,70 +270,47 @@ def _fs_track_payload(path: Path) -> dict:
     return payload
 
 
-def _enumerate_drive_audio(limit=_FS_RECURSIVE_LIMIT):
-    """Walk every connected drive for audio files, pooled across all volumes.
-
-    Returns (entries, total_estimate, truncated, volumes) where:
-      entries        – list of (Path, drive_name, drive_path) up to `limit`
-      total_estimate – best-effort total audio count across all drives
-      truncated      – True when the pooled count exceeds `limit`
-      volumes        – per-drive metadata dicts (name/path/audio_estimate/…)
-    """
-    from pathlib import Path
-import os
-import platform
-from user_config import discover_music_roots  # Ensure this is imported
-
-def _is_system_drive(path: Path) -> bool:
-    """Check if the path resides on the primary OS drive."""
-    if platform.system() == "Windows":
-        return path.drive.upper() == "C:"
-    return path.parts == ("/",)
-
 def _enumerate_drive_audio(
     limit: int = _FS_RECURSIVE_LIMIT,
     *,
     per_volume_limit: int | None = None,
     skip_primary_os_drive: bool = True,
 ):
+    from user_config import discover_music_roots
+    
+    # 1. Identify valid volumes, optionally filtering out system drives
+    all_volumes = get_connected_volumes() # Ensure this helper exists
+    if skip_primary_os_drive:
+        all_volumes = [v for v in all_volumes if not _is_system_drive(Path(v["path"]))]
+
+    # 2. Get roots only for the volumes we are scanning
+    volume_roots = discover_music_roots(all_volumes)
+    
     entries = []
     total_estimate = 0
     truncated = False
-    
-    # 1. Get volumes (assuming you have a helper like `get_connected_volumes()`)
-    volumes = get_connected_volumes() 
-    
-    # 2. Filter system drives if requested
-    if skip_primary_os_drive:
-        volumes = [v for v in volumes if not _is_system_drive(Path(v["path"]))]
-
-    # 3. Get configured music roots
-    # Assume discover_music_roots returns {volume_path: [root_path1, root_path2]}
-    volume_roots = discover_music_roots(volumes)
-    
     limit_per_vol = per_volume_limit or limit
 
-    for vol in volumes:
+    for vol in all_volumes:
         roots = volume_roots.get(vol["path"], [Path(vol["path"])])
         vol_count = 0
         
         for root in roots:
             if vol_count >= limit_per_vol: break
             
-            # Use rglob only on specific configured roots
+            # Focused scan: only walk the configured music roots
             for p in root.rglob("*"):
                 if vol_count >= limit_per_vol or len(entries) >= limit:
                     truncated = True
                     break
                 
-                if p.suffix.lower() in AUDIO_EXTENSIONS: # Your existing filter
+                if p.is_file() and p.suffix.lower() in _FS_AUDIO_EXTS:
                     entries.append((p, vol["name"], vol["path"]))
                     vol_count += 1
         
         total_estimate += vol_count
 
-    return entries, total_estimate, truncated, volumes
-
+    return entries, total_estimate, truncated, all_volumes
 
 # ── Library track routes ──────────────────────────────────────────────────────
 
