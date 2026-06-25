@@ -63,10 +63,16 @@ def check_now() -> dict:
     Returns the new status dict.
     """
     log.info("update_checker: checking for FableGear updates …")
+    
+    # 1. Update local git knowledge
+    script_dir = Path(__file__).parent
+    subprocess.run(["git", "fetch", "--tags"], cwd=script_dir, capture_output=True)
 
+    # 2. Get local version once
     current_version, is_git = _local_version()
 
     try:
+        # 3. Fetch remote info
         req  = urllib.request.Request(
             _GITHUB_API,
             headers={"Accept": "application/vnd.github+json",
@@ -78,7 +84,9 @@ def check_now() -> dict:
         latest_tag  = data.get("tag_name", "")
         release_url = data.get("html_url", "")
 
+        # 4. Compare
         update_available = _is_newer(latest_tag, current_version, is_git)
+        # ... rest of the cache update logic
 
         _update_cache(
             update_available=update_available,
@@ -118,6 +126,35 @@ def get_status() -> dict:
     with _lock:
         return dict(_status)
 
+
+# ── Addition ─────────────────────────────────────────────────────────────────
+
+def _is_newer(latest_tag: str, current: str | None, is_git: bool) -> bool:
+    if not latest_tag:
+        return False
+
+    if not is_git:
+        return bool(current) and _is_semver_tag(current) and _is_semver_tag(latest_tag) \
+            and _semver_gt(latest_tag, current)
+
+    if not current:
+        return False
+
+    # Authoritative: does HEAD already contain the release commit?
+    git_answer = _local_tag_is_current(latest_tag)
+    if git_answer is True:
+        return False
+    if git_answer is False:
+        return True
+
+    # REWRITE: If we don't know the ancestry, compare tags directly 
+    # if both are semver, OR assume latest is newer if local is just a SHA.
+    if _is_semver_tag(latest_tag):
+        if _is_semver_tag(current):
+            return _semver_gt(latest_tag, current)
+        return True # Remote is a version, local is just a SHA/unknown -> Update!
+
+    return False
 
 # ── Internals ─────────────────────────────────────────────────────────────────
 
