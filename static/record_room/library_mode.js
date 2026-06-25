@@ -1,25 +1,46 @@
 /* ════════════════════════════════════════════════════════════════════════
-   FableGear — record_room / library_mode
-   Auto-extracted from static/fablegear.js by scripts/split_fablegear_js.py
-   Loaded as a classic script; shares one global scope with the other slices.
-   Original source lines: 1389-1686
+   FableGear — record_room / library_mode (Hardened)
    ──────────────────────────────────────────────────────────────────────── */
-
-/* ─────────────────────────────────────────────────────────────────────────── */
-/* ── Library source mode: DB / Filesystem / Split ───────────────────────── */
 
 import { DeckManager } from './deck_control.js';
 
-// When a user clicks your new "Tray" play button:
 function onPlayClick(trackId, deckId) {
     const url = `/api/library/tracks/${trackId}/stream`;
     DeckManager[`deck${deckId}`].loadTrack(url).then(() => {
         DeckManager[`deck${deckId}`].play();
     });
 }
-let _leMode           = 'db';     // 'db' | 'fs' | 'split'
-let _leFsCurrentPath  = null;     // current browsed path in filesystem mode
-let _leDbSource       = 'local';  // 'local' | 'device' — which Rekordbox DB to load
+
+// Helper: Securely creates a row element
+function _leCreateRowElement(t, col, type = 'track') {
+    const div = document.createElement('div');
+    div.className = `le-split-track le-split-track-${col}`;
+    div.dataset.path = t.file_path || t.path || '';
+
+    const title = document.createElement('span');
+    title.className = 'le-split-title';
+    title.textContent = t.title || t.filename || t.file_path || '—';
+    div.appendChild(title);
+
+    if (t.artist || t.bpm || t.drive_name) {
+        const meta = document.createElement('span');
+        meta.className = 'le-split-meta';
+        const drive = t.drive_name ? `${t.drive_name} · ` : '';
+        meta.textContent = `${drive}${t.artist || ''}${t.bpm ? ' · ' + t.bpm + ' BPM' : ''}`;
+        div.appendChild(meta);
+    }
+    
+    // Add "Stage" button for unimported tracks
+    if (type === 'unimported') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'le-stage-btn le-split-stage';
+        btn.textContent = '+Q';
+        btn.onclick = () => stagingAddPath(t.path);
+        div.appendChild(btn);
+    }
+    return div;
+}
 
 function setLibraryMode(mode, fsRootPath = null) {
   _leMode = mode;
@@ -279,74 +300,50 @@ function _playFsTrack(streamUrl, triggerBtn) {
 /* ── Split view ──────────────────────────────────────────────────────────── */
 
 async function leLoadSplitView() {
-  const listAll        = document.getElementById('le-split-list-allmusic');
-  const listRekordbox  = document.getElementById('le-split-list-rekordbox');
-  const listUnimported = document.getElementById('le-split-list-unimported');
-  const cntAll  = document.getElementById('le-split-cnt-allmusic');
-  const cntRb   = document.getElementById('le-split-cnt-rekordbox');
+  const lists = {
+      all: document.getElementById('le-split-list-allmusic'),
+      rb: document.getElementById('le-split-list-rekordbox'),
+      unim: document.getElementById('le-split-list-unimported')
+  };
+  const cntAll = document.getElementById('le-split-cnt-allmusic');
+  const cntRb = document.getElementById('le-split-cnt-rekordbox');
   const cntUnim = document.getElementById('le-split-cnt-unimported');
 
-  [listAll, listRekordbox, listUnimported].forEach(el => {
-    if (el) el.innerHTML = '<div class="le-split-loading">⏳ Scanning drives…</div>';
-  });
+  Object.values(lists).forEach(el => { if (el) el.textContent = '⏳ Scanning drives…'; });
 
-  let data;
   try {
     const res = await fetch('/api/library/split-data');
     if (!res.ok) throw new Error(await res.text());
-    data = await res.json();
+    const data = await res.json();
+
+    // Update Counts
+    if (cntAll) cntAll.textContent = data.truncated ? `(${data.all_music.length} of ${data.all_music_count.toLocaleString()})` : `(${data.all_music_count})`;
+    if (cntRb) cntRb.textContent = `(${data.rekordbox_count})`;
+    if (cntUnim) cntUnim.textContent = `(${data.unimported_count})`;
+
+    // Secure Render Helper
+    const render = (container, items, type) => {
+        container.innerHTML = '';
+        if (!items || items.length === 0) {
+            container.textContent = type === 'unimported' ? 'Every file on disk is in rekordbox ✓' : 'No tracks found';
+            return;
+        }
+        items.forEach(t => container.appendChild(_leCreateRowElement(t, type, type)));
+    };
+
+    render(lists.all, data.all_music, 'allmusic');
+    render(lists.rb, data.rekordbox, 'rekordbox');
+    render(lists.unim, data.unimported, 'unimported');
+
   } catch (e) {
-    [listAll, listRekordbox, listUnimported].forEach(el => {
-      if (el) el.innerHTML = `<div class="le-split-err">⚠ ${e.message}</div>`;
-    });
-    return;
-  }
-
-  // Column 1 — All Music (filesystem, every drive)
-  if (cntAll) {
-    cntAll.textContent = data.truncated
-      ? `(${(data.all_music || []).length} of ${Number(data.all_music_count).toLocaleString()})`
-      : `(${data.all_music_count})`;
-  }
-  if (listAll) {
-    listAll.innerHTML = (data.all_music || []).length === 0
-      ? '<div class="le-split-empty">No music files found on connected drives</div>'
-      : (data.all_music || []).map(t => _leSplitTrackRow(t, 'allmusic')).join('');
-  }
-
-  // Column 2 — Rekordbox library
-  if (cntRb) cntRb.textContent = `(${data.rekordbox_count})`;
-  if (listRekordbox) {
-    listRekordbox.innerHTML = (data.rekordbox || []).length === 0
-      ? '<div class="le-split-empty">No tracks in rekordbox database</div>'
-      : (data.rekordbox || []).map(t => _leSplitTrackRow(t, 'rekordbox')).join('');
-  }
-
-  // Column 3 — Not in Rekordbox (on disk, not imported)
-  if (cntUnim) cntUnim.textContent = `(${data.unimported_count})`;
-  if (listUnimported) {
-    listUnimported.innerHTML = (data.unimported || []).length === 0
-      ? '<div class="le-split-empty">Every file on disk is in rekordbox ✓</div>'
-      : (data.unimported || []).map(t => `
-          <div class="le-split-track le-split-unimported-row" data-path="${_escAttr(t.path)}">
-            <span class="le-split-title">${_esc(t.title)}</span>
-            <span class="le-split-meta">${_esc(t.drive_name ? t.drive_name + ' · ' : '')}${_esc(t.filename)}</span>
-            <button type="button" class="le-stage-btn le-split-stage" onclick="stagingAddPath('${_escAttr(t.path)}')" title="Stage for Chop Shop">+Q</button>
-          </div>
-        `).join('');
+    Object.values(lists).forEach(el => { if (el) el.textContent = `⚠ ${e.message}`; });
   }
 }
 
-function _leSplitTrackRow(t, col) {
-  const fullPath = t.file_path || t.path || '';
-  const label = t.title || t.filename || fullPath || '—';
-  const drive = t.drive_name ? t.drive_name + ' · ' : '';
-  const meta  = t.artist ? `${drive}${t.artist}${t.bpm ? ' · ' + t.bpm + ' BPM' : ''}`
-                         : (t.bpm ? `${drive}${t.bpm} BPM` : drive.replace(/ · $/, ''));
-  return `
-    <div class="le-split-track le-split-track-${col}" data-path="${_escAttr(fullPath)}">
-      <span class="le-split-title" title="${_escAttr(fullPath)}">${_esc(label)}</span>
-      ${meta ? `<span class="le-split-meta">${_esc(meta)}</span>` : ''}
-    </div>
-  `;
-}
+// Expose functions to the global window object for HTML onclick handlers
+window.setLibraryMode = setLibraryMode;
+window.leFsBrowse = leFsBrowse;
+window.onPlayClick = onPlayClick;
+window.setLeDbSource = setLeDbSource;
+window.leLoadSplitView = leLoadSplitView;
+window._leStageFsCurrentFolder = _leStageFsCurrentFolder;
