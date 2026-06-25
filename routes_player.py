@@ -279,59 +279,60 @@ def _enumerate_drive_audio(limit=_FS_RECURSIVE_LIMIT):
       truncated      – True when the pooled count exceeds `limit`
       volumes        – per-drive metadata dicts (name/path/audio_estimate/…)
     """
-    from user_config import discover_music_roots  # noqa: PLC0415
+    from pathlib import Path
+import os
+import platform
+from user_config import discover_music_roots  # Ensure this is imported
 
-    if _SYSTEM == "Windows":
-        import string as _str  # noqa: PLC0415
-        scan_roots = [
-            Path(f"{d}:\\") for d in _str.ascii_uppercase
-            if d not in ("A", "B") and Path(f"{d}:\\").exists()
-        ]
-    elif _SYSTEM == "Darwin":
-        vroot = Path("/Volumes")
-        scan_roots = sorted(vroot.iterdir()) if vroot.exists() else []
-    else:
-        import getpass as _gp  # noqa: PLC0415
-        media = Path("/media") / _gp.getuser()
-        base = media if media.is_dir() else Path("/media")
-        scan_roots = sorted(base.iterdir()) if base.exists() else []
+def _is_system_drive(path: Path) -> bool:
+    """Check if the path resides on the primary OS drive."""
+    if platform.system() == "Windows":
+        return path.drive.upper() == "C:"
+    return path.parts == ("/",)
 
-    dirs = [Path(v) for v in scan_roots if Path(v).is_dir() and not Path(v).name.startswith(".")]
-    discovered = discover_music_roots(dirs)
-    disc_by_path = {item["path"]: item for item in discovered}
+def _enumerate_drive_audio(
+    limit: int = _FS_RECURSIVE_LIMIT,
+    *,
+    per_volume_limit: int | None = None,
+    skip_primary_os_drive: bool = True,
+):
+    entries = []
+    total_estimate = 0
+    truncated = False
+    
+    # 1. Get volumes (assuming you have a helper like `get_connected_volumes()`)
+    volumes = get_connected_volumes() 
+    
+    # 2. Filter system drives if requested
+    if skip_primary_os_drive:
+        volumes = [v for v in volumes if not _is_system_drive(Path(v["path"]))]
 
-    volumes = []
-    for vol in dirs:
-        info = disc_by_path.get(str(vol), {})
-        volumes.append({
-            "name":           vol.name or str(vol).rstrip("/\\"),
-            "path":           str(vol),
-            "audio_estimate": int(info.get("audio_count", 0)),
-            "has_pioneer_db": (vol / "PIONEER" / "rekordbox" / "master.db").exists(),
-        })
-    volumes.sort(key=lambda v: (-int(v.get("audio_estimate", 0)), v.get("name", "").lower()))
+    # 3. Get configured music roots
+    # Assume discover_music_roots returns {volume_path: [root_path1, root_path2]}
+    volume_roots = discover_music_roots(volumes)
+    
+    limit_per_vol = per_volume_limit or limit
 
-    entries: list = []
     for vol in volumes:
-        if len(entries) >= limit:
-            break
-        if int(vol.get("audio_estimate", 0)) <= 0:
-            continue
-        vp = Path(vol["path"])
-        try:
-            for item in vp.rglob("*"):
-                if item.name.startswith("."):
-                    continue
-                if item.is_file() and item.suffix.lower() in _FS_AUDIO_EXTS:
-                    entries.append((item, vol["name"], vol["path"]))
-                    if len(entries) >= limit:
-                        break
-        except (PermissionError, OSError):
-            continue
+        roots = volume_roots.get(vol["path"], [Path(vol["path"])])
+        vol_count = 0
+        
+        for root in roots:
+            if vol_count >= limit_per_vol: break
+            
+            # Use rglob only on specific configured roots
+            for p in root.rglob("*"):
+                if vol_count >= limit_per_vol or len(entries) >= limit:
+                    truncated = True
+                    break
+                
+                if p.suffix.lower() in AUDIO_EXTENSIONS: # Your existing filter
+                    entries.append((p, vol["name"], vol["path"]))
+                    vol_count += 1
+        
+        total_estimate += vol_count
 
-    total = sum(int(v.get("audio_estimate", 0)) for v in volumes)
-    truncated = total > limit
-    return entries, total, truncated, volumes
+    return entries, total_estimate, truncated, volumes
 
 
 # ── Library track routes ──────────────────────────────────────────────────────
