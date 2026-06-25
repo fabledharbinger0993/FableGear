@@ -24,6 +24,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
+from werkzeug.exceptions import NotFound
 
 _SYSTEM = platform.system()  # "Darwin" | "Windows" | "Linux"
 
@@ -52,6 +53,73 @@ app = Flask(
     template_folder=str(REPO_ROOT / "templates"),   # index.html + partials/
     static_folder=str(REPO_ROOT / "static"),
 )
+
+
+_LEGACY_STATIC_ALIASES = {
+    "RB_LOGO.png": "FableGear-logo.png",
+    "icon-audit.png": "icon-settings.png",
+    "icon-convert.png": "icon-converter.png",
+    "icon-fablego.png": "icon-logo-fablegear.png",
+    "icon-fg-drives.png": "icon-drives.png",
+    "icon-fg-files.png": "icon-queue.png",
+    "icon-fg-library.png": "icon-record-room.png",
+    "icon-fg-rb-tools.png": "icon-settings.png",
+    "icon-fg-tools.png": "icon-chop-shop.png",
+    "icon-filename.png": "icon-renamer.png",
+    "icon-find-duplicate.png": "icon-deduper.png",
+    "icon-folder.png": "icon-drives.png",
+    "icon-import.png": "icon-queue.png",
+    "icon-interrupt-plus-stop-wizard.png": "icon-settings.png",
+    "icon-link.png": "icon-settings.png",
+    "icon-move.png": "icon-settings.png",
+    "icon-normalize.png": "icon-normalizer.png",
+    "icon-prune.png": "icon-deduper.png",
+    "icon-rekki.png": "icon-studio.png",
+    "icon-restart-from-interrupt.png": "icon-settings.png",
+    "icon-restart-step.png": "icon-settings.png",
+    "icon-site-key.png": "icon-settings.png",
+    "icon-skip-to-next-step.png": "icon-settings.png",
+    "icon-start-wizard.png": "icon-settings.png",
+    "icon-tag.png": "icon-track-tagger.png",
+    "icon-track.png": "icon-track-tagger.png",
+    "icon-welcome-info.png": "icon-studio.png",
+}
+
+
+def _resolve_legacy_static_path(filename: str) -> Path | None:
+    """Resolve old static filenames after the icon pack rename/restructure."""
+    name = Path(filename).name
+    candidates = [
+        REPO_ROOT / "static" / name,
+        REPO_ROOT / "static" / "images" / name,
+    ]
+
+    aliased = _LEGACY_STATIC_ALIASES.get(name)
+    if aliased:
+        candidates.extend([
+            REPO_ROOT / "static" / aliased,
+            REPO_ROOT / "static" / "images" / aliased,
+        ])
+
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
+def _send_static_with_legacy_fallback(filename: str):
+    """Serve /static/<file>; fall back to renamed icon assets when needed."""
+    try:
+        return Flask.send_static_file(app, filename)
+    except NotFound:
+        legacy_path = _resolve_legacy_static_path(filename)
+        if legacy_path:
+            mime, _ = mimetypes.guess_type(str(legacy_path))
+            return send_file(str(legacy_path), mimetype=mime)
+        raise
+
+
+app.send_static_file = _send_static_with_legacy_fallback
 
 # Attach lazy-init extensions to the app instance
 limiter.init_app(app)
