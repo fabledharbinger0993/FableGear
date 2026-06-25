@@ -8,6 +8,15 @@
 /* ─────────────────────────────────────────────────────────────────────────── */
 /* ── Library source mode: DB / Filesystem / Split ───────────────────────── */
 
+import { DeckManager } from './deck_control.js';
+
+// When a user clicks your new "Tray" play button:
+function onPlayClick(trackId, deckId) {
+    const url = `/api/library/tracks/${trackId}/stream`;
+    DeckManager[`deck${deckId}`].loadTrack(url).then(() => {
+        DeckManager[`deck${deckId}`].play();
+    });
+}
 let _leMode           = 'db';     // 'db' | 'fs' | 'split'
 let _leFsCurrentPath  = null;     // current browsed path in filesystem mode
 let _leDbSource       = 'local';  // 'local' | 'device' — which Rekordbox DB to load
