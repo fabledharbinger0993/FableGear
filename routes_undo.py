@@ -158,13 +158,19 @@ def undo_trash():
     return jsonify(folders)
 
 
+# routes_undo.py
+
 @bp.route("/api/undo/trash/<folder_name>/files")
 def undo_trash_files(folder_name: str):
+    # Sanitize: ensure no path separators and enforce prefix
+    folder_name = os.path.basename(folder_name)
     if not folder_name.startswith("FableGear_Pruned_"):
         return jsonify({"error": "Invalid folder"}), 400
+        
     trash_dir = Path.home() / ".Trash" / folder_name
     if not trash_dir.is_dir():
         return jsonify({"error": "Folder not found"}), 404
+    # ... rest of your logic
     files = []
     for f in sorted(trash_dir.rglob("*")):
         if not f.is_file():
