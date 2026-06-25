@@ -457,6 +457,11 @@ body.fg-space-chop .workflow-rail { display: flex; }
   letter-spacing: .03em;
   text-transform: uppercase;
   transition: background .15s, border-color .15s, color .15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 .step-tab:hover,
 .step-tab.active {
@@ -465,6 +470,63 @@ body.fg-space-chop .workflow-rail { display: flex; }
   color: var(--accent);
 }
 .step-num { display: block; font-size: 1rem; line-height: 1; margin-bottom: 4px; }
+
+.step-icon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  display: block;
+  opacity: .92;
+}
+
+.workflow-rail-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+.step-tab-util {
+  min-width: 48px;
+  width: 48px;
+  padding: 8px;
+}
+
+.step-tab-entry {
+  min-width: 150px;
+  justify-content: flex-start;
+  padding: 8px 12px;
+  border-color: rgba(var(--accent-rgb), .55);
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), .18), rgba(var(--accent-rgb), .08));
+  color: var(--text);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), .22) inset;
+}
+
+.step-tab-entry:hover {
+  border-color: rgba(var(--accent-rgb), .75);
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), .24), rgba(var(--accent-rgb), .12));
+}
+
+.step-tab-label {
+  font-size: .66rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+@media (max-width: 840px) {
+  .step-tab-entry {
+    min-width: 52px;
+    width: 52px;
+    justify-content: center;
+    padding: 8px;
+  }
+  .step-tab-entry .step-tab-label {
+    display: none;
+  }
+}
 
 /* ── Main layout ───────────────────────────────────────────────────────── */
 main { max-width: 1080px; margin: 0 auto; padding: 116px 28px 32px; }

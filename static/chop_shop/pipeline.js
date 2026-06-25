@@ -203,7 +203,7 @@ const STEP_REQUIRED_FIELDS = {
   import:     ['paths'],
   link:       ['paths'],
   organize:   ['sources','target'],
-  novelty:    ['source','dest'],
+  novelty:    ['sources','dest'],
 };
 
 function _stepIsReady(step) {
@@ -422,8 +422,16 @@ function _pipeWizConfigHTML(step, saved) {
         </div>`;
 
     case 'novelty':
-      return pathRow('source', 'Source drive / folder', 'Choose or enter a source drive') +
+      return multiPathRow('sources', 'Source drive(s) / folder(s)', 'Choose or enter a source drive') +
              pathRow('dest',   'Home library destination', 'Choose or enter a music folder') +
+             `<div class="pipe-cfg-field">
+                <label class="pipe-cfg-label">Comparison mode</label>
+                <select class="pipe-cfg-input" data-cfg="match_mode"
+                        style="background:var(--surface-hi);border:1px solid var(--border-hi);color:var(--text);border-radius:var(--radius);padding:8px 10px;font-size:.84rem;width:100%">
+                  <option value="fingerprint" ${v('match_mode','fingerprint')==='fingerprint'?'selected':''}>Fingerprint confirm (safer)</option>
+                  <option value="filename" ${v('match_mode','fingerprint')==='filename'?'selected':''}>Filename compare only (faster)</option>
+                </select>
+              </div>` +
              workersRow(4);
 
     default:
@@ -476,9 +484,10 @@ function _pipeWizReadDraft(step) {
       draft.mode    = get('mode') || 'assimilate';
       draft.workers = getN('workers', 1); break;
     case 'novelty':
-      draft.source  = get('source');
-      draft.dest    = get('dest');
-      draft.workers = getN('workers', 1); break;
+      draft.sources    = getLines('sources');
+      draft.dest       = get('dest');
+      draft.match_mode = get('match_mode') || 'fingerprint';
+      draft.workers    = getN('workers', 1); break;
   }
   step._draftConfig = draft;
   step._config      = draft;  // keep _config in sync for the runner

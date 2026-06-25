@@ -477,6 +477,9 @@ def api_pipeline():
             for extra in sources[1:]:
                 if extra:
                     cmd += ["--also-scan", extra]
+            match_mode = str(cfg.get("match_mode", "fingerprint")).strip().lower()
+            if match_mode in ("fingerprint", "filename"):
+                cmd += ["--match-mode", match_mode]
             if not dry_run:
                 cmd.append("--no-dry-run")
             if cfg.get("workers", 1) > 1:
