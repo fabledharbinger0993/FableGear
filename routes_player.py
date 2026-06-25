@@ -44,6 +44,7 @@ from helpers import (
     _detect_pioneer_drive_layout,
     _evict_old_jobs,
     _run_export,
+    get_connected_volumes,
 )
 
 bp = Blueprint("player", __name__)
@@ -1018,7 +1019,7 @@ def api_library_patch_track(track_id):
         return jsonify({"error": str(exc)}), 500
 
 
-# ── Library USB export ────────────────────────────────────────────────────────
+# ── Library USB export ───────────────────────────────────────────────────────
 
 @bp.route("/api/library/export/drives")
 def api_library_export_drives():
@@ -1100,4 +1101,3 @@ def api_library_export_status(job_id):
     if job is None:
         return jsonify({"error": "Job not found"}), 404
     return jsonify(job)
-
