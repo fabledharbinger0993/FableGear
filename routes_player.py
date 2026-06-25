@@ -49,6 +49,26 @@ from helpers import (
 
 bp = Blueprint("player", __name__)
 
+# ── connected helpers ───────────────────────────────────────────────────
+
+def get_connected_volumes() -> list[dict]:
+    """Return list of user-mountable volumes with name/path.
+    Used by filesystem scan and export routes.
+    """
+    volumes = []
+    try:
+        for part in psutil.disk_partitions():
+            mountpoint = part.mountpoint
+            if not _is_user_mount(mountpoint):
+                continue
+            name = mountpoint.rstrip("/\\") if _SYSTEM == "Windows" else Path(mountpoint).name
+            volumes.append({
+                "name": name or mountpoint,
+                "path": mountpoint,
+            })
+    except Exception:
+        pass  # Graceful fallback for any psutil issues
+    return volumes
 
 # ── Library payload helpers ───────────────────────────────────────────────────
 
@@ -232,7 +252,7 @@ def _library_canonical_path_conflicts(db):
 
 _FS_AUDIO_EXTS = frozenset({
     ".aiff", ".aif", ".aifc", ".wav", ".flac", ".mp3",
-    ".m4a", ".m4p", ".alac", ".ogg", ".opus",
+    ".m4a", ".m4p",
 })
 _FS_TAG_LIMIT = 500   # stop reading mutagen beyond this many tracks in one folder
 _FS_RECURSIVE_LIMIT = 5000  # hard cap for recursive scans
