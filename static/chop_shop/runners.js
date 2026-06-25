@@ -345,11 +345,13 @@ function runNovelty() {
   const sources = getFolderPaths('novelty-pills');
   const dest    = document.getElementById('novelty-dest').value.trim();
   const dryRun  = document.getElementById('novelty-dry-run').checked;
+  const matchMode = document.getElementById('novelty-match-mode')?.value || 'fingerprint';
   if (!sources.length) { _flashNeedsInput('novelty-pills'); showToast('Add at least one source drive or folder.', 'warning'); return; }
   if (!dest)           { _flashNeedsInput('novelty-dest'); showToast('Enter a destination library path.', 'warning'); return; }
   const p = new URLSearchParams();
   sources.forEach(source => p.append('source', source));
   p.set('dest', dest);
+  p.set('match_mode', matchMode);
   if (!dryRun) p.set('no_dry_run', '1');
   const label = dryRun
     ? 'Novelty Scan — Dry Run (nothing will be copied)'
@@ -380,25 +382,27 @@ function runRename() {
   const paths = getFolderPaths('rename-pills');
   const dryRun = document.getElementById('rename-dry-run').checked;
   if (!paths.length) { _flashNeedsInput('rename-pills'); showToast('Add a folder to rename files in.', 'warning'); return; }
-  if (paths.length > 1) {
-    showToast(`Rename processes one folder at a time — using "${paths[0].split('/').pop()}".`, 'neutral');
-  }
-  if (!dryRun) {
+  if (!dryRun && paths.length === 1) {
     runRenameWithPreflight(paths[0]);
     return;
   }
-  _executeRename(paths[0], true);
+  if (!dryRun && paths.length > 1) {
+    showToast('Multiple folders selected: running rename across all selected folders (preflight skipped).', 'neutral');
+  }
+  _executeRename(paths, dryRun);
 }
 
-function _executeRename(path, dryRun) {
+function _executeRename(pathOrPaths, dryRun) {
+  const paths = Array.isArray(pathOrPaths) ? pathOrPaths : [pathOrPaths];
   const p = new URLSearchParams();
-  p.set('path', path);
+  paths.forEach(path => p.append('path', path));
   if (!dryRun) p.set('no_dry_run', '1');
+  const pathLabel = paths.length > 1 ? ` (${paths.length} folders)` : '';
   const label = dryRun
-    ? 'Rename Files — Dry Run (preview only)'
-    : 'Rename Files — Cleaning file names';
+    ? `Rename Files — Dry Run${pathLabel} (preview only)`
+    : `Rename Files — Cleaning file names${pathLabel}`;
   if (!dryRun) {
-    _saveToolCkpt('rename', { path, dryRun: false });
+    _saveToolCkpt('rename', { path: paths[0], paths, dryRun: false });
     document.getElementById('step-rename')?.querySelector('.tool-resume-banner')?.remove();
   }
   runCommand(`/api/run/rename?${p}`, label,

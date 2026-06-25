@@ -49,6 +49,7 @@ Public interface
 import json
 import logging
 import os
+import re
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -298,6 +299,13 @@ def _copy_novel(src: Path, destination: Path, dry_run: bool) -> NovelTrack:
         return NovelTrack(path=src, action="error", reason=str(exc), dest=dest)
 
 
+def _normalized_filename_key(path: Path) -> str:
+    """Return a normalized filename key used by filename-only novelty matching."""
+    stem = path.stem.lower()
+    stem = re.sub(r"[^a-z0-9]+", " ", stem).strip()
+    return stem
+
+
 # ─── Main entry point ─────────────────────────────────────────────────────────
 
 def scan_novel(
@@ -306,6 +314,7 @@ def scan_novel(
     *,
     dry_run:     bool = True,
     max_workers: int  = 1,
+    match_mode:  str  = "fingerprint",
     progress_cb: "callable | None" = None,
 ) -> NovelScanResult:
     """
@@ -322,6 +331,9 @@ def scan_novel(
         If True (default), report what would be copied without doing it.
     max_workers : int
         Parallel workers for fingerprint + copy phase (default 1 = sequential).
+    match_mode : str
+        "fingerprint" (default) uses metadata pre-filter + fingerprint confirmation.
+        "filename" compares normalized filenames only (faster, less strict).
     progress_cb : callable | None
         Optional callback(done, total, copied, skipped, errors) called after
         each track is processed.  Used by the Flask SSE route.
@@ -329,11 +341,18 @@ def scan_novel(
     from config import AUDIO_EXTENSIONS, SKIP_DIRS, SKIP_PREFIXES
 
     source_list: list[Path] = [source] if isinstance(source, Path) else list(source)
+    match_mode = (match_mode or "fingerprint").strip().lower()
+    if match_mode not in {"fingerprint", "filename"}:
+        raise ValueError(f"Unsupported match_mode: {match_mode}")
 
     # ── 1. Build destination index ────────────────────────────────────────────
     log.info("Building destination index: %s", destination)
     dest_index = _build_dest_index(destination)
     dest_size  = len(dest_index)
+    dest_filename_keys = {
+        _normalized_filename_key(Path(dest_path))
+        for dest_path in dest_index.keys()
+    }
     log.info("Destination index: %d tracks", dest_size)
 
     # ── 2. Collect source tracks ──────────────────────────────────────────────
@@ -382,6 +401,11 @@ def scan_novel(
 
     def _process(src: Path) -> NovelTrack:
         nonlocal fingerprinted
+
+        if match_mode == "filename":
+            if _normalized_filename_key(src) in dest_filename_keys:
+                return NovelTrack(path=src, action="skipped", reason="filename match in destination")
+            return _copy_novel(src, destination, dry_run)
 
         src_meta   = scan_index.get(str(src), {})
         try:

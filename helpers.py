@@ -31,6 +31,43 @@ from mutagen import File as MutagenFile
 from pioneer_export_validator import validate_export_paths, validate_copied_file_exists
 
 
+def _is_user_mount(mountpoint: str) -> bool:
+    if sys.platform == "darwin":
+        return mountpoint.startswith("/Volumes/") or mountpoint == "/Volumes"
+    if sys.platform.startswith("win"):
+        return (
+            len(mountpoint) == 3
+            and mountpoint[1] == ":"
+            and mountpoint[2] in ("/", "\\")
+            and mountpoint[0].upper() not in ("A", "B")
+        )
+    return mountpoint.startswith("/media/") or mountpoint.startswith("/mnt/")
+
+
+def get_connected_volumes() -> list[dict]:
+    """Return connected user volumes with stable name/path fields."""
+    try:
+        import psutil  # noqa: PLC0415
+    except Exception:
+        return []
+
+    volumes: list[dict] = []
+    try:
+        for part in psutil.disk_partitions():
+            mountpoint = part.mountpoint
+            if not _is_user_mount(mountpoint):
+                continue
+            name = mountpoint.rstrip("/\\") if sys.platform.startswith("win") else Path(mountpoint).name
+            volumes.append({
+                "name": name or mountpoint,
+                "path": mountpoint,
+            })
+    except Exception:
+        return []
+
+    return volumes
+
+
 # ── Resource root — handles both dev and PyInstaller bundle ──────────────────
 
 _REPO_ROOT = Path(

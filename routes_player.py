@@ -55,6 +55,8 @@ def get_connected_volumes() -> list[dict]:
     """Return list of user-mountable volumes with name/path.
     Used by filesystem scan and export routes.
     """
+    import psutil  # noqa: PLC0415
+
     volumes = []
     try:
         for part in psutil.disk_partitions():

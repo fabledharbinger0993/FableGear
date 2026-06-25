@@ -571,6 +571,11 @@ def api_novelty():
     if request.args.get("no_dry_run") == "1":
         cmd.append("--no-dry-run")
 
+    match_mode = request.args.get("match_mode", "fingerprint").strip().lower()
+    if match_mode not in ("fingerprint", "filename"):
+        return jsonify({"error": "match_mode must be fingerprint or filename"}), 400
+    cmd += ["--match-mode", match_mode]
+
     workers = request.args.get("workers", "1").strip()
     if workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
@@ -586,9 +591,13 @@ def api_novelty():
 
 @bp.route("/api/run/rename")
 def api_rename():
-    path = request.args.get("path", "").strip()
-    if not path:
-        return jsonify({"error": "path is required"}), 400
+    paths = [p.strip() for p in request.args.getlist("path") if p.strip()]
+    if not paths:
+        single = request.args.get("path", "").strip()
+        if single:
+            paths = [single]
+    if not paths:
+        return jsonify({"error": "at least one path is required"}), 400
 
     live_run = request.args.get("no_dry_run") == "1"
     if live_run:
@@ -596,7 +605,9 @@ def api_rename():
         if err:
             return err
 
-    cmd = [sys.executable, str(CLI_PATH), "rename", path]
+    cmd = [sys.executable, str(CLI_PATH), "rename", paths[0]]
+    for extra in paths[1:]:
+        cmd += ["--also-scan", extra]
 
     if live_run:
         cmd.append("--no-dry-run")
@@ -608,7 +619,7 @@ def api_rename():
     checkpoint_action = request.args.get("checkpoint_action", "").strip()
     if checkpoint_action in ("resume", "reset"):
         cmd += ["--checkpoint-action", checkpoint_action]
-    library_root = path
+    library_root = paths[0]
     return _sse_response(cmd, library_root=library_root, step_name="rename")
 
 

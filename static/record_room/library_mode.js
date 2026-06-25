@@ -127,10 +127,10 @@ async function leFsBrowse(path) {
   trackList.innerHTML = '<div class="le-empty-state"><div class="le-empty-music-icon">⏳</div><div>Loading…</div></div>';
   if (folderList) folderList.innerHTML = '';
 
-  // Always request recursive=1 so clicking any folder surfaces all nested tracks.
+  // Keep browsing shallow by default so users can navigate folders deliberately.
   const base = path
-    ? `/api/library/fs-browse?path=${encodeURIComponent(path)}&recursive=1`
-    : '/api/library/fs-browse?recursive=1';
+    ? `/api/library/fs-browse?path=${encodeURIComponent(path)}`
+    : '/api/library/fs-browse';
 
   let data;
   try {

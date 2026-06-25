@@ -1420,6 +1420,7 @@ def cmd_novelty(args: argparse.Namespace) -> None:
     sources = [primary] + extra
     dest    = Path(args.dest)
     dry_run = not args.no_dry_run
+    match_mode = getattr(args, "match_mode", "fingerprint")
 
     for s in sources:
         if not s.is_dir():
@@ -1438,8 +1439,8 @@ def cmd_novelty(args: argparse.Namespace) -> None:
         log.info("DRY RUN — no files will be copied. Pass --no-dry-run to execute.")
 
     log.info(
-        "Novel scan  sources=%s  dest=%s  dry_run=%s  workers=%d",
-        [str(s) for s in sources], dest, dry_run, max_workers,
+        "Novel scan  sources=%s  dest=%s  dry_run=%s  workers=%d  match_mode=%s",
+        [str(s) for s in sources], dest, dry_run, max_workers, match_mode,
     )
 
     total_src = 0
@@ -1456,6 +1457,7 @@ def cmd_novelty(args: argparse.Namespace) -> None:
             [source], dest,
             dry_run=dry_run,
             max_workers=max_workers,
+            match_mode=match_mode,
         )
         total_src += root_result.total_src
         dest_index_size = max(dest_index_size, root_result.dest_index_size)
@@ -1499,6 +1501,7 @@ def cmd_novelty(args: argparse.Namespace) -> None:
         "",
         f"{result.total_src} tracks scanned on source.",
         f"Destination index: {result.dest_index_size} tracks.",
+        f"Comparison mode: {match_mode}.",
         "",
     ]
     if novel:
@@ -1521,11 +1524,12 @@ def cmd_rename(args: argparse.Namespace) -> None:
     from db_connection import write_db
     from renamer import rename_directory
 
-    root = Path(args.path)
+    roots = [Path(args.path)] + [Path(p) for p in (getattr(args, "also_scan", None) or [])]
 
-    if not root.is_dir():
-        log.error("PATH is not a directory: %s", root)
-        sys.exit(1)
+    for root in roots:
+        if not root.is_dir():
+            log.error("PATH is not a directory: %s", root)
+            sys.exit(1)
 
     dry_run = not args.no_dry_run
     requested_workers = max(1, getattr(args, "workers", 1))
@@ -1539,15 +1543,58 @@ def cmd_rename(args: argparse.Namespace) -> None:
 
     log.info(
         "Renaming audio files under %s  dry_run=%s  workers=%d",
-        root, dry_run, max_workers,
+        [str(r) for r in roots], dry_run, max_workers,
     )
+
+    results = []
+    root_sections: list[tuple[Path, str]] = []
 
     try:
         if dry_run:
-            results = rename_directory(root, db=None, dry_run=True, max_workers=max_workers)
+            for index, root in enumerate(roots, start=1):
+                _log_root_step("Rename", root, index, len(roots))
+                root_results = rename_directory(root, db=None, dry_run=True, max_workers=max_workers)
+                results.extend(root_results)
+                root_renamed = sum(1 for r in root_results if r.action == "renamed")
+                root_skipped = sum(1 for r in root_results if r.action == "no_change")
+                root_collisions = sum(1 for r in root_results if r.action == "collision_numbered")
+                root_quarantined = sum(1 for r in root_results if r.action == "quarantined")
+                root_errors = sum(1 for r in root_results if r.action == "error")
+                root_lines = [f"{len(root_results)} audio files scanned."]
+                if root_renamed:
+                    root_lines.append(f"{root_renamed} files would be renamed.")
+                if root_skipped:
+                    root_lines.append(f"{root_skipped} already have clean names — would be left alone.")
+                if root_collisions:
+                    root_lines.append(f"{root_collisions} would get numbered suffixes to avoid clashes.")
+                if root_quarantined:
+                    root_lines.append(f"{root_quarantined} unresolved files would be moved to No-Name tracks for Tagging.")
+                if root_errors:
+                    root_lines.append(f"{root_errors} had errors — check the log above.")
+                root_sections.append((root, "\n".join(root_lines)))
         else:
             with write_db(LOCAL_DB) as db:
-                results = rename_directory(root, db=db, dry_run=False, max_workers=max_workers)
+                for index, root in enumerate(roots, start=1):
+                    _log_root_step("Rename", root, index, len(roots))
+                    root_results = rename_directory(root, db=db, dry_run=False, max_workers=max_workers)
+                    results.extend(root_results)
+                    root_renamed = sum(1 for r in root_results if r.action == "renamed")
+                    root_skipped = sum(1 for r in root_results if r.action == "no_change")
+                    root_collisions = sum(1 for r in root_results if r.action == "collision_numbered")
+                    root_quarantined = sum(1 for r in root_results if r.action == "quarantined")
+                    root_errors = sum(1 for r in root_results if r.action == "error")
+                    root_lines = [f"{len(root_results)} audio files scanned."]
+                    if root_renamed:
+                        root_lines.append(f"{root_renamed} files were renamed to clean titles.")
+                    if root_skipped:
+                        root_lines.append(f"{root_skipped} already had clean names — left alone.")
+                    if root_collisions:
+                        root_lines.append(f"{root_collisions} name clashes were handled by numbering.")
+                    if root_quarantined:
+                        root_lines.append(f"{root_quarantined} unresolved files were moved to No-Name tracks for Tagging.")
+                    if root_errors:
+                        root_lines.append(f"{root_errors} files had errors — check the log above.")
+                    root_sections.append((root, "\n".join(root_lines)))
     except Exception:
         log.exception("Rename failed")
         sys.exit(1)
@@ -1592,7 +1639,7 @@ def cmd_rename(args: argparse.Namespace) -> None:
             lines.append("No errors.")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    _emit_report("\n".join(lines), "Rename", f"rename_{timestamp}.txt")
+    _emit_report(_append_root_breakdown("\n".join(lines), root_sections), "Rename", f"rename_{timestamp}.txt")
 
     if errors > 0:
         log.warning("%d files had errors — check log above", errors)
@@ -1955,6 +2002,12 @@ Examples:
         dest="also_scan",
         help="Additional source directory (can be repeated)",
     )
+    p_novelty.add_argument(
+        "--match-mode",
+        choices=["fingerprint", "filename"],
+        default="fingerprint",
+        help="fingerprint: metadata pre-filter + fingerprint confirmation (default). filename: match by normalized filename only (faster, less strict).",
+    )
     p_novelty.set_defaults(func=cmd_novelty)
 
     # ── rename ──
@@ -1966,6 +2019,14 @@ Examples:
         "path",
         metavar="PATH",
         help="Directory to scan and rename files"
+    )
+    p_rename.add_argument(
+        "--also-scan",
+        metavar="PATH",
+        action="append",
+        default=[],
+        dest="also_scan",
+        help="Additional directory to scan and rename (can be repeated)",
     )
     p_rename.add_argument(
         "--no-dry-run",
