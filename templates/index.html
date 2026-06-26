@@ -777,6 +777,11 @@
   <div id="thp-body"></div>
 </aside>
 
+<div id="tool-hover-tip" role="status" aria-live="polite">
+  <div id="tht-title"></div>
+  <div id="tht-body"></div>
+</div>
+
 <!-- ══ FableGear client scripts ═════════════════════════════════════════════
      Sliced from the legacy static/fablegear.js into shared / record_room /
      chop_shop modules. All slices are classic scripts sharing one global
@@ -792,6 +797,7 @@
 <script src="/static/shared/health.js?v={{ cb }}"></script>
 <script src="/static/shared/drives.js?v={{ cb }}"></script>
 <script type="module" src="/static/record_room/library_mode.js?v={{ cb }}"></script>
+<script type="module" src="/static/record_room/performance_ui.js?v={{ cb }}"></script>
 <script src="/static/shared/utility.js?v={{ cb }}"></script>
 <script src="/static/shared/scan_bar.js?v={{ cb }}"></script>
 <script src="/static/chop_shop/runners.js?v={{ cb }}"></script>
@@ -1030,6 +1036,67 @@
           <button type="button" class="le-load-btn" id="le-stage-selected-btn" onclick="leStageSelected()" disabled title="Add selected tracks to the Staging Queue">+ Stage Selected</button>
           <button type="button" class="le-load-btn" onclick="leLoadLibrary()">↺ Reload</button>
         </div>
+
+        <section class="li-panel" id="li-panel" aria-label="Live Instrument Controls">
+          <div class="li-head">
+            <div>
+              <strong>Live Instrument</strong>
+              <span class="li-sub">Deck clock, sync, jog, pitch, and harmonic control</span>
+            </div>
+            <div class="li-global">
+              <label class="li-inline">
+                <span>Crossfader</span>
+                <input id="li-crossfader" type="range" min="0" max="1" step="0.01" value="0.5">
+              </label>
+              <button type="button" class="li-btn" id="li-sync-a-to-b">Sync A→B</button>
+              <button type="button" class="li-btn" id="li-sync-b-to-a">Sync B→A</button>
+            </div>
+          </div>
+
+          <div class="li-decks">
+            <article class="li-deck" data-deck="A">
+              <div class="li-deck-title">Deck A <span class="li-track" id="li-a-track">No track loaded</span></div>
+              <div class="li-state-row">
+                <span id="li-a-time">0:00 / 0:00</span>
+                <span id="li-a-bpm">-- BPM</span>
+                <span id="li-a-key">--</span>
+              </div>
+              <div class="li-transport">
+                <button type="button" class="li-btn" id="li-load-a">Load Selected</button>
+                <button type="button" class="li-btn" id="li-play-a">Play/Pause</button>
+                <button type="button" class="li-btn" id="li-nudge-a-neg">Nudge -</button>
+                <button type="button" class="li-btn" id="li-nudge-a-pos">Nudge +</button>
+              </div>
+              <div class="li-controls">
+                <label class="li-inline"><span>Jog</span><input id="li-jog-a" type="range" min="0" max="1" step="0.001" value="0"></label>
+                <label class="li-inline"><span>Pitch</span><input id="li-tempo-a" type="range" min="0.5" max="2" step="0.005" value="1"></label>
+                <label class="li-inline"><span>Key Shift</span><input id="li-key-shift-a" type="range" min="-12" max="12" step="1" value="0"></label>
+                <label class="li-inline"><input id="li-key-lock-a" type="checkbox" checked><span>Key Lock</span></label>
+              </div>
+            </article>
+
+            <article class="li-deck" data-deck="B">
+              <div class="li-deck-title">Deck B <span class="li-track" id="li-b-track">No track loaded</span></div>
+              <div class="li-state-row">
+                <span id="li-b-time">0:00 / 0:00</span>
+                <span id="li-b-bpm">-- BPM</span>
+                <span id="li-b-key">--</span>
+              </div>
+              <div class="li-transport">
+                <button type="button" class="li-btn" id="li-load-b">Load Selected</button>
+                <button type="button" class="li-btn" id="li-play-b">Play/Pause</button>
+                <button type="button" class="li-btn" id="li-nudge-b-neg">Nudge -</button>
+                <button type="button" class="li-btn" id="li-nudge-b-pos">Nudge +</button>
+              </div>
+              <div class="li-controls">
+                <label class="li-inline"><span>Jog</span><input id="li-jog-b" type="range" min="0" max="1" step="0.001" value="0"></label>
+                <label class="li-inline"><span>Pitch</span><input id="li-tempo-b" type="range" min="0.5" max="2" step="0.005" value="1"></label>
+                <label class="li-inline"><span>Key Shift</span><input id="li-key-shift-b" type="range" min="-12" max="12" step="1" value="0"></label>
+                <label class="li-inline"><input id="li-key-lock-b" type="checkbox" checked><span>Key Lock</span></label>
+              </div>
+            </article>
+          </div>
+        </section>
       </div>
 
     </div>

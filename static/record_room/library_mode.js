@@ -4,12 +4,14 @@
 
 import { DeckManager } from './deck_control.js';
 
-function onPlayClick(trackId, deckId) {
+function onPlayClick(trackId, deckId, trackMeta = null) {
     const url = `/api/library/tracks/${trackId}/stream`;
-    DeckManager[`deck${deckId}`].loadTrack(url).then(() => {
-        DeckManager[`deck${deckId}`].play();
+  DeckManager.loadTrackToDeck(deckId, url, trackMeta).then(() => {
+    DeckManager.playDeck(deckId);
     });
 }
+
+window.onPlayClick = onPlayClick;
 
 // Helper: Securely creates a row element
 function _leCreateRowElement(t, col, type = 'track') {

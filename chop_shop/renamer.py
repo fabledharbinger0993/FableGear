@@ -46,6 +46,7 @@ import json
 import logging
 import os
 import re
+import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -803,7 +804,12 @@ def quarantine_track(source_path: Path, library_root: Path, *, record_manifest: 
     if dest_path is None:
         raise RuntimeError(f"Could not create a unique destination for {source_path.name}")
 
-    source_path.rename(dest_path)
+    try:
+        source_path.rename(dest_path)
+    except OSError:
+        # Fallback for cases where rename() is denied by the filesystem policy.
+        # shutil.move will still attempt an in-place rename first, then copy+remove.
+        shutil.move(str(source_path), str(dest_path))
     manifest_path = quarantine_dir / _NO_NAME_MANIFEST
     if record_manifest:
         _record_quarantine_manifest(source_path, dest_path, library_root, manifest_path)
@@ -889,7 +895,15 @@ def _rename_one(
                     action="quarantined",
                     reason="Would move unresolved file to No-Name tracks for Tagging",
                 )
-            moved = quarantine_track(path, target_root, record_manifest=False)
+            try:
+                moved = quarantine_track(path, target_root, record_manifest=False)
+            except OSError as exc:
+                return RenameResult(
+                    original_path=path,
+                    new_path=None,
+                    action="error",
+                    reason=f"Quarantine move failed: {exc}",
+                )
             if db is not None:
                 try:
                     _sync_db_path_or_revert(path, Path(moved["dest_path"]), db)

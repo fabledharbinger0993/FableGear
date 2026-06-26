@@ -187,9 +187,14 @@ document.querySelectorAll('.step-tab').forEach(btn => {
   btn.addEventListener('click', () => {
     const target = btn.dataset.target;
     if (!target) return;
+    let switched = true;
+    if (typeof handleToolIconClick === 'function') {
+      switched = handleToolIconClick(target) !== false;
+    } else if (typeof openToolFloatModal === 'function') {
+      openToolFloatModal(target);
+    }
+    if (!switched) return;
     document.querySelectorAll('.step-tab').forEach(tab => tab.classList.remove('active'));
     btn.classList.add('active');
-    if (typeof handleToolIconClick === 'function') handleToolIconClick(target);
-    else if (typeof openToolFloatModal === 'function') openToolFloatModal(target);
   });
 });

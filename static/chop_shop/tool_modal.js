@@ -213,54 +213,107 @@ function _mirrorScanBarToModal() {
 function handleToolIconClick(toolId) {
   const running = (typeof isRunning !== 'undefined' && isRunning);
   if (running && _toolFloatActive && toolId !== _toolFloatActive) {
-    // A tool is already running — we can't start a second one. Surface a clear
-    // toast (the read-only help panel alone reads as "nothing happened") so the
-    // click doesn't look like the tool silently failed to fire.
+    // Keep the running tool locked in the main panel.
     if (typeof showToast === 'function') {
       showToast('A tool is still running — click Interrupt to stop it before starting another.', 'warning');
     }
-    openToolHelpPanel(toolId);
-    return;
+    closeToolHoverTip();
+    return false;
   }
   closeToolHelpPanel();
   if (typeof openToolFloatModal === 'function') openToolFloatModal(toolId);
+  return true;
 }
 
 /* ── Running-tool "what is this?" side panel ──────────────────────────────────
    Clones the clicked tool card's explainer text (read-only) so the user can
    learn about another tool without interrupting the one that is running. */
 function openToolHelpPanel(toolId) {
-  const panel = document.getElementById('tool-help-panel');
   const card  = document.getElementById(toolId);
-  if (!panel || !card) return;
-
-  const expl     = card.querySelector('.explainers');
-  const titleTxt = card.querySelector('.card-title')?.textContent?.trim()
-    || toolId.replace('step-', '').replace(/-/g, ' ');
-  const iconSrc  = card.querySelector('.card-icon img')?.src || '';
-
-  const thpIcon  = document.getElementById('thp-icon');
-  const thpTitle = document.getElementById('thp-title');
-  const thpBody  = document.getElementById('thp-body');
-  if (thpIcon)  { thpIcon.src = iconSrc; thpIcon.style.display = iconSrc ? '' : 'none'; }
-  if (thpTitle) thpTitle.textContent = titleTxt;
-  if (thpBody) {
-    thpBody.innerHTML = '';
-    if (expl) {
-      const clone = expl.cloneNode(true);
-      clone.classList.add('explainers-expanded');
-      clone.querySelectorAll('details').forEach(d => { d.open = true; });
-      thpBody.appendChild(clone);
-    } else {
-      thpBody.textContent = 'No description available for this tool.';
-    }
-  }
-  panel.classList.add('open');
+  if (!card) return;
+  showToolHoverTip(toolId);
 }
 
 function closeToolHelpPanel() {
-  document.getElementById('tool-help-panel')?.classList.remove('open');
+  closeToolHoverTip();
 }
+
+function _toolHoverCopy(toolId) {
+  const card = document.getElementById(toolId);
+  if (!card) {
+    return {
+      title: toolId.replace('step-', '').replace(/-/g, ' '),
+      body: 'No description available for this tool.',
+    };
+  }
+
+  const title = card.querySelector('.card-title')?.textContent?.trim()
+    || toolId.replace('step-', '').replace(/-/g, ' ');
+
+  const body = card.querySelector('.explain-body p')?.textContent?.trim()
+    || card.querySelector('.card-blurb')?.textContent?.trim()
+    || 'No description available for this tool.';
+
+  return { title, body };
+}
+
+function showToolHoverTip(toolId, anchorEl) {
+  const tip = document.getElementById('tool-hover-tip');
+  if (!tip) return;
+
+  const copy = _toolHoverCopy(toolId);
+  const titleEl = document.getElementById('tht-title');
+  const bodyEl = document.getElementById('tht-body');
+  if (titleEl) titleEl.textContent = copy.title;
+  if (bodyEl) bodyEl.textContent = copy.body;
+
+  const anchor = anchorEl || document.querySelector(`.step-tab[data-target="${toolId}"]`);
+  if (anchor) {
+    const rect = anchor.getBoundingClientRect();
+    tip.style.top = `${rect.bottom + 8}px`;
+    tip.style.left = `${Math.max(16, rect.left)}px`;
+  }
+
+  tip.classList.add('open');
+}
+
+function closeToolHoverTip() {
+  document.getElementById('tool-hover-tip')?.classList.remove('open');
+}
+
+function _initToolHoverDescriptions() {
+  const buttons = document.querySelectorAll('.step-tab[data-target]');
+  if (!buttons.length) return;
+
+  buttons.forEach((btn) => {
+    const toolId = btn.getAttribute('data-target');
+    if (!toolId) return;
+
+    btn.addEventListener('mouseenter', () => {
+      const running = (typeof isRunning !== 'undefined' && isRunning);
+      if (!running || toolId === _toolFloatActive) return;
+      showToolHoverTip(toolId, btn);
+    });
+
+    btn.addEventListener('mouseleave', () => {
+      closeToolHoverTip();
+    });
+
+    btn.addEventListener('focus', () => {
+      const running = (typeof isRunning !== 'undefined' && isRunning);
+      if (!running || toolId === _toolFloatActive) return;
+      showToolHoverTip(toolId, btn);
+    });
+
+    btn.addEventListener('blur', () => {
+      closeToolHoverTip();
+    });
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  _initToolHoverDescriptions();
+});
 
 function leSetStatus(label, count, totalCount) {
   const status = document.getElementById('le-status-text');
