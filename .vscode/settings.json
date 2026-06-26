@@ -21,7 +21,7 @@
 	"htmlhint.options": {
 		"inline-style-disabled": false
 	},
-	"python-envs.defaultEnvManager": "ms-python.python:conda",
+	"python-envs.defaultEnvManager": "ms-python.python:venv",
 	"python-envs.defaultPackageManager": "ms-python.python:conda",
 	"cSpell.words": [
 		"APPLESCRIPT",
