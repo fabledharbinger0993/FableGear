@@ -282,22 +282,23 @@ input[type="range"] { -webkit-app-region: no-drag; }
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
   width: 100%;
-  min-height: 66px;
-  padding: 8px 4px;
-  gap: 3px;
+  min-height: 62px;
+  padding: 6px 4px;
+  gap: 0;
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: background .15s;
+  transition: filter .15s, transform .15s;
   color: var(--text-dim);
 }
 .lp-btn:hover {
-  background: var(--accent-dim);
+  background: transparent;
   color: var(--text-muted);
+  filter: brightness(1.08);
 }
 .lp-btn.active {
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
-  border-right: 2px solid var(--accent);
+  background: transparent;
+  border-right: none;
   color: var(--accent);
 }
 .lp-btn:disabled {
@@ -306,31 +307,30 @@ input[type="range"] { -webkit-app-region: no-drag; }
   pointer-events: none;
 }
 .lp-icon {
-  width: 54px; height: 54px;
+  width: 56px; height: 56px;
   object-fit: contain;
-  opacity: .7;
-  transition: opacity .15s;
+  opacity: .92;
+  transition: opacity .15s, filter .15s;
 }
 .lp-btn:hover .lp-icon,
-.lp-btn.active .lp-icon { opacity: 1; }
+.lp-btn.active .lp-icon {
+  opacity: 1;
+  filter: drop-shadow(0 0 8px rgba(0, 255, 255, .35));
+}
 .lp-glyph {
-  font-size: 1.3rem;
+  font-size: 1.45rem;
   line-height: 1;
-  opacity: .65;
-  transition: opacity .15s;
+  opacity: .92;
+  transition: opacity .15s, text-shadow .15s;
 }
 .lp-btn:hover .lp-glyph,
-.lp-btn.active .lp-glyph { opacity: 1; }
-.lp-label {
-  font-size: .58rem;
-  font-weight: 500;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  transition: color .15s;
+.lp-btn.active .lp-glyph {
+  opacity: 1;
+  text-shadow: 0 0 9px rgba(0, 255, 255, .38);
 }
-.lp-btn:hover .lp-label  { color: var(--text-muted); }
-.lp-btn.active .lp-label { color: var(--accent); }
+.lp-label {
+  display: none;
+}
 .lp-divider {
   width: 70%;
   height: 1px;
@@ -776,38 +776,39 @@ body.fg-space-chop #library-editor-overlay { display: none !important; }
 }
 body.fg-space-chop .workflow-rail { display: flex; }
 .step-tab {
-  min-width: 96px;
+  min-width: 68px;
   height: 56px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: rgba(255,255,255,.035);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--text-muted);
-  padding: 10px;
+  padding: 0;
   font-size: .72rem;
   font-weight: 700;
   letter-spacing: .03em;
   text-transform: uppercase;
-  transition: background .15s, border-color .15s, color .15s;
+  transition: filter .15s, color .15s, transform .15s;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 0;
   flex-shrink: 0;
 }
 .step-tab:hover,
 .step-tab.active {
-  border-color: rgba(var(--accent-rgb), .45);
-  background: rgba(var(--accent-rgb), .12);
+  border: 0;
+  background: transparent;
   color: var(--accent);
+  filter: brightness(1.08);
 }
 .step-num { display: block; font-size: 1rem; line-height: 1; margin-bottom: 4px; }
 
 .step-icon {
-  width: 34px;
-  height: 34px;
+  width: 56px;
+  height: 56px;
   object-fit: contain;
   display: block;
-  opacity: .96;
+  opacity: .98;
 }
 
 .workflow-rail-divider {
@@ -819,9 +820,9 @@ body.fg-space-chop .workflow-rail { display: flex; }
 }
 
 .step-tab-util {
-  min-width: 56px;
-  width: 56px;
-  padding: 10px;
+  min-width: 68px;
+  width: 68px;
+  padding: 0;
 }
 
 .step-tab-entry {
@@ -847,6 +848,61 @@ body.fg-space-chop .workflow-rail { display: flex; }
   white-space: nowrap;
 }
 
+#nav-btn-pipeline-wizard {
+  position: relative;
+  min-width: 282px;
+  height: 56px;
+  justify-content: center;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+#nav-btn-pipeline-wizard::before {
+  content: none;
+}
+
+#nav-btn-pipeline-wizard .step-icon {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 0 8px rgba(0, 255, 255, .28));
+}
+
+#nav-btn-pipeline-wizard:hover {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  filter: brightness(1.08);
+}
+
+#nav-btn-db.step-tab-rekordbox {
+  width: 86px;
+  min-width: 86px;
+  height: 56px;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+#nav-btn-db.step-tab-rekordbox .step-icon {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  filter: hue-rotate(248deg) saturate(1.4) brightness(1.12);
+}
+
+#nav-btn-db.step-tab-rekordbox:hover {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  filter: brightness(1.1);
+}
+
 @media (max-width: 840px) {
   .step-tab-entry {
     min-width: 52px;
@@ -856,6 +912,12 @@ body.fg-space-chop .workflow-rail { display: flex; }
   }
   .step-tab-entry .step-tab-label {
     display: none;
+  }
+  #nav-btn-db.step-tab-rekordbox {
+    min-width: 56px;
+    width: 56px;
+    justify-content: center;
+    padding: 10px;
   }
 }
 
@@ -2253,10 +2315,18 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 /* Modern welcome window shell (room picker + quick actions). */
 .fgwin {
   position: relative;
-  min-height: 460px;
+  min-height: 420px;
+  padding: 24px;
   background:
     radial-gradient(120% 95% at 30% -15%, rgba(56, 147, 255, 0.13), transparent 58%),
     linear-gradient(180deg, rgba(8, 22, 44, 0.94), rgba(5, 14, 31, 0.96));
+}
+
+@keyframes fgwin-title-shift {
+  0%   { filter: drop-shadow(0 0 6px rgba(0, 255, 255, .65)) drop-shadow(0 0 18px rgba(0, 212, 232, .35)); }
+  33%  { filter: drop-shadow(0 0 8px rgba(255, 72, 214, .6)) drop-shadow(0 0 20px rgba(255, 72, 214, .32)); }
+  66%  { filter: drop-shadow(0 0 8px rgba(123, 92, 255, .62)) drop-shadow(0 0 20px rgba(123, 92, 255, .28)); }
+  100% { filter: drop-shadow(0 0 6px rgba(0, 255, 255, .65)) drop-shadow(0 0 18px rgba(0, 212, 232, .35)); }
 }
 
 .fgwin-close {
@@ -2274,78 +2344,81 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
   cursor: pointer;
 }
 
-.fgwin-logo {
-  position: absolute;
-  top: 24px;
-  left: 26px;
-  width: 48px;
-  height: 48px;
-  opacity: .48;
-}
-
-.fgwin-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
 .fgwin-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 22px 26px 18px;
+  gap: 16px;
+  padding: 8px 4px 4px;
 }
 
 .fgwin-mark {
-  margin-left: 62px;
-  font-size: 1.55rem;
-  font-weight: 700;
-  letter-spacing: .13em;
-  color: #d6e6ff;
+  display: inline-block;
+  width: fit-content;
+  font-size: 1.62rem;
+  font-weight: 800;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: transparent;
+  background: linear-gradient(90deg, #f6ffff 0%, #68ffff 18%, #00d4e8 36%, #ff68eb 62%, #b08cff 82%, #f6ffff 100%);
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: 0 0 12px rgba(0, 212, 232, 0.18);
+  animation: fgwin-title-shift 6s linear infinite, fgwin-title-pan 7s ease-in-out infinite alternate;
+}
+
+@keyframes fgwin-title-pan {
+  from { background-position: 0% 50%; }
+  to   { background-position: 100% 50%; }
 }
 
 .fgwin-tag {
-  margin: 4px 0 0;
+  margin: 0;
   color: rgba(203, 223, 255, 0.8);
   font-size: .86rem;
   line-height: 1.6;
 }
 
 .fgwin-cards {
-  margin-top: 4px;
+  margin-top: 2px;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
 }
 
 .fgwin-card {
-  text-align: left;
-  border: 1px solid rgba(122, 166, 255, 0.28);
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(11, 34, 64, 0.88), rgba(8, 24, 48, 0.88));
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 1 / 1;
+  border: 0;
+  border-radius: 24px;
+  background: rgba(5, 13, 24, 0.72);
   color: #cfe1ff;
-  padding: 12px;
+  padding: 0;
   cursor: pointer;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.22);
+}
+
+.fgwin-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.22));
+  pointer-events: none;
 }
 
 .fgwin-card:hover {
-  border-color: rgba(151, 198, 255, 0.56);
-  box-shadow: 0 0 0 1px rgba(151, 198, 255, 0.18) inset;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.28);
+  transform: translateY(-1px);
 }
 
-.fgwin-ct {
-  font-size: .84rem;
-  font-weight: 700;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-  color: #e3f1ff;
-  margin-bottom: 5px;
-}
-
-.fgwin-cd {
-  font-size: .76rem;
-  line-height: 1.48;
-  color: rgba(199, 220, 255, 0.82);
+.fgwin-card-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: .99;
 }
 
 .fgwin-pills {

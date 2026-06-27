@@ -175,6 +175,12 @@ function reopenOnboardingWizard() {
   window.location.href = '/onboarding?reconfigure=1';
 }
 
+// Explicitly named entry for the full install walkthrough (permissions, paths,
+// archive policy, and MCP setup). Keep legacy name as an alias.
+function openInstallWalkthrough() {
+  reopenOnboardingWizard();
+}
+
 /* Clicking a locked card re-opens the onboarding wizard so the user can grant
    the permission it needs. Permission consent lives entirely in /onboarding;
    `reconfigure=1` allows re-entry after setup is already complete. */

@@ -92,7 +92,6 @@
 
   <button type="button" class="step-tab step-tab-entry" id="nav-btn-pipeline-wizard" onclick="openPipelineWizard()" title="Pipeline Wizard">
     <img class="step-icon" src="/static/icon-logo-fablegear.png" alt="Pipeline Wizard">
-    <span class="step-tab-label">Pipeline Wizard</span>
   </button>
 
   <div class="workflow-rail-divider" aria-hidden="true"></div>
@@ -107,7 +106,7 @@
     <img class="step-icon" src="/static/icon-drives.png" alt="Drives">
     <span class="nav-drives-badge" id="nav-drives-badge" style="display:none"></span>
   </button>
-  <button type="button" class="step-tab step-tab-util" id="nav-btn-db" onclick="openDbPanel('audit')" title="DB Maintenance">
+  <button type="button" class="step-tab step-tab-util step-tab-rekordbox" id="nav-btn-db" onclick="openDbPanel('audit')" title="Rekordbox Tools">
     <img class="step-icon" src="/static/icon-settings.png" alt="DB Fix">
   </button>
 </nav>
@@ -308,9 +307,9 @@
           </div>
 
           <div class="settings-section-sep">
-            <label class="settings-excl-label">Setup &amp; Permissions</label>
-            <div class="settings-excl-note">Re-run the setup wizard to revisit drive discovery, archive placement, and database permissions.</div>
-            <button type="button" class="btn btn-secondary btn-xs" onclick="reopenOnboardingWizard()">Re-run Setup Wizard</button>
+            <label class="settings-excl-label">Install Walkthrough</label>
+            <div class="settings-excl-note">Run the full walkthrough again for permissions, file/database locations, archive destination, and MCP setup.</div>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="openInstallWalkthrough()">Open Install Walkthrough</button>
           </div>
 
           <div class="settings-section-sep">
@@ -534,32 +533,22 @@
 <!-- ══ Welcome modal — permission wizard ════════════════════════════════════ -->
 <div id="welcome-backdrop" class="hidden">
   <div id="welcome-modal">
-    <div class="welcome-header">
-      <div class="welcome-header-text">
-        <h2>FableGear</h2>
-        <p>A local Record Room and Chop Shop for Rekordbox libraries.</p>
-      </div>
-    </div>
-
     <!-- What's New + room picker -->
     <div class="welcome-step active fgwin" id="wstep-intro">
       <button type="button" class="fgwin-close" onclick="closeWelcome()" aria-label="Close">✕</button>
-      <div class="fgwin-logo" aria-hidden="true"><img src="/static/FableGear-logo.png" alt=""></div>
       <div class="fgwin-body">
-        <div class="fgwin-mark">FABLE&nbsp;GEAR</div>
-        <p class="fgwin-tag">Your all-in-one local DJ toolkit — browse, build, and clean a flawless Rekordbox library. Nothing ever leaves your machine.</p>
+        <div class="fgwin-mark">FableGear</div>
+        <p class="fgwin-tag">Pick a room to enter. Record Room is for browsing and playlist work; Chop Shop is for tool-driven file and library operations.</p>
         <div class="fgwin-cards">
-          <button type="button" class="fgwin-card rec" onclick="closeWelcome(); if(typeof setFableGearSpace==='function') setFableGearSpace('record');">
-            <div class="fgwin-ct">Record Room</div>
-            <div class="fgwin-cd">Browse, listen &amp; build playlists. Multi-view control, export straight to Rekordbox.</div>
+          <button type="button" class="fgwin-card fgwin-card-record" onclick="closeWelcome(); if(typeof setFableGearSpace==='function') setFableGearSpace('record');" aria-label="Enter Record Room">
+            <img class="fgwin-card-art" src="/static/icon-record-room.png" alt="">
           </button>
-          <button type="button" class="fgwin-card chop" onclick="closeWelcome(); if(typeof setFableGearSpace==='function') setFableGearSpace('chop');">
-            <div class="fgwin-ct">Chop Shop</div>
-            <div class="fgwin-cd">Tag, rename, dedupe, normalize, convert &amp; organize — DJ-ready in seconds.</div>
+          <button type="button" class="fgwin-card fgwin-card-chop" onclick="closeWelcome(); if(typeof setFableGearSpace==='function') setFableGearSpace('chop');" aria-label="Enter Chop Shop">
+            <img class="fgwin-card-art" src="/static/icon-chop-shop.png" alt="">
           </button>
         </div>
         <div class="fgwin-pills">
-          <button type="button" class="fgwin-pill" onclick="if(typeof reopenOnboardingWizard==='function') reopenOnboardingWizard()">Permissions</button>
+          <button type="button" class="fgwin-pill" onclick="if(typeof openInstallWalkthrough==='function') openInstallWalkthrough(); else if(typeof reopenOnboardingWizard==='function') reopenOnboardingWizard();">Install Walkthrough</button>
           <button type="button" class="fgwin-pill" onclick="if(typeof fablegearUpdateCheck==='function') fablegearUpdateCheck()">Updates</button>
           <button type="button" class="fgwin-pill" onclick="closeWelcome(); if(typeof openDbPanel==='function') openDbPanel('audit')">Database</button>
           <button type="button" class="fgwin-pill mcp-pill" id="mcp-pill" onclick="mcpPillClick()">
@@ -568,16 +557,6 @@
         </div>
         <div class="fgwin-new"><b>What's new</b> · Updates ask first · First-run wizard · Room picker on startup</div>
       </div>
-    </div>
-
-    <div class="settings-section-sep">
-      <label class="settings-excl-label">🧭 Setup &amp; permissions</label>
-      <div class="settings-excl-note">
-        Re-open the welcome wizard any time to revisit drive discovery, archive placement, and database permissions.
-      </div>
-      <button type="button" class="btn btn-secondary btn-xs settings-reconfigure-btn" onclick="reopenOnboardingWizard()">
-        Re-run setup / permissions
-      </button>
     </div>
 
   </div>

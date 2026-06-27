@@ -352,7 +352,7 @@ def index():
     try:
         if not config_exists():
             return _redirect("/onboarding")
-        _st = json.loads(_FABLEGEAR_STATE.read_text(encoding="utf-8")) if _FABLEGEAR_STATE.exists() else {}
+        _st = _load_setup_state(repair=True)
         if not _st.get("setup_complete"):
             return _redirect("/onboarding")
     except Exception:
@@ -987,21 +987,69 @@ def api_staging_batch_delete():
 
 _FABLEGEAR_STATE = Path.home() / ".fablegear" / "fablegear-state.json"
 
+_SETUP_STATE_DEFAULTS = {
+    "setup_complete": False,
+    "db_read": None,
+    "db_write": None,
+    "drive_scan": False,
+}
+
+
+def _normalize_setup_state(raw: dict | None) -> dict:
+    state = dict(_SETUP_STATE_DEFAULTS)
+    if not isinstance(raw, dict):
+        return state
+
+    state["setup_complete"] = bool(raw.get("setup_complete", False))
+    state["drive_scan"] = bool(raw.get("drive_scan", False))
+
+    for key in ("db_read", "db_write"):
+        value = raw.get(key)
+        state[key] = value if isinstance(value, bool) or value is None else None
+
+    return state
+
+
+def _load_setup_state(*, repair: bool = True) -> dict:
+    raw = None
+    should_write = False
+
+    try:
+        if _FABLEGEAR_STATE.exists():
+            raw = json.loads(_FABLEGEAR_STATE.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                should_write = True
+        else:
+            raw = {}
+            should_write = True
+    except Exception:
+        raw = {}
+        should_write = True
+
+    state = _normalize_setup_state(raw)
+
+    if not should_write and isinstance(raw, dict) and raw != state:
+        should_write = True
+
+    if repair and should_write:
+        try:
+            _FABLEGEAR_STATE.parent.mkdir(parents=True, exist_ok=True)
+            _FABLEGEAR_STATE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+        except Exception:
+            pass
+
+    return state
+
 
 @app.route("/api/setup-status")
 def api_setup_status():
     """Return whether the welcome wizard has been completed."""
-    try:
-        if _FABLEGEAR_STATE.exists():
-            state = json.loads(_FABLEGEAR_STATE.read_text())
-            return jsonify({
-                "setup_complete": bool(state.get("setup_complete")),
-                "db_read":        state.get("db_read"),
-                "db_write":       state.get("db_write"),
-            })
-    except Exception:
-        pass
-    return jsonify({"setup_complete": False, "db_read": None, "db_write": None})
+    state = _load_setup_state(repair=True)
+    return jsonify({
+        "setup_complete": bool(state.get("setup_complete")),
+        "db_read":        state.get("db_read"),
+        "db_write":       state.get("db_write"),
+    })
 
 
 @app.route("/api/config/set-music-root", methods=["POST"])
@@ -1150,7 +1198,7 @@ def onboarding():
     from user_config import config_exists   # noqa: PLC0415
     try:
         if config_exists():
-            state = json.loads(_FABLEGEAR_STATE.read_text(encoding="utf-8")) if _FABLEGEAR_STATE.exists() else {}
+            state = _load_setup_state(repair=True)
             # `?reconfigure=1` lets a completed user re-enter the wizard (e.g. to
             # change permissions or paths); otherwise a finished setup bounces home.
             if state.get("setup_complete") and not request.args.get("reconfigure"):

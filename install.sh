@@ -15,6 +15,7 @@ set -euo pipefail
 REPO_URL="https://github.com/fabledharbinger0993/FableGear.git"
 PARENT_DIR="$HOME/FableGear"
 INSTALL_DIR="$PARENT_DIR/FableGear"
+FRESH_INSTALL=0
 
 # ── Colour output helpers ──────────────────────────────────────────────────
 _green() { printf '\033[0;32m%s\033[0m\n' "$*"; }
@@ -41,6 +42,22 @@ else
     _blue "Cloning FableGear to $INSTALL_DIR ..."
     mkdir -p "$PARENT_DIR"
     git clone "$REPO_URL" "$INSTALL_DIR"
+    FRESH_INSTALL=1
+fi
+
+# ── Fresh install onboarding gate ────────────────────────────────────────
+# Reset setup state on brand-new installs so first app open always runs
+# the onboarding walkthrough (permissions + library/file-location setup).
+if [ "$FRESH_INSTALL" -eq 1 ]; then
+    mkdir -p "$HOME/.fablegear"
+    cat > "$HOME/.fablegear/fablegear-state.json" <<'EOF'
+{
+  "setup_complete": false,
+  "db_read": null,
+  "db_write": null,
+  "drive_scan": false
+}
+EOF
 fi
 
 # ── First-run setup (run inline here so the user sees progress) ──────────
