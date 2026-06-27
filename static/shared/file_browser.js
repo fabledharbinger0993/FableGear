@@ -95,7 +95,7 @@ function loadLibraryFolders(dropdown) {
       }
       dropdown.replaceChildren();
       roots.forEach(p => {
-        const icon = p.type === 'folder' ? '/static/icon-folder.png' : '/static/icon-fg-library.png';
+        const icon = p.type === 'folder' ? '/static/icon-drives.png' : '/static/icon-record-room.png';
         const div = document.createElement('div');
         div.className = 'folder-item';
         div.appendChild(_makeDropdownIcon(icon));
@@ -119,7 +119,7 @@ function loadLibraryFolders(dropdown) {
 function _appendFileBrowserShortcut(dropdown, label) {
   const item = document.createElement('div');
   item.className = 'folder-item';
-  item.appendChild(_makeDropdownIcon('/static/icon-fg-files.png'));
+  item.appendChild(_makeDropdownIcon('/static/icon-queue.png'));
   const span = document.createElement('span');
   span.textContent = label;
   item.appendChild(span);
@@ -140,7 +140,7 @@ function loadFileBrowserFolders(dropdown) {
       vols.forEach(v => {
         const item = document.createElement('div');
         item.className = 'folder-item';
-        item.appendChild(_makeDropdownIcon('/static/icon-folder.png'));
+        item.appendChild(_makeDropdownIcon('/static/icon-drives.png'));
 
         const name = document.createElement('span');
         name.textContent = v.name || v.mountpoint || 'Drive';
@@ -222,10 +222,10 @@ async function fbNavigateTo(path) {
 
     const img = document.createElement('img');
     img.alt = '';
-    img.src = entry.is_dir   ? '/static/icon-folder.png'
-            : entry.is_audio ? '/static/icon-track.png'
-            :                  '/static/icon-fg-library.png';
-    img.onerror = () => { img.onerror = null; img.src = '/static/icon-fg-library.png'; };
+    img.src = entry.is_dir   ? '/static/icon-drives.png'
+            : entry.is_audio ? '/static/icon-track-tagger.png'
+            :                  '/static/icon-record-room.png';
+    img.onerror = () => { img.onerror = null; img.src = '/static/icon-record-room.png'; };
 
     const nameEl = document.createElement('span');
     nameEl.className = 'fb-item-name';

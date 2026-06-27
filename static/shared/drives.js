@@ -271,17 +271,6 @@ function initDriveList() {
         if (document.activeElement === _driveFlyoutTrigger || list.contains(document.activeElement)) list.focus();
         return;
       }
-      list.innerHTML = vols.map(v => `
-        <div class="lp-drives-item" role="button" tabindex="0"
-             onclick="openDriveInFileBrowser('${_escPath(v.mountpoint)}')"
-             onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openDriveInFileBrowser('${_escPath(v.mountpoint)}'); }">
-          <span class="lp-drives-name">${_esc(v.name)}</span>
-          ${v.has_pioneer_db ? '<span class="lp-drives-badge">Pioneer</span>' : ''}
-          ${v.free_gb != null ? `<span class="lp-drives-meta">${v.free_gb}/${v.total_gb} GB</span>` : ''}
-          <button type="button" class="le-stage-btn" title="Stage drive for Chop Shop"
-                  onclick="event.stopPropagation(); stagingAddPath('${_escAttr(v.mountpoint)}')">+Q</button>
-        </div>
-      `).join('');
       list.replaceChildren(...vols.map(v => {
         const item = document.createElement('div');
         item.className = 'lp-drives-item';
@@ -295,54 +284,70 @@ function initDriveList() {
           }
         });
 
+        const main = document.createElement('div');
+        main.className = 'lp-drives-main';
+
         const name = document.createElement('span');
         name.className = 'lp-drives-name';
         name.textContent = v.name || v.mountpoint || 'Drive';
-        item.appendChild(name);
+        main.appendChild(name);
+
+        const tags = document.createElement('div');
+        tags.className = 'lp-drives-tags';
 
         [
           v.has_pioneer_db ? 'Pioneer' : null,
           v.is_read_only ? 'Read-only' : null,
         ].filter(Boolean).forEach(text => {
           const badge = document.createElement('span');
-          badge.className = 'lp-drives-badge';
+          badge.className = text === 'Read-only' ? 'lp-drives-badge lp-drives-badge-readonly' : 'lp-drives-badge';
           badge.textContent = text;
-          item.appendChild(badge);
+          tags.appendChild(badge);
         });
 
         if (v.free_gb != null && v.total_gb != null) {
           const meta = document.createElement('span');
           meta.className = 'lp-drives-meta';
           meta.textContent = `${v.free_gb}/${v.total_gb} GB`;
-          item.appendChild(meta);
+          main.appendChild(meta);
         }
 
+        if (tags.childElementCount) {
+          main.appendChild(tags);
+        }
+
+        item.appendChild(main);
+
+        const actions = document.createElement('div');
+        actions.className = 'drives-item-actions';
+
         [
-          ['Open Disk Utility First Aid', '🩺', () => openDriveFirstAid(v.mountpoint)],
-          ['Stage drive for Chop Shop', '+Q', () => stagingAddPath(v.mountpoint)],
-        ].forEach(([title, text, onClick]) => {
+          ['Browse', 'Browse in file browser', () => openDriveInFileBrowser(v.mountpoint)],
+          ['First Aid', 'Open Disk Utility for First Aid', () => openDriveFirstAid(v.mountpoint)],
+          ['+ Queue', 'Add entire drive to Staging Queue', () => stagingAddPath(v.mountpoint)],
+        ].forEach(([label, title, action]) => {
           const button = document.createElement('button');
           button.type = 'button';
-          button.className = 'le-stage-btn';
+          button.className = label === '+ Queue' ? 'lp-drives-stage' : 'drives-action-btn';
           button.title = title;
-          button.setAttribute('aria-label', title);
-          button.textContent = text;
+          button.textContent = label;
           button.addEventListener('click', event => {
             event.stopPropagation();
-            onClick();
+            action();
           });
-          item.appendChild(button);
+          actions.appendChild(button);
         });
 
+        item.appendChild(actions);
         return item;
       }));
+
       _maybeFocusDriveFlyout(list);
     })
     .catch(() => {
-      if (list) {
-        list.innerHTML = '<div class="lp-drives-empty">Unavailable</div>';
-        if (document.activeElement === _driveFlyoutTrigger || list.contains(document.activeElement)) list.focus();
-      }
+      if (!list) return;
+      list.innerHTML = '<div class="lp-drives-empty">Unavailable</div>';
+      if (document.activeElement === _driveFlyoutTrigger || list.contains(document.activeElement)) list.focus();
     });
 }
 

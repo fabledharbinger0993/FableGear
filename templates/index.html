@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FableGo">
-<link rel="apple-touch-icon" href="/static/icon-fablego.png">
+<link rel="apple-touch-icon" href="/static/icon-logo-fablegear.png">
 <meta name="theme-color" content="#ff6600">
 <!-- CSP: restrict manifest to same-origin only -->
 <meta http-equiv="Content-Security-Policy" content="manifest-src 'self';">
@@ -98,17 +98,17 @@
   <div class="workflow-rail-divider" aria-hidden="true"></div>
 
   <button type="button" class="step-tab step-tab-util" id="nav-btn-library" onclick="toggleRightNavDropdown('library')" title="Library">
-    <img class="step-icon" src="/static/icon-fg-library.png" alt="Library">
+    <img class="step-icon" src="/static/icon-record-room.png" alt="Library">
   </button>
   <button type="button" class="step-tab step-tab-util" id="nav-btn-files" onclick="toggleRightNavDropdown('files')" title="Files">
-    <img class="step-icon" src="/static/icon-fg-files.png" alt="Files">
+    <img class="step-icon" src="/static/icon-queue.png" alt="Files">
   </button>
   <button type="button" class="step-tab step-tab-util" id="nav-btn-drives" onclick="toggleRightNavDropdown('drives')" title="Drives">
-    <img class="step-icon" src="/static/icon-fg-drives.png" alt="Drives">
+    <img class="step-icon" src="/static/icon-drives.png" alt="Drives">
     <span class="nav-drives-badge" id="nav-drives-badge" style="display:none"></span>
   </button>
   <button type="button" class="step-tab step-tab-util" id="nav-btn-db" onclick="openDbPanel('audit')" title="DB Maintenance">
-    <img class="step-icon" src="/static/icon-fg-rb-tools.png" alt="DB Fix">
+    <img class="step-icon" src="/static/icon-settings.png" alt="DB Fix">
   </button>
 </nav>
 
@@ -535,12 +535,10 @@
 <div id="welcome-backdrop" class="hidden">
   <div id="welcome-modal">
     <div class="welcome-header">
-      <img src="/static/icon-logo-fablegear.png" alt="" role="presentation" class="rb-logo-icon">
       <div class="welcome-header-text">
         <h2>FableGear</h2>
         <p>A local Record Room and Chop Shop for Rekordbox libraries.</p>
       </div>
-      <button type="button" class="welcome-close-btn" onclick="closeWelcome()" aria-label="Close">✕</button>
     </div>
 
     <!-- What's New + room picker -->
@@ -876,12 +874,11 @@
       <div class="le-header-center">
         <input type="text" id="le-search" placeholder="Search tracks…" autocomplete="off">
       </div>
-      <div class="le-header-right">
+      <div class="le-header-right le-header-actions">
         <button type="button" class="le-header-btn" onclick="leStartCreate('playlist')" title="New Playlist">＋ Playlist</button>
         <button type="button" class="le-header-btn" onclick="leStartCreate('folder')" title="New Folder">＋ Folder</button>
         <button type="button" class="le-header-btn" id="le-rename-btn" onclick="leRenameActivePlaylist()" title="Rename selected playlist or folder" disabled>Rename</button>
         <button type="button" class="le-header-btn" id="le-delete-btn" onclick="leDeleteActivePlaylist()" title="Delete selected playlist or folder" disabled>Delete</button>
-        <button type="button" class="le-header-btn" onclick="setFableGearSpace('chop')" title="Open Chop Shop">Chop Shop</button>
         <button type="button" class="le-header-btn le-export-btn" onclick="leOpenExportModal()" title="Export playlists to Pioneer USB drive">⬆ Export to USB</button>
       </div>
     </div>
@@ -1159,7 +1156,7 @@
   <!-- Header -->
   <div class="fablego-header">
     <span class="fablego-title">
-      <img src="/static/icon-fablego.png" class="fablego-title-icon" alt="FableGo"> FableGo
+      <img src="/static/icon-logo-fablegear.png" class="fablego-title-icon" alt="FableGo"> FableGo
     </span>
     <button type="button" class="fablego-close" onclick="closeFableGo()">✕</button>
   </div>

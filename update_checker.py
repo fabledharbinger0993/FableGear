@@ -30,6 +30,7 @@ import time
 import urllib.request
 import urllib.error
 import json
+import ssl
 from datetime import datetime
 from pathlib import Path
 
@@ -73,13 +74,7 @@ def check_now() -> dict:
 
     try:
         # 3. Fetch remote info
-        req  = urllib.request.Request(
-            _GITHUB_API,
-            headers={"Accept": "application/vnd.github+json",
-                     "User-Agent": "FableGear-update-checker/1.0"},
-        )
-        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT) as resp:
-            data = json.loads(resp.read())
+        data = _fetch_latest_release()
 
         latest_tag  = data.get("tag_name", "")
         release_url = data.get("html_url", "")
@@ -119,6 +114,34 @@ def check_now() -> dict:
         _update_cache(error=str(exc), is_git_install=is_git, current_version=current_version)
 
     return get_status()
+
+
+def _fetch_latest_release() -> dict:
+    req = urllib.request.Request(
+        _GITHUB_API,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "FableGear-update-checker/1.0",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT) as resp:
+            return json.loads(resp.read())
+    except urllib.error.URLError as exc:
+        reason = str(getattr(exc, "reason", exc))
+        if "CERTIFICATE_VERIFY_FAILED" not in reason:
+            raise
+
+    # macOS Python environments sometimes miss system trust roots; retry with
+    # certifi's CA bundle if available.
+    try:
+        import certifi  # type: ignore
+        ctx = ssl.create_default_context(cafile=certifi.where())
+        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT, context=ctx) as resp:
+            return json.loads(resp.read())
+    except Exception:
+        raise
 
 
 def get_status() -> dict:

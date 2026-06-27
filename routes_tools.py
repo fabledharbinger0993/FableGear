@@ -340,7 +340,7 @@ def api_pipeline():
     if not raw_steps:
         return jsonify({"error": "steps list is required"}), 400
 
-    _WRITE_STEP_TYPES = {"import", "link", "relocate", "prune"}
+    _WRITE_STEP_TYPES = {"import", "link", "relocate", "prune", "rename"}
     if not dry_run and any(s.get("type") in _WRITE_STEP_TYPES for s in raw_steps):
         err = _require_rb_closed()
         if err:
@@ -401,6 +401,19 @@ def api_pipeline():
                 cmd += ["--workers", str(cfg["workers"])]
             if dry_run:
                 cmd.append("--dry-run")
+
+        elif stype == "rename":
+            paths = cfg.get("paths") or [cfg.get("path", "")]
+            if isinstance(paths, str):
+                paths = [paths]
+            cmd = [sys.executable, str(CLI_PATH), "rename", paths[0]]
+            for extra in paths[1:]:
+                if extra:
+                    cmd += ["--also-scan", extra]
+            if not dry_run:
+                cmd.append("--no-dry-run")
+            if cfg.get("workers", 1) > 1:
+                cmd += ["--workers", str(cfg["workers"])]
 
         elif stype == "duplicates":
             paths = cfg.get("paths") or [cfg.get("path", "")]

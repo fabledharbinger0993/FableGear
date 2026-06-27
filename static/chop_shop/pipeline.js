@@ -195,6 +195,7 @@ function _typeLabel(steps, step, i) {
 const STEP_REQUIRED_FIELDS = {
   audit:      [],           // paths is optional
   process:    ['paths'],
+  rename:     ['paths'],
   normalize:  ['paths'],
   duplicates: ['paths'],
   prune:      [],           // auto-uses CSV from prior duplicates step
@@ -263,7 +264,7 @@ function pipeWizBuildConfigs() {
   });
 
   pipelineSteps.forEach((step, i) => {
-    const def   = PIPE_STEPS[step.type] || { name: step.type, icon: '/static/RB_LOGO.png', desc: '' };
+    const def   = PIPE_STEPS[step.type] || { name: step.type, icon: '/static/FableGear-logo.png', desc: '' };
     const label = _typeLabel(pipelineSteps, step, i);
     const ready = _stepIsReady(step);
 
@@ -294,7 +295,7 @@ function pipeWizSelectStep(i) {
 
   const step  = pipelineSteps[i];
   if (!step) return;
-  const def   = PIPE_STEPS[step.type] || { name: step.type, icon: '/static/RB_LOGO.png', desc: '' };
+  const def   = PIPE_STEPS[step.type] || { name: step.type, icon: '/static/FableGear-logo.png', desc: '' };
   const label = _typeLabel(pipelineSteps, step, i);
   const panel = document.getElementById('pipe-wiz-active-cfg');
 
@@ -368,6 +369,9 @@ function _pipeWizConfigHTML(step, saved) {
 
     case 'process':
       return multiPathRow('paths', 'Music folders', 'Choose or enter a music folder') + workersRow(4);
+
+    case 'rename':
+      return multiPathRow('paths', 'Folders to rename', 'Choose or enter a music folder') + workersRow(1);
 
     case 'normalize':
       return multiPathRow('paths', 'Music folders', 'Choose or enter a music folder') + workersRow(4);
@@ -463,6 +467,9 @@ function _pipeWizReadDraft(step) {
       draft.paths       = getLines('paths');
       draft.workers     = getN('workers', 1);
       draft.no_normalize = true; break;
+    case 'rename':
+      draft.paths   = getLines('paths');
+      draft.workers = getN('workers', 1); break;
     case 'normalize':
       draft.paths   = getLines('paths');
       draft.workers = getN('workers', 1); break;

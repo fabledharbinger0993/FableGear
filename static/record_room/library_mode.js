@@ -4,6 +4,18 @@
 
 import { DeckManager } from './deck_control.js';
 
+// This module is loaded before some classic scripts. Keep mode state on
+// window so module/classic ordering never throws ReferenceError.
+function _leGetState(key, fallback) {
+  if (window[key] === undefined) window[key] = fallback;
+  return window[key];
+}
+
+function _leSetState(key, value) {
+  window[key] = value;
+  return value;
+}
+
 function onPlayClick(trackId, deckId, trackMeta = null) {
     const url = `/api/library/tracks/${trackId}/stream`;
   DeckManager.loadTrackToDeck(deckId, url, trackMeta).then(() => {
@@ -45,8 +57,8 @@ function _leCreateRowElement(t, col, type = 'track') {
 }
 
 function setLibraryMode(mode, fsRootPath = null) {
-  _leMode = mode;
-  if (fsRootPath) _leFsCurrentPath = fsRootPath;
+  _leSetState('_leMode', mode);
+  if (fsRootPath) _leSetState('_leFsCurrentPath', fsRootPath);
 
   // Update toggle buttons
   document.querySelectorAll('.le-mode-btn').forEach(b => {
@@ -71,7 +83,7 @@ function setLibraryMode(mode, fsRootPath = null) {
     if (splitView)   splitView.style.display  = 'none';
     if (statusBar)   statusBar.style.display  = '';
     // Reload from rekordbox if not yet loaded
-    if (!_leTracksLoaded) leLoadLibrary();
+    if (!_leGetState('_leTracksLoaded', false)) leLoadLibrary();
 
   } else if (mode === 'fs') {
     if (filterBar)   filterBar.style.display = 'none';
@@ -81,7 +93,7 @@ function setLibraryMode(mode, fsRootPath = null) {
     if (trackList)   trackList.style.display  = '';
     if (splitView)   splitView.style.display  = 'none';
     if (statusBar)   statusBar.style.display  = '';
-    leFsBrowse(_leFsCurrentPath);
+    leFsBrowse(_leGetState('_leFsCurrentPath', null));
 
   } else if (mode === 'split') {
     if (filterBar)   filterBar.style.display = 'none';
@@ -96,14 +108,15 @@ function setLibraryMode(mode, fsRootPath = null) {
 }
 
 function _leStageFsCurrentFolder() {
-  if (_leFsCurrentPath && typeof stagingAddPath === 'function') {
-    stagingAddPath(_leFsCurrentPath);
+  const currentPath = _leGetState('_leFsCurrentPath', null);
+  if (currentPath && typeof stagingAddPath === 'function') {
+    stagingAddPath(currentPath);
   }
 }
 
 function setLeDbSource(source) {
   if (source !== 'local' && source !== 'device') return;
-  _leDbSource = source;
+  _leSetState('_leDbSource', source);
   document.querySelectorAll('.le-db-btn').forEach(b => {
     b.classList.toggle('le-db-active', b.dataset.db === source);
   });
@@ -116,8 +129,8 @@ function setLeDbSource(source) {
     notice.style.display = source === 'device' ? '' : 'none';
   }
   // Reload library data with the new source
-  _leTracksLoaded = false;
-  if (_leMode === 'db') leLoadLibrary();
+  _leSetState('_leTracksLoaded', false);
+  if (_leGetState('_leMode', 'db') === 'db') leLoadLibrary();
 }
 
 /* ── Filesystem browse mode ──────────────────────────────────────────────── */
@@ -144,7 +157,7 @@ async function leFsBrowse(path) {
     return;
   }
 
-  _leFsCurrentPath = data.path;
+  _leSetState('_leFsCurrentPath', data.path);
 
   // ── Platform volume root — render drive picker cards ───────────────────
   if (data.is_volumes_root) {

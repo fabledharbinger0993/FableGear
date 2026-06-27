@@ -310,20 +310,21 @@ function runConvert() {
 /* ── Pipeline Builder ──────────────────────────────────────────────────────── */
 
 const PIPE_STEPS = {
-  audit:      { name: 'Library Audit',      icon: '/static/icon-audit.png',          desc: 'DB snapshot + physical filesystem inventory' },
-  process:    { name: 'Tag Tracks',         icon: '/static/icon-tag.png',            desc: 'Write BPM and Key into each file' },
-  duplicates: { name: 'Find Duplicates',    icon: '/static/icon-find-duplicate.png', desc: 'Scan for files that are the same recording' },
-  prune:      { name: 'Prune Duplicates',   icon: '/static/icon-prune.png',          desc: 'Remove copies found by Find Duplicates' },
-  relocate:   { name: 'Fix Broken Paths',   icon: '/static/icon-move.png',           desc: 'Update RekordBox after files have moved' },
-  import:     { name: 'Import Tracks',      icon: '/static/icon-import.png',         desc: 'Add new audio files to RekordBox database' },
-  link:       { name: 'Link Playlists',     icon: '/static/icon-link.png',           desc: 'Connect tracks to playlists by folder name' },
+  audit:      { name: 'Library Audit',      icon: '/static/icon-settings.png',          desc: 'DB snapshot + physical filesystem inventory' },
+  process:    { name: 'Tag Tracks',         icon: '/static/icon-track-tagger.png',   desc: 'Write BPM and Key into each file' },
+  rename:     { name: 'Rename Files',       icon: '/static/icon-renamer.png',        desc: 'Clean filenames using embedded metadata' },
+  duplicates: { name: 'Find Duplicates',    icon: '/static/icon-deduper.png',        desc: 'Scan for files that are the same recording' },
+  prune:      { name: 'Prune Duplicates',   icon: '/static/icon-deduper.png',          desc: 'Remove copies found by Find Duplicates' },
+  relocate:   { name: 'Fix Broken Paths',   icon: '/static/icon-settings.png',           desc: 'Update RekordBox after files have moved' },
+  import:     { name: 'Import Tracks',      icon: '/static/icon-queue.png',         desc: 'Add new audio files to RekordBox database' },
+  link:       { name: 'Link Playlists',     icon: '/static/icon-settings.png',           desc: 'Connect tracks to playlists by folder name' },
   normalize:  { name: 'Balance Loudness',   icon: '/static/icon-normalizer.png',     desc: 'Bring every track to the same volume' },
   convert:    { name: 'Convert Format',     icon: '/static/icon-converter.png',      desc: 'Change files to AIFF, MP3, WAV, or FLAC' },
   organize:   { name: 'Organize Library',   icon: '/static/icon-organizer.png',      desc: 'Move files into Artist / Album / Track' },
   novelty:    { name: 'Novelty Scan',       icon: '/static/icon-novelty.png',        desc: 'Copy unique tracks from source to home library' },
 };
 
-const RECOMMENDED = ['process','duplicates','prune','relocate','import','link','organize'];
+const RECOMMENDED = ['process','rename','duplicates','prune','relocate','import','link','organize'];
 
 let pipelineSteps = [];   // [{id, type}]
 let pipeUid = 0;
