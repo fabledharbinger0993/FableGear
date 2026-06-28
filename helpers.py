@@ -31,6 +31,35 @@ from mutagen import File as MutagenFile
 from pioneer_export_validator import validate_export_paths, validate_copied_file_exists
 
 
+def api_error_response(
+    message: str,
+    *,
+    status: int = 500,
+    code: str = "internal_error",
+    details: str | None = None,
+):
+    payload = {
+        "ok": False,
+        "error": code,
+        "message": message,
+    }
+    if details:
+        payload["details"] = details
+    return jsonify(payload), status
+
+
+def api_error_from_exc(exc: Exception, *, status: int = 500, code: str = "internal_error"):
+    from flask import current_app
+
+    detail = str(exc) if getattr(current_app, "debug", False) else None
+    return api_error_response(
+        "Something went wrong.",
+        status=status,
+        code=code,
+        details=detail,
+    )
+
+
 def _is_user_mount(mountpoint: str) -> bool:
     if sys.platform == "darwin":
         return mountpoint.startswith("/Volumes/") or mountpoint == "/Volumes"

@@ -14,6 +14,7 @@ import logging
 import platform
 import shutil
 import subprocess
+import threading
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +36,7 @@ def _get_config():
 # ─── Process detection ────────────────────────────────────────────────────────
 
 REKORDBOX_PROCESS_NAMES = ("rekordbox", "Rekordbox")
+_WRITE_SESSION_LOCK = threading.Lock()
 
 _PLATFORM = platform.system()  # "Darwin", "Windows", or "Linux"
 
@@ -152,35 +154,44 @@ def open_db(
     BACKUP_DIR, DJMT_DB, LOCAL_DB = _get_config()
     target = db_path or LOCAL_DB
 
+    lock_acquired = False
     if write:
-        if rekordbox_is_running():
-            raise RuntimeError(
-                "Rekordbox is currently running. "
-                "Close it before making any changes to the database."
-            )
-        backup_path = _backup_db(target)
-        log.info("Write session opening on %s (backup: %s)", target, backup_path)
-    else:
-        log.debug("Read-only session opening on %s", target)
+        _WRITE_SESSION_LOCK.acquire()
+        lock_acquired = True
 
-    db: Rekordbox6Database | None = None
     try:
-        db = Rekordbox6Database(target)
-        yield db
-    except Exception:
-        if write and db is not None:
-            log.exception("Exception during write session — rolling back")
-            try:
-                db.rollback()
-            except Exception:
-                log.exception("Rollback also failed")
-        raise
+        if write:
+            if rekordbox_is_running():
+                raise RuntimeError(
+                    "Rekordbox is currently running. "
+                    "Close it before making any changes to the database."
+                )
+            backup_path = _backup_db(target)
+            log.info("Write session opening on %s (backup: %s)", target, backup_path)
+        else:
+            log.debug("Read-only session opening on %s", target)
+
+        db: Rekordbox6Database | None = None
+        try:
+            db = Rekordbox6Database(target)
+            yield db
+        except Exception:
+            if write and db is not None:
+                log.exception("Exception during write session — rolling back")
+                try:
+                    db.rollback()
+                except Exception:
+                    log.exception("Rollback also failed")
+            raise
+        finally:
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    log.exception("Error closing database")
     finally:
-        if db is not None:
-            try:
-                db.close()
-            except Exception:
-                log.exception("Error closing database")
+        if lock_acquired:
+            _WRITE_SESSION_LOCK.release()
 
 
 # ─── Convenience wrappers ─────────────────────────────────────────────────────

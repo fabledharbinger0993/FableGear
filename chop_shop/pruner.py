@@ -423,6 +423,7 @@ def prune_files(
     skipped    = 0
     playlists_rethreaded = 0
     errors: list[str] = []
+    protected_paths: set[str] = set()
 
     # ── Step 1: Remove from database (with playlist re-threading) ─────────
     emit("  Removing from RekordBox database…")
@@ -446,17 +447,30 @@ def prune_files(
         try:
             rows = db.get_content(FolderPath=path).all()
             if rows:
+                deleted_for_path = 0
                 for row in rows:
                     # Re-thread playlist slots before deleting the content row
                     keeper_path = (keeper_map or {}).get(path)
+                    song_rows = db.get_playlist_songs(ContentID=row.ID).all()
                     if keeper_path:
                         n = _rethread_playlists(row, keeper_path, db, emit)
                         if n:
                             playlists_rethreaded += n
                             emit(f"      ↪  {n} playlist slot(s) re-threaded to keeper")
+                    elif song_rows:
+                        protected_paths.add(path)
+                        skipped += 1
+                        emit(
+                            "      ⚠  Protected — track is in playlist(s) but no keeper mapping was provided; skipping delete"
+                        )
+                        continue
                     db.session.delete(row)
-                db_removed += 1
-                emit(f"    DB ✓  {Path(path).name}")
+                    deleted_for_path += 1
+                if deleted_for_path > 0:
+                    db_removed += deleted_for_path
+                    emit(f"    DB ✓  {Path(path).name}")
+                else:
+                    emit(f"    DB —  {Path(path).name}  (protected; no rows deleted)")
             else:
                 emit(f"    DB —  {Path(path).name}  (not in database — file only)")
         except Exception as exc:
@@ -491,6 +505,9 @@ def prune_files(
     action_label = "Permanently deleting" if permanent else "Moving files to recovery folder"
     emit(f"  {action_label}…")
     for path in file_paths:
+        if path in protected_paths:
+            emit(f"    Skip — protected by playlist safety gate: {Path(path).name}")
+            continue
         p = Path(path)
         if not p.exists():
             emit(f"    Skip — not found on disk: {p.name}")

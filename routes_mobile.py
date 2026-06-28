@@ -29,6 +29,8 @@ from flask import Blueprint, jsonify, request, current_app
 from helpers import (
     limiter,
     sock,
+    api_error_response,
+    api_error_from_exc,
     _EXPORT_JOBS,
     _EXPORT_LOCK,
     _MAX_EXPORT_JOBS,
@@ -482,7 +484,7 @@ def mobile_rekordbox_tracks():
         return jsonify(results[offset: offset + limit])
 
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 @bp.route("/api/mobile/rekordbox/tracks", methods=["POST"])
@@ -530,13 +532,13 @@ def mobile_rekordbox_add_track():
                 return jsonify({"track_id": existing_id, "status": "already_exists"}), 409
             except Exception:
                 return jsonify({"track_id": "unknown", "status": "already_exists"}), 409
-        return jsonify({"error": str(exc)}), 400
+        return api_error_from_exc(exc, status=400, code="invalid_request")
 
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        return api_error_response("Database temporarily unavailable.", status=503, code="service_unavailable")
 
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 # ── Track analysis ────────────────────────────────────────────────────────────
@@ -711,7 +713,7 @@ def mobile_rekordbox_playlists():
             result.sort(key=lambda p: p["name"].lower())
             return jsonify(result)
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 @bp.route("/api/mobile/rekordbox/playlists", methods=["POST"])
@@ -731,9 +733,9 @@ def mobile_rekordbox_create_playlist():
             db.commit()
             return jsonify({"playlist_id": str(pl.ID)}), 201
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        return api_error_response("Database temporarily unavailable.", status=503, code="service_unavailable")
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 @bp.route("/api/mobile/rekordbox/playlists/<playlist_id>")
@@ -787,7 +789,7 @@ def mobile_rekordbox_playlist(playlist_id: str):
                 "tracks":      tracks,
             })
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 @bp.route("/api/mobile/rekordbox/playlists/<playlist_id>", methods=["PUT"])
@@ -810,9 +812,9 @@ def mobile_rekordbox_rename_playlist(playlist_id: str):
             db.commit()
             return jsonify({"status": "ok"})
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        return api_error_response("Database temporarily unavailable.", status=503, code="service_unavailable")
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 @bp.route("/api/mobile/rekordbox/playlists/<playlist_id>", methods=["DELETE"])
@@ -830,9 +832,9 @@ def mobile_rekordbox_delete_playlist(playlist_id: str):
             db.commit()
             return jsonify({"status": "deleted"})
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        return api_error_response("Database temporarily unavailable.", status=503, code="service_unavailable")
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 @bp.route("/api/mobile/rekordbox/playlists/<playlist_id>/tracks", methods=["POST"])
@@ -874,9 +876,9 @@ def mobile_rekordbox_add_to_playlist(playlist_id: str):
             db.commit()
             return jsonify({"status": "added"}), 201
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        return api_error_response("Database temporarily unavailable.", status=503, code="service_unavailable")
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 @bp.route(
@@ -903,9 +905,9 @@ def mobile_rekordbox_remove_from_playlist(playlist_id: str, track_id: str):
             db.commit()
             return jsonify({"status": "removed", "removed": removed})
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        return api_error_response("Database temporarily unavailable.", status=503, code="service_unavailable")
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 # ── Drive detection ───────────────────────────────────────────────────────────
@@ -935,7 +937,7 @@ def mobile_drives():
                 continue
         return jsonify(drives)
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 # ── USB export ────────────────────────────────────────────────────────────────

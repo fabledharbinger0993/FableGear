@@ -10,6 +10,7 @@ import logging
 import os
 import shutil
 import sqlite3
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -114,7 +115,23 @@ def undo_restore_savepoint():
         return jsonify({"error": f"Could not backup current DB: {exc}"}), 500
 
     try:
-        shutil.copy2(str(sp), str(DJMT_DB))
+        # Atomic restore: copy to a temp file in the target directory, fsync,
+        # then replace the DB path in one operation.
+        target_dir = Path(DJMT_DB).parent
+        with tempfile.NamedTemporaryFile(
+            prefix=".fablegear_restore_",
+            suffix=".db",
+            dir=str(target_dir),
+            delete=False,
+        ) as tmpf:
+            tmp_path = Path(tmpf.name)
+        try:
+            shutil.copy2(str(sp), str(tmp_path))
+            with open(tmp_path, "rb") as verify_f:
+                os.fsync(verify_f.fileno())
+            tmp_path.replace(Path(DJMT_DB))
+        finally:
+            tmp_path.unlink(missing_ok=True)
     except OSError as exc:
         return jsonify({"error": f"Restore failed: {exc}"}), 500
 

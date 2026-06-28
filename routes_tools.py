@@ -38,6 +38,7 @@ from helpers import (
     mark_step_complete,
     list_running_managed_subprocesses,
     terminate_managed_subprocesses,
+    api_error_from_exc,
 )
 
 bp = Blueprint("tools", __name__)
@@ -864,7 +865,7 @@ def api_prune_stage():
             }
         return jsonify({"token": token, "keeper_map_size": len(keeper_map)})
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 @bp.route("/api/duplicates/load")
@@ -904,7 +905,7 @@ def api_duplicates_load():
         })
 
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 @bp.route("/api/duplicates/remove-paths")
@@ -918,7 +919,7 @@ def api_duplicates_remove_paths():
     try:
         cached = _load_duplicate_cache(csv_path, include_db=False)
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
     return jsonify({
         "remove_paths": cached["remove_paths"],
@@ -957,7 +958,7 @@ def api_open_file():
             )
         return jsonify({"ok": True})
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 @bp.route("/api/run/prune")

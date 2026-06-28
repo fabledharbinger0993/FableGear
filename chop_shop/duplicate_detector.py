@@ -862,6 +862,7 @@ def _walk_audio_files(root: Path) -> list[Path]:
 def scan_duplicates(
     root: "Path | list[Path]",
     *,
+    files_override: "list[Path] | None" = None,
     max_workers: int = 1,
     pause_seconds: float = 0.0,
     match_mode: str = "exact",
@@ -909,17 +910,31 @@ def scan_duplicates(
         unique_in_trash: Files with no duplicate that live inside trash folders.
     """
     roots = [root] if isinstance(root, Path) else list(root)
-    for r in roots:
-        if not r.is_dir():
-            raise ValueError(f"scan_duplicates: {r} is not a directory")
-
-    log.info("Walking %d root(s) for audio files...", len(roots))
     all_files: list[Path] = []
-    for r in roots:
-        found = _walk_audio_files(r)
-        log.info("  %s → %d files", r, len(found))
-        all_files.extend(found)
-    log.info("Found %d audio files total", len(all_files))
+
+    if files_override is not None:
+        # DB-scoped scans can supply an explicit file list so we fingerprint
+        # only Rekordbox-referenced tracks instead of whole parent folders.
+        seen: set[Path] = set()
+        for p in files_override:
+            rp = Path(p)
+            if rp in seen:
+                continue
+            seen.add(rp)
+            if rp.suffix.lower() in AUDIO_EXTENSIONS:
+                all_files.append(rp)
+        log.info("Using explicit file list: %d audio files", len(all_files))
+    else:
+        for r in roots:
+            if not r.is_dir():
+                raise ValueError(f"scan_duplicates: {r} is not a directory")
+
+        log.info("Walking %d root(s) for audio files...", len(roots))
+        for r in roots:
+            found = _walk_audio_files(r)
+            log.info("  %s → %d files", r, len(found))
+            all_files.extend(found)
+        log.info("Found %d audio files total", len(all_files))
 
     # Apply pre-filter from scan index if available
     index = _load_scan_index()

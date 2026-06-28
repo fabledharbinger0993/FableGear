@@ -127,9 +127,9 @@ def test_lan_static_assets_public(client):
     assert _hit(client, "/static/fablegear.css", LAN).status_code == 200
 
 
-def test_lan_bearer_escape_hatch_reaches_handler(client):
+def test_lan_bearer_does_not_bypass_non_mobile_boundary(client):
     r = _hit(client, "/api/cancel", LAN, method="POST", token=TEST_TOKEN)
-    assert r.status_code != 403   # boundary passed; handler decides the rest
+    assert r.status_code == 403
 
 
 def test_onboarding_save_config_defaults_backup_to_archive_savepoints(client):
@@ -151,6 +151,24 @@ def test_onboarding_save_config_defaults_backup_to_archive_savepoints(client):
 def test_api_config_uses_archive_reports_path(client):
     data = _hit(client, "/api/config", LOOPBACK).get_json()
     assert data["reports"].endswith("/FableGear Archive/Reports")
+
+
+def test_api_error_contract_is_sanitized(client, monkeypatch):
+    import audit as _audit  # noqa: PLC0415
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("/Users/cameron/Secrets/rekordbox/master.db exploded")
+
+    monkeypatch.setattr(_audit, "find_dead_roots", _boom)
+
+    resp = _hit(client, "/api/audit/path-roots", LOOPBACK)
+    data = resp.get_json()
+
+    assert resp.status_code == 500
+    assert data["ok"] is False
+    assert data["error"] == "internal_error"
+    assert data["message"] == "Something went wrong."
+    assert "Secrets" not in json.dumps(data)
 
 
 # ── Dead-file scanner: fail loud on unreadable DB ────────────────────────────

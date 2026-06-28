@@ -27,6 +27,7 @@ from helpers import (
     mark_step_complete,
     _register_active_process,
     _unregister_active_process,
+    api_error_from_exc,
 )
 
 bp = Blueprint("rekordbox", __name__)
@@ -207,7 +208,7 @@ def api_audit_path_roots():
             "has_dead_roots": report.has_dead_roots,
         })
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 # ── Dead File Scan ────────────────────────────────────────────────────────────
@@ -221,6 +222,53 @@ def api_dead_files():
     for extra in paths[1:]:
         cmd += ["--also-scan", extra]
     return _sse_response(cmd, library_root=paths[0], step_name="dead-files")
+
+
+# ── Rekordbox Dedupe ─────────────────────────────────────────────────────────
+
+@bp.route("/api/run/rekordbox-dedupe")
+def api_rekordbox_dedupe():
+    dry_run = request.args.get("no_dry_run") != "1"
+    if not dry_run:
+        err = _require_rb_closed()
+        if err:
+            return err
+
+    cmd = [sys.executable, str(CLI_PATH), "rekordbox-dedupe"]
+
+    db_path = request.args.get("db_path", "").strip()
+    if db_path:
+        cmd += ["--db-path", db_path]
+
+    output = request.args.get("output", "").strip()
+    if output:
+        cmd += ["--output", output]
+
+    workers = request.args.get("workers", "").strip()
+    if workers and workers.isdigit() and int(workers) > 1:
+        cmd += ["--workers", workers]
+
+    match_mode = request.args.get("match_mode", "").strip()
+    if match_mode in ("exact", "fuzzy", "tags", "all"):
+        cmd += ["--match-mode", match_mode]
+
+    fuzzy_threshold = request.args.get("fuzzy_threshold", "").strip()
+    if fuzzy_threshold:
+        try:
+            ft = float(fuzzy_threshold)
+            if 0.0 < ft < 1.0:
+                cmd += ["--fuzzy-threshold", f"{ft:.2f}"]
+        except ValueError:
+            pass
+
+    if not dry_run:
+        cmd.append("--no-dry-run")
+
+    if request.args.get("permanent") == "1":
+        cmd.append("--permanent")
+
+    library_root = db_path or "rekordbox"
+    return _sse_response(cmd, library_root=library_root, step_name="rekordbox-dedupe")
 
 
 # ── Pioneer DB migration ──────────────────────────────────────────────────────

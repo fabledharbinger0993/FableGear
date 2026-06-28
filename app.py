@@ -35,6 +35,7 @@ from helpers import (
     REPO_ROOT,
     limiter,
     sock,
+    api_error_from_exc,
     _rb_is_running,
     _backup_info,
     _release_info,
@@ -53,6 +54,13 @@ app = Flask(
     template_folder=str(REPO_ROOT / "templates"),   # index.html + partials/
     static_folder=str(REPO_ROOT / "static"),
 )
+
+
+@app.errorhandler(Exception)
+def _handle_unexpected_exception(exc):
+    if request.path.startswith("/api/"):
+        return api_error_from_exc(exc)
+    raise exc
 
 
 _LEGACY_STATIC_ALIASES = {
@@ -146,11 +154,9 @@ def inject_cache_bust():
 #                                                   enforce their own Bearer auth)
 #   3. /api/connectivity                  → allow  (handler enforces loopback itself)
 #   4. GET /static/*                      → allow  (public assets: css/js/icons)
-#   5. Valid "Authorization: Bearer <mobile_token>"
-#                                         → allow  (deliberate remote access)
-#   6. allow_lan_ui: true in ~/.fablegear/config.json
+#   5. allow_lan_ui: true in ~/.fablegear/config.json
 #                                         → allow  (explicit owner opt-out)
-#   7. otherwise                          → 403
+#   6. otherwise                          → 403
 
 def _lan_ui_allowed() -> bool:
     """Owner opt-out: {"allow_lan_ui": true} in ~/.fablegear/config.json."""
@@ -172,17 +178,6 @@ def _enforce_network_boundary():
         return  # handler performs its own loopback check
     if request.method in ("GET", "HEAD") and request.path.startswith("/static/"):
         return
-    # Deliberate remote access with the FableGo token (same secret, same
-    # constant-time comparison as the mobile blueprint).
-    try:
-        from routes_mobile import _read_mobile_token  # noqa: PLC0415
-        import hmac as _hmac_mod  # noqa: PLC0415
-        token = _read_mobile_token()
-        auth = request.headers.get("Authorization", "")
-        if token and auth.startswith("Bearer ") and _hmac_mod.compare_digest(auth[7:], token):
-            return
-    except Exception:
-        pass
     if _lan_ui_allowed():
         return
     app.logger.warning(
@@ -192,8 +187,7 @@ def _enforce_network_boundary():
     return jsonify({
         "error": "forbidden",
         "message": "This endpoint is loopback-only. Set allow_lan_ui in "
-                   "~/.fablegear/config.json or send the FableGo Bearer token "
-                   "for remote access.",
+                   "~/.fablegear/config.json for remote access.",
     }), 403
 
 # ── Blueprints ────────────────────────────────────────────────────────────────

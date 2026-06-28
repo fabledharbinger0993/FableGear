@@ -94,7 +94,11 @@ if [ ! -f "$SCRIPT_DIR/.dev" ]; then
           :
         else
           echo "FableGear: dependency install failed after update; rolling back" >> "$LOG"
-          git reset --hard "$PREV_HEAD" >> "$LOG" 2>&1
+          if git diff --quiet && git diff --cached --quiet; then
+            git reset --hard "$PREV_HEAD" >> "$LOG" 2>&1
+          else
+            echo "FableGear: skipped rollback because local changes are present" >> "$LOG"
+          fi
         fi
       else
         echo "FableGear: fast-forward to $LATEST_TAG failed; staying on ${CURRENT_TAG:-current}" >> "$LOG"

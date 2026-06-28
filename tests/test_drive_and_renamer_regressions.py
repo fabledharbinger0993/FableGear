@@ -4,10 +4,13 @@ import types
 from pathlib import Path
 from types import SimpleNamespace
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from user_config import archive_root_for_music_root, discover_music_roots
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 RENAMER_PATH = REPO_ROOT / "chop_shop" / "renamer.py"
 
 
