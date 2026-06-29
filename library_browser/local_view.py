@@ -21,15 +21,65 @@ class LocalView:
     with flexible sorting and organization options.
     """
     
-    def __init__(self):
-        """Initialize the Local view."""
+    def __init__(self, database: Optional[Any] = None):
+        """
+        Initialize the Local view.
+
+        Args:
+            database: Optional FableGearDatabase. When provided, the view reads
+                from the database (database-first / instant) instead of
+                re-scanning the filesystem.
+        """
+        self._database = database
         self._files: List[FileData] = []
         self._filtered_files: List[FileData] = []
         self._filters: Dict[str, Any] = {}
         self._sort_field = "file_name"
         self._sort_ascending = True
         self._roots: List[Path] = []
-        
+
+    def load_from_database(self, limit: int = 1_000_000, offset: int = 0) -> None:
+        """
+        Populate the view directly from the FableGear database.
+
+        This is the database-first path: no filesystem walk, no re-extraction
+        of tags — every field is read from the rows the importer already wrote.
+
+        Args:
+            limit: Maximum number of records to load
+            offset: Number of records to skip
+        """
+        if self._database is None:
+            raise ValueError("LocalView has no database; pass one to load_from_database")
+
+        records = self._database.get_all_content(
+            limit=limit, offset=offset, order_by="file_name"
+        )
+        self._files = [self._record_to_file_data(rec) for rec in records]
+        self._apply_filters_and_sort()
+        log.info("Loaded %d files from database", len(self._files))
+
+    @staticmethod
+    def _record_to_file_data(rec: Any) -> FileData:
+        """Map a database ContentRecord onto a FileData for display."""
+        return FileData(
+            file_path=Path(rec.file_path),
+            file_name=rec.file_name,
+            file_size=rec.file_size or 0,
+            duration=rec.duration,
+            format=rec.format,
+            bit_rate=rec.bit_rate,
+            sample_rate=rec.sample_rate,
+            modified_date=rec.modified_date,
+            artist=rec.artist,
+            album=rec.album,
+            title=rec.title,
+            bpm=rec.bpm,
+            key=rec.key,
+            in_rekordbox=bool(rec.in_rekordbox),
+            drive=rec.drive,
+        )
+
     def load_data(self, roots: List[Path]) -> None:
         """
         Load file data from filesystem.

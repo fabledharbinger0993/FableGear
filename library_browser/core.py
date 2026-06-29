@@ -133,28 +133,48 @@ class LibraryBrowser:
     view switching, caching, and data management.
     """
     
-    def __init__(self):
-        """Initialize the library browser."""
-        self._current_mode = ViewMode.REKORDBOX
+    def __init__(self, database: Optional[Any] = None, cache_dir: Optional[Path] = None):
+        """
+        Initialize the library browser.
+
+        Args:
+            database: Optional FableGearDatabase. When provided, the Local view
+                renders database-first (instant) rather than re-scanning disk.
+            cache_dir: Optional cache directory override for the view cache.
+        """
+        self._database = database
+        self._cache_dir = cache_dir
+        self._current_mode = ViewMode.LOCAL if database is not None else ViewMode.REKORDBOX
         self._rekordbox_view = None
         self._local_view = None
         self._integrated_view = None
         self._cache = None
-        
+
         # Initialize views lazily when needed
         self._initialize_views()
-    
+
     def _initialize_views(self):
         """Initialize view objects."""
         from library_browser.rekordbox_view import RekordboxView
         from library_browser.local_view import LocalView
         from library_browser.integrated_view import IntegratedView
         from library_browser.cache import ViewCache
-        
+
         self._rekordbox_view = RekordboxView()
-        self._local_view = LocalView()
+        self._local_view = LocalView(database=self._database)
         self._integrated_view = IntegratedView()
-        self._cache = ViewCache()
+        self._cache = ViewCache(cache_dir=self._cache_dir)
+
+    def load_local(self, limit: int = 1_000_000, offset: int = 0) -> None:
+        """
+        Switch to the database-first Local view and load it from the database.
+
+        Returns nothing; results are read via get_files()/get_tracks().
+        """
+        if self._database is None:
+            raise ValueError("LibraryBrowser has no database; construct it with one")
+        self._current_mode = ViewMode.LOCAL
+        self._local_view.load_from_database(limit=limit, offset=offset)
     
     def set_view_mode(self, mode: ViewMode) -> None:
         """

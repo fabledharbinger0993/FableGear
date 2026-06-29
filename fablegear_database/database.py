@@ -272,6 +272,42 @@ class FableGearDatabase:
             )
             return {row[0]: (row[1], row[2], row[3]) for row in cursor.fetchall()}
 
+    def delete_content(self, record_id: int) -> bool:
+        """
+        Delete a content record by ID.
+
+        Args:
+            record_id: ID of the record to delete
+
+        Returns:
+            True if a row was deleted
+        """
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM fg_content WHERE id = ?", (record_id,))
+            return cursor.rowcount > 0
+
+    def relink_content(self, record_id: int, new_path: str) -> bool:
+        """
+        Re-point an existing record at a new file path (e.g. a moved file).
+
+        Keeps the row — and everything attached to it (playlists, cues,
+        fingerprint) — instead of deleting and re-adding, which is what lets a
+        moved file keep its place in the library.
+
+        Args:
+            record_id: ID of the record to relink
+            new_path: New file path
+
+        Returns:
+            True if the record was relinked
+        """
+        return self.update_content(record_id, {
+            "file_path": new_path,
+            "file_name": Path(new_path).name,
+            "processing_status": "relinked",
+        })
+
     def get_content_by_path(self, file_path: str) -> Optional[ContentRecord]:
         """
         Get a content record by file path.
