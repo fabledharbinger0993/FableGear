@@ -45,13 +45,32 @@ def api_error_response(
     }
     if details:
         payload["details"] = details
-    return jsonify(payload), status
+    
+    # Use Flask's jsonify when available and in context
+    # Fall back to simple JSON if outside Flask context
+    try:
+        from flask import jsonify as _jsonify
+        return _jsonify(payload), status
+    except (ImportError, RuntimeError):
+        # Create a simple tuple that can be converted to response later
+        # This is a fallback for cases where Flask context is not available
+        import json
+        return (json.dumps(payload), status, {"Content-Type": "application/json"})
 
 
 def api_error_from_exc(exc: Exception, *, status: int = 500, code: str = "internal_error"):
-    from flask import current_app
-
-    detail = str(exc) if getattr(current_app, "debug", False) else None
+    # Only include debug details when running in Flask debug mode
+    # Safely handle cases where we're not in a Flask context
+    detail = None
+    try:
+        # Use a local import to avoid circular import issues
+        # and access current_app only if we can do so safely
+        from flask import current_app
+        # Try to get debug mode - if this fails, we're not in a context
+        detail = str(exc) if current_app.debug else None
+    except (RuntimeError, ImportError, AttributeError):
+        # Not in a Flask application context - default to no debug info
+        detail = None
     return api_error_response(
         "Something went wrong.",
         status=status,
