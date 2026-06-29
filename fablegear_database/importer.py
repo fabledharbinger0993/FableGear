@@ -1,45 +1,68 @@
 """
 fablegear_database.importer — File import and indexing system.
 
-Handles importing physical files into the FableGear database with:
-- Fast file hashing for change detection
-- Metadata extraction from audio files
-- Efficient bulk import operations
-- Progress tracking and error handling
+Bridges the filesystem and the FableGear database. Walking and metadata
+extraction are delegated to the app's canonical ``scanner`` module (the same
+multi-format extractor — ID3, Vorbis, MP4 atoms, damaged-MP3 recovery — used
+everywhere else), so the importer never has to reimplement tag parsing.
+
+Design notes:
+- Files are written in one bulk transaction via ``bulk_upsert_content`` rather
+  than a commit per file.
+- Change detection (file size + mtime) lets a re-scan skip unchanged files
+  without re-hashing them.
+- ``scanner`` is imported lazily / injectable so this module (and the
+  ``fablegear_database`` package) stays importable without the app config.
 """
 
 import hashlib
 import logging
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Callable
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
-from .database import FableGearDatabase, ContentRecord
+from .database import ContentRecord, FableGearDatabase
 
 log = logging.getLogger(__name__)
+
+# Error substrings (emitted by scanner.extract_metadata) that indicate a file
+# we could not actually read — as opposed to a merely tag-less file.
+_CORRUPT_ERROR_MARKERS = ("mutagen open failed", "stat failed", "returned None")
 
 
 class FileImporter:
     """
     Imports physical audio files into the FableGear database.
-    
-    Provides efficient file indexing with change detection,
-    metadata extraction, and progress tracking.
+
+    Uses the canonical scanner for discovery + metadata, computes a content
+    hash for change detection and duplicate finding, and writes everything in
+    a single bulk transaction.
     """
-    
-    def __init__(self, database: FableGearDatabase):
+
+    def __init__(
+        self,
+        database: FableGearDatabase,
+        scanner_module: Optional[Any] = None,
+    ):
         """
         Initialize the file importer.
-        
+
         Args:
             database: FableGear database instance
+            scanner_module: Object exposing ``scan_directory(root) -> iter`` of
+                TrackInfo-like records. Defaults to the app's ``scanner`` module
+                (imported lazily on first use). Injectable for testing.
         """
         self.database = database
-        self._audio_extensions = {
-            ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac",
-            ".m4a", ".m4p", ".mp4", ".m4v", ".ogg", ".opus"
-        }
-    
+        self._scanner = scanner_module
+
+    def _get_scanner(self) -> Any:
+        """Lazily import the app scanner module if one was not injected."""
+        if self._scanner is None:
+            import scanner as _scanner  # noqa: PLC0415 — deferred: needs app config
+            self._scanner = _scanner
+        return self._scanner
+
     def import_files(
         self,
         root_paths: List[Path],
@@ -47,17 +70,17 @@ class FileImporter:
         force_refresh: bool = False,
     ) -> Dict[str, Any]:
         """
-        Import audio files from specified root paths.
-        
+        Import audio files from the given root directories.
+
         Args:
-            root_paths: List of root directories to scan
-            progress_callback: Optional callback for progress updates
-            force_refresh: Force re-import of existing files
-            
+            root_paths: Directories to scan
+            progress_callback: Optional callback(processed, total)
+            force_refresh: Re-import every file even if unchanged
+
         Returns:
             Dictionary with import statistics
         """
-        stats = {
+        stats: Dict[str, Any] = {
             "total_files": 0,
             "new_files": 0,
             "updated_files": 0,
@@ -65,277 +88,167 @@ class FileImporter:
             "error_files": 0,
             "errors": [],
         }
-        
-        # Scan for audio files
-        all_files = []
+
+        scanner = self._get_scanner()
+
+        # Discover everything first so we can report an accurate total and drive
+        # progress. scan_directory already applies skip rules + metadata.
+        tracks = []
         for root in root_paths:
-            if not root.exists():
-                log.warning("Root path does not exist: %s", root)
+            root = Path(root)
+            if not root.is_dir():
+                log.warning("Root path is not a directory: %s", root)
                 continue
-            
-            files = self._scan_audio_files(root)
-            all_files.extend(files)
-        
-        stats["total_files"] = len(all_files)
-        log.info("Found %d audio files to process", len(all_files))
-        
-        # Process each file
-        for i, file_path in enumerate(all_files):
+            tracks.extend(scanner.scan_directory(root))
+
+        stats["total_files"] = len(tracks)
+        log.info("Found %d audio files to process", len(tracks))
+
+        # One query for change detection instead of a lookup per file.
+        existing = self.database.get_path_index()
+
+        batch: List[ContentRecord] = []
+        for i, track in enumerate(tracks):
             try:
-                # Check if file needs processing
-                existing_record = self.database.get_content_by_path(str(file_path))
-                
-                if existing_record and not force_refresh:
-                    # Check if file has changed
-                    if not self._file_has_changed(file_path, existing_record):
+                path = Path(track.path)
+                path_str = str(path)
+                stat = path.stat()
+                size = track.file_size if track.file_size is not None else stat.st_size
+                mtime = datetime.fromtimestamp(stat.st_mtime).isoformat()
+
+                prev = existing.get(path_str)
+                if prev is not None and not force_refresh:
+                    prev_size, prev_mtime, _prev_hash = prev
+                    if prev_size == size and prev_mtime == mtime:
                         stats["skipped_files"] += 1
-                        if progress_callback:
-                            progress_callback(i + 1, len(all_files))
                         continue
-                
-                # Extract metadata and import
-                record = self._create_content_record(file_path)
-                
-                if existing_record:
-                    # Update existing record
-                    self.database.update_content(existing_record.id, record.to_dict())
+
+                file_hash = self._compute_file_hash(path)
+                record = self._track_to_record(track, size, mtime, file_hash)
+                batch.append(record)
+
+                if prev is not None:
                     stats["updated_files"] += 1
                 else:
-                    # Insert new record
-                    self.database.insert_content(record)
                     stats["new_files"] += 1
-                
-                if progress_callback:
-                    progress_callback(i + 1, len(all_files))
-                    
+
             except Exception as exc:
                 stats["error_files"] += 1
-                stats["errors"].append(f"{file_path}: {exc}")
-                log.error("Failed to import %s: %s", file_path, exc)
-        
+                stats["errors"].append(f"{getattr(track, 'path', '?')}: {exc}")
+                log.error("Failed to import %s: %s", getattr(track, "path", "?"), exc)
+            finally:
+                if progress_callback:
+                    progress_callback(i + 1, len(tracks))
+
+        if batch:
+            self.database.bulk_upsert_content(batch)
+
         log.info(
             "Import complete: %d new, %d updated, %d skipped, %d errors",
-            stats["new_files"],
-            stats["updated_files"],
-            stats["skipped_files"],
-            stats["error_files"]
+            stats["new_files"], stats["updated_files"],
+            stats["skipped_files"], stats["error_files"],
         )
-        
         return stats
-    
-    def _scan_audio_files(self, root: Path) -> List[Path]:
+
+    def _track_to_record(
+        self,
+        track: Any,
+        size: int,
+        mtime: str,
+        file_hash: str,
+    ) -> ContentRecord:
+        """Map a scanner TrackInfo onto a database ContentRecord."""
+        path = Path(track.path)
+        file_type = getattr(track, "file_type", None) or path.suffix.lstrip(".")
+
+        return ContentRecord(
+            file_path=str(path),
+            file_name=path.name,
+            file_size=size,
+            modified_date=mtime,
+            format=(file_type or "").lower() or None,
+            title=getattr(track, "title", None),
+            artist=getattr(track, "artist", None),
+            album=getattr(track, "album", None),
+            genre=getattr(track, "genre", None),
+            year=getattr(track, "year", None),
+            track_number=getattr(track, "track_number", None),
+            bpm=getattr(track, "bpm", None),
+            key=getattr(track, "key", None),
+            duration=getattr(track, "duration_seconds", None),
+            bit_rate=getattr(track, "bitrate", None),
+            sample_rate=getattr(track, "sample_rate", None),
+            drive=self._drive_for_path(path),
+            file_hash=file_hash,
+            last_scanned=datetime.now().isoformat(),
+            is_corrupted=self._is_corrupt(getattr(track, "errors", None)),
+            processing_status="scanned",
+        )
+
+    @staticmethod
+    def _drive_for_path(path: Path) -> str:
         """
-        Scan directory for audio files.
-        
-        Args:
-            root: Root directory to scan
-            
-        Returns:
-            List of audio file paths
+        Return a stable drive identifier for a path.
+
+        On macOS external media live under /Volumes/<NAME>/..., so the drive is
+        the volume name — not the literal string "Volumes" (the previous bug,
+        which collapsed every external drive into one identifier). Anything not
+        under /Volumes is treated as the internal/local drive.
         """
-        audio_files = []
-        
-        try:
-            for item in root.rglob("*"):
-                if item.is_file() and item.suffix.lower() in self._audio_extensions:
-                    # Skip system files
-                    if not item.name.startswith(".") and not item.name.startswith("._"):
-                        audio_files.append(item)
-                        
-        except PermissionError:
-            log.warning("Permission denied: %s", root)
-        except Exception as exc:
-            log.error("Error scanning %s: %s", root, exc)
-        
-        return audio_files
-    
-    def _file_has_changed(self, file_path: Path, record: ContentRecord) -> bool:
-        """
-        Check if a file has changed since last import.
-        
-        Args:
-            file_path: File path to check
-            record: Existing database record
-            
-        Returns:
-            True if file has changed
-        """
-        try:
-            # Check file size
-            current_size = file_path.stat().st_size
-            if current_size != record.file_size:
-                return True
-            
-            # Check modification time
-            current_mtime = datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
-            if current_mtime != record.modified_date:
-                return True
-            
-            # Check file hash if available
-            if record.file_hash:
-                current_hash = self._compute_file_hash(file_path)
-                if current_hash != record.file_hash:
-                    return True
-            
+        parts = Path(path).parts
+        if len(parts) >= 3 and parts[1] == "Volumes":
+            return parts[2]
+        return "local"
+
+    @staticmethod
+    def _is_corrupt(errors: Optional[List[str]]) -> bool:
+        """True only for read failures, not merely missing tags."""
+        if not errors:
             return False
-            
-        except Exception:
-            return True  # Assume changed if check fails
-    
+        return any(
+            marker in err
+            for err in errors
+            for marker in _CORRUPT_ERROR_MARKERS
+        )
+
     def _compute_file_hash(self, file_path: Path) -> str:
-        """
-        Compute SHA-256 hash of file.
-        
-        Args:
-            file_path: File to hash
-            
-        Returns:
-            Hexadecimal hash string
-        """
+        """Compute the SHA-256 hash of a file, streamed in chunks."""
         sha256_hash = hashlib.sha256()
-        
         try:
             with open(file_path, "rb") as f:
-                # Read in chunks for memory efficiency
-                for chunk in iter(lambda: f.read(4096), b""):
+                for chunk in iter(lambda: f.read(65536), b""):
                     sha256_hash.update(chunk)
-            
             return sha256_hash.hexdigest()
-            
         except Exception as exc:
             log.error("Failed to compute hash for %s: %s", file_path, exc)
             return ""
-    
-    def _create_content_record(self, file_path: Path) -> ContentRecord:
+
+    def update_fingerprint(
+        self, file_path: Path, fingerprint: str, quality: int = 100
+    ) -> bool:
         """
-        Create a ContentRecord from a file.
-        
-        Args:
-            file_path: File to process
-            
-        Returns:
-            ContentRecord with extracted metadata
-        """
-        stat = file_path.stat()
-        
-        record = ContentRecord(
-            file_path=str(file_path),
-            file_name=file_path.name,
-            file_size=stat.st_size,
-            modified_date=datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            format=file_path.suffix.lower().replace(".", ""),
-            drive=self._get_drive_identifier(file_path),
-        )
-        
-        # Extract metadata from file
-        metadata = self._extract_metadata(file_path)
-        record.title = metadata.get("title")
-        record.artist = metadata.get("artist")
-        record.album = metadata.get("album")
-        record.bpm = metadata.get("bpm")
-        record.key = metadata.get("key")
-        record.genre = metadata.get("genre")
-        record.year = metadata.get("year")
-        record.track_number = metadata.get("track_number")
-        record.disc_number = metadata.get("disc_number")
-        record.comment = metadata.get("comment")
-        record.duration = metadata.get("duration")
-        record.bit_rate = metadata.get("bit_rate")
-        record.sample_rate = metadata.get("sample_rate")
-        
-        # Compute file hash
-        record.file_hash = self._compute_file_hash(file_path)
-        
-        return record
-    
-    def _extract_metadata(self, file_path: Path) -> Dict[str, Any]:
-        """
-        Extract metadata from audio file.
-        
-        Args:
-            file_path: File to extract metadata from
-            
-        Returns:
-            Dictionary with extracted metadata
-        """
-        metadata = {}
-        
-        try:
-            from mutagen import File as MutagenFile
-            
-            audio_file = MutagenFile(file_path)
-            if audio_file:
-                # Extract technical info
-                if hasattr(audio_file, 'info'):
-                    info = audio_file.info
-                    metadata['duration'] = getattr(info, 'length', None)
-                    metadata['bit_rate'] = getattr(info, 'bitrate', None)
-                    metadata['sample_rate'] = getattr(info, 'sample_rate', None)
-                
-                # Extract tags
-                tags = audio_file.tags or {}
-                metadata['title'] = tags.get('TIT2', [None])[0] if 'TIT2' in tags else tags.get('title', [None])[0]
-                metadata['artist'] = tags.get('TPE1', [None])[0] if 'TPE1' in tags else tags.get('artist', [None])[0]
-                metadata['album'] = tags.get('TALB', [None])[0] if 'TALB' in tags else tags.get('album', [None])[0]
-                metadata['genre'] = tags.get('TCON', [None])[0] if 'TCON' in tags else tags.get('genre', [None])[0]
-                metadata['year'] = tags.get('TDRC', [None])[0] if 'TDRC' in tags else tags.get('date', [None])[0]
-                metadata['comment'] = tags.get('COMM', [None])[0] if 'COMM' in tags else tags.get('comment', [None])[0]
-                
-                # Extract BPM and key if available
-                if 'TBPM' in tags:
-                    try:
-                        metadata['bpm'] = float(tags['TBPM'][0])
-                    except (ValueError, TypeError):
-                        pass
-                if 'TKEY' in tags:
-                    metadata['key'] = tags['TKEY'][0]
-                
-        except Exception as exc:
-            log.error("Failed to extract metadata from %s: %s", file_path, exc)
-        
-        return metadata
-    
-    def _get_drive_identifier(self, file_path: Path) -> str:
-        """
-        Get drive identifier for a file path.
-        
-        Args:
-            file_path: File path
-            
-        Returns:
-            Drive identifier string
-        """
-        try:
-            parts = file_path.parts
-            if len(parts) >= 2 and parts[0] == "/":
-                return parts[1]  # e.g., "Volumes", "Music"
-            return "local"
-        except Exception:
-            return "unknown"
-    
-    def update_fingerprint(self, file_path: Path, fingerprint: str, quality: int = 100) -> bool:
-        """
-        Update acoustic fingerprint for a file.
-        
+        Attach an acoustic fingerprint to an already-imported file.
+
         Args:
             file_path: File to update
             fingerprint: Acoustic fingerprint string
             quality: Fingerprint quality score
-            
+
         Returns:
-            True if update succeeded
+            True if a row was updated
         """
         try:
             record = self.database.get_content_by_path(str(file_path))
-            if record:
-                updates = {
-                    "acoustic_fingerprint": fingerprint,
-                    "fingerprint_quality": quality,
-                    "processing_status": "fingerprinted",
-                }
-                return self.database.update_content(record.id, updates)
+            if record and record.id is not None:
+                return self.database.update_content(
+                    record.id,
+                    {
+                        "acoustic_fingerprint": fingerprint,
+                        "fingerprint_quality": quality,
+                        "processing_status": "fingerprinted",
+                    },
+                )
             return False
-            
         except Exception as exc:
             log.error("Failed to update fingerprint for %s: %s", file_path, exc)
             return False

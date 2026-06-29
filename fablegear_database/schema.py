@@ -83,10 +83,7 @@ class DatabaseSchema:
         
         -- Standard timestamps
         created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-        
-        -- Indexes for fast queries
-        CONSTRAINT chk_file_path UNIQUE (file_path)
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
     
     CREATE INDEX IF NOT EXISTS idx_file_path ON fg_content(file_path);

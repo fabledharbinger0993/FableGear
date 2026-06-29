@@ -206,9 +206,72 @@ class FableGearDatabase:
                 f"UPDATE fg_content SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 values
             )
-            
+
             return cursor.rowcount > 0
-    
+
+    # Columns written by bulk_upsert_content, in a fixed order. Excludes id
+    # (autoincrement) and the created_at/updated_at timestamps (managed by the
+    # table defaults and the upsert clause respectively).
+    _UPSERT_COLUMNS: Tuple[str, ...] = (
+        "file_path", "file_name", "file_size", "duration", "format",
+        "bit_rate", "sample_rate", "modified_date", "file_hash",
+        "acoustic_fingerprint", "artist", "album", "title", "bpm", "key",
+        "genre", "label", "year", "track_number", "disc_number", "comment",
+        "rating", "drive", "relative_path", "rekordbox_id",
+        "rekordbox_playlist_id", "in_rekordbox", "last_scanned",
+        "fingerprint_quality", "is_corrupted", "processing_status",
+    )
+
+    def bulk_upsert_content(self, records: List[ContentRecord]) -> int:
+        """
+        Insert or update many content records in a single transaction.
+
+        Existing rows (matched on the unique file_path) are updated in place;
+        new rows are inserted. This is the bulk path used by the importer —
+        one transaction and one executemany instead of a commit per file.
+
+        Args:
+            records: ContentRecords to upsert
+
+        Returns:
+            Number of rows written
+        """
+        if not records:
+            return 0
+
+        cols = self._UPSERT_COLUMNS
+        col_list = ", ".join(cols)
+        placeholders = ", ".join(["?"] * len(cols))
+        update_list = ", ".join(
+            f"{c} = excluded.{c}" for c in cols if c != "file_path"
+        )
+        sql = (
+            f"INSERT INTO fg_content ({col_list}) VALUES ({placeholders}) "
+            f"ON CONFLICT(file_path) DO UPDATE SET {update_list}, "
+            f"updated_at = datetime('now', 'localtime')"
+        )
+
+        rows = [tuple(getattr(rec, col) for col in cols) for rec in records]
+
+        with self.transaction() as conn:
+            conn.executemany(sql, rows)
+
+        return len(rows)
+
+    def get_path_index(self) -> Dict[str, Tuple[int, Optional[str], Optional[str]]]:
+        """
+        Return a map of file_path -> (file_size, modified_date, file_hash).
+
+        Used by the importer for fast change detection: it can decide whether
+        a file needs re-hashing/re-importing without a query per file.
+        """
+        with self.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT file_path, file_size, modified_date, file_hash FROM fg_content"
+            )
+            return {row[0]: (row[1], row[2], row[3]) for row in cursor.fetchall()}
+
     def get_content_by_path(self, file_path: str) -> Optional[ContentRecord]:
         """
         Get a content record by file path.
