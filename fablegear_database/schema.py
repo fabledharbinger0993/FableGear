@@ -193,10 +193,10 @@ class DatabaseSchema:
         playlist_id INTEGER NOT NULL,
         content_id INTEGER NOT NULL,
         track_number INTEGER,
-        FOREIGN KEY (playlist_id) REFERENCES fg_playlist(id) ON DELETE CASCADE,
-        FOREIGN KEY (content_id) REFERENCES fg_content(id) ON DELETE CASCADE,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (playlist_id) REFERENCES fg_playlist(id) ON DELETE CASCADE,
+        FOREIGN KEY (content_id) REFERENCES fg_content(id) ON DELETE CASCADE
     );
     
     CREATE INDEX IF NOT EXISTS idx_playlist_song_playlist ON fg_playlist_song(playlist_id);
@@ -246,19 +246,22 @@ class DatabaseSchema:
             
             # Enable foreign keys
             cursor.execute("PRAGMA foreign_keys = ON")
-            
-            # Create tables
-            cursor.execute(DatabaseSchema.CONTENT_TABLE)
-            cursor.execute(DatabaseSchema.ARTIST_TABLE)
-            cursor.execute(DatabaseSchema.ALBUM_TABLE)
-            cursor.execute(DatabaseSchema.GENRE_TABLE)
-            cursor.execute(DatabaseSchema.KEY_TABLE)
-            cursor.execute(DatabaseSchema.LABEL_TABLE)
-            cursor.execute(DatabaseSchema.PLAYLIST_TABLE)
-            cursor.execute(DatabaseSchema.PLAYLIST_SONG_TABLE)
-            cursor.execute(DatabaseSchema.METADATA_TABLE)
-            cursor.execute(DatabaseSchema.PROCESSING_LOG_TABLE)
-            
+
+            # Create tables. Each *_TABLE string bundles a CREATE TABLE plus
+            # its CREATE INDEX statements, so executescript() is required —
+            # cursor.execute() runs only a single statement and raises on the
+            # rest, which previously left the database with zero tables.
+            cursor.executescript(DatabaseSchema.CONTENT_TABLE)
+            cursor.executescript(DatabaseSchema.ARTIST_TABLE)
+            cursor.executescript(DatabaseSchema.ALBUM_TABLE)
+            cursor.executescript(DatabaseSchema.GENRE_TABLE)
+            cursor.executescript(DatabaseSchema.KEY_TABLE)
+            cursor.executescript(DatabaseSchema.LABEL_TABLE)
+            cursor.executescript(DatabaseSchema.PLAYLIST_TABLE)
+            cursor.executescript(DatabaseSchema.PLAYLIST_SONG_TABLE)
+            cursor.executescript(DatabaseSchema.METADATA_TABLE)
+            cursor.executescript(DatabaseSchema.PROCESSING_LOG_TABLE)
+
             conn.commit()
             conn.close()
             

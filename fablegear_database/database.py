@@ -425,13 +425,28 @@ class FableGearDatabase:
         """
         backup_dir = self.config.db_path.parent / "database_backups"
         backup_dir.mkdir(parents=True, exist_ok=True)
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Microsecond resolution so two backups in the same second (e.g. the
+        # pre-restore snapshot taken inside restore_backup) never collide and
+        # clobber each other.
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         backup_path = backup_dir / f"fablegear_backup_{timestamp}.db"
-        
-        shutil.copy2(self.config.db_path, backup_path)
+
+        # Use SQLite's online backup API rather than copying the file directly:
+        # in WAL mode the latest writes may still live in the -wal sidecar, and
+        # a raw file copy would miss them. backup() produces a consistent copy.
+        src = sqlite3.connect(self.config.db_path)
+        try:
+            dest = sqlite3.connect(backup_path)
+            try:
+                src.backup(dest)
+            finally:
+                dest.close()
+        finally:
+            src.close()
+
         log.info("Database backup created: %s", backup_path)
-        
+
         return backup_path
     
     def restore_backup(self, backup_path: Path) -> bool:
@@ -451,12 +466,20 @@ class FableGearDatabase:
         try:
             # Create backup of current state before restore
             current_backup = self.create_backup()
-            
+
             # Restore from backup
             shutil.copy2(backup_path, self.config.db_path)
+
+            # Drop any stale WAL/SHM sidecars from the previous database so
+            # they are not replayed on top of the freshly restored file.
+            for suffix in ("-wal", "-shm"):
+                sidecar = Path(str(self.config.db_path) + suffix)
+                if sidecar.exists():
+                    sidecar.unlink()
+
             log.info("Database restored from: %s", backup_path)
             log.info("Previous state backed up to: %s", current_backup)
-            
+
             return True
             
         except Exception as exc:
