@@ -401,9 +401,78 @@ class FableGearDatabase:
                 fingerprint, ids_str = row
                 record_ids = [int(id_str) for id_str in ids_str.split(",")]
                 results.append((fingerprint, record_ids))
-            
+
             return results
-    
+
+    def get_unfingerprinted(self, limit: int = 1_000_000) -> List[ContentRecord]:
+        """
+        Return content records that have no acoustic fingerprint yet.
+
+        This is the work-list for the fingerprinter and the resume mechanism:
+        a fingerprint already stored is never recomputed, so an interrupted
+        run simply continues with whatever is still missing.
+        """
+        with self.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM fg_content "
+                "WHERE acoustic_fingerprint IS NULL OR acoustic_fingerprint = '' "
+                "ORDER BY id LIMIT ?",
+                (limit,),
+            )
+            columns = [desc[0] for desc in cursor.description]
+            return [
+                ContentRecord.from_dict(dict(zip(columns, row)))
+                for row in cursor.fetchall()
+            ]
+
+    def log_operation(
+        self,
+        operation_type: str,
+        file_path: Optional[str] = None,
+        status: str = "ok",
+        error_message: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        """
+        Append a row to the fg_processing_log — the Archive's audit trail.
+
+        Every tool action (analysis or mutation) should be logged here so the
+        history of what touched a file is durable and queryable. Returns the
+        log row id.
+        """
+        import json  # noqa: PLC0415
+
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO fg_processing_log "
+                "(operation_type, file_path, status, error_message, "
+                " completed_at, metadata) "
+                "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)",
+                (
+                    operation_type,
+                    file_path,
+                    status,
+                    error_message,
+                    json.dumps(metadata) if metadata is not None else None,
+                ),
+            )
+            return cursor.lastrowid
+
+    def count_operations(self, operation_type: Optional[str] = None) -> int:
+        """Count rows in the processing log, optionally by operation type."""
+        with self.connection() as conn:
+            cursor = conn.cursor()
+            if operation_type is None:
+                cursor.execute("SELECT COUNT(*) FROM fg_processing_log")
+            else:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM fg_processing_log WHERE operation_type = ?",
+                    (operation_type,),
+                )
+            return cursor.fetchone()[0]
+
     def search_content(
         self,
         query: str,
