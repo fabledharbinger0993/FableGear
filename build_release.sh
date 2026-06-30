@@ -38,23 +38,35 @@ mkdir -p "$APP_PATH/Contents/MacOS"
 mkdir -p "$APP_PATH/Contents/Resources"
 
 # ── Write the launcher shell script ───────────────────────────────────────────
-cat > "$APP_PATH/Contents/MacOS/FableGear" << LAUNCHER
+cat > "$APP_PATH/Contents/MacOS/FableGear" << 'LAUNCHER'
 #!/bin/bash
 # FableGear bootstrap launcher
 # First run: clones the repo. Every run: hands off to launch.sh.
+# Uses open -a Terminal (Launch Services) — no Automation permission required.
 
-PARENT_DIR="\$HOME/FableGear"
-INSTALL_DIR="\$PARENT_DIR/FableGear"
-REPO_URL="$REPO_URL"
+INSTALL_DIR="$HOME/FableGear"
+REPO_URL="https://github.com/fabledharbinger0993/FableGear.git"
 
-if [ -d "\$INSTALL_DIR/.git" ]; then
-  # Already installed — hand off to launch.sh (handles git pull + server start)
-  bash "\$INSTALL_DIR/launch.sh"
+if [ -d "$INSTALL_DIR/.git" ]; then
+  bash "$INSTALL_DIR/launch.sh"
 else
-  # First install — open Terminal so the user can see clone + setup progress
-  CLONE_CMD="mkdir -p '\$PARENT_DIR' && git clone '\$REPO_URL' '\$INSTALL_DIR' && bash '\$INSTALL_DIR/launch.sh'"
-  osascript -e "tell application \"Terminal\" to do script \"\$CLONE_CMD\""
-  osascript -e "tell application \"Terminal\" to activate"
+  SETUP_SCRIPT="$(mktemp /tmp/fablegear-install.XXXXXX.sh)"
+  cat > "$SETUP_SCRIPT" << 'INNER'
+#!/bin/bash
+INSTALL_DIR="$HOME/FableGear"
+REPO_URL="https://github.com/fabledharbinger0993/FableGear.git"
+echo ""
+echo "  Installing FableGear..."
+echo ""
+if [ -d "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR/.git" ]; then
+  echo "  $INSTALL_DIR exists but is not a git repo — backing up to ${INSTALL_DIR}.bak"
+  mv "$INSTALL_DIR" "${INSTALL_DIR}.bak"
+fi
+git clone "$REPO_URL" "$INSTALL_DIR" && bash "$INSTALL_DIR/launch.sh"
+rm -f "$0"
+INNER
+  chmod +x "$SETUP_SCRIPT"
+  open -a Terminal "$SETUP_SCRIPT"
 fi
 LAUNCHER
 chmod +x "$APP_PATH/Contents/MacOS/FableGear"

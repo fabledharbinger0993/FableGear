@@ -13,8 +13,7 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/fabledharbinger0993/FableGear.git"
-PARENT_DIR="$HOME/FableGear"
-INSTALL_DIR="$PARENT_DIR/FableGear"
+INSTALL_DIR="$HOME/FableGear"
 FRESH_INSTALL=0
 
 # ── Colour output helpers ──────────────────────────────────────────────────
@@ -40,7 +39,6 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     git -C "$INSTALL_DIR" pull --ff-only
 else
     _blue "Cloning FableGear to $INSTALL_DIR ..."
-    mkdir -p "$PARENT_DIR"
     git clone "$REPO_URL" "$INSTALL_DIR"
     FRESH_INSTALL=1
 fi
