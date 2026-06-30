@@ -143,6 +143,17 @@ class FileImporter:
         if batch:
             self.database.bulk_upsert_content(batch)
 
+        self.database.log_operation(
+            "import",
+            metadata={
+                "new": stats["new_files"],
+                "updated": stats["updated_files"],
+                "skipped": stats["skipped_files"],
+                "errors": stats["error_files"],
+                "roots": [str(p) for p in root_paths],
+            },
+        )
+
         log.info(
             "Import complete: %d new, %d updated, %d skipped, %d errors",
             stats["new_files"], stats["updated_files"],

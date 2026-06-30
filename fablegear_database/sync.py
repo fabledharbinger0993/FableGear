@@ -85,6 +85,9 @@ class DatabaseSync:
         if remove_missing:
             for record in stale:
                 if record.id is not None and self.database.delete_content(record.id):
+                    self.database.log_operation(
+                        "sync_remove", record.file_path, status="ok",
+                    )
                     removed += 1
         else:
             for record in stale:
@@ -92,7 +95,16 @@ class DatabaseSync:
                     self.database.update_content(
                         record.id, {"processing_status": "missing"}
                     )
+                    self.database.log_operation(
+                        "sync_missing", record.file_path, status="ok",
+                    )
                     marked_missing += 1
+
+        for move in moves:
+            self.database.log_operation(
+                "sync_move", move["to"], status="ok",
+                metadata={"from": move["from"], "record_id": move["id"]},
+            )
 
         stats = {
             "imported_new": import_stats["new_files"],
@@ -104,6 +116,19 @@ class DatabaseSync:
             "moves": moves,
             "errors": list(import_stats["errors"]),
         }
+
+        self.database.log_operation(
+            "sync_reconcile",
+            metadata={
+                "new": stats["imported_new"],
+                "updated": stats["imported_updated"],
+                "moved": stats["moved"],
+                "missing": stats["missing"],
+                "removed": stats["removed"],
+                "roots": [str(p) for p in root_paths],
+            },
+        )
+
         log.info(
             "Reconcile: %d new, %d updated, %d moved, %d missing, %d removed",
             stats["imported_new"], stats["imported_updated"], stats["moved"],
@@ -203,9 +228,18 @@ class DatabaseSync:
                 continue
             try:
                 if self.database.delete_content(record.id):
+                    self.database.log_operation(
+                        "cleanup_stale", record.file_path, status="ok",
+                    )
                     removed += 1
             except Exception as exc:
                 log.error("Failed to remove stale record %s: %s", record.id, exc)
+
+        if removed:
+            self.database.log_operation(
+                "cleanup_stale",
+                metadata={"removed": removed, "dry_run": False},
+            )
 
         log.info("Removed %d stale records", removed)
         return removed

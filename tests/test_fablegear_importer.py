@@ -234,6 +234,19 @@ def test_missing_root_is_ignored(db, tmp_path):
     assert stats["new_files"] == 0
 
 
+def test_import_is_logged_to_processing_log(db, tmp_path):
+    music = tmp_path / "music"
+    _make_file(music / "a.mp3")
+    _make_file(music / "b.mp3")
+    scanner = FakeScanner([
+        FakeTrack(music / "a.mp3", title="A"),
+        FakeTrack(music / "b.mp3", title="B"),
+    ])
+    FileImporter(db, scanner_module=scanner).import_files([music])
+
+    assert db.count_operations("import") == 1
+
+
 def test_update_fingerprint(db, tmp_path):
     music = tmp_path / "music"
     a = _make_file(music / "a.mp3")

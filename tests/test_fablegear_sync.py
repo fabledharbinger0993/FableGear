@@ -174,3 +174,55 @@ def test_cleanup_stale_records(db, tmp_path):
     assert db.get_statistics()["total_tracks"] == 1   # dry run changed nothing
     assert sync.cleanup_stale_records() == 1
     assert db.get_statistics()["total_tracks"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# Persistence contract: every sync action is logged
+# --------------------------------------------------------------------------- #
+
+def test_reconcile_logs_to_processing_log(db, tmp_path):
+    music = tmp_path / "music"
+    a = _mk(music / "a.mp3", b"aaaa")
+    b = _mk(music / "b.mp3", b"bbbb")
+    scanner = FakeScanner([FakeTrack(a, title="A"), FakeTrack(b, title="B")])
+    sync = _sync(db, scanner)
+    sync.reconcile([music])
+
+    assert db.count_operations("import") >= 1
+    assert db.count_operations("sync_reconcile") == 1
+
+
+def test_reconcile_logs_moves(db, tmp_path):
+    music = tmp_path / "music"
+    old = _mk(music / "a.mp3", b"same-content")
+    scanner = FakeScanner([FakeTrack(old, title="A")])
+    sync = _sync(db, scanner)
+    sync.reconcile([music])
+
+    new = music / "sub" / "a.mp3"
+    new.parent.mkdir(parents=True, exist_ok=True)
+    old.rename(new)
+    scanner.tracks = [FakeTrack(new, title="A")]
+
+    sync.reconcile([music])
+    assert db.count_operations("sync_move") == 1
+
+
+def test_reconcile_logs_missing_and_removed(db, tmp_path):
+    music = tmp_path / "music"
+    a = _mk(music / "a.mp3", b"aaaa")
+    scanner = FakeScanner([FakeTrack(a)])
+    sync = _sync(db, scanner)
+    sync.reconcile([music])
+
+    a.unlink()
+    sync.reconcile([music])
+    assert db.count_operations("sync_missing") == 1
+
+    # Re-add so we can test remove path
+    a = _mk(music / "b.mp3", b"bbbb")
+    scanner.tracks = [FakeTrack(a)]
+    sync.reconcile([music])
+    a.unlink()
+    sync.reconcile([music], remove_missing=True)
+    assert db.count_operations("sync_remove") >= 1
