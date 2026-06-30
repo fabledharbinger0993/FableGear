@@ -57,6 +57,20 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
+_ARCHIVE = None
+
+
+def _archive():
+    """Lazily open the FableGear database so every tool can log to it."""
+    global _ARCHIVE
+    if _ARCHIVE is None:
+        try:
+            from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
+            _ARCHIVE = FableGearDatabase()
+        except Exception:
+            log.debug("FableGear database not available — archive logging disabled")
+    return _ARCHIVE
+
 
 # ─── Report helpers ───────────────────────────────────────────────────────────
 
@@ -220,7 +234,7 @@ def cmd_dead_files(args: argparse.Namespace) -> None:
 
     log.info("Dead-file scan: roots=%s", [str(r) for r in roots])
     try:
-        result = scan_dead_files(roots, db_paths=db_paths, progress_cb=_progress)
+        result = scan_dead_files(roots, db_paths=db_paths, progress_cb=_progress, archive=_archive())
 
         print(f"Scanned {result.total_scanned:,} audio files across {len(roots)} root(s).", flush=True)
         if result.db_paths_used:
@@ -380,7 +394,7 @@ def cmd_relocate(args: argparse.Namespace) -> None:
     log.info("Relocating: %s → %s", old_root, new_root)
     try:
         with write_db(LOCAL_DB) as db:
-            results = relocate_directory(old_root, new_root, db)
+            results = relocate_directory(old_root, new_root, db, archive=_archive())
     except Exception:
         log.exception("Relocation failed")
         sys.exit(1)
@@ -465,6 +479,7 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
             max_workers=workers,
             match_mode=args.match_mode,
             fuzzy_threshold=args.fuzzy_threshold,
+            archive=_archive(),
         )
     except Exception:
         log.exception("Duplicate scan failed")
@@ -747,6 +762,7 @@ def cmd_prune(args: argparse.Namespace) -> None:
                 log=lambda m: print(m, flush=True),
                 permanent=args.permanent,
                 keeper_map=keeper_map,
+                archive=_archive(),
             )
     except Exception:
         log.exception("Prune failed")
@@ -870,6 +886,7 @@ def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
             max_workers=workers,
             match_mode=match_mode,
             fuzzy_threshold=fuzzy_threshold,
+            archive=_archive(),
         )
     except Exception:
         log.exception("Rekordbox duplicate scan failed")
@@ -961,6 +978,7 @@ def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
                 log=lambda m: print(m, flush=True),
                 permanent=args.permanent,
                 keeper_map=keeper_map,
+                archive=_archive(),
             )
     except Exception:
         log.exception("Rekordbox dedupe prune failed")
@@ -1548,6 +1566,7 @@ def cmd_organize(args: argparse.Namespace) -> None:
             dry_run=dry_run,
             max_workers=max_workers,
             mix_threshold_sec=threshold,
+            archive=_archive(),
         )
         results.extend(root_results)
 
@@ -1675,6 +1694,7 @@ def cmd_novelty(args: argparse.Namespace) -> None:
             dry_run=dry_run,
             max_workers=max_workers,
             match_mode=match_mode,
+            archive=_archive(),
         )
         total_src += root_result.total_src
         dest_index_size = max(dest_index_size, root_result.dest_index_size)
@@ -1793,7 +1813,7 @@ def cmd_rename(args: argparse.Namespace) -> None:
             with write_db(LOCAL_DB) as db:
                 for index, root in enumerate(roots, start=1):
                     _log_root_step("Rename", root, index, len(roots))
-                    root_results = rename_directory(root, db=db, dry_run=False, max_workers=max_workers)
+                    root_results = rename_directory(root, db=db, dry_run=False, max_workers=max_workers, archive=_archive())
                     results.extend(root_results)
                     root_renamed = sum(1 for r in root_results if r.action == "renamed")
                     root_skipped = sum(1 for r in root_results if r.action == "no_change")
