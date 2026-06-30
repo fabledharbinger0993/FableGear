@@ -115,7 +115,7 @@ function _leStageFsCurrentFolder() {
 }
 
 function setLeDbSource(source) {
-  if (source !== 'local' && source !== 'device') return;
+  if (source !== 'fablegear' && source !== 'local' && source !== 'device') return;
   _leSetState('_leDbSource', source);
   document.querySelectorAll('.le-db-btn').forEach(b => {
     b.classList.toggle('le-db-active', b.dataset.db === source);
@@ -132,6 +132,38 @@ function setLeDbSource(source) {
   _leSetState('_leTracksLoaded', false);
   if (_leGetState('_leMode', 'db') === 'db') leLoadLibrary();
 }
+
+// FableGear's own database is the default Record Room source.
+_leGetState('_leDbSource', 'fablegear');
+
+// Sync the FableGear database against the music library, then reload.
+async function leSyncLibrary() {
+  const btn = document.getElementById('le-sync-btn');
+  const status = document.getElementById('le-sync-status');
+  if (btn) { btn.disabled = true; btn.textContent = '↻ Syncing…'; }
+  try {
+    const r = await fetch('/api/library/db/sync', { method: 'POST' });
+    if (r.status === 409) { if (status) status.textContent = 'sync already running…'; }
+    const poll = setInterval(async () => {
+      const j = await (await fetch('/api/library/db/sync-status')).json();
+      if (status) {
+        status.textContent = j.running
+          ? (j.phase === 'processing' ? `processing ${j.done}/${j.total}…` : j.phase + '…')
+          : (j.error ? ('error: ' + j.error)
+             : (j.result ? `+${j.result.imported_new} new · ${j.result.imported_updated} updated · ${j.result.moved} moved` : 'done'));
+      }
+      if (!j.running) {
+        clearInterval(poll);
+        if (btn) { btn.disabled = false; btn.textContent = '↻ Sync'; }
+        setLeDbSource('fablegear');  // reload from refreshed DB
+      }
+    }, 700);
+  } catch (e) {
+    if (status) status.textContent = 'sync failed: ' + e.message;
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Sync'; }
+  }
+}
+window.leSyncLibrary = leSyncLibrary;
 
 /* ── Filesystem browse mode ──────────────────────────────────────────────── */
 

@@ -356,17 +356,99 @@ def _resolve_db(db_param):
     return LOCAL_DB
 
 
+_FABLEGEAR_DB = None
+_FG_SYNC = {"running": False, "phase": "idle", "done": 0, "total": 0,
+            "result": None, "error": None}
+
+
+def _fablegear_db():
+    """Open (once) the FableGear database — the primary Record Room source."""
+    global _FABLEGEAR_DB
+    if _FABLEGEAR_DB is None:
+        from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
+        _FABLEGEAR_DB = FableGearDatabase()
+    return _FABLEGEAR_DB
+
+
+def _fablegear_track_payload(rec):
+    """Map a FableGear ContentRecord onto the Record Room track payload shape."""
+    return {
+        "id":         str(rec.id),
+        "title":      rec.title or rec.file_name or "",
+        "artist":     rec.artist or "",
+        "album":      rec.album or "",
+        "genre":      rec.genre or "",
+        "label":      rec.label or "",
+        "bpm":        round(rec.bpm, 1) if rec.bpm else None,
+        "key":        rec.key,
+        "key_id":     None,
+        "duration":   rec.duration,
+        "date_added": rec.created_at,
+        "file_path":  rec.file_path or "",
+        "rating":     rec.rating or 0,
+        "color":      None,
+        "play_count": 0,
+        "comment":    rec.comment or "",
+        "track_no":   rec.track_number,
+        "drive":      rec.drive,
+        "in_rekordbox": bool(rec.in_rekordbox),
+    }
+
+
 @bp.route("/api/library/tracks")
 def api_library_tracks():
-    from db_connection import read_db  # noqa: PLC0415
-    _DB = _resolve_db(request.args.get("db"))
+    source = (request.args.get("db") or "").lower()
 
+    # The Rekordbox databases remain reachable as explicit, demoted sources.
+    if source in ("local", "device", "djmt"):
+        from db_connection import read_db  # noqa: PLC0415
+        _DB = _resolve_db(source)
+        try:
+            with read_db(_DB) as db:
+                tracks = [_library_track_payload(t) for t in db.get_content().all()]
+                return jsonify(tracks)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+    # Default / primary: FableGear's own database (source "", "undefined",
+    # "fablegear"). This is the database-first Record Room library.
     try:
-        with read_db(_DB) as db:
-            tracks = [_library_track_payload(track) for track in db.get_content().all()]
-            return jsonify(tracks)
+        db = _fablegear_db()
+        rows = db.get_all_content(limit=100000, order_by="artist")
+        return jsonify([_fablegear_track_payload(r) for r in rows])
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/library/db/sync", methods=["POST"])
+def api_library_db_sync():
+    """Reconcile the FableGear database against the music library (background)."""
+    if _FG_SYNC["running"]:
+        return jsonify({"error": "sync already running"}), 409
+
+    def _run():
+        _FG_SYNC.update(running=True, phase="scanning", done=0, total=0,
+                        result=None, error=None)
+        try:
+            from config import MUSIC_ROOT  # noqa: PLC0415
+            from fablegear_database.importer import FileImporter  # noqa: PLC0415
+            from fablegear_database.sync import DatabaseSync  # noqa: PLC0415
+            db = _fablegear_db()
+            sync = DatabaseSync(db, importer=FileImporter(db))
+            _FG_SYNC.update(phase="reconciling")
+            _FG_SYNC["result"] = sync.reconcile([Path(str(MUSIC_ROOT))])
+        except Exception as exc:  # noqa: BLE001 — surfaced to the UI
+            _FG_SYNC["error"] = str(exc)
+        finally:
+            _FG_SYNC.update(running=False, phase="done")
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"started": True})
+
+
+@bp.route("/api/library/db/sync-status")
+def api_library_db_sync_status():
+    return jsonify(_FG_SYNC)
 
 
 @bp.route("/api/library/fs-browse")
@@ -748,8 +830,13 @@ def api_library_track_stream(track_id):
 
 @bp.route("/api/library/playlists", methods=["GET"])
 def api_library_playlists():
+    source = (request.args.get("db") or "").lower()
+    # FableGear DB has no playlist tree yet — return an empty tree, not an error.
+    if source not in ("local", "device", "djmt"):
+        return jsonify([])
+
     from db_connection import read_db  # noqa: PLC0415
-    _DB = _resolve_db(request.args.get("db"))
+    _DB = _resolve_db(source)
 
     try:
         with read_db(_DB) as db:

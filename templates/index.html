@@ -838,16 +838,21 @@
           <button type="button" class="le-mode-btn" data-mode="fs"
                   onclick="setLibraryMode('fs')" title="All music pooled from every connected drive, regardless of rekordbox">All Music</button>
           <button type="button" class="le-mode-btn le-mode-active" data-mode="db"
-                  onclick="setLibraryMode('db')" title="Your rekordbox library database">Rekordbox</button>
+                  onclick="setLibraryMode('db')" title="Your FableGear library database">Library</button>
           <button type="button" class="le-mode-btn" data-mode="split"
                   onclick="setLibraryMode('split')" title="Integrated view: all music + rekordbox + tracks not yet imported">Integrated</button>
         </div>
         <!-- DB source picker (only relevant when mode=db) -->
         <div class="le-db-toggle" id="le-db-toggle" role="group" aria-label="Database source">
-          <button type="button" class="le-db-btn le-db-active" data-db="local"
-                  onclick="setLeDbSource('local')" title="Desktop Rekordbox database">Local DB</button>
+          <button type="button" class="le-db-btn le-db-active" data-db="fablegear"
+                  onclick="setLeDbSource('fablegear')" title="FableGear's own library database">FableGear</button>
+          <button type="button" class="le-db-btn" data-db="local"
+                  onclick="setLeDbSource('local')" title="Desktop Rekordbox database (legacy)">Rekordbox</button>
           <button type="button" class="le-db-btn" data-db="device"
-                  onclick="setLeDbSource('device')" title="Pioneer device database on an external drive">Device DB</button>
+                  onclick="setLeDbSource('device')" title="Pioneer device database on an external drive">Device</button>
+          <button type="button" class="le-db-btn le-sync-btn" id="le-sync-btn"
+                  onclick="leSyncLibrary()" title="Scan the music library into the FableGear database">↻ Sync</button>
+          <span id="le-sync-status" class="le-sync-status"></span>
         </div>
         <div id="le-db-notice" style="display:none"></div>
       </div>
