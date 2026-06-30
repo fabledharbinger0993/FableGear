@@ -124,7 +124,10 @@ if [[ -f "$ICON_SRC" ]]; then
 fi
 
 # ── Package into FableGear.zip ─────────────────────────────────────────────────
+# Remove any existing archive first — `zip` UPDATES an existing file in place
+# rather than replacing it, which can leak stale bundle contents into a release.
 ZIP_PATH="$(pwd)/$ZIP_NAME"
+rm -f "$ZIP_PATH"
 (cd "$BUILD_DIR" && zip -qr "$ZIP_PATH" "$APP_NAME")
 echo "  ✓ Packaged → $ZIP_PATH"
 rm -rf "$BUILD_DIR"
