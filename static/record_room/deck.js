@@ -157,6 +157,7 @@ function deckLoadTrack(trackId, meta, targetDeck) {
 
   document.getElementById('deck-panel')?.classList.add('deck-active');
   document.body.classList.add('deck-open');
+  document.getElementById('deck-toggle-btn')?.classList.add('is-active');
   document.getElementById('deck-half-' + id)?.classList.add('deck-loaded');
 
   _deckNextTarget = (id === 'a') ? 'b' : 'a';
@@ -432,12 +433,28 @@ function _deckInitOne(id) {
 }
 
 /* ── Init ─────────────────────────────────────────────────────────────── */
+/* ── Public: show / hide the deck panel via the scan-bar toggle ────────── */
+function deckSetPanel(open) {
+  const panel = document.getElementById('deck-panel');
+  if (!panel) return;
+  panel.classList.toggle('deck-active', open);
+  document.body.classList.toggle('deck-open', open);
+  document.getElementById('deck-toggle-btn')?.classList.toggle('is-active', open);
+}
+function deckTogglePanel() {
+  const panel = document.getElementById('deck-panel');
+  deckSetPanel(!(panel && panel.classList.contains('deck-active')));
+}
+window.deckTogglePanel = deckTogglePanel;
+window.deckSetPanel = deckSetPanel;
+
 function _deckInit() {
   _deckInitOne('a');
   _deckInitOne('b');
 
   document.getElementById('deck-sync-a')?.addEventListener('click', () => _deckSync('a', 'b'));
   document.getElementById('deck-sync-b')?.addEventListener('click', () => _deckSync('b', 'a'));
+  document.getElementById('deck-close-btn')?.addEventListener('click', () => deckSetPanel(false));
 }
 
 if (document.readyState === 'loading') {

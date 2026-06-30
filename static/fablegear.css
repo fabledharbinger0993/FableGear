@@ -6799,6 +6799,30 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   height: 16px;
   background: var(--border);
 }
+.deck-close-btn {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-dim);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 0;
+  width: 100%;
+  cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.deck-close-btn:hover {
+  border-color: var(--danger, #e0556a);
+  color: var(--danger, #e0556a);
+  background: rgba(224, 85, 106, 0.08);
+}
+/* Scan-bar Decks toggle: lit when the deck panel is open */
+.scan-bar-view-btn.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.10);
+}
 
 /* ── Platter column ────────────────────────────────────────────────────── */
 .deck-platter-col {
