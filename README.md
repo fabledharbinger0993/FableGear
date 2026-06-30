@@ -145,24 +145,12 @@ FableGo uses token-based authentication from your local config. The FableGear de
 
 ## Install
 
-### One-command install (recommended)
-
-Open Terminal and paste this:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/fabledharbinger0993/FableGear/main/install.sh | bash
-```
-
-This installs dependencies, clones the repository, and launches FableGear. A setup window walks you through anything that still needs configuring.
-
-### Manual download
-
 1. Click **Download FableGear for macOS** at the top of this page
 2. Unzip the archive
 3. Open **FableGear.app**
 4. If macOS blocks the first launch, right-click the app and choose **Open**
 
-On first launch, FableGear can also create a native Dock launcher on your Mac.
+On first launch, FableGear opens a Terminal window, installs dependencies, and sets itself up. It can also create a native Dock launcher on your Mac. Every later launch updates itself automatically.
 
 ---
 
