@@ -298,6 +298,7 @@ def relocate_directory(
     old_root: Path,
     new_root: Path,
     db: Rekordbox6Database,
+    archive=None,
 ) -> list[RelocationResult]:
     """
     Batch-update FolderPath for all DjmdContent rows under old_root.
@@ -418,6 +419,31 @@ def relocate_directory(
         by_strategy.get("fuzzy", 0),
         by_strategy.get("not_found", 0),
     )
+
+    if archive is not None:
+        succeeded = [r for r in results if r.success]
+        for r in succeeded:
+            try:
+                old_path = str(r.old_path)
+                new_path = str(r.new_path)
+                rec = archive.get_content_by_path(old_path)
+                if rec and rec.id is not None:
+                    archive.relink_content(rec.id, new_path)
+                archive.log_operation(
+                    "relocate", new_path, status="ok",
+                    metadata={"from": old_path, "strategy": r.strategy},
+                )
+            except Exception as exc:
+                log.warning("Archive update failed for relocate %s: %s", r.old_path, exc)
+        archive.log_operation(
+            "relocate_batch",
+            metadata={
+                "old_root": str(old_root),
+                "new_root": str(new_root),
+                "total": len(results),
+                **by_strategy,
+            },
+        )
 
     return results
 

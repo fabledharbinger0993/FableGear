@@ -869,6 +869,7 @@ def scan_duplicates(
     fuzzy_threshold: float = _FUZZY_THRESHOLD_DEFAULT,
     checkpoint: "object | None" = None,
     cancel_event: "threading.Event | None" = None,
+    archive=None,
 ) -> ScanResult:
     """
     Fingerprint all audio files under root (or multiple roots) and return
@@ -1207,6 +1208,16 @@ def scan_duplicates(
             "RESCUE REQUIRED: %d duplicate groups have their best copy inside a "
             "trash folder — these are marked keep_in_trash=True in the CSV.",
             trapped_keep_count,
+        )
+
+    if archive is not None:
+        archive.log_operation(
+            "duplicate_scan",
+            metadata={
+                "groups": len(groups),
+                "unique_in_trash": len(unique_in_trash),
+                "match_mode": match_mode,
+            },
         )
 
     return ScanResult(groups=groups, unique_in_trash=unique_in_trash)

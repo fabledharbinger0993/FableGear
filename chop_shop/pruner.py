@@ -26,11 +26,14 @@ Public interface:
 """
 
 import csv
+import logging
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+_log = logging.getLogger(__name__)
 
 # ── Trash rescue gate ────────────────────────────────────────────────────────
 
@@ -375,6 +378,7 @@ def prune_files(
     permanent: bool = False,
     keeper_map: Optional[dict[str, str]] = None,
     should_cancel=None,
+    archive=None,
 ) -> dict:
     """
     Remove file_paths from DjmdContent and move them to a timestamped
@@ -545,6 +549,33 @@ def prune_files(
             emit(f"    ⚠  {err}")
     emit(f"  Recovery folder          : {trash_dir}")
     emit("═════════════════════")
+
+    if archive is not None and files_moved > 0:
+        for path in file_paths:
+            if path in protected_paths:
+                continue
+            try:
+                rec = archive.get_content_by_path(path)
+                if rec and rec.id is not None:
+                    archive.delete_content(rec.id)
+                archive.log_operation(
+                    "prune", path, status="ok",
+                    metadata={
+                        "permanent": permanent,
+                        "trash_dir": str(trash_dir) if trash_dir else None,
+                    },
+                )
+            except Exception as exc:
+                _log.warning("Archive update failed for prune %s: %s", path, exc)
+        archive.log_operation(
+            "prune_batch",
+            metadata={
+                "db_removed": db_removed,
+                "files_moved": files_moved,
+                "permanent": permanent,
+                "playlists_rethreaded": playlists_rethreaded,
+            },
+        )
 
     return {
         "db_removed":           db_removed,

@@ -316,6 +316,7 @@ def scan_novel(
     max_workers: int  = 1,
     match_mode:  str  = "fingerprint",
     progress_cb: "callable | None" = None,
+    archive=None,
 ) -> NovelScanResult:
     """
     Scan *source* for tracks that do not exist in *destination* and copy them
@@ -484,4 +485,17 @@ def scan_novel(
         len(result.novel), len(result.present), len(result.errors),
         fingerprinted, total,
     )
+
+    if archive is not None:
+        archive.log_operation(
+            "novelty_scan",
+            metadata={
+                "novel": len(result.novel),
+                "present": len(result.present),
+                "errors": len(result.errors),
+                "match_mode": match_mode,
+                "dry_run": dry_run,
+            },
+        )
+
     return result

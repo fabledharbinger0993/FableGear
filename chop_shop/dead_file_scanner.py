@@ -119,6 +119,7 @@ def scan_dead_files(
     roots: list[Path],
     db_paths: list[Path] | None = None,
     progress_cb: Callable[[int, int], None] | None = None,
+    archive=None,
 ) -> DeadFileScanResult:
     """
     Scan roots for audio files not referenced in any of db_paths.
@@ -166,4 +167,15 @@ def scan_dead_files(
 
     result.dead_files = dead
     log.info("Dead-file scan complete: %d untracked / %d total", len(dead), total)
+
+    if archive is not None:
+        archive.log_operation(
+            "dead_file_scan",
+            metadata={
+                "dead": len(dead),
+                "total_scanned": total,
+                "roots": [str(r) for r in roots],
+            },
+        )
+
     return result

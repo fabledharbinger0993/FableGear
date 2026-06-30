@@ -299,6 +299,7 @@ def organize_library(
     dry_run: bool = True,
     max_workers: int = 1,
     mix_threshold_sec: float = MIX_THRESHOLD_SEC,
+    archive=None,
 ) -> list[MoveResult]:
     """
     Scan one or more source directories, compute the canonical destination for
@@ -456,6 +457,33 @@ def organize_library(
     if not dry_run and mode == "assimilate":
         for s in source_list:
             _prune_empty_dirs(s)
+
+    if archive is not None and not dry_run:
+        for r in results:
+            if r.action in ("moved", "conflict_renamed") and r.dest:
+                try:
+                    rec = archive.get_content_by_path(str(r.src))
+                    if rec and rec.id is not None:
+                        archive.relink_content(rec.id, str(r.dest))
+                    archive.log_operation(
+                        "organize", str(r.dest), status="ok",
+                        metadata={"from": str(r.src), "action": r.action, "mode": mode},
+                    )
+                except Exception as exc:
+                    log.warning("Archive update failed for organize %s: %s", r.src, exc)
+        if moved:
+            archive.log_operation(
+                "organize_batch",
+                metadata={
+                    "sources": [str(s) for s in source_list],
+                    "target": str(target),
+                    "mode": mode,
+                    "moved": moved,
+                    "skipped": skipped,
+                    "conflicts": conflicts,
+                    "errors": errors,
+                },
+            )
 
     return results
 
