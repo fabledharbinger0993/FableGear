@@ -591,8 +591,8 @@ function leEnsurePlayer() {
 }
 
 function lePlaybackStateFor(trackId) {
-  if (_lePlayingTrackId !== String(trackId) || !_lePlayer || _lePlayer.paused) return 'play';
-  return 'pause';
+  // The decks are the single source of playback truth now.
+  return window.deckIsPlaying?.(String(trackId)) ? 'pause' : 'play';
 }
 
 function leRefreshPlaybackButtons() {
@@ -603,43 +603,47 @@ function leRefreshPlaybackButtons() {
     btn.classList.toggle('is-playing', state === 'pause');
   });
 }
+// Exposed so deck.js can refresh row buttons + resolve metadata for drops.
+window.leRefreshPlaybackButtons = leRefreshPlaybackButtons;
+window.leTrackMeta = (id) => (_leAllTracks || []).find(t => String(t.id) === String(id));
 
 async function leToggleTrackPlayback(trackId, event) {
   event?.stopPropagation();
-  const player = leEnsurePlayer();
-  const normalizedTrackId = String(trackId);
-  if (_lePlayingTrackId === normalizedTrackId) {
-    if (player.paused) {
-      try {
-        await player.play();
-      } catch (_) {
-        showToast('Could not play track.', 'error');
-      }
-    } else {
-      player.pause();
+  const id = String(trackId);
+
+  // Single audio path: the decks ARE the player. The ▶ button on a row
+  // loads into / toggles a deck, so pause on the row and pause on the deck
+  // act on the same stream.
+  if (typeof window.deckFindTrack === 'function') {
+    const loadedDeck = window.deckFindTrack(id);
+    if (loadedDeck) {
+      // Already on a deck — toggle that deck's playback.
+      if (window.deckIsPlaying(id)) window.deckPause(loadedDeck);
+      else window.deckPlay(loadedDeck);
+      leRefreshPlaybackButtons();
+      return;
     }
+    // Not loaded yet — load into the next free deck and play it.
+    const meta = (_leAllTracks || []).find(t => String(t.id) === id) || {};
+    window.deckSetPanel?.(true);
+    const usedDeck = window.deckLoadTrack(id, meta);
+    if (usedDeck) window.deckPlay(usedDeck);
     leRefreshPlaybackButtons();
     return;
   }
 
-  _lePlayingTrackId = normalizedTrackId;
-  player.src = `/api/library/tracks/${encodeURIComponent(normalizedTrackId)}/stream`;
+  // Fallback (deck.js not loaded): legacy single preview player.
+  const player = leEnsurePlayer();
+  if (_lePlayingTrackId === id) {
+    if (player.paused) { try { await player.play(); } catch (_) { showToast('Could not play track.', 'error'); } }
+    else player.pause();
+    leRefreshPlaybackButtons();
+    return;
+  }
+  _lePlayingTrackId = id;
+  player.src = `/api/library/tracks/${encodeURIComponent(id)}/stream`;
   player.load();
-
-  // Load track metadata into the DJ deck
-  if (typeof deckLoadTrack === 'function') {
-    const meta = (_leAllTracks || []).find(t => String(t.id) === normalizedTrackId);
-    if (meta) {
-      deckLoadTrack(normalizedTrackId, meta);
-    }
-  }
-
-  try {
-    await player.play();
-  } catch (_) {
-    _lePlayingTrackId = null;
-    showToast('Could not play track.', 'error');
-  }
+  try { await player.play(); } catch (_) { _lePlayingTrackId = null; showToast('Could not play track.', 'error'); }
   leRefreshPlaybackButtons();
 }
 
@@ -697,6 +701,35 @@ function leRenderPlaylistTree(nodes, parentEl, depth) {
       }
       leSelectPlaylist(node, item);
     };
+    // Drop a dragged library track onto a playlist to add it.
+    if (node.type === 'playlist') {
+      item.addEventListener('dragover', (e) => {
+        if (!e.dataTransfer || !e.dataTransfer.types.includes('text/fg-track')) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        item.classList.add('le-tree-drop-hover');
+      });
+      item.addEventListener('dragleave', () => item.classList.remove('le-tree-drop-hover'));
+      item.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        item.classList.remove('le-tree-drop-hover');
+        const trackId = e.dataTransfer?.getData('text/fg-track');
+        if (!trackId) return;
+        try {
+          const res = await fetch(`/api/library/playlists/${node.id}/tracks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ track_id: trackId }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) { showToast(data.error || 'Could not add track to playlist.', 'error'); return; }
+          if (data.added === 0) showToast(`Already in “${node.name}”.`, 'info');
+          else showToast(`Added to “${node.name}”.`, 'success');
+        } catch (_) {
+          showToast('Could not add track to playlist.', 'error');
+        }
+      });
+    }
     container.appendChild(item);
     let sub = null;
     if (node.children && node.children.length) {
@@ -804,7 +837,19 @@ function leRenderTracks(tracks) {
     row.querySelector('.le-play-btn')?.addEventListener('click', evt => leToggleTrackPlayback(t.id, evt));
     row.querySelector('.le-title-editable')?.addEventListener('dblclick', evt => leEditTrackTitle(t, evt));
     row.addEventListener('click', evt => leToggleTrackSelection(String(t.id), evt));
-    if (inPlaylist) _leBindDragReorder(row, t.id);
+    if (inPlaylist) {
+      // Playlist view: row drag reorders within the playlist.
+      _leBindDragReorder(row, t.id);
+    } else {
+      // Library view: drag a track onto a deck (load) or a playlist (add).
+      row.draggable = true;
+      row.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/fg-track', String(t.id));
+        e.dataTransfer.effectAllowed = 'copy';
+        row.classList.add('le-row-dragging');
+      });
+      row.addEventListener('dragend', () => row.classList.remove('le-row-dragging'));
+    }
     list.appendChild(row);
   });
 }

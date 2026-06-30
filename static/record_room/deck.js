@@ -56,6 +56,7 @@ function _deckOnPlay(id) {
   if (ico) ico.innerHTML = '&#10074;&#10074;';
   if (btn) { btn.lastChild.textContent = ' PAUSE'; btn.classList.add('deck-btn-active'); }
   _deckStartAnim(id);
+  window.leRefreshPlaybackButtons?.();
 }
 
 function _deckOnPause(id) {
@@ -67,6 +68,7 @@ function _deckOnPause(id) {
   if (ico) ico.innerHTML = '&#9654;';
   if (btn) { btn.lastChild.textContent = ' PLAY'; btn.classList.remove('deck-btn-active'); }
   cancelAnimationFrame(dk.animId);
+  window.leRefreshPlaybackButtons?.();
 }
 
 function _deckOnEnded(id) {
@@ -161,7 +163,28 @@ function deckLoadTrack(trackId, meta, targetDeck) {
   document.getElementById('deck-half-' + id)?.classList.add('deck-loaded');
 
   _deckNextTarget = (id === 'a') ? 'b' : 'a';
+  window.leRefreshPlaybackButtons?.();
+  return id;
 }
+
+/* ── Public deck API (used by the library list + drag-drop) ───────────── */
+function deckPlay(id) { _deckPlay(id); }
+function deckPause(id) { _deckGetAudio(id).pause(); }
+function deckFindTrack(trackId) {
+  for (const id of ['a', 'b']) {
+    if (_decks[id].trackId != null && String(_decks[id].trackId) === String(trackId)) return id;
+  }
+  return null;
+}
+function deckIsPlaying(trackId) {
+  const id = deckFindTrack(trackId);
+  return id ? !!_decks[id].playing : false;
+}
+window.deckLoadTrack = deckLoadTrack;
+window.deckPlay = deckPlay;
+window.deckPause = deckPause;
+window.deckFindTrack = deckFindTrack;
+window.deckIsPlaying = deckIsPlaying;
 
 /* ── Transport ────────────────────────────────────────────────────────── */
 function _deckPlay(id) {
@@ -455,6 +478,29 @@ function _deckInit() {
   document.getElementById('deck-sync-a')?.addEventListener('click', () => _deckSync('a', 'b'));
   document.getElementById('deck-sync-b')?.addEventListener('click', () => _deckSync('b', 'a'));
   document.getElementById('deck-close-btn')?.addEventListener('click', () => deckSetPanel(false));
+
+  // Drop a library track onto a deck half to load + play it there.
+  ['a', 'b'].forEach((id) => {
+    const half = document.getElementById('deck-half-' + id);
+    if (!half) return;
+    half.addEventListener('dragover', (e) => {
+      if (!e.dataTransfer || !e.dataTransfer.types.includes('text/fg-track')) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      half.classList.add('deck-drop-hover');
+    });
+    half.addEventListener('dragleave', () => half.classList.remove('deck-drop-hover'));
+    half.addEventListener('drop', (e) => {
+      e.preventDefault();
+      half.classList.remove('deck-drop-hover');
+      const trackId = e.dataTransfer?.getData('text/fg-track');
+      if (!trackId) return;
+      const meta = (window.leTrackMeta?.(trackId)) || {};
+      deckSetPanel(true);
+      deckLoadTrack(trackId, meta, id);
+      deckPlay(id);
+    });
+  });
 }
 
 if (document.readyState === 'loading') {

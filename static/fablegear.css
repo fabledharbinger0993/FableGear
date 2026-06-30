@@ -6824,6 +6824,20 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   background: rgba(var(--accent-rgb), 0.10);
 }
 
+/* ── Drag & drop: library track → deck / playlist ─────────────────────── */
+.le-track-row[draggable="true"] { cursor: grab; }
+.le-track-row.le-row-dragging { opacity: 0.45; }
+.deck-half.deck-drop-hover {
+  outline: 2px dashed var(--accent);
+  outline-offset: -5px;
+  background: rgba(var(--accent-rgb), 0.07);
+}
+.le-tree-item.le-tree-drop-hover {
+  background: rgba(var(--accent-rgb), 0.16);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  border-radius: 5px;
+}
+
 /* ── Platter column ────────────────────────────────────────────────────── */
 .deck-platter-col {
   display: flex;
