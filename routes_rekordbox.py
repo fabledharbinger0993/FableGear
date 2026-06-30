@@ -120,12 +120,18 @@ def api_relocate():
     if not old_roots or not new:
         return jsonify({"error": "old_root and new_root are required"}), 400
 
-    # Validate paths are absolute to prevent argument injection into cli.py
-    if not Path(new).is_absolute():
-        return jsonify({"error": "new_root must be an absolute path"}), 400
-    invalid = [r for r in old_roots if not Path(r).is_absolute()]
+    # Validate paths: must be absolute, resolved, no null bytes or shell metacharacters
+    _FORBIDDEN = frozenset('\x00;|&`$(){}[]!#~')
+    def _safe_path(p: str) -> bool:
+        return Path(p).is_absolute() and not any(c in p for c in _FORBIDDEN)
+
+    if not _safe_path(new):
+        return jsonify({"error": "new_root must be a safe absolute path"}), 400
+    new = str(Path(new).resolve())
+    invalid = [r for r in old_roots if not _safe_path(r)]
     if invalid:
-        return jsonify({"error": "old_root values must be absolute paths"}), 400
+        return jsonify({"error": "old_root values must be safe absolute paths"}), 400
+    old_roots = [str(Path(r).resolve()) for r in old_roots]
 
     library_root = _get_library_root(request, "new_root")
 

@@ -753,6 +753,8 @@ def _stream(
     This is the fix for the _sse_response bug where _stream was called but
     never defined in the original monolithic app.py.
     """
+    if not cmd or cmd[0] != sys.executable:
+        raise ValueError(f"_stream only launches Python subprocesses, got: {cmd[0] if cmd else '(empty)'}")
     request_id = str(uuid.uuid4())
     exit_code = 0
 
@@ -998,6 +1000,8 @@ def _stream_pipeline(steps: list[dict]):
     for idx, step in enumerate(steps, 1):
         name = step["name"]
         cmd = list(step["cmd"])
+        if not cmd or cmd[0] != sys.executable:
+            raise ValueError(f"_stream_pipeline only launches Python subprocesses, got: {cmd[0] if cmd else '(empty)'}")
 
         if step.get("needs_csv") and last_report_path:
             cmd.append(last_report_path)

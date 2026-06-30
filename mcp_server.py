@@ -184,12 +184,20 @@ def _dep_gate(tool: str, scope: str, force: bool = False) -> Optional[str]:
     )
 
 
+_CLI_SUBCOMMANDS = frozenset({
+    "usb-export", "audit", "import", "link", "relocate", "dupes",
+    "rb-dupes", "prune", "process", "convert", "organize", "novelty",
+    "rename", "dead-files", "setup",
+})
+
 def _run_cli(*args: str, timeout: int = 600) -> str:
     """
     Invoke cli.py with the given arguments.
     Returns combined stdout+stderr as a single string.
     All of cli.py's safety guards (Rekordbox check, DB backup, etc.) apply.
     """
+    if not args or args[0] not in _CLI_SUBCOMMANDS:
+        return f"Unknown CLI subcommand: {args[0] if args else '(none)'}"
     cmd = [sys.executable, str(_CLI), *args]
     try:
         result = subprocess.run(
@@ -1056,7 +1064,10 @@ if _DEV_MODE:
         """
         cmd = [sys.executable, "-m", "pytest", "-v", "--tb=short"]
         if test_path.strip():
-            cmd.append(test_path.strip())
+            resolved = (REPO_DIR / test_path.strip()).resolve()
+            if not str(resolved).startswith(str(REPO_DIR.resolve())):
+                return "test_path must be within the FableGear repository."
+            cmd.append(str(resolved))
         else:
             cmd.append(str(REPO_DIR / "tests"))
         try:

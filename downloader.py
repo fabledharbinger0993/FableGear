@@ -88,6 +88,9 @@ def enqueue(url: str, destination: str, filename: Optional[str] = None,
     Enqueue a download job and return its job_id immediately.
     The download runs in a background daemon thread.
     """
+    if not url or not url.strip().startswith(("http://", "https://")):
+        raise ValueError("URL must start with http:// or https://")
+    url = url.strip()
     job_id = str(uuid.uuid4())
     fmt = fmt if fmt in FORMATS else DEFAULT_FORMAT
 
