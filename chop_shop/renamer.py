@@ -850,11 +850,13 @@ def _rename_one(
     rules: "_learned.LearnedRules | None" = None,
     label_artist_hints: dict[str, str] | None = None,
     library_root: Path | None = None,
+    archive=None,
 ) -> RenameResult:
     """
     Rename a single audio file based on its metadata.
     Updates rekordbox DjmdContent.FolderPath if db is provided.
-    
+    Updates FableGear Archive (fg_content + fg_processing_log) if archive is provided.
+
     Returns: RenameResult with action and outcome.
     """
     try:
@@ -920,6 +922,7 @@ def _rename_one(
                 target_root,
                 Path(moved["manifest_path"]),
             )
+            _archive_rename(archive, path, Path(moved["dest_path"]), "quarantined")
             return RenameResult(
                 original_path=path,
                 new_path=Path(moved["dest_path"]),
@@ -974,12 +977,30 @@ def _rename_one(
                 action="error",
                 reason=str(e),
             )
-    
+
+        _archive_rename(archive, path, new_path, action)
+
     return RenameResult(
         original_path=path,
         new_path=new_path,
         action=action,
     )
+
+
+def _archive_rename(archive, old_path: Path, new_path: Path, action: str) -> None:
+    """Update the FableGear Archive after a rename/quarantine: relink + log."""
+    if archive is None:
+        return
+    try:
+        rec = archive.get_content_by_path(str(old_path))
+        if rec and rec.id is not None:
+            archive.relink_content(rec.id, str(new_path))
+        archive.log_operation(
+            "rename", str(new_path), status="ok",
+            metadata={"from": str(old_path), "action": action},
+        )
+    except Exception as exc:
+        log.warning("Archive update failed for rename %s -> %s: %s", old_path, new_path, exc)
 
 
 def _update_db_path(old_path: Path, new_path: Path, db) -> None:
@@ -1064,10 +1085,11 @@ def rename_directory(
     dry_run: bool = True,
     max_workers: int = 1,
     rules: "_learned.LearnedRules | None" = None,
+    archive=None,
 ) -> list[RenameResult]:
     """
     Batch-rename all audio files in a directory based on their metadata.
-    
+
     Parameters
     ----------
     root : Path
@@ -1079,7 +1101,10 @@ def rename_directory(
         Pass dry_run=False to execute renames.
     max_workers : int
         Parallel workers for rename operations (default 1 = sequential).
-    
+    archive : FableGearDatabase, optional
+        If provided, logs each rename/quarantine to the Archive's processing
+        log and relinks fg_content.file_path so the Record Room stays in sync.
+
     Returns
     -------
     list[RenameResult]
@@ -1131,6 +1156,7 @@ def rename_directory(
             rules=rules,
             label_artist_hints=label_artist_hints,
             library_root=root,
+            archive=archive,
         )
         results.append(result)
 
@@ -1178,5 +1204,18 @@ def rename_directory(
         quarantined,
         errors,
     )
+
+    if archive is not None and not dry_run and (renamed or collisions or quarantined):
+        archive.log_operation(
+            "rename_batch",
+            metadata={
+                "root": str(root),
+                "renamed": renamed,
+                "collisions": collisions,
+                "quarantined": quarantined,
+                "errors": errors,
+                "total": total,
+            },
+        )
 
     return results

@@ -807,6 +807,26 @@ def api_library_integrity_canonical_paths_plan():
 
 @bp.route("/api/library/tracks/<track_id>/stream")
 def api_library_track_stream(track_id):
+    source = (request.args.get("db") or "").lower()
+
+    # FableGear DB: numeric IDs, default source
+    if source not in ("local", "device", "djmt"):
+        try:
+            db = _fablegear_db()
+            rec = db.get_content_by_id(int(track_id))
+            if rec is None:
+                return jsonify({"error": f"Track {track_id!r} not found in FableGear DB"}), 404
+            file_path = (rec.file_path or "").strip()
+            if not file_path or not os.path.isfile(file_path):
+                return jsonify({"error": f"Audio file not found on disk: {file_path}"}), 404
+            mime, _ = mimetypes.guess_type(file_path)
+            return send_file(file_path, mimetype=mime or "audio/mpeg", conditional=True)
+        except (ValueError, TypeError):
+            pass
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+    # Rekordbox fallback
     from db_connection import read_db  # noqa: PLC0415
     from config import LOCAL_DB as _DB  # noqa: PLC0415
 
