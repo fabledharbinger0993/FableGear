@@ -1,0 +1,187 @@
+<!-- ══ Record Room — Dual DJ Decks ══════════════════════════════════════════
+     A/B decks with independent audio, tempo, pitch. Center strip has SYNC.
+     Driven by static/record_room/deck.js. -->
+<section id="deck-panel" class="deck-panel" aria-label="DJ deck preview">
+
+  <!-- ═══ DECK A ═══════════════════════════════════════════════════════════ -->
+  <div class="deck-half" id="deck-half-a" data-deck="a">
+
+    <div class="deck-half-top">
+      <div class="deck-platter-col">
+        <div class="deck-platter-ring">
+          <div class="deck-vinyl" id="deck-a-vinyl">
+            <div class="deck-vinyl-label"></div>
+          </div>
+        </div>
+        <div class="deck-deck-label">
+          <span class="deck-deck-tag deck-tag-a">A</span>
+          <span class="deck-rpm-label" id="deck-a-rpm">33.0</span>
+        </div>
+      </div>
+
+      <div class="deck-info-col">
+        <div class="deck-track-info">
+          <div class="deck-track-title" id="deck-a-title">Deck A</div>
+          <div class="deck-track-artist" id="deck-a-artist">Load a track from the library</div>
+        </div>
+
+        <div class="deck-wave-wrap" id="deck-a-wave-wrap">
+          <canvas class="deck-wave-canvas" id="deck-a-wave-canvas"></canvas>
+          <div class="deck-wave-pos" id="deck-a-wave-pos"></div>
+          <div class="deck-wave-times">
+            <span id="deck-a-time-elapsed">0:00</span>
+            <span id="deck-a-time-remaining">-0:00</span>
+          </div>
+        </div>
+
+        <div class="deck-transport">
+          <button type="button" class="deck-btn deck-btn-play" id="deck-a-play-btn" title="Play / Pause">
+            <span class="deck-btn-ico" id="deck-a-play-ico">&#9654;</span> PLAY
+          </button>
+          <button type="button" class="deck-btn deck-btn-cue" id="deck-a-cue-btn" title="Return to start">
+            <span class="deck-btn-ico">&#9632;</span> CUE
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="deck-half-bottom">
+      <div class="deck-ctrl-group">
+        <div class="deck-ctrl-header">
+          <span class="deck-ctrl-label">TEMPO</span>
+          <span class="deck-ctrl-pct" id="deck-a-tempo-pct">0.0%</span>
+        </div>
+        <div class="deck-bpm-row">
+          <span class="deck-meta-dot bpm"></span>
+          <input type="text" class="deck-bpm-input" id="deck-a-bpm-input"
+                 value="—" title="Type a target BPM" autocomplete="off" inputmode="decimal">
+          <span class="deck-bpm-unit">BPM</span>
+        </div>
+        <input type="range" class="deck-range deck-tempo-range" id="deck-a-tempo-slider"
+               min="-8" max="8" step="0.1" value="0">
+      </div>
+
+      <div class="deck-ctrl-group">
+        <div class="deck-ctrl-header">
+          <span class="deck-ctrl-label">PITCH</span>
+          <button type="button" class="deck-keylock-btn deck-keylock-on" id="deck-a-keylock-btn"
+                  title="Key Lock">
+            <span class="deck-keylock-ico">&#x1F512;</span> KEY LOCK
+          </button>
+        </div>
+        <div class="deck-pitch-row">
+          <button type="button" class="deck-pitch-step" id="deck-a-pitch-down">-</button>
+          <input type="text" class="deck-key-input" id="deck-a-key-input" value="—" readonly>
+          <span class="deck-semitone-val" id="deck-a-semitone-val">0 st</span>
+          <button type="button" class="deck-pitch-step" id="deck-a-pitch-up">+</button>
+        </div>
+        <input type="range" class="deck-range deck-pitch-range" id="deck-a-pitch-slider"
+               min="-6" max="6" step="1" value="0">
+      </div>
+
+      <div class="deck-meta-row">
+        <span class="deck-meta-tag"><span class="deck-meta-dot key"></span> <span id="deck-a-orig-key">—</span></span>
+        <span class="deck-meta-tag"><span class="deck-meta-dot dur"></span> <span id="deck-a-dur">—</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ CENTER STRIP ════════════════════════════════════════════════════ -->
+  <div class="deck-center-strip">
+    <button type="button" class="deck-sync-btn" id="deck-sync-a" title="Match Deck B tempo to Deck A">
+      SYNC<br>A&#x2192;B
+    </button>
+    <div class="deck-strip-divider"></div>
+    <button type="button" class="deck-sync-btn" id="deck-sync-b" title="Match Deck A tempo to Deck B">
+      SYNC<br>B&#x2192;A
+    </button>
+  </div>
+
+  <!-- ═══ DECK B ═══════════════════════════════════════════════════════════ -->
+  <div class="deck-half" id="deck-half-b" data-deck="b">
+
+    <div class="deck-half-top">
+      <div class="deck-info-col">
+        <div class="deck-track-info">
+          <div class="deck-track-title" id="deck-b-title">Deck B</div>
+          <div class="deck-track-artist" id="deck-b-artist">Load a track from the library</div>
+        </div>
+
+        <div class="deck-wave-wrap" id="deck-b-wave-wrap">
+          <canvas class="deck-wave-canvas" id="deck-b-wave-canvas"></canvas>
+          <div class="deck-wave-pos" id="deck-b-wave-pos"></div>
+          <div class="deck-wave-times">
+            <span id="deck-b-time-elapsed">0:00</span>
+            <span id="deck-b-time-remaining">-0:00</span>
+          </div>
+        </div>
+
+        <div class="deck-transport">
+          <button type="button" class="deck-btn deck-btn-play" id="deck-b-play-btn" title="Play / Pause">
+            <span class="deck-btn-ico" id="deck-b-play-ico">&#9654;</span> PLAY
+          </button>
+          <button type="button" class="deck-btn deck-btn-cue" id="deck-b-cue-btn" title="Return to start">
+            <span class="deck-btn-ico">&#9632;</span> CUE
+          </button>
+        </div>
+      </div>
+
+      <div class="deck-platter-col">
+        <div class="deck-platter-ring">
+          <div class="deck-vinyl" id="deck-b-vinyl">
+            <div class="deck-vinyl-label"></div>
+          </div>
+        </div>
+        <div class="deck-deck-label">
+          <span class="deck-rpm-label" id="deck-b-rpm">33.0</span>
+          <span class="deck-deck-tag deck-tag-b">B</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="deck-half-bottom">
+      <div class="deck-ctrl-group">
+        <div class="deck-ctrl-header">
+          <span class="deck-ctrl-label">TEMPO</span>
+          <span class="deck-ctrl-pct" id="deck-b-tempo-pct">0.0%</span>
+        </div>
+        <div class="deck-bpm-row">
+          <span class="deck-meta-dot bpm"></span>
+          <input type="text" class="deck-bpm-input" id="deck-b-bpm-input"
+                 value="—" title="Type a target BPM" autocomplete="off" inputmode="decimal">
+          <span class="deck-bpm-unit">BPM</span>
+        </div>
+        <input type="range" class="deck-range deck-tempo-range" id="deck-b-tempo-slider"
+               min="-8" max="8" step="0.1" value="0">
+      </div>
+
+      <div class="deck-ctrl-group">
+        <div class="deck-ctrl-header">
+          <span class="deck-ctrl-label">PITCH</span>
+          <button type="button" class="deck-keylock-btn deck-keylock-on" id="deck-b-keylock-btn"
+                  title="Key Lock">
+            <span class="deck-keylock-ico">&#x1F512;</span> KEY LOCK
+          </button>
+        </div>
+        <div class="deck-pitch-row">
+          <button type="button" class="deck-pitch-step" id="deck-b-pitch-down">-</button>
+          <input type="text" class="deck-key-input" id="deck-b-key-input" value="—" readonly>
+          <span class="deck-semitone-val" id="deck-b-semitone-val">0 st</span>
+          <button type="button" class="deck-pitch-step" id="deck-b-pitch-up">+</button>
+        </div>
+        <input type="range" class="deck-range deck-pitch-range" id="deck-b-pitch-slider"
+               min="-6" max="6" step="1" value="0">
+      </div>
+
+      <div class="deck-meta-row">
+        <span class="deck-meta-tag"><span class="deck-meta-dot key"></span> <span id="deck-b-orig-key">—</span></span>
+        <span class="deck-meta-tag"><span class="deck-meta-dot dur"></span> <span id="deck-b-dur">—</span></span>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<!-- Dual audio elements for independent deck playback -->
+<audio id="deck-audio-a" preload="none" style="display:none"></audio>
+<audio id="deck-audio-b" preload="none" style="display:none"></audio>

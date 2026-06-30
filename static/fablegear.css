@@ -6508,3 +6508,697 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
 }
 #lp-record-room-btn,
 #lp-chop-shop-btn { position: relative; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Chop Shop "Last Revision" docked layout
+   Icons (rail) → ONE docked morphing modal (upper) → bottom-half scanner window
+   (left ⅓ read-only terminal = repositioned #log-panel, right ⅔ = #chop-readout).
+   All rules are scoped to body.fg-space-chop so the Record Room is untouched.
+   ──────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* Terminal takes up the left column; progress bar is a compact strip at the bottom.
+     --chop-terminal-w: width of the left terminal column.
+     --chop-readout-h:  height of the compact progress strip. */
+  --chop-terminal-w: clamp(260px, 28vw, 380px);
+  --chop-readout-h: clamp(110px, 16vh, 170px);
+  --chop-zone-top: calc(var(--titlebar-h) + var(--header-h) + 66px);
+}
+
+/* Hide the scrolling card stack + intro — the docked modal is the tool surface */
+body.fg-space-chop #chop-card-stack { display: none; }
+
+/* Safety alert dock — pinned above the docked modal; boot.js pushes the modal
+   down by --chop-banner-h so alerts never cover the tool form. */
+body.fg-space-chop #chop-banner-dock {
+  position: fixed;
+  left: calc(var(--left-panel-w) + var(--chop-terminal-w) + 14px);
+  right: calc(var(--nav-bar-right-w) + 14px);
+  top: calc(var(--titlebar-h) + var(--header-h) + 62px);
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 40vh;
+  overflow-y: auto;
+  pointer-events: auto;
+}
+body.fg-space-chop #chop-banner-dock > * {
+  position: static !important;
+  margin: 0;
+  pointer-events: auto;
+}
+body.fg-space-chop.fg-chop-banner-open #tool-float-modal {
+  top: calc(var(--chop-zone-top) + var(--chop-banner-h, 0px) + 8px);
+}
+
+/* ── Docked morphing modal — right side, full height minus readout strip ────── */
+body.fg-space-chop #tool-float-modal-backdrop { display: none !important; }
+body.fg-space-chop #tool-float-modal {
+  left: calc(var(--left-panel-w) + var(--chop-terminal-w));
+  right: var(--nav-bar-right-w);
+  top: var(--chop-zone-top);
+  bottom: calc(var(--chop-readout-h) + 2px);
+  width: auto;
+  max-height: none;
+  min-height: 220px;
+  transform: none !important;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  box-shadow: none;
+  z-index: 60;
+  background: var(--surface);
+  border-color: var(--border-hi);
+}
+body.fg-space-chop #tool-float-modal-header {
+  background: var(--surface-hi);
+  border-bottom-color: var(--border);
+  cursor: default;
+}
+body.fg-space-chop #tool-float-modal-footer {
+  background: var(--surface);
+  border-top-color: var(--border);
+}
+body.fg-space-chop #tool-float-modal-actions {
+  border-bottom-color: var(--border);
+}
+body.fg-space-chop #tool-float-modal-body {
+  scrollbar-color: var(--border-hi) transparent;
+}
+body:has(#fb-panel.fb-open).fg-space-chop #tool-float-modal {
+  left: calc(var(--left-panel-w) + var(--sidebar-w) + var(--chop-terminal-w));
+}
+body.fg-space-chop #tool-float-modal-close { display: none; }
+
+/* ── Terminal — left column, full height ──────────────────────────────────────── */
+body.fg-space-chop #scan-bar { display: none !important; }
+body.fg-space-chop #log-panel {
+  left: var(--left-panel-w);
+  right: auto;
+  width: var(--chop-terminal-w);
+  top: var(--chop-zone-top);
+  bottom: 0;
+  height: auto;
+  transform: none !important;
+  z-index: 55;
+  border-top: 1px solid rgba(var(--accent-rgb), .25);
+  border-right: 1px solid rgba(var(--accent-rgb), .18);
+  pointer-events: none;
+}
+body:has(#fb-panel.fb-open).fg-space-chop #log-panel {
+  left: calc(var(--left-panel-w) + var(--sidebar-w));
+}
+body.fg-space-chop #log-panel .log-bar { background: rgba(var(--accent-rgb), .06); }
+body.fg-space-chop .log-close-btn,
+body.fg-space-chop #log-spinner { display: none !important; }
+body.fg-space-chop #log-cmd-label::before { content: '▎ live terminal — '; color: var(--accent); }
+
+/* ── Progress readout — compact strip across the bottom right ─────────────────── */
+#chop-readout { display: none; }
+body.fg-space-chop #chop-readout {
+  display: flex;
+  position: fixed;
+  bottom: 0;
+  left: calc(var(--left-panel-w) + var(--chop-terminal-w));
+  right: var(--nav-bar-right-w);
+  height: var(--chop-readout-h);
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 20px;
+  z-index: 55;
+  background: linear-gradient(180deg, var(--surface), var(--bg-deepest));
+  border-top: 1px solid rgba(var(--accent-rgb), .25);
+}
+body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
+  left: calc(var(--left-panel-w) + var(--sidebar-w) + var(--chop-terminal-w));
+}
+.chop-readout-head { display: flex; align-items: center; gap: 10px; }
+#chop-readout-title { font-size: .92rem; font-weight: 600; color: var(--text); }
+.chop-spinner {
+  width: 13px; height: 13px;
+  border: 2px solid var(--border-hi);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  display: none;
+  flex-shrink: 0;
+}
+.chop-spinner.active { display: inline-block; animation: spin .7s linear infinite; }
+.chop-prog-track {
+  height: 16px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+#chop-prog-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), .65), var(--accent));
+  transition: width .3s ease;
+}
+.chop-prog-line { font-size: .78rem; color: var(--text-muted); }
+.chop-prog-line span { color: var(--accent); font-weight: 700; }
+.chop-ticks { display: flex; gap: 24px; }
+.chop-tick { display: flex; align-items: baseline; gap: 5px; }
+.chop-tick-arrow { font-size: .85rem; }
+.chop-tick.up .chop-tick-arrow { color: var(--safe); }
+.chop-tick.down .chop-tick-arrow { color: var(--caution); }
+.chop-tick-num { font-family: var(--mono); font-size: 1.3rem; font-weight: 700; color: var(--text); }
+.chop-tick-cap { font-size: .68rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; }
+.chop-readout-stats { display: flex; flex-wrap: wrap; gap: 14px; margin-top: auto; font-size: .72rem; color: var(--text-muted); }
+.chop-readout-stats b { font-family: var(--mono); }
+.crs.ok b   { color: var(--safe); }
+.crs.err b  { color: var(--danger); }
+.crs.warn b { color: var(--caution); }
+
+/* ── Running-tool "what is this?" side panel ────────────────────────────────── */
+#tool-help-panel { display: none; }
+#tool-help-panel.open {
+  display: flex;
+  position: fixed;
+  top: var(--chop-zone-top);
+  right: calc(var(--nav-bar-right-w) + 12px);
+  width: 340px;
+  max-height: calc(100vh - var(--chop-zone-top) - var(--chop-scanner-h) - 24px);
+  z-index: 70;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgba(12, 8, 28, .99);
+  border: 1px solid rgba(var(--accent-rgb), .35);
+  border-radius: 12px;
+  box-shadow: 0 16px 60px rgba(0, 0, 0, .5);
+}
+.thp-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  background: rgba(var(--accent-rgb), .1);
+  border-bottom: 1px solid rgba(var(--accent-rgb), .2);
+  flex-shrink: 0;
+}
+#thp-icon { width: 26px; height: 26px; object-fit: contain; }
+#thp-title { font-weight: 700; color: var(--accent); flex: 1; font-size: .9rem; }
+.thp-close { background: none; border: none; color: var(--text-dim); font-size: 1rem; cursor: pointer; padding: 2px 6px; }
+.thp-close:hover { color: var(--text); }
+#thp-body { padding: 14px 16px; overflow-y: auto; }
+#thp-body .explainers-expanded { display: flex; flex-direction: column; gap: 12px; }
+#thp-body details { border: none; background: none; padding: 0; margin: 0; }
+#thp-body summary { font-weight: 700; color: var(--accent); cursor: default; list-style: none; margin-bottom: 4px; }
+#thp-body summary::-webkit-details-marker { display: none; }
+#thp-body .explain-body { font-size: .82rem; color: var(--text-muted); line-height: 1.55; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DJ Deck — Dual A/B decks with center SYNC strip
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Pink accent token ──────────────────────────────────────────────────── */
+:root {
+  --pink: #ff2d78;
+  --pink-rgb: 255, 45, 120;
+  --pink-dim: rgba(255, 45, 120, 0.15);
+}
+
+/* ── Panel layout ──────────────────────────────────────────────────────── */
+.deck-panel {
+  display: none;
+  position: fixed;
+  left: var(--left-panel-w);
+  right: var(--nav-bar-right-w);
+  bottom: var(--scan-bar-h);
+  z-index: 6;
+  background: rgba(7, 9, 14, 0.94);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid var(--border);
+  padding: 10px 12px;
+  gap: 0;
+  align-items: stretch;
+  transition: transform .25s cubic-bezier(.4,0,.2,1), opacity .2s;
+}
+.deck-panel.deck-active {
+  display: flex;
+}
+
+/* ── Deck halves ──────────────────────────────────────────────────────── */
+.deck-half {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  opacity: 0.4;
+  transition: opacity .2s;
+}
+.deck-half.deck-loaded { opacity: 1; }
+
+.deck-half-top {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+.deck-half-bottom {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+/* ── Center SYNC strip ────────────────────────────────────────────────── */
+.deck-center-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 52px;
+  flex-shrink: 0;
+  padding: 0 4px;
+}
+.deck-sync-btn {
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  line-height: 1.3;
+  text-align: center;
+  color: var(--text-dim);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 4px;
+  cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+  width: 100%;
+}
+.deck-sync-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.08);
+}
+.deck-sync-btn:active { transform: translateY(1px); }
+.deck-strip-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+}
+
+/* ── Platter column ────────────────────────────────────────────────────── */
+.deck-platter-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.deck-platter-ring {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--border-hi);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-shadow: 0 0 0 1px var(--border), inset 0 0 20px rgba(0,0,0,0.4);
+}
+.deck-vinyl {
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, var(--surface-hi) 26%, transparent 26%),
+    repeating-radial-gradient(circle, var(--border) 0px, var(--surface) 1.5px, var(--bg) 3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.deck-vinyl.deck-spin {
+  animation: deck-spin 1.8s linear infinite;
+}
+@keyframes deck-spin { to { transform: rotate(360deg); } }
+
+.deck-vinyl-label {
+  width: 32%;
+  height: 32%;
+  border-radius: 50%;
+  background: var(--pink-dim);
+  border: 1.5px solid var(--pink);
+  box-shadow: 0 0 8px rgba(var(--pink-rgb), 0.2);
+  position: relative;
+}
+.deck-vinyl-label::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transform: translate(-50%, -50%);
+}
+
+/* ── Deck label (A/B tag + RPM) ───────────────────────────────────────── */
+.deck-deck-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.deck-deck-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.deck-tag-a {
+  color: var(--accent);
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  background: rgba(var(--accent-rgb), 0.08);
+}
+.deck-tag-b {
+  color: var(--pink);
+  border: 1px solid rgba(var(--pink-rgb), 0.4);
+  background: var(--pink-dim);
+}
+.deck-rpm-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+}
+
+/* ── Info column (title + waveform + transport) ───────────────────────── */
+.deck-info-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.deck-track-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.deck-track-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.deck-track-artist {
+  font-size: 9px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Waveform ──────────────────────────────────────────────────────────── */
+.deck-wave-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 0;
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+}
+.deck-wave-canvas {
+  width: 100%;
+  height: 34px;
+  display: block;
+}
+.deck-wave-pos {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  width: 1.5px;
+  background: var(--accent);
+  box-shadow: 0 0 4px rgba(var(--accent-rgb), 0.5);
+  pointer-events: none;
+}
+#deck-half-b .deck-wave-pos {
+  background: var(--pink);
+  box-shadow: 0 0 4px rgba(var(--pink-rgb), 0.5);
+}
+.deck-wave-times {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--text-dim);
+  padding: 1px 5px 0;
+}
+
+/* ── Transport buttons ─────────────────────────────────────────────────── */
+.deck-transport {
+  display: flex;
+  gap: 5px;
+}
+.deck-btn {
+  border: 1px solid var(--border-hi);
+  background: var(--surface-hi);
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s, box-shadow .12s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.deck-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.deck-btn:active { transform: translateY(1px); }
+.deck-btn-ico { font-size: 9px; }
+.deck-btn-active,
+.deck-btn-play.deck-btn-active {
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.12);
+}
+#deck-half-b .deck-btn-active,
+#deck-half-b .deck-btn-play.deck-btn-active {
+  background: rgba(var(--pink-rgb), 0.12);
+  border-color: var(--pink);
+  color: var(--pink);
+  box-shadow: 0 0 8px rgba(var(--pink-rgb), 0.12);
+}
+.deck-btn-cue-active {
+  background: rgba(var(--pink-rgb), 0.12) !important;
+  border-color: var(--pink) !important;
+  color: var(--pink) !important;
+}
+
+/* ── Control groups (tempo / pitch) — horizontal in bottom row ────────── */
+.deck-ctrl-group {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 8px 6px;
+  flex: 1;
+  min-width: 0;
+}
+.deck-ctrl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+.deck-ctrl-label {
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+}
+.deck-ctrl-pct {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ── BPM input row ─────────────────────────────────────────────────────── */
+.deck-bpm-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.deck-bpm-input {
+  font-family: var(--mono) !important;
+  font-size: 13px !important;
+  font-weight: 700;
+  color: var(--accent) !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 4px;
+  padding: 1px 3px !important;
+  width: 60px;
+  text-align: center;
+  transition: border-color .15s, background .15s;
+  min-height: 0 !important;
+}
+.deck-bpm-input:hover {
+  border-color: var(--border-hi) !important;
+  background: var(--surface-hi) !important;
+}
+.deck-bpm-input:focus {
+  border-color: var(--accent) !important;
+  background: var(--surface-hi) !important;
+  outline: none;
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.2);
+}
+.deck-bpm-unit {
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+}
+.deck-meta-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.deck-meta-dot.bpm { background: var(--accent); }
+.deck-meta-dot.key { background: var(--safe); }
+.deck-meta-dot.dur { background: var(--caution); }
+
+/* ── Range sliders ─────────────────────────────────────────────────────── */
+.deck-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 3px;
+  background: var(--border-hi);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  min-height: 0 !important;
+}
+.deck-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  cursor: pointer;
+  box-shadow: 0 0 4px rgba(var(--accent-rgb), 0.3);
+}
+.deck-pitch-range::-webkit-slider-thumb {
+  background: var(--pink);
+  box-shadow: 0 0 4px rgba(var(--pink-rgb), 0.3);
+}
+
+/* ── Pitch / Key row ───────────────────────────────────────────────────── */
+.deck-pitch-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+.deck-pitch-step {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  border: 1px solid var(--border-hi);
+  background: var(--surface-hi);
+  color: var(--pink);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color .12s, background .12s;
+  padding: 0;
+  line-height: 1;
+}
+.deck-pitch-step:hover {
+  border-color: var(--pink);
+  background: var(--pink-dim);
+}
+.deck-key-input {
+  font-family: var(--mono) !important;
+  font-size: 11px !important;
+  font-weight: 700;
+  color: var(--safe) !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 4px;
+  padding: 1px 3px !important;
+  width: 34px;
+  text-align: center;
+  min-height: 0 !important;
+  cursor: default;
+}
+.deck-semitone-val {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--pink);
+  flex: 1;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ── Key lock button ───────────────────────────────────────────────────── */
+.deck-keylock-btn {
+  font-family: var(--mono);
+  font-size: 7px;
+  letter-spacing: 0.4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 3px;
+  padding: 1px 5px;
+  cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.deck-keylock-btn:hover { border-color: var(--text-muted); color: var(--text-muted); }
+.deck-keylock-btn.deck-keylock-on {
+  border-color: var(--safe);
+  color: var(--safe);
+  background: rgba(var(--safe-rgb), 0.1);
+}
+.deck-keylock-ico { font-size: 9px; }
+
+/* ── Meta row ──────────────────────────────────────────────────────────── */
+.deck-meta-row {
+  display: flex;
+  gap: 10px;
+  padding-top: 1px;
+  align-self: flex-end;
+}
+.deck-meta-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Push Record Room track list up when deck is visible */
+body.deck-open #library-editor-overlay {
+  bottom: calc(var(--scan-bar-h) + 200px);
+}

@@ -786,6 +786,7 @@
 <script src="/static/record_room/library_editor.js?v={{ cb }}"></script>
 <script src="/static/chop_shop/tool_modal.js?v={{ cb }}"></script>
 <script src="/static/record_room/usb_export.js?v={{ cb }}"></script>
+<script src="/static/record_room/deck.js?v={{ cb }}"></script>
 <script src="/static/chop_shop/normalize_preview.js?v={{ cb }}"></script>
 <script src="/static/shared/state_tracker.js?v={{ cb }}"></script>
 <script src="/static/shared/boot.js?v={{ cb }}"></script>
@@ -1310,6 +1311,8 @@
 <!-- Hidden audio element for Library View playback.
      Must be in the DOM so WKWebView (pywebview/macOS) can play it. -->
 <audio id="le-player-audio" preload="none" style="display:none"></audio>
+
+{% include 'partials/record_room/deck.html' %}
 
 </body>
 </html>

@@ -625,6 +625,15 @@ async function leToggleTrackPlayback(trackId, event) {
   _lePlayingTrackId = normalizedTrackId;
   player.src = `/api/library/tracks/${encodeURIComponent(normalizedTrackId)}/stream`;
   player.load();
+
+  // Load track metadata into the DJ deck
+  if (typeof deckLoadTrack === 'function') {
+    const meta = (_leAllTracks || []).find(t => String(t.id) === normalizedTrackId);
+    if (meta) {
+      deckLoadTrack(normalizedTrackId, meta);
+    }
+  }
+
   try {
     await player.play();
   } catch (_) {
