@@ -1,6 +1,15 @@
 """
 duplicate_detector_database.py — Database-first duplicate detection.
 
+⚠️  QUARANTINED / DEAD MODULE — NOT importable, NOT the canonical engine.
+    The authoritative duplicate-scan path is
+    ``chop_shop.duplicate_detector.scan_duplicates``. This module was an
+    unwired experimental prototype that ImportErrors on load (it references
+    a ``hamming_distance`` symbol that the canonical module never exported).
+    It has been quarantined under ``chop_shop/_quarantine/`` and removed from
+    the live import path. Kept for reference only; do NOT reintroduce it as a
+    competing entry point.
+
 Refactored duplicate detection that uses the FableGear database for
 instant duplicate detection via file hashes, only falling back to
 acoustic fingerprinting when necessary.

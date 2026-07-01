@@ -6,7 +6,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/fabledharbinger0993/FableGear/main/install.sh | bash
 #
 # What it does:
-#   1. Clones FableGear to ~/FableGear/FableGear  (or pulls if already installed)
+#   1. Clones FableGear to ~/FableGear  (or pulls if already installed)
 #   2. Hands off to launch.sh which handles dependencies, venv, and first launch
 #   3. On first launch, offers to add FableGear to your Dock natively
 
@@ -37,6 +37,13 @@ fi
 if [ -d "$INSTALL_DIR/.git" ]; then
     _blue "FableGear already installed — pulling latest..."
     git -C "$INSTALL_DIR" pull --ff-only
+elif [ -d "$INSTALL_DIR" ]; then
+    BACKUP_DIR="${INSTALL_DIR}.bak.$(date +%s)"
+    _blue "$INSTALL_DIR exists but is not a git repo — backing it up to $BACKUP_DIR"
+    mv "$INSTALL_DIR" "$BACKUP_DIR"
+    _blue "Cloning FableGear to $INSTALL_DIR ..."
+    git clone "$REPO_URL" "$INSTALL_DIR"
+    FRESH_INSTALL=1
 else
     _blue "Cloning FableGear to $INSTALL_DIR ..."
     git clone "$REPO_URL" "$INSTALL_DIR"

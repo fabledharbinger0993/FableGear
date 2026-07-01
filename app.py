@@ -342,15 +342,12 @@ _SPLASH_HTML = """\
 @app.route("/")
 def index():
     from flask import redirect as _redirect  # noqa: PLC0415
-    from user_config import config_exists   # noqa: PLC0415
-    try:
-        if not config_exists():
-            return _redirect("/onboarding")
-        _st = _load_setup_state(repair=True)
-        if not _st.get("setup_complete"):
-            return _redirect("/onboarding")
-    except Exception:
-        pass
+
+    ready, reason, _state = _setup_gate_status(repair=True)
+    if not ready:
+        app.logger.info("Redirecting to onboarding (reason=%s)", reason)
+        return _redirect("/onboarding")
+
     return render_template("index.html")
 
 
@@ -1035,12 +1032,40 @@ def _load_setup_state(*, repair: bool = True) -> dict:
     return state
 
 
+def _setup_gate_status(*, repair: bool = True) -> tuple[bool, str, dict]:
+    """
+    Evaluate whether the app should admit the user to the main UI.
+
+    Returns (ready, reason, state) where reason is one of:
+      - ready
+      - config_missing
+      - config_check_failed
+      - setup_incomplete
+    """
+    from user_config import config_exists  # noqa: PLC0415
+
+    state = _load_setup_state(repair=repair)
+
+    try:
+        if not config_exists():
+            return False, "config_missing", state
+    except Exception:
+        app.logger.exception("Setup gate check failed while reading config state")
+        return False, "config_check_failed", state
+
+    if not state.get("setup_complete"):
+        return False, "setup_incomplete", state
+
+    return True, "ready", state
+
+
 @app.route("/api/setup-status")
 def api_setup_status():
     """Return whether the welcome wizard has been completed."""
-    state = _load_setup_state(repair=True)
+    ready, reason, state = _setup_gate_status(repair=True)
     return jsonify({
-        "setup_complete": bool(state.get("setup_complete")),
+        "setup_complete": bool(ready),
+        "gate_reason": reason,
         "db_read":        state.get("db_read"),
         "db_write":       state.get("db_write"),
     })
@@ -1189,17 +1214,15 @@ def api_drives_first_aid():
 def onboarding():
     """Serve the first-run setup wizard."""
     from flask import redirect as _redirect  # noqa: PLC0415
-    from user_config import config_exists   # noqa: PLC0415
-    try:
-        if config_exists():
-            state = _load_setup_state(repair=True)
-            # `?reconfigure=1` lets a completed user re-enter the wizard (e.g. to
-            # change permissions or paths); otherwise a finished setup bounces home.
-            if state.get("setup_complete") and not request.args.get("reconfigure"):
-                return _redirect("/")
-    except Exception:
-        pass
-    return render_template("onboarding.html")
+
+    ready, reason, _state = _setup_gate_status(repair=True)
+
+    # `?reconfigure=1` lets a completed user re-enter the wizard (e.g. to
+    # change permissions or paths); otherwise a finished setup bounces home.
+    if ready and not request.args.get("reconfigure"):
+        return _redirect("/")
+
+    return render_template("onboarding.html", setup_gate_reason=reason)
 
 
 @app.route("/api/onboarding/dep-check")

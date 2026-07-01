@@ -171,7 +171,7 @@ mkdir -p "$HOME/Applications"
 
 # Prefer the bundled shell-script launcher because Finder surfaces generic
 # "/bin/bash" alerts when the AppleScript do-shell-script wrapper fails.
-# The packaged .app already knows how to hand off to ~/FableGear/FableGear.
+# The packaged .app already knows how to hand off to ~/FableGear.
 rm -rf "$APP_DEST"
 if [ -n "$PACKAGED_APP" ] && [ -d "$PACKAGED_APP" ]; then
   cp -R "$PACKAGED_APP" "$APP_DEST"

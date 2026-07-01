@@ -4,7 +4,7 @@
 #
 # Removes the FableGear native Dock launcher and optionally the full repo.
 # Called by FableGear Uninstall.app (built by setup_dock_launcher.sh).
-# Also safe to run standalone: bash ~/FableGear/FableGear/scripts/uninstall.sh
+# Also safe to run standalone: bash ~/FableGear/scripts/uninstall.sh
 #
 # Exits 0 in all cases — failures are non-fatal.
 
@@ -25,7 +25,7 @@ Dock Icon Only
   Your music library and the FableGear repo folder are untouched.
 
 Full Uninstall
-  Removes everything above AND deletes the FableGear repo folder (~'$HOME/FableGear/FableGear').
+    Removes everything above AND deletes the FableGear repo folder (~'$HOME/FableGear').
   Your Rekordbox library is never touched." buttons {"Cancel", "Dock Icon Only", "Full Uninstall"} default button "Dock Icon Only" with icon caution with title "FableGear Uninstall")' \
     2>/dev/null || echo "Cancel")
 

@@ -37,7 +37,7 @@ if [[ "$RESPONSE" != "Add to Dock" ]]; then
     cat >&2 <<'MSG'
 Dock setup skipped.
 
-To add later:  bash ~/FableGear/FableGear/scripts/setup_dock_launcher.sh
+To add later:  bash ~/FableGear/scripts/setup_dock_launcher.sh
 Right-click the downloaded FableGear Launcher icon → Open for a one-time launch.
 MSG
     exit 0

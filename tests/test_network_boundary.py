@@ -78,6 +78,19 @@ def _hit(client, path, addr, method="GET", token=None):
     return fn(path, environ_overrides={"REMOTE_ADDR": addr}, headers=headers)
 
 
+def _setup_state_file() -> Path:
+    return Path(os.environ["HOME"]) / ".fablegear" / "fablegear-state.json"
+
+
+def _write_setup_state(*, setup_complete, db_read=None, db_write=None, drive_scan=False):
+    _setup_state_file().write_text(json.dumps({
+        "setup_complete": setup_complete,
+        "db_read": db_read,
+        "db_write": db_write,
+        "drive_scan": drive_scan,
+    }))
+
+
 # ── Loopback: unchanged behavior ─────────────────────────────────────────────
 
 def test_loopback_ui_page_allowed(client):
@@ -130,6 +143,52 @@ def test_lan_static_assets_public(client):
 def test_lan_bearer_does_not_bypass_non_mobile_boundary(client):
     r = _hit(client, "/api/cancel", LAN, method="POST", token=TEST_TOKEN)
     assert r.status_code == 403
+
+
+def test_root_redirects_to_onboarding_when_setup_incomplete(client):
+    _write_setup_state(setup_complete=False, db_read=None, db_write=None)
+    r = _hit(client, "/", LOOPBACK)
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/onboarding")
+
+
+def test_onboarding_redirects_home_when_setup_complete_unless_reconfigure(client):
+    _write_setup_state(setup_complete=True, db_read=True, db_write=True)
+
+    normal = _hit(client, "/onboarding", LOOPBACK)
+    assert normal.status_code == 302
+    assert normal.headers["Location"].endswith("/")
+
+    reconfigure = _hit(client, "/onboarding?reconfigure=1", LOOPBACK)
+    assert reconfigure.status_code == 200
+
+
+def test_setup_status_includes_gate_reason_for_incomplete_state(client):
+    _write_setup_state(setup_complete=False, db_read=False, db_write=False)
+    data = _hit(client, "/api/setup-status", LOOPBACK).get_json()
+    assert data["setup_complete"] is False
+    assert data["gate_reason"] == "setup_incomplete"
+
+
+def test_setup_gate_logs_and_falls_back_when_config_check_fails(client, monkeypatch, caplog):
+    import user_config as _user_config  # noqa: PLC0415
+
+    _write_setup_state(setup_complete=True, db_read=True, db_write=True)
+
+    def _boom():
+        raise RuntimeError("config check exploded")
+
+    monkeypatch.setattr(_user_config, "config_exists", _boom)
+
+    status = _hit(client, "/api/setup-status", LOOPBACK).get_json()
+    assert status["setup_complete"] is False
+    assert status["gate_reason"] == "config_check_failed"
+
+    with caplog.at_level("ERROR"):
+        r = _hit(client, "/", LOOPBACK)
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/onboarding")
+    assert any("Setup gate check failed while reading config state" in rec.getMessage() for rec in caplog.records)
 
 
 def test_onboarding_save_config_defaults_backup_to_archive_savepoints(client):

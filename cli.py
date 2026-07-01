@@ -72,6 +72,18 @@ def _archive():
     return _ARCHIVE
 
 
+def _require_archive(command_name: str):
+    """Return the archive handle or exit with a fail-loud contract error."""
+    archive = _archive()
+    if archive is None:
+        log.error(
+            "Archive unavailable for '%s' — this command requires persistent archive logging.",
+            command_name,
+        )
+        sys.exit(2)
+    return archive
+
+
 # ─── Report helpers ───────────────────────────────────────────────────────────
 
 def _emit_report(text: str, subdir: str, filename: str) -> None:
@@ -233,8 +245,9 @@ def cmd_dead_files(args: argparse.Namespace) -> None:
         print(f"FABLEGEAR_SCAN_TICK: {scanned}", flush=True)
 
     log.info("Dead-file scan: roots=%s", [str(r) for r in roots])
+    archive = _require_archive("dead-files")
     try:
-        result = scan_dead_files(roots, db_paths=db_paths, progress_cb=_progress, archive=_archive())
+        result = scan_dead_files(roots, db_paths=db_paths, progress_cb=_progress, archive=archive)
 
         print(f"Scanned {result.total_scanned:,} audio files across {len(roots)} root(s).", flush=True)
         if result.db_paths_used:
@@ -392,9 +405,10 @@ def cmd_relocate(args: argparse.Namespace) -> None:
     # against FolderPath values in the DB. If it's a typo, relocate_directory
     # will match zero rows and log a warning.
     log.info("Relocating: %s → %s", old_root, new_root)
+    archive = _require_archive("relocate")
     try:
         with write_db(LOCAL_DB) as db:
-            results = relocate_directory(old_root, new_root, db, archive=_archive())
+            results = relocate_directory(old_root, new_root, db, archive=archive)
     except Exception:
         log.exception("Relocation failed")
         sys.exit(1)
@@ -473,13 +487,15 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
             "Selected folders are scanned together as one comparison set so duplicates across different source folders are not missed."
         )
 
+    archive = _require_archive("duplicates")
+
     try:
         result = scan_duplicates(
             root,
             max_workers=workers,
             match_mode=args.match_mode,
             fuzzy_threshold=args.fuzzy_threshold,
-            archive=_archive(),
+            archive=archive,
         )
     except Exception:
         log.exception("Duplicate scan failed")
@@ -754,6 +770,7 @@ def cmd_prune(args: argparse.Namespace) -> None:
         return
 
     log.info("Pruning %d duplicate file(s) from %s", len(remove_paths), db_path)
+    archive = _require_archive("prune")
     try:
         with write_db(db_path) as db:
             summary = prune_files(
@@ -762,7 +779,7 @@ def cmd_prune(args: argparse.Namespace) -> None:
                 log=lambda m: print(m, flush=True),
                 permanent=args.permanent,
                 keeper_map=keeper_map,
-                archive=_archive(),
+                archive=archive,
             )
     except Exception:
         log.exception("Prune failed")
@@ -879,6 +896,7 @@ def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
         "Scanning %d Rekordbox-referenced files (missing=%d non-audio=%d, workers=%d, match=%s)",
         len(scan_files), missing_on_disk, non_audio_paths, workers, match_mode,
     )
+    archive = _require_archive("rekordbox-dedupe")
     try:
         result = scan_duplicates(
             root=scan_files[0].parent,
@@ -886,7 +904,7 @@ def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
             max_workers=workers,
             match_mode=match_mode,
             fuzzy_threshold=fuzzy_threshold,
-            archive=_archive(),
+            archive=archive,
         )
     except Exception:
         log.exception("Rekordbox duplicate scan failed")
@@ -978,7 +996,7 @@ def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
                 log=lambda m: print(m, flush=True),
                 permanent=args.permanent,
                 keeper_map=keeper_map,
-                archive=_archive(),
+                archive=archive,
             )
     except Exception:
         log.exception("Rekordbox dedupe prune failed")
@@ -1547,6 +1565,8 @@ def cmd_organize(args: argparse.Namespace) -> None:
     if dry_run:
         log.info("DRY RUN — no files will be touched. Pass --no-dry-run to execute.")
 
+    archive = _archive() if dry_run else _require_archive("organize")
+
     # Past-participle forms used in both dry-run plans and live reports.
     # Using full past-tense words avoids "{verb}ed" suffixing producing "copyed".
     action_past = "copied" if mode == "integrate" else "moved"
@@ -1566,7 +1586,7 @@ def cmd_organize(args: argparse.Namespace) -> None:
             dry_run=dry_run,
             max_workers=max_workers,
             mix_threshold_sec=threshold,
-            archive=_archive(),
+            archive=archive,
         )
         results.extend(root_results)
 
@@ -1674,6 +1694,8 @@ def cmd_novelty(args: argparse.Namespace) -> None:
     if dry_run:
         log.info("DRY RUN — no files will be copied. Pass --no-dry-run to execute.")
 
+    archive = _archive() if dry_run else _require_archive("novelty")
+
     log.info(
         "Novel scan  sources=%s  dest=%s  dry_run=%s  workers=%d  match_mode=%s",
         [str(s) for s in sources], dest, dry_run, max_workers, match_mode,
@@ -1694,7 +1716,7 @@ def cmd_novelty(args: argparse.Namespace) -> None:
             dry_run=dry_run,
             max_workers=max_workers,
             match_mode=match_mode,
-            archive=_archive(),
+            archive=archive,
         )
         total_src += root_result.total_src
         dest_index_size = max(dest_index_size, root_result.dest_index_size)
@@ -1810,10 +1832,11 @@ def cmd_rename(args: argparse.Namespace) -> None:
                     root_lines.append(f"{root_errors} had errors — check the log above.")
                 root_sections.append((root, "\n".join(root_lines)))
         else:
+            archive = _require_archive("rename")
             with write_db(LOCAL_DB) as db:
                 for index, root in enumerate(roots, start=1):
                     _log_root_step("Rename", root, index, len(roots))
-                    root_results = rename_directory(root, db=db, dry_run=False, max_workers=max_workers, archive=_archive())
+                    root_results = rename_directory(root, db=db, dry_run=False, max_workers=max_workers, archive=archive)
                     results.extend(root_results)
                     root_renamed = sum(1 for r in root_results if r.action == "renamed")
                     root_skipped = sum(1 for r in root_results if r.action == "no_change")
