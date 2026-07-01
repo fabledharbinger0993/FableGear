@@ -67,7 +67,10 @@ def _start_server() -> None:
     serve(flask_app, host=_HOST, port=_PORT, threads=16)
 
 
-def _wait_for_server(retries: int = 40, delay: float = 0.15) -> bool:
+def _wait_for_server(retries: int = 200, delay: float = 0.15) -> bool:
+    # 200 × 0.15s = 30s ceiling. A cold first launch (PyInstaller unpack, or the
+    # first import of librosa/numpy/flask in a fresh venv) can take well over the
+    # old 6s budget; exiting early there looked identical to "the app didn't open."
     for _ in range(retries):
         if _server_running():
             return True
@@ -162,25 +165,48 @@ if __name__ == '__main__':
     _splash_video = _ROOT / 'static' / 'fablegear-splash.mp4'
     start_url = f'http://127.0.0.1:{_PORT}/splash' if _splash_video.exists() else _LOCAL_URL
 
-    import webview
+    # The native window is the only visible surface. If anything here throws
+    # (pywebview import, WKWebView init, create_window), a fire-and-forget
+    # launch would just vanish with no window and no clue. Catch it, log a
+    # clear message to the log, and fall back to opening the already-running
+    # server in the default browser so the user still gets a working app.
+    try:
+        import webview
 
-    _api = _Api()
+        _api = _Api()
 
-    window = webview.create_window(
-        title='FableGear',
-        url=start_url,
-        width=1400,
-        height=900,
-        min_size=(900, 600),
-        resizable=True,
-        frameless=True,
-        background_color='#07070f',
-        js_api=_api,
-    )
+        window = webview.create_window(
+            title='FableGear',
+            url=start_url,
+            width=1400,
+            height=900,
+            min_size=(900, 600),
+            resizable=True,
+            frameless=True,
+            background_color='#07070f',
+            js_api=_api,
+        )
 
-    _api._window = window
+        _api._window = window
 
-    webview.start(debug=False)
+        webview.start(debug=False)
+    except Exception as _win_err:
+        import traceback
+        import webbrowser
+        print(f'FableGear: native window failed to open — {_win_err}', file=sys.stderr)
+        print(f'FableGear: falling back to your browser at {_LOCAL_URL}', file=sys.stderr)
+        traceback.print_exc()
+        try:
+            webbrowser.open(_LOCAL_URL)
+        except Exception:
+            pass
+        # Keep the (daemon) server thread alive so the browser tab keeps working
+        # instead of the process exiting immediately and killing the server.
+        try:
+            while _server_running():
+                time.sleep(2)
+        except KeyboardInterrupt:
+            pass
 
     if started_server_here:
         try:
