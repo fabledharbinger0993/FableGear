@@ -343,14 +343,23 @@ _SPLASH_HTML = """\
 def index():
     from flask import redirect as _redirect  # noqa: PLC0415
     from user_config import config_exists   # noqa: PLC0415
+    # First-run gate. A failure here must never silently skip the wizard:
+    # if we can't prove setup is complete, show onboarding (it lets a
+    # configured user continue straight through to the app).
     try:
-        if not config_exists():
-            return _redirect("/onboarding")
-        _st = _load_setup_state(repair=True)
-        if not _st.get("setup_complete"):
-            return _redirect("/onboarding")
+        has_config = config_exists()
     except Exception:
-        pass
+        app.logger.exception("index gate: config_exists() failed — routing to onboarding")
+        return _redirect("/onboarding")
+    if not has_config:
+        return _redirect("/onboarding")
+    try:
+        _st = _load_setup_state(repair=True)
+    except Exception:
+        app.logger.exception("index gate: setup state unreadable — routing to onboarding")
+        return _redirect("/onboarding")
+    if not _st.get("setup_complete"):
+        return _redirect("/onboarding")
     return render_template("index.html")
 
 
@@ -1589,9 +1598,11 @@ def disable_cache_on_static_files(response):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # FABLEGEAR_PORT lets a dev checkout run beside an installed copy on 5001.
+    _port = int(os.environ.get("FABLEGEAR_PORT", "5001"))
     print()
     print("  ┌──────────────────────────────────┐")
-    print("  │  FableGear · http://localhost:5001  │")
+    print(f"  │  FableGear · http://localhost:{_port}  │")
     print("  └──────────────────────────────────┘")
     print()
-    app.run(host="127.0.0.1", port=5001, debug=False)
+    app.run(host="127.0.0.1", port=_port, debug=False)

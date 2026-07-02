@@ -255,17 +255,7 @@ def api_process():
     workers = request.args.get("workers", "").strip()
     if workers and workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
-    pause = request.args.get("pause", "").strip()
-    if pause:
-        try:
-            if float(pause) > 0:
-                cmd += ["--pause", pause]
-        except ValueError:
-            pass
 
-    checkpoint_action = request.args.get("checkpoint_action", "").strip()
-    if checkpoint_action in ("resume", "reset"):
-        cmd += ["--checkpoint-action", checkpoint_action]
 
     if (
         smart_skip
@@ -430,12 +420,23 @@ def api_pipeline():
             cmd = [sys.executable, str(CLI_PATH), "prune"]
             if not dry_run:
                 cmd.append("--no-dry-run")
-            # CSV path (from the preceding duplicates step) is appended by
-            # _stream_pipeline as the trailing positional argument.
-            built.append({"name": name, "cmd": cmd, "needs_csv": True})
+            # CSV path: gated (one-step-per-request) mode sends it explicitly as
+            # config.csv; AUTO mode omits it and _stream_pipeline appends the
+            # report path captured from the preceding duplicates step.
+            explicit_csv = str(cfg.get("csv", "")).strip()
+            if explicit_csv:
+                cmd.append(explicit_csv)
+                built.append({"name": name, "cmd": cmd})
+            else:
+                built.append({"name": name, "cmd": cmd, "needs_csv": True})
             continue
 
         elif stype == "convert":
+            if dry_run:
+                # convert has no preview mode in the CLI — refusing beats
+                # silently transcoding files during a "dry run".
+                return jsonify({"error": "Step 'Convert Format' has no preview mode — "
+                                         "remove it from this dry run, or run the pipeline live."}), 400
             paths = cfg.get("paths") or [cfg.get("path", "")]
             if isinstance(paths, str):
                 paths = [paths]
@@ -448,6 +449,11 @@ def api_pipeline():
                 cmd += ["--workers", str(cfg["workers"])]
 
         elif stype == "relocate":
+            if dry_run:
+                # relocate has no preview mode in the CLI — refusing beats
+                # silently rewriting DB paths during a "dry run".
+                return jsonify({"error": "Step 'Fix Broken Paths' (relocate) has no preview mode — "
+                                         "remove it from this dry run, or run the pipeline live."}), 400
             cmd = [sys.executable, str(CLI_PATH), "relocate",
                    cfg.get("old_root", ""), cfg.get("new_root", "")]
 
@@ -481,6 +487,8 @@ def api_pipeline():
             for extra in paths[1:]:
                 if extra:
                     cmd += ["--also-scan", extra]
+            if dry_run:
+                cmd.append("--dry-run")
 
         elif stype == "novelty":
             sources = cfg.get("sources") or [cfg.get("source", "")]
@@ -543,9 +551,6 @@ def api_organize():
         except ValueError:
             pass
 
-    checkpoint_action = request.args.get("checkpoint_action", "").strip()
-    if checkpoint_action in ("resume", "reset"):
-        cmd += ["--checkpoint-action", checkpoint_action]
     library_root = _get_library_root(request, "target")
     return _sse_response(cmd, library_root=library_root, step_name="organize")
 
@@ -565,9 +570,6 @@ def api_convert():
     workers = request.args.get("workers", "1").strip()
     if workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
-    checkpoint_action = request.args.get("checkpoint_action", "").strip()
-    if checkpoint_action in ("resume", "reset"):
-        cmd += ["--checkpoint-action", checkpoint_action]
     library_root = paths[0]
     return _sse_response(cmd, library_root=library_root, step_name="convert")
 
@@ -597,9 +599,6 @@ def api_novelty():
     if workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
 
-    checkpoint_action = request.args.get("checkpoint_action", "").strip()
-    if checkpoint_action in ("resume", "reset"):
-        cmd += ["--checkpoint-action", checkpoint_action]
     library_root = _get_library_root(request, "dest")
     return _sse_response(cmd, library_root=library_root, step_name="novelty")
 
@@ -633,9 +632,6 @@ def api_rename():
     if workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
 
-    checkpoint_action = request.args.get("checkpoint_action", "").strip()
-    if checkpoint_action in ("resume", "reset"):
-        cmd += ["--checkpoint-action", checkpoint_action]
     library_root = paths[0]
     return _sse_response(cmd, library_root=library_root, step_name="rename")
 
@@ -815,16 +811,6 @@ def api_duplicates():
                 cmd += ["--fuzzy-threshold", f"{ft:.2f}"]
         except ValueError:
             pass
-    pause = request.args.get("pause", "").strip()
-    if pause:
-        try:
-            if float(pause) > 0:
-                cmd += ["--pause", pause]
-        except ValueError:
-            pass
-    checkpoint_action = request.args.get("checkpoint_action", "").strip()
-    if checkpoint_action in ("resume", "reset"):
-        cmd += ["--checkpoint-action", checkpoint_action]
     library_root = paths[0] if paths else ""
     return _sse_response(cmd, library_root=library_root, step_name="duplicates")
 
@@ -1038,6 +1024,11 @@ def api_run_prune():
             # the actual library lives. Fall back to LOCAL_DB only if DJMT_DB is absent.
             _prune_db_path = _DJMT_DB if (_DJMT_DB and _DJMT_DB.exists()) else _LOCAL_DB
 
+            from helpers import get_archive, get_archive_error  # noqa: PLC0415
+            _fg_archive = get_archive()
+            if _fg_archive is None:
+                log_q.put(("line", f"[WARN] FableGear archive unavailable — this prune will not be recorded ({get_archive_error() or 'unknown'})"))
+
             summary = {}
             with write_db(_prune_db_path) as db:
                 summary = prune_files(
@@ -1047,6 +1038,7 @@ def api_run_prune():
                     permanent=permanent,
                     keeper_map=keeper_map,
                     should_cancel=_PRUNE_CANCEL_EVENT.is_set,
+                    archive=_fg_archive,
                 )
 
             if summary.get("cancelled"):

@@ -776,7 +776,6 @@
 <script src="/static/shared/health.js?v={{ cb }}"></script>
 <script src="/static/shared/drives.js?v={{ cb }}"></script>
 <script type="module" src="/static/record_room/library_mode.js?v={{ cb }}"></script>
-<script type="module" src="/static/record_room/performance_ui.js?v={{ cb }}"></script>
 <script src="/static/shared/utility.js?v={{ cb }}"></script>
 <script src="/static/shared/scan_bar.js?v={{ cb }}"></script>
 <script src="/static/chop_shop/runners.js?v={{ cb }}"></script>
@@ -979,20 +978,25 @@
 
         <!-- Integrated view container (3 libraries) — hidden unless mode=split -->
         <div id="le-split-view" style="display:none">
-          <div class="le-split-col" id="le-split-col-allmusic">
-            <div class="le-split-col-header le-split-green">All Music <span class="le-split-count" id="le-split-cnt-allmusic"></span></div>
-            <div class="le-split-col-sub">Every track on every connected drive</div>
-            <div class="le-split-col-list" id="le-split-list-allmusic"></div>
+          <div class="le-split-col" id="le-split-col-fablegear"
+               ondragover="leSplitDragOver(event)" ondragleave="leSplitDragLeave(event)" ondrop="leSplitDropImport(event)">
+            <div class="le-split-col-header le-split-green">FableGear Library <span class="le-split-count" id="le-split-cnt-fablegear"></span></div>
+            <div class="le-split-col-sub">Your database — drop novelty tracks here to import</div>
+            <div class="le-split-col-list" id="le-split-list-fablegear"></div>
           </div>
           <div class="le-split-col" id="le-split-col-rekordbox">
             <div class="le-split-col-header le-split-blue">Rekordbox Library <span class="le-split-count" id="le-split-cnt-rekordbox"></span></div>
             <div class="le-split-col-sub">Tracks in your rekordbox database</div>
             <div class="le-split-col-list" id="le-split-list-rekordbox"></div>
           </div>
-          <div class="le-split-col" id="le-split-col-unimported">
-            <div class="le-split-col-header le-split-amber">Not in Rekordbox <span class="le-split-count" id="le-split-cnt-unimported"></span></div>
-            <div class="le-split-col-sub">On disk but not yet imported</div>
-            <div class="le-split-col-list" id="le-split-list-unimported"></div>
+          <div class="le-split-col" id="le-split-col-novelty">
+            <div class="le-split-col-header le-split-amber">Novelty <span class="le-split-count" id="le-split-cnt-novelty"></span></div>
+            <div class="le-split-col-sub le-novel-legend">
+              <span class="le-novel-dot le-novel-dot-blue"></span>not in FableGear
+              <span class="le-novel-dot le-novel-dot-yellow"></span>not in Rekordbox
+              <span class="le-novel-dot le-novel-dot-green"></span>in neither
+            </div>
+            <div class="le-split-col-list" id="le-split-list-novelty"></div>
           </div>
         </div>
 

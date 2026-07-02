@@ -442,6 +442,25 @@ def _check_backup_dir_missing() -> HealthFinding | None:
     return None
 
 
+def _check_archive_available() -> HealthFinding | None:
+    """The FableGear archive is the shared memory every tool logs to and
+    reads from. If it cannot open, tool runs silently leave no record —
+    surface that as a warn finding instead of letting the wiring rot."""
+    try:
+        from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
+        FableGearDatabase()  # opens per-operation connections; constructing validates schema + writability
+        return None
+    except Exception as exc:
+        return HealthFinding(
+            id="archive_unavailable",
+            severity="warn",
+            title="FableGear archive is unavailable",
+            detail=f"The shared tool database could not be opened ({type(exc).__name__}: {exc}). "
+                   "Tool runs are NOT being recorded and cross-tool reports are disabled.",
+            fix_hint="Check the archive location on the Settings page, and that the drive holding it is mounted and writable.",
+        )
+
+
 def _check_db_symlink() -> HealthFinding | None:
     try:
         from user_config import get_drive_status  # noqa: PLC0415
@@ -480,6 +499,7 @@ def run_health_checks() -> list[HealthFinding]:
         _check_free_space,
         _check_backup_dir_missing,
         _check_db_symlink,
+        _check_archive_available,
     ]
     multi_checks = [
         _check_cloud_sync,

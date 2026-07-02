@@ -58,17 +58,26 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 _ARCHIVE = None
+_ARCHIVE_ERROR: str | None = None
 
 
 def _archive():
-    """Lazily open the FableGear database so every tool can log to it."""
-    global _ARCHIVE
-    if _ARCHIVE is None:
+    """Lazily open the FableGear database so every tool can log to it.
+
+    Failure is LOUD: without the archive, tool runs leave no record in
+    fg_processing_log and every cross-tool optimization is lost, so the
+    operator must be able to see the disconnect the moment it happens.
+    """
+    global _ARCHIVE, _ARCHIVE_ERROR
+    if _ARCHIVE is None and _ARCHIVE_ERROR is None:
         try:
             from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
             _ARCHIVE = FableGearDatabase()
-        except Exception:
-            log.debug("FableGear database not available — archive logging disabled")
+        except Exception as exc:
+            _ARCHIVE_ERROR = f"{type(exc).__name__}: {exc}"
+            log.warning("FableGear archive unavailable — tool runs will NOT be recorded: %s", _ARCHIVE_ERROR)
+            # Also emit on stdout so SSE-streamed UI logs surface it.
+            print(f"[WARN] FableGear archive unavailable — this run will not be recorded ({_ARCHIVE_ERROR})", flush=True)
     return _ARCHIVE
 
 
@@ -533,11 +542,54 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
             print(f"FABLEGEAR_REPORT_PATH: {output}", flush=True)
 
 
+def _persist_process_results(all_results, archive) -> int:
+    """
+    Persist tagger analysis (BPM / key) into fg_content and append a
+    tag_tracks row to fg_processing_log.
+
+    This is the producer half of the tagger → deduper Archive edge: what the
+    tagger learns is durable, so downstream tools read it instead of
+    recomputing. Returns the number of fg_content rows written.
+    """
+    if archive is None:
+        return 0
+    entries = []
+    for r in all_results:
+        if r.bpm_detected is None and r.key_detected is None:
+            continue
+        try:
+            size = r.path.stat().st_size
+        except OSError:
+            size = 0
+        entries.append((str(r.path), r.bpm_detected, r.key_detected, size))
+    try:
+        written = archive.bulk_set_analysis(entries)
+        archive.log_operation(
+            "tag_tracks",
+            status="ok",
+            metadata={
+                "files_processed": len(all_results),
+                "analysis_persisted": written,
+                "bpm_written": sum(1 for r in all_results if r.bpm_written),
+                "key_written": sum(1 for r in all_results if r.key_written),
+                "errors": sum(1 for r in all_results if not r.ok),
+            },
+        )
+        if written:
+            log.info("Archive updated: BPM/key for %d file(s) persisted to fg_content", written)
+        return written
+    except Exception as exc:
+        log.warning("Failed to persist tagger analysis to archive: %s", exc)
+        return 0
+
+
 def _run_shared_report(args, all_results, root_sections, _quarantine_dir) -> None:
     """
     Build and emit the Tag Tracks / Normalize completion report.
     Called from both the directory-scan and --paths-file retry branches of cmd_process.
     """
+
+    _persist_process_results(all_results, _archive())
 
     detect_bpm = not args.no_bpm
     detect_key = not args.no_key
@@ -1259,6 +1311,8 @@ def cmd_process(args: argparse.Namespace) -> None:
             log.exception("Processing failed for %s", root)
             sys.exit(1)
 
+    _persist_process_results(all_results, _archive())
+
     total = len(all_results)
     bpm_written = sum(1 for r in all_results if r.bpm_written)
     key_written = sum(1 for r in all_results if r.key_written)
@@ -1790,7 +1844,7 @@ def cmd_rename(args: argparse.Namespace) -> None:
         if dry_run:
             for index, root in enumerate(roots, start=1):
                 _log_root_step("Rename", root, index, len(roots))
-                root_results = rename_directory(root, db=None, dry_run=True, max_workers=max_workers)
+                root_results = rename_directory(root, db=None, dry_run=True, max_workers=max_workers, archive=_archive())
                 results.extend(root_results)
                 root_renamed = sum(1 for r in root_results if r.action == "renamed")
                 root_skipped = sum(1 for r in root_results if r.action == "no_change")

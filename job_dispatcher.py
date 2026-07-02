@@ -342,7 +342,7 @@ def get_status(job_id: str) -> Optional[Dict]:
         try:
             row = conn.execute(
                 """
-                SELECT job_id, tool, state, scope, dispatched_at, started_at, completed_at,
+                SELECT job_id, tool, state, scope, cli_args_json, dispatched_at, started_at, completed_at,
                        duration_seconds, exit_code, result_summary, result_blob_path, checkpoint_path
                 FROM jobs
                 WHERE job_id = ?
@@ -351,7 +351,7 @@ def get_status(job_id: str) -> Optional[Dict]:
             ).fetchone()
             if row is None:
                 return None
-            persisted = dict(row)
+            persisted = _persisted_row_to_dict(row)
             persisted["source"] = "persisted"
             return persisted
         except sqlite3.Error:
@@ -503,7 +503,7 @@ def get_output(job_id: str, max_chars: int = 0) -> Optional[Dict]:
             try:
                 row = conn.execute(
                     """
-                    SELECT job_id, tool, state, scope, dispatched_at, started_at, completed_at,
+                    SELECT job_id, tool, state, scope, cli_args_json, dispatched_at, started_at, completed_at,
                            duration_seconds, exit_code, result_summary, result_blob_path, checkpoint_path
                     FROM jobs
                     WHERE job_id = ?
@@ -512,7 +512,7 @@ def get_output(job_id: str, max_chars: int = 0) -> Optional[Dict]:
                 ).fetchone()
                 if row is None:
                     return None
-                record = dict(row)
+                record = _persisted_row_to_dict(row)
             except sqlite3.Error:
                 _log.exception("job persistence output query failed for job_id=%s", job_id)
                 return None
@@ -540,6 +540,21 @@ def get_output(job_id: str, max_chars: int = 0) -> Optional[Dict]:
     response["output_source"] = source
     response["output"] = output
     return response
+
+
+def _persisted_row_to_dict(row) -> Dict:
+    """Map a persisted jobs row to the JobRecord dict shape.
+
+    cli_args_json is stored on every upsert; decode it back to cli_args so
+    consumers (e.g. replay_job) see the same shape as in-memory records.
+    """
+    record = dict(row)
+    raw = record.pop("cli_args_json", None)
+    try:
+        record["cli_args"] = json.loads(raw) if raw else []
+    except (TypeError, ValueError):
+        record["cli_args"] = []
+    return record
 
 
 def _now() -> str:
