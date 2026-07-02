@@ -443,7 +443,11 @@ function _deckDrawWave(id, progress) {
   const barW = w / len;
   const mid = h / 2;
 
-  const accent = id === 'a' ? 'rgba(0,212,232,0.75)' : 'rgba(255,45,120,0.70)';
+  // Deck colors come from the app tokens: A = cyan (--accent-rgb), B = magenta (--accent-b-rgb).
+  const rootStyle = getComputedStyle(document.documentElement);
+  const aRgb = rootStyle.getPropertyValue('--accent-rgb').trim() || '0,212,232';
+  const bRgb = rootStyle.getPropertyValue('--accent-b-rgb').trim() || '255,45,120';
+  const accent = id === 'a' ? `rgba(${aRgb},0.75)` : `rgba(${bRgb},0.70)`;
   const dim = 'rgba(58,80,96,0.45)';
 
   for (let i = 0; i < len; i++) {
