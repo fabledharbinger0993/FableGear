@@ -995,6 +995,7 @@ _SETUP_STATE_DEFAULTS = {
     "db_read": None,
     "db_write": None,
     "drive_scan": False,
+    "mcp_opted_in": False,
 }
 
 
@@ -1005,6 +1006,7 @@ def _normalize_setup_state(raw: dict | None) -> dict:
 
     state["setup_complete"] = bool(raw.get("setup_complete", False))
     state["drive_scan"] = bool(raw.get("drive_scan", False))
+    state["mcp_opted_in"] = bool(raw.get("mcp_opted_in", False))
 
     for key in ("db_read", "db_write"):
         value = raw.get(key)
@@ -1348,6 +1350,59 @@ def api_onboarding_scan_library():
     return jsonify(scan_for_rekordbox_assets())
 
 
+# ── Onboarding: seed the FableGear database from chosen sources ──────────────
+
+_OB_IMPORT = {"running": False, "phase": "idle", "done": 0, "total": 0,
+              "result": None, "error": None}
+
+
+@app.route("/api/onboarding/import-sources", methods=["POST"])
+def api_onboarding_import_sources():
+    """Import the user's chosen music sources into the FableGear database.
+
+    Body: {"paths": ["/Volumes/DJ/Music", ...]} — explicit, user-selected
+    directories only. Runs in a background thread; poll
+    /api/onboarding/import-sources/status for progress.
+    """
+    body = request.get_json(silent=True) or {}
+    paths = [str(p).strip() for p in body.get("paths", []) if str(p).strip()]
+    if not paths:
+        return jsonify({"error": "paths list is required"}), 400
+    roots = [Path(p) for p in paths]
+    bad = [str(r) for r in roots if not r.is_dir()]
+    if bad:
+        return jsonify({"error": f"not a directory: {', '.join(bad)}"}), 400
+    if _OB_IMPORT["running"]:
+        return jsonify({"error": "an import is already running"}), 409
+
+    def _run():
+        _OB_IMPORT.update(running=True, phase="scanning", done=0, total=0,
+                          result=None, error=None)
+        try:
+            from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
+            from fablegear_database.importer import FileImporter  # noqa: PLC0415
+
+            def _progress(done, total):
+                _OB_IMPORT.update(phase="importing", done=done, total=total)
+
+            db = FableGearDatabase()
+            _OB_IMPORT["result"] = FileImporter(db).import_files(
+                roots, progress_callback=_progress
+            )
+        except Exception as exc:  # noqa: BLE001 — surfaced to the wizard UI
+            _OB_IMPORT["error"] = str(exc)
+        finally:
+            _OB_IMPORT.update(running=False, phase="done")
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"started": True, "paths": paths})
+
+
+@app.route("/api/onboarding/import-sources/status")
+def api_onboarding_import_sources_status():
+    return jsonify(_OB_IMPORT)
+
+
 @app.route("/api/onboarding/check-fda")
 def api_onboarding_check_fda():
     """Check if the local Rekordbox DB is readable (Full Disk Access indicator)."""
@@ -1428,6 +1483,8 @@ def api_onboarding_save_config():
         # Consent to scan connected drives/volumes for music-specific formats,
         # granted (or declined) during onboarding — the only place that asks.
         "drive_scan": bool(data.get("drive_scan", False)),
+        # AI/MCP integration is opt-in during onboarding (or later via Settings).
+        "mcp_opted_in": bool(data.get("mcp_opted_in", False)),
     }
     _FABLEGEAR_STATE.parent.mkdir(parents=True, exist_ok=True)
     _FABLEGEAR_STATE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
