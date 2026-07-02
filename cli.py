@@ -1614,14 +1614,20 @@ def cmd_organize(args: argparse.Namespace) -> None:
     root_sections: list[tuple[Path, str]] = []
     for index, source in enumerate(sources, start=1):
         _log_root_step("Organize", source, index, len(sources))
-        root_results = organize_library(
-            [source], target,
-            mode=mode,
-            dry_run=dry_run,
-            max_workers=max_workers,
-            mix_threshold_sec=threshold,
-            archive=_archive(),
-        )
+        try:
+            root_results = organize_library(
+                [source], target,
+                mode=mode,
+                dry_run=dry_run,
+                max_workers=max_workers,
+                mix_threshold_sec=threshold,
+                archive=_archive(),
+            )
+        except ValueError as exc:
+            # Source guardrail tripped (system root / home folder / app data).
+            log.error("%s", exc)
+            print(f"[ERROR] {exc}", flush=True)
+            sys.exit(2)
         results.extend(root_results)
 
         root_moved = sum(1 for r in root_results if r.action in ("moved", "dry_run", "conflict_renamed"))

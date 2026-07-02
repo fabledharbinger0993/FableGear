@@ -291,6 +291,35 @@ def _resolve_dest(src: Path, dest: Path) -> tuple[Path | None, str]:
 
 # ─── Main organizer ───────────────────────────────────────────────────────────
 
+def _forbidden_source_reason(source: Path) -> str | None:
+    """Return why *source* is unsafe to organize from, or None if it's fine.
+
+    Whole external drives (/Volumes/<name>) are legitimate DJ sources.
+    System roots, the user profile itself, and app-data trees are not:
+    music lives in folders, not at the top of an OS.
+    """
+    try:
+        src = source.expanduser().resolve(strict=False)
+    except OSError:
+        return "path cannot be resolved"
+    home = Path.home().resolve(strict=False)
+
+    if src == Path("/"):
+        return "this is the filesystem root"
+    if src == home:
+        return ("this is your entire home folder — it contains app data, dev "
+                "projects, and system containers, not just music. Point the "
+                "organizer at a music folder instead.")
+    if src in (Path("/Users"), Path("/System"), Path("/Applications"),
+               Path("/Library"), Path("/private"), Path("/Volumes")):
+        return "this is an operating-system area, not a music folder"
+    if src == home / "Library" or (home / "Library") in src.parents:
+        return "~/Library holds application data — never music to organize"
+    if home in src.parents and src.name == "Library":
+        return "Library folders hold application data"
+    return None
+
+
 def organize_library(
     sources: "Path | list[Path]",
     target: Path,
@@ -334,6 +363,16 @@ def organize_library(
     from scanner import scan_directory
 
     source_list: list[Path] = [sources] if isinstance(sources, Path) else list(sources)
+
+    # ── Source guardrails ─────────────────────────────────────────────────
+    # Assimilate mode moves files out of and prunes folders under EVERY
+    # source root. A source like "/", "/Users", or the home folder makes the
+    # organizer crawl app containers, dev checkouts, and OS internals — it
+    # must only ever be pointed at music locations. Refuse loudly.
+    for s in source_list:
+        err = _forbidden_source_reason(Path(s))
+        if err:
+            raise ValueError(f"Refusing to organize from {s}: {err}")
 
     tracks: list = []
     for s in source_list:
@@ -429,6 +468,21 @@ def organize_library(
             skipped += 1
         elif r.action == "error":
             errors += 1
+        # Journal the mutation the moment it lands — an interrupted run must
+        # still leave a complete record of every move it made. (_tally runs on
+        # the result-collection thread, so archive writes are serialized.)
+        if archive is not None and not dry_run and r.dest \
+                and r.action in ("moved", "conflict_renamed"):
+            try:
+                rec = archive.get_content_by_path(str(r.src))
+                if rec and rec.id is not None:
+                    archive.relink_content(rec.id, str(r.dest))
+                archive.log_operation(
+                    "organize", str(r.dest), status="ok",
+                    metadata={"from": str(r.src), "action": r.action, "mode": mode},
+                )
+            except Exception as exc:
+                log.warning("Archive update failed for organize %s: %s", r.src, exc)
 
     _emit()
 
@@ -452,25 +506,19 @@ def organize_library(
             _tally(r)
             _emit()
 
-    # Prune empty directories from all source roots — assimilate mode only.
-    # integrate mode never modifies the source.
+    # Prune ONLY the directories this run emptied (folders we moved or
+    # deleted files out of, plus their ancestors) — assimilate mode only.
+    # Pre-existing empty directories elsewhere under the source are none of
+    # our business. integrate mode never modifies the source.
     if not dry_run and mode == "assimilate":
+        emptied: set = set()
+        for r in results:
+            if r.action in ("moved", "conflict_renamed", "skipped") and r.src:
+                emptied.add(Path(r.src).parent)
         for s in source_list:
-            _prune_empty_dirs(s)
+            _prune_emptied_dirs(s, emptied)
 
     if archive is not None and not dry_run:
-        for r in results:
-            if r.action in ("moved", "conflict_renamed") and r.dest:
-                try:
-                    rec = archive.get_content_by_path(str(r.src))
-                    if rec and rec.id is not None:
-                        archive.relink_content(rec.id, str(r.dest))
-                    archive.log_operation(
-                        "organize", str(r.dest), status="ok",
-                        metadata={"from": str(r.src), "action": r.action, "mode": mode},
-                    )
-                except Exception as exc:
-                    log.warning("Archive update failed for organize %s: %s", r.src, exc)
         if moved:
             archive.log_operation(
                 "organize_batch",
@@ -501,18 +549,37 @@ def _is_dir_junk(entry: Path) -> bool:
     return entry.name in _DIR_JUNK or entry.name.startswith("._")
 
 
-def _prune_empty_dirs(root: Path) -> None:
+def _prune_emptied_dirs(root: Path, emptied_dirs: set) -> None:
     """
-    Remove empty source directories bottom-up. A folder counts as empty when the
-    only things left in it are OS-metadata junk (.DS_Store, AppleDouble ._*
-    files, Thumbs.db, …); that junk is deleted so the now-truly-empty folder can
-    be pruned. Folders that still hold real files (cover art, docs, stray audio)
-    are left untouched, and the root itself is never removed.
+    Remove source directories this run emptied, bottom-up.
+
+    Only directories we actually removed files FROM (and, as they empty out,
+    their ancestors up to — never including — the source root) are candidates.
+    A pre-existing empty folder anywhere else under the source is left exactly
+    as we found it: the organizer's cleanup follows its own footprints, it
+    does not sweep the neighbourhood.
+
+    A candidate counts as empty when the only things left in it are
+    OS-metadata junk (.DS_Store, AppleDouble ._* files, Thumbs.db, …); that
+    junk is deleted so the now-truly-empty folder can be pruned. Folders that
+    still hold real files (cover art, docs, stray audio) are left untouched.
     """
-    for dirpath, _dirs, _files in os.walk(root, topdown=False):
-        p = Path(dirpath)
-        if p == root:
+    root = root.resolve(strict=False)
+
+    # Deepest paths first so children empty out before their parents are tried.
+    candidates = sorted(
+        {d.resolve(strict=False) for d in emptied_dirs},
+        key=lambda p: len(p.parts),
+        reverse=True,
+    )
+    seen: set = set()
+    while candidates:
+        p = candidates.pop(0)
+        if p in seen:
             continue
+        seen.add(p)
+        if p == root or root not in p.parents:
+            continue  # never the root itself, never anything outside it
         try:
             entries = list(p.iterdir())
             if any(not _is_dir_junk(e) for e in entries):
@@ -523,6 +590,9 @@ def _prune_empty_dirs(root: Path) -> None:
                 except OSError as exc:
                     log.warning("Could not remove junk file %s: %s", junk, exc)
             p.rmdir()
-            log.info("Pruned empty dir: %s", p)
+            log.info("Pruned emptied dir: %s", p)
+            # The parent may now be empty because of us — consider it next.
+            if p.parent not in seen:
+                candidates.append(p.parent)
         except OSError as exc:
-            log.warning("Could not remove empty dir %s: %s", p, exc)
+            log.warning("Could not remove emptied dir %s: %s", p, exc)
