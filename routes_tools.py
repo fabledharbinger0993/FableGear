@@ -71,7 +71,7 @@ _PREVIEW_LOCK: threading.Lock = threading.Lock()
 
 _PREVIEW_AUDIO_EXTS = {
     ".aiff", ".aif", ".aifc", ".wav", ".flac", ".mp3",
-    ".m4a", ".m4p", ".mp4", ".m4v", ".alac", ".ogg", ".opus",
+    ".m4a", ".m4p", ".alac", ".ogg", ".opus",
 }
 _PREVIEW_MIN_DUR: int = 120     # track must be ≥ 2 min
 _PREVIEW_MAX_SCAN: int = 40     # cap random sample for large folders

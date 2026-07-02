@@ -6789,6 +6789,19 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   flex-shrink: 0;
   padding: 0 4px;
 }
+/* Harmonic compatibility of the two decks' current keys:
+   green = harmonic mix, red = key clash, dim = a deck is empty/untagged. */
+.deck-harmony {
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-dim);
+  padding: 4px 0;
+  transition: color .2s, text-shadow .2s;
+  cursor: default;
+}
+.deck-harmony-good  { color: var(--safe);   text-shadow: 0 0 8px rgba(34,197,94,.6); }
+.deck-harmony-clash { color: var(--danger); text-shadow: 0 0 8px rgba(239,68,68,.5); }
+
 .deck-sync-btn {
   font-family: var(--mono);
   font-size: 8px;

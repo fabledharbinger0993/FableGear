@@ -140,3 +140,18 @@ def test_dead_file_scan_logs_to_archive(archive, tmp_path):
     assert archive.count_operations("dead_file_scan") == before + 1, (
         "scan_dead_files ran but appended nothing to fg_processing_log"
     )
+
+
+# ── Music-only contract ───────────────────────────────────────────────────────
+
+def test_audio_extensions_contain_no_video_containers():
+    """FableGear touches music, nothing else. Every file-touching tool scans by
+    config.AUDIO_EXTENSIONS — video containers must never sneak back in."""
+    import config
+
+    video = {".mp4", ".m4v", ".mov", ".avi", ".mkv", ".webm"}
+    leaked = video & set(config.AUDIO_EXTENSIONS)
+    assert not leaked, (
+        f"Video containers {sorted(leaked)} are in AUDIO_EXTENSIONS — the "
+        "organizer/renamer/converter would move video files into the music tree."
+    )

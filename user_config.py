@@ -573,7 +573,7 @@ def interactive_setup(*, update: bool = False) -> dict:
 # ─── Drive and archive discovery helpers ────────────────────────────────────
 
 _AUDIO_EXTS = {
-    ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac", ".m4a", ".m4p", ".mp4", ".m4v",
+    ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac", ".m4a", ".m4p",
     ".ogg", ".opus", ".wma", ".ape", ".mpc", ".mp+", ".wv", ".aac", ".ac3", ".dff", ".dsf",
 }
 

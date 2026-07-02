@@ -855,7 +855,7 @@ def api_fs_list():
         return jsonify({"error": "Forbidden"}), 403
     AUDIO_EXTS = {
         ".aiff", ".aif", ".aifc", ".wav", ".flac", ".mp3",
-        ".m4a", ".m4p", ".mp4", ".m4v", ".alac", ".ogg", ".opus",
+        ".m4a", ".m4p", ".alac", ".ogg", ".opus",
     }
     if _SYSTEM == "Windows":
         default_root = "C:\\"
