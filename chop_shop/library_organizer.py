@@ -291,33 +291,10 @@ def _resolve_dest(src: Path, dest: Path) -> tuple[Path | None, str]:
 
 # ─── Main organizer ───────────────────────────────────────────────────────────
 
-def _forbidden_source_reason(source: Path) -> str | None:
-    """Return why *source* is unsafe to organize from, or None if it's fine.
-
-    Whole external drives (/Volumes/<name>) are legitimate DJ sources.
-    System roots, the user profile itself, and app-data trees are not:
-    music lives in folders, not at the top of an OS.
-    """
-    try:
-        src = source.expanduser().resolve(strict=False)
-    except OSError:
-        return "path cannot be resolved"
-    home = Path.home().resolve(strict=False)
-
-    if src == Path("/"):
-        return "this is the filesystem root"
-    if src == home:
-        return ("this is your entire home folder — it contains app data, dev "
-                "projects, and system containers, not just music. Point the "
-                "organizer at a music folder instead.")
-    if src in (Path("/Users"), Path("/System"), Path("/Applications"),
-               Path("/Library"), Path("/private"), Path("/Volumes")):
-        return "this is an operating-system area, not a music folder"
-    if src == home / "Library" or (home / "Library") in src.parents:
-        return "~/Library holds application data — never music to organize"
-    if home in src.parents and src.name == "Library":
-        return "Library folders hold application data"
-    return None
+try:
+    from path_guard import forbidden_source_reason as _forbidden_source_reason  # noqa: E402
+except ImportError:  # imported as chop_shop.library_organizer
+    from chop_shop.path_guard import forbidden_source_reason as _forbidden_source_reason  # noqa: E402
 
 
 def organize_library(

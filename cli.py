@@ -81,6 +81,19 @@ def _archive():
     return _ARCHIVE
 
 
+
+
+def _guard_or_exit(paths, tool: str) -> None:
+    """Refuse system/home/app-data scan roots — same rails as the organizer."""
+    from path_guard import guard_sources  # noqa: PLC0415
+    try:
+        guard_sources(paths, tool)
+    except ValueError as exc:
+        log.error("%s", exc)
+        print(f"[ERROR] {exc}", flush=True)
+        sys.exit(2)
+
+
 # ─── Report helpers ───────────────────────────────────────────────────────────
 
 def _emit_report(text: str, subdir: str, filename: str) -> None:
@@ -436,6 +449,40 @@ def cmd_relocate(args: argparse.Namespace) -> None:
     _emit_report("\n".join(lines), "Relocate", f"relocate_{timestamp}.txt")
 
 
+def _duplicates_checkpoint(roots, args):
+    """Build the duplicate-scan Checkpoint for resume/reset support.
+
+    Returns a Checkpoint object (or None if the module is unavailable).
+    --checkpoint-action reset clears any prior state; the default (resume)
+    lets scan_duplicates pick up exactly where an interrupted run stopped.
+    """
+    try:
+        from checkpoint import Checkpoint  # noqa: PLC0415
+    except ImportError:
+        return None
+    try:
+        config = {
+            "match_mode": getattr(args, "match_mode", "exact"),
+            "fuzzy_threshold": f"{getattr(args, 'fuzzy_threshold', 0.85):.2f}",
+        }
+        ckpt = Checkpoint("duplicates", [str(r) for r in roots], config)
+        action = getattr(args, "checkpoint_action", None) or "resume"
+        if action == "reset":
+            ckpt.reset()
+            log.info("Checkpoint reset — starting the scan from the beginning.")
+        elif ckpt.exists():
+            info = ckpt.info()
+            log.info(
+                "Found checkpoint from %s (%s files done) — resuming. "
+                "Pass --checkpoint-action reset to start over.",
+                info.get("saved_at", "?"), info.get("completed", "?"),
+            )
+        return ckpt
+    except Exception as exc:
+        log.warning("Checkpoint unavailable (%s) — running without resume support.", exc)
+        return None
+
+
 def cmd_duplicates(args: argparse.Namespace) -> None:
     """Scan one or more PATHs for acoustically identical files and write a CSV report."""
     from duplicate_detector import scan_duplicates, write_csv_report, write_trash_rescue_report
@@ -477,6 +524,9 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
     root_label = ", ".join(str(r) for r in roots)
     log.info("Scanning for duplicates under: %s (workers=%d, match=%s)", root_label, workers, args.match_mode)
     log.info("This may take a while for large libraries — progress logged every %d files", 100)
+
+    # ── Checkpoint: resume an interrupted scan, or start over with --checkpoint-action reset
+    ckpt = _duplicates_checkpoint(roots, args)
     if len(roots) > 1:
         log.info(
             "Selected folders are scanned together as one comparison set so duplicates across different source folders are not missed."
@@ -488,6 +538,7 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
             max_workers=workers,
             match_mode=args.match_mode,
             fuzzy_threshold=args.fuzzy_threshold,
+            checkpoint=ckpt,
             archive=_archive(),
         )
     except Exception:
@@ -1181,6 +1232,8 @@ def cmd_process(args: argparse.Namespace) -> None:
             log.error("PATH is not a directory: %s", root)
             sys.exit(1)
 
+    _guard_or_exit(roots, "the track tagger")
+
     detect_bpm = not args.no_bpm
     detect_key = not args.no_key
 
@@ -1283,6 +1336,9 @@ def cmd_process(args: argparse.Namespace) -> None:
                 enrich_tags=args.enrich_tags,
             )
             all_results.extend(results)
+            # Persist this root's analysis immediately — a multi-drive run
+            # interrupted on drive 3 must keep drives 1-2 in the archive.
+            _persist_process_results(results, _archive())
             root_total = len(results)
             root_bpm_written = sum(1 for r in results if r.bpm_written)
             root_key_written = sum(1 for r in results if r.key_written)
@@ -1310,8 +1366,6 @@ def cmd_process(args: argparse.Namespace) -> None:
         except Exception:
             log.exception("Processing failed for %s", root)
             sys.exit(1)
-
-    _persist_process_results(all_results, _archive())
 
     total = len(all_results)
     bpm_written = sum(1 for r in all_results if r.bpm_written)
@@ -1460,6 +1514,8 @@ def cmd_convert(args: argparse.Namespace) -> None:
             log.error("PATH is not a directory: %s", root)
             sys.exit(1)
 
+    _guard_or_exit(roots, "the converter")
+
     target_format = args.format.lower().lstrip(".")
     if target_format not in ("mp3", "wav", "aif", "aiff", "flac"):
         log.error("Unsupported format: %s", args.format)
@@ -1504,7 +1560,28 @@ def cmd_convert(args: argparse.Namespace) -> None:
 
     def _convert_one(track) -> tuple[bool, str, str]:
         ok, msg = _convert_file(track.path, target_format)
+        _journal_convert(track.path, ok, msg)
         return ok, msg, track.path.name
+
+    _fg_archive = _archive()
+    _target_ext = ".aiff" if target_format == "aiff" else f".{target_format}"
+
+    def _journal_convert(src_path: Path, ok: bool, msg: str) -> None:
+        """Journal each conversion the moment it lands — the original file is
+        replaced, so an interrupted run must still know what was converted."""
+        if _fg_archive is None or not ok or msg.startswith("Already"):
+            return
+        dest = src_path.with_suffix(_target_ext)
+        try:
+            rec = _fg_archive.get_content_by_path(str(src_path))
+            if rec and rec.id is not None:
+                _fg_archive.relink_content(rec.id, str(dest))
+            _fg_archive.log_operation(
+                "convert", str(dest), status="ok",
+                metadata={"from": str(src_path), "format": target_format},
+            )
+        except Exception as exc:
+            log.warning("Archive update failed for convert %s: %s", src_path, exc)
 
     _emit_progress()
 
@@ -1536,6 +1613,7 @@ def cmd_convert(args: argparse.Namespace) -> None:
             for track_index, track in enumerate(tracks, start=1):
                 log.info("[%d/%d] Converting %s", track_index, root_total, track.path.name)
                 ok, msg = _convert_file(track.path, target_format)
+                _journal_convert(track.path, ok, msg)
                 done += 1
                 if ok:
                     success_count += 1
@@ -1553,6 +1631,20 @@ def cmd_convert(args: argparse.Namespace) -> None:
         else:
             root_lines.append("No errors.")
         root_sections.append((root, "\n".join(root_lines)))
+
+    if _fg_archive is not None and success_count:
+        try:
+            _fg_archive.log_operation(
+                "convert_batch",
+                metadata={
+                    "roots": [str(r) for r in roots],
+                    "format": target_format,
+                    "converted": success_count,
+                    "errors": error_count,
+                },
+            )
+        except Exception as exc:
+            log.warning("Archive batch log failed for convert: %s", exc)
 
     fmt_upper = target_format.upper()
     lines = ["Done converting.", "", f"{success_count} of {total} files were converted to {fmt_upper}."]
@@ -2089,6 +2181,14 @@ Examples:
         default=0.85,
         dest="fuzzy_threshold",
         help="Similarity threshold for fuzzy fingerprint matching (0.0–1.0, default: 0.85)",
+    )
+    p_dupes.add_argument(
+        "--checkpoint-action",
+        choices=["resume", "reset"],
+        default="resume",
+        dest="checkpoint_action",
+        help="resume (default): continue an interrupted scan from its checkpoint. "
+             "reset: discard the checkpoint and fingerprint from the beginning.",
     )
     p_dupes.set_defaults(func=cmd_duplicates)
 

@@ -65,6 +65,11 @@ from mutagen import File as MutagenFile
 
 from config import ACOUSTID_API_KEY, AUDIO_EXTENSIONS, MUSIC_ROOT, SKIP_DIRS, SKIP_PREFIXES
 
+try:
+    from path_guard import guard_sources as _guard_sources
+except ImportError:  # imported via the chop_shop package
+    from chop_shop.path_guard import guard_sources as _guard_sources
+
 log = logging.getLogger(__name__)
 
 _LOG_EVERY: int = 100
@@ -911,6 +916,7 @@ def scan_duplicates(
         unique_in_trash: Files with no duplicate that live inside trash folders.
     """
     roots = [root] if isinstance(root, Path) else list(root)
+    _guard_sources(roots, "the duplicate scanner")
     all_files: list[Path] = []
 
     if files_override is not None:
@@ -997,6 +1003,7 @@ def scan_duplicates(
     # here and compute only the misses. file_size mismatch = stale → recompute.
     archive_reused = 0
     computed_entries: list[tuple[str, str, "float | None", int]] = []
+    computed_total = 0
     if archive is not None:
         try:
             fp_index = archive.get_fingerprint_index()
@@ -1041,6 +1048,14 @@ def scan_duplicates(
     )
 
     def _save_checkpoint_now() -> None:
+        # Fingerprints computed so far are flushed to the archive with every
+        # checkpoint, so an interrupted scan keeps its work either way.
+        if archive is not None and computed_entries:
+            try:
+                archive.bulk_set_fingerprints(computed_entries)
+                computed_entries.clear()
+            except Exception as exc:
+                log.warning("Checkpoint fingerprint flush failed: %s", exc)
         if checkpoint is None:
             return
         checkpoint.save({
@@ -1086,6 +1101,8 @@ def scan_duplicates(
                         computed_entries.append((str(path), fp, dur, path.stat().st_size))
                     except OSError:
                         pass
+                    else:
+                        computed_total += 1
                 if completed % _LOG_EVERY == 0:
                     log.info(
                         "Fingerprinting: %d / %d  (failures: %d)",
@@ -1127,6 +1144,8 @@ def scan_duplicates(
                     computed_entries.append((str(path), fp, dur, path.stat().st_size))
                 except OSError:
                     pass
+                else:
+                    computed_total += 1
             completed += 1
             print(
                 "FABLEGEAR_PROGRESS: " + json.dumps({
@@ -1276,7 +1295,7 @@ def scan_duplicates(
                 "unique_in_trash": len(unique_in_trash),
                 "match_mode": match_mode,
                 "fingerprints_reused": archive_reused,
-                "fingerprints_computed": len(computed_entries),
+                "fingerprints_computed": computed_total,
             },
         )
 

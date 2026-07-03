@@ -152,3 +152,54 @@ def test_moves_are_journaled_per_file_not_at_the_end(tmp_path, monkeypatch):
     # the second file's spy call must see the first move already journaled.
     assert counts_seen[0] == 0
     assert counts_seen[-1] >= 1, "first move was not journaled before the run ended"
+
+
+# ── The guard is EVERY tool's guard ──────────────────────────────────────────
+# Same rails, all scanning entry points: pointing any tool at the home folder
+# (or worse) must refuse before a single file is read.
+
+def _entry_calls(tmp_path):
+    from novelty_scanner import scan_novel
+    from dead_file_scanner import scan_dead_files
+    from duplicate_detector import scan_duplicates
+    from renamer import rename_directory
+    home = Path.home()
+    return {
+        "organize_library": lambda: organize_library([home], tmp_path / "t"),
+        "scan_novel": lambda: scan_novel([home], tmp_path / "dest"),
+        "scan_dead_files": lambda: scan_dead_files([home], db_paths=[]),
+        "scan_duplicates": lambda: scan_duplicates(home),
+        "rename_directory": lambda: rename_directory(home),
+    }
+
+
+@pytest.mark.parametrize("tool", [
+    "organize_library", "scan_novel", "scan_dead_files",
+    "scan_duplicates", "rename_directory",
+])
+def test_every_scanning_tool_refuses_home_folder(tool, tmp_path):
+    with pytest.raises(ValueError, match="Refusing to run|Refusing to organize"):
+        _entry_calls(tmp_path)[tool]()
+
+
+# ── Journal-as-you-go: novelty copies are recorded per file ──────────────────
+
+def test_novelty_journals_each_copy(tmp_path):
+    from fablegear_database.database import FableGearDatabase
+    from fablegear_database.schema import DatabaseConfig
+    from novelty_scanner import scan_novel
+
+    archive = FableGearDatabase(DatabaseConfig(db_path=tmp_path / "archive.db"))
+    src = tmp_path / "downloads"
+    dst = tmp_path / "library"
+    src.mkdir()
+    dst.mkdir()
+    (src / "fresh track.mp3").write_bytes(b"x" * 64)
+
+    result = scan_novel([src], dst, dry_run=False, match_mode="filename", archive=archive)
+
+    copied = [t for t in result.novel if t.action == "copied"]
+    assert len(copied) == 1
+    assert archive.count_operations("novelty_copy") == 1, (
+        "each copy must hit fg_processing_log the moment it lands"
+    )

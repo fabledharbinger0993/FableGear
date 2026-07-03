@@ -811,6 +811,11 @@ def api_duplicates():
                 cmd += ["--fuzzy-threshold", f"{ft:.2f}"]
         except ValueError:
             pass
+    # Resume/reset an interrupted scan (cli.py --checkpoint-action; preflight
+    # via /api/checkpoint/check tells the UI whether a checkpoint exists).
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
     library_root = paths[0] if paths else ""
     return _sse_response(cmd, library_root=library_root, step_name="duplicates")
 
