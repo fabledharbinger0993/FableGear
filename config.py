@@ -142,7 +142,10 @@ ACOUSTID_API_KEY: str = _cfg.get("acoustid_api_key", "")
 #
 AUDIO_EXTENSIONS = {
     # Modern formats — Rekordbox native
-    ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac", ".m4a", ".m4p", ".mp4", ".m4v", ".ogg", ".opus",
+    ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac", ".m4a", ".m4p", ".ogg", ".opus",
+    # NOTE: .mp4 / .m4v are deliberately ABSENT. They are video containers, and
+    # every file-touching tool (organizer, renamer, converter, dedupe, novelty)
+    # scans by this set — FableGear touches music, nothing else.
     # Legacy formats — auto-converted on import
     ".wma",        # Windows Media Audio
     ".ape",        # Monkey's Audio (lossless)

@@ -89,13 +89,23 @@
   <!-- ═══ CENTER STRIP ════════════════════════════════════════════════════ -->
   <div class="deck-center-strip">
     <button type="button" class="deck-close-btn" id="deck-close-btn" title="Hide decks">&#x2715;</button>
-    <button type="button" class="deck-sync-btn" id="deck-sync-a" title="Match Deck B tempo to Deck A">
+    <button type="button" class="deck-sync-btn" id="deck-sync-a" title="Match Deck B tempo + beat phase to Deck A">
       SYNC<br>A&#x2192;B
     </button>
     <div class="deck-strip-divider"></div>
-    <button type="button" class="deck-sync-btn" id="deck-sync-b" title="Match Deck A tempo to Deck B">
+    <button type="button" class="deck-sync-btn" id="deck-sync-b" title="Match Deck A tempo + beat phase to Deck B">
       SYNC<br>B&#x2192;A
     </button>
+    <div class="deck-strip-divider"></div>
+    <button type="button" class="deck-sync-btn" id="deck-key-a" title="Shift Deck B key to match Deck A">
+      KEY<br>A&#x2192;B
+    </button>
+    <div class="deck-strip-divider"></div>
+    <button type="button" class="deck-sync-btn" id="deck-key-b" title="Shift Deck A key to match Deck B">
+      KEY<br>B&#x2192;A
+    </button>
+    <div class="deck-strip-divider"></div>
+    <div class="deck-harmony" id="deck-harmony" title="Harmonic compatibility of the two decks' current keys">&#x266B;</div>
   </div>
 
   <!-- ═══ DECK B ═══════════════════════════════════════════════════════════ -->

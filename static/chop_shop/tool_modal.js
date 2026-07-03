@@ -986,9 +986,57 @@ function leRefreshSortIndicators() {
 }
 
 function leSortBy(col) {
+  // Playlist view: header click reorders the playlist itself (persisted),
+  // per the playlist-builder spec — sort by key, BPM, name, or length.
+  if (_leActiveNodeType === 'playlist' && _leActivePlaylistId) {
+    leSortPlaylistBy(col);
+    return;
+  }
   if (_leSortCol === col) _leSortAsc = !_leSortAsc; else { _leSortCol = col; _leSortAsc = true; }
   leRefreshSortIndicators();
   leRefreshTrackView();
+}
+
+/* Camelot keys sort musically (1A, 1B, 2A … 12B), not lexicographically. */
+function _leKeySortValue(key) {
+  const m = /^(\d{1,2})\s*([ABab])$/.exec(String(key || '').trim());
+  if (!m) return 1000; // non-Camelot keys sort to the end, grouped
+  return parseInt(m[1], 10) * 2 + (m[2].toUpperCase() === 'B' ? 1 : 0);
+}
+
+async function leSortPlaylistBy(col) {
+  if (_leSortCol === col) _leSortAsc = !_leSortAsc; else { _leSortCol = col; _leSortAsc = true; }
+  leRefreshSortIndicators();
+
+  const sorted = [..._leBaseTracks].sort((a, b) => {
+    let va, vb;
+    if (col === 'key') {
+      va = _leKeySortValue(a.key); vb = _leKeySortValue(b.key);
+    } else {
+      va = a[col] ?? ''; vb = b[col] ?? '';
+      if (typeof va === 'string') va = va.toLowerCase();
+      if (typeof vb === 'string') vb = vb.toLowerCase();
+    }
+    return _leSortAsc ? (va < vb ? -1 : va > vb ? 1 : 0) : (va > vb ? -1 : va < vb ? 1 : 0);
+  });
+
+  try {
+    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActivePlaylistId)}/tracks/order`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: sorted.map(t => String(t.id)) }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      showToast(d.error || 'Could not save the sorted order.', 'error');
+      return;
+    }
+    leSetTrackView(sorted, _leStatusLabel);
+    const labels = { title: 'title', artist: 'artist', album: 'album', bpm: 'BPM', key: 'key', duration: 'length', date_added: 'date added' };
+    showToast(`Playlist sorted by ${labels[col] || col}${_leSortAsc ? '' : ' (reversed)'} — order saved.`, 'success');
+  } catch (_) {
+    showToast('Could not save the sorted order.', 'error');
+  }
 }
 
 function leFormatDur(secs) {

@@ -19,6 +19,11 @@ from typing import Callable
 
 from config import AUDIO_EXTENSIONS, SKIP_DIRS, SKIP_PREFIXES
 
+try:
+    from path_guard import guard_sources as _guard_sources
+except ImportError:  # imported via the chop_shop package
+    from chop_shop.path_guard import guard_sources as _guard_sources
+
 log = logging.getLogger(__name__)
 
 _FS_CASE_INSENSITIVE: bool = platform.system() in ("Darwin", "Windows")
@@ -130,6 +135,7 @@ def scan_dead_files(
     db_paths:     Database files to check against. Defaults to LOCAL_DB + DJMT_DB.
     progress_cb:  Optional callback(scanned, total) called periodically.
     """
+    _guard_sources(roots, "the dead-file scanner")
     if db_paths is None:
         from config import LOCAL_DB, DJMT_DB
         db_paths = [p for p in (LOCAL_DB, DJMT_DB) if p is not None]

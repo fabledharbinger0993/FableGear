@@ -272,6 +272,7 @@ function _deckUpdateControls(id) {
   if (klBtn) klBtn.classList.toggle('deck-keylock-on', dk.keyLock);
 
   _deckApplyRate(id);
+  _deckHarmonyUpdate();
 }
 
 /* ── BPM text entry ───────────────────────────────────────────────────── */
@@ -293,7 +294,7 @@ function _deckEffectiveBpm(id) {
   return dk.meta.bpm * _deckEffectiveRate(id);
 }
 
-/* ── SYNC: match target deck tempo to source deck BPM ─────────────────── */
+/* ── SYNC: match target deck tempo (and beat phase) to source deck ────── */
 function _deckSync(fromId, toId) {
   const src = _decks[fromId];
   const dst = _decks[toId];
@@ -305,9 +306,104 @@ function _deckSync(fromId, toId) {
   const slider = _d(toId, 'tempo-slider');
   if (slider) slider.value = String(dst.tempoPct);
   _deckUpdateControls(toId);
+  _deckPhaseNudge(fromId, toId);
   if (typeof showToast === 'function') {
     showToast('Deck ' + toId.toUpperCase() + ' synced to ' + srcBpm.toFixed(1) + ' BPM', 'success');
   }
+}
+
+/* Beat-phase alignment: nudge the target by less than one beat so both
+   decks' downbeat phase lines up. Only meaningful (and only applied) when
+   both decks are playing — never yanks a stopped deck around. */
+function _deckPhaseNudge(fromId, toId) {
+  const src = _decks[fromId];
+  const dst = _decks[toId];
+  if (!src.playing || !dst.playing) return;
+  const srcBpm = _deckEffectiveBpm(fromId);
+  const dstBpm = _deckEffectiveBpm(toId);
+  if (!srcBpm || !dstBpm) return;
+  const srcAudio = _deckGetAudio(fromId);
+  const dstAudio = _deckGetAudio(toId);
+  const srcPhase = (srcAudio.currentTime * srcBpm / 60) % 1;   // fraction of a beat
+  const dstPhase = (dstAudio.currentTime * dstBpm / 60) % 1;
+  let delta = srcPhase - dstPhase;                              // beats to shift
+  if (delta > 0.5) delta -= 1;                                  // take the short way
+  if (delta < -0.5) delta += 1;
+  const shiftSec = delta * 60 / dstBpm;
+  const next = dstAudio.currentTime + shiftSec;
+  if (next >= 0 && (!dstAudio.duration || next < dstAudio.duration)) {
+    dstAudio.currentTime = next;
+  }
+}
+
+/* ── KEY MATCH: shift target deck's key to the source deck's key ──────── */
+function _deckCurrentKey(id) {
+  const dk = _decks[id];
+  let displaySemitones = 0;
+  const rate = _deckEffectiveRate(id);
+  if (!dk.keyLock) {
+    displaySemitones = Math.round(12 * Math.log2(rate));
+  } else if (dk.pitchSemitones !== 0) {
+    displaySemitones = dk.pitchSemitones;
+  }
+  return displaySemitones !== 0 ? _deckShiftKey(dk.meta.key, displaySemitones) : (dk.meta.key || '');
+}
+
+function _deckKeyMatch(fromId, toId) {
+  const srcKey = _deckCurrentKey(fromId);
+  const dst = _decks[toId];
+  const srcSt = _CAMELOT_TO_ST[srcKey];
+  const dstSt = _CAMELOT_TO_ST[dst.meta.key];
+  if (srcSt === undefined || dstSt === undefined) {
+    if (typeof showToast === 'function') {
+      showToast('Key match needs Camelot keys on both decks — run Tag Tracks first.', 'warning');
+    }
+    return;
+  }
+  let shift = srcSt - dstSt;                 // pitch-class distance
+  if (shift > 6) shift -= 12;                // choose the smaller direction
+  if (shift < -6) shift += 12;
+  dst.pitchSemitones = shift;                // slider range is ±6, so always fits
+  const slider = _d(toId, 'pitch-slider');
+  if (slider) slider.value = String(shift);
+  _deckUpdateControls(toId);
+  if (typeof showToast === 'function') {
+    showToast('Deck ' + toId.toUpperCase() + ' key shifted ' + (shift >= 0 ? '+' : '') + shift
+      + ' st to match ' + srcKey + '.', 'success');
+  }
+}
+
+/* ── Harmonic compatibility indicator (center strip) ──────────────────── */
+function _deckParseCamelot(key) {
+  const m = String(key || '').trim().toUpperCase().match(/^(\d{1,2})([AB])$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return (n >= 1 && n <= 12) ? { n: n, mode: m[2] } : null;
+}
+
+function _deckIsHarmonicMatch(keyA, keyB) {
+  const a = _deckParseCamelot(keyA);
+  const b = _deckParseCamelot(keyB);
+  if (!a || !b) return false;
+  if (a.n === b.n) return true;                                   // same slot or relative maj/min
+  if (a.mode === b.mode &&
+      ((a.n % 12) + 1 === b.n || (b.n % 12) + 1 === a.n)) return true;  // wheel neighbours
+  return false;
+}
+
+function _deckHarmonyUpdate() {
+  const el = document.getElementById('deck-harmony');
+  if (!el) return;
+  const keyA = _deckCurrentKey('a');
+  const keyB = _deckCurrentKey('b');
+  if (!_decks.a.trackId || !_decks.b.trackId || !keyA || !keyB) {
+    el.className = 'deck-harmony';
+    el.title = 'Harmonic compatibility of the two decks’ current keys';
+    return;
+  }
+  const match = _deckIsHarmonicMatch(keyA, keyB);
+  el.className = 'deck-harmony ' + (match ? 'deck-harmony-good' : 'deck-harmony-clash');
+  el.title = keyA + ' vs ' + keyB + (match ? ' — harmonic mix' : ' — key clash; try KEY match');
 }
 
 /* ── Waveform ─────────────────────────────────────────────────────────── */
@@ -347,7 +443,11 @@ function _deckDrawWave(id, progress) {
   const barW = w / len;
   const mid = h / 2;
 
-  const accent = id === 'a' ? 'rgba(0,212,232,0.75)' : 'rgba(255,45,120,0.70)';
+  // Deck colors come from the app tokens: A = cyan (--accent-rgb), B = magenta (--accent-b-rgb).
+  const rootStyle = getComputedStyle(document.documentElement);
+  const aRgb = rootStyle.getPropertyValue('--accent-rgb').trim() || '0,212,232';
+  const bRgb = rootStyle.getPropertyValue('--accent-b-rgb').trim() || '255,45,120';
+  const accent = id === 'a' ? `rgba(${aRgb},0.75)` : `rgba(${bRgb},0.70)`;
   const dim = 'rgba(58,80,96,0.45)';
 
   for (let i = 0; i < len; i++) {
@@ -477,6 +577,8 @@ function _deckInit() {
 
   document.getElementById('deck-sync-a')?.addEventListener('click', () => _deckSync('a', 'b'));
   document.getElementById('deck-sync-b')?.addEventListener('click', () => _deckSync('b', 'a'));
+  document.getElementById('deck-key-a')?.addEventListener('click', () => _deckKeyMatch('a', 'b'));
+  document.getElementById('deck-key-b')?.addEventListener('click', () => _deckKeyMatch('b', 'a'));
   document.getElementById('deck-close-btn')?.addEventListener('click', () => deckSetPanel(false));
 
   // Drop a library track onto a deck half to load + play it there.

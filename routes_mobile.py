@@ -328,7 +328,7 @@ def mobile_folder_files(folder_path: str):
 
     audio_extensions = {
         ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac",
-        ".m4a", ".m4p", ".mp4", ".m4v", ".ogg", ".opus",
+        ".m4a", ".m4p", ".ogg", ".opus",
     }
 
     files = []
@@ -509,7 +509,7 @@ def mobile_rekordbox_add_track():
 
     AUDIO_EXTS = {
         ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac",
-        ".m4a", ".m4p", ".mp4", ".m4v", ".ogg", ".opus",
+        ".m4a", ".m4p", ".ogg", ".opus",
     }
     if p.suffix.lower() not in AUDIO_EXTS:
         return jsonify({"error": f"Unsupported file type: {p.suffix}"}), 400

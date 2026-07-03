@@ -92,7 +92,7 @@ class LibraryScanner:
         total_scanned = 0
         audio_extensions = {
             ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac", 
-            ".m4a", ".m4p", ".mp4", ".m4v", ".ogg", ".opus"
+            ".m4a", ".m4p", ".ogg", ".opus"
         }
         
         for root in roots:

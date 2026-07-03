@@ -9,6 +9,7 @@
   </div>
   <nav class="undo-panel-nav" role="tablist">
     <button type="button" class="undo-tab-btn active" id="undo-tab-timeline" role="tab" onclick="undoSwitchTab('timeline')">Timeline</button>
+    <button type="button" class="undo-tab-btn" id="undo-tab-operations" role="tab" onclick="undoSwitchTab('operations')">Operations</button>
     <button type="button" class="undo-tab-btn" id="undo-tab-savepoints" role="tab" onclick="undoSwitchTab('savepoints')">Savepoints</button>
     <button type="button" class="undo-tab-btn" id="undo-tab-trash" role="tab" onclick="undoSwitchTab('trash')">Trash</button>
   </nav>
@@ -39,6 +40,14 @@
         </select>
       </div>
       <div id="undo-timeline-list" class="undo-list"></div>
+    </div>
+
+    <!-- ── Operations tab ── -->
+    <div class="undo-section" id="undo-sec-operations">
+      <p class="undo-blurb">Every file a tool moves, renames, or copies is journaled to the Archive
+        as it happens. Preview a run's footprint and return files to where they were —
+        without touching anything the journal doesn't cover.</p>
+      <div id="undo-operations-list" class="undo-list"></div>
     </div>
 
     <!-- ── Savepoints tab ── -->

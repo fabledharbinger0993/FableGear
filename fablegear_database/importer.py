@@ -104,6 +104,71 @@ class FileImporter:
         stats["total_files"] = len(tracks)
         log.info("Found %d audio files to process", len(tracks))
 
+        return self._import_tracks(
+            tracks, stats,
+            progress_callback=progress_callback,
+            force_refresh=force_refresh,
+            source_label=[str(p) for p in root_paths],
+        )
+
+    def import_paths(
+        self,
+        file_paths: List[Path],
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Import specific audio files (not directories) into the database.
+
+        Used by the Record Room's drag-to-import: the split view hands over
+        individual novelty tracks rather than a scan root.
+        """
+        stats: Dict[str, Any] = {
+            "total_files": 0,
+            "new_files": 0,
+            "updated_files": 0,
+            "skipped_files": 0,
+            "error_files": 0,
+            "errors": [],
+        }
+
+        scanner = self._get_scanner()
+        audio_exts = getattr(scanner, "AUDIO_EXTENSIONS", None) or set()
+        tracks = []
+        for fp in file_paths:
+            fp = Path(fp)
+            if not fp.is_file():
+                stats["error_files"] += 1
+                stats["errors"].append(f"{fp}: not a file")
+                continue
+            if audio_exts and fp.suffix.lower() not in audio_exts:
+                stats["error_files"] += 1
+                stats["errors"].append(f"{fp}: not an audio file")
+                continue
+            try:
+                tracks.append(scanner.extract_metadata(fp))
+            except Exception as exc:
+                stats["error_files"] += 1
+                stats["errors"].append(f"{fp}: {exc}")
+
+        stats["total_files"] = len(file_paths)
+        return self._import_tracks(
+            tracks, stats,
+            progress_callback=progress_callback,
+            force_refresh=force_refresh,
+            source_label=[str(p) for p in file_paths],
+        )
+
+    def _import_tracks(
+        self,
+        tracks: List[Any],
+        stats: Dict[str, Any],
+        *,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+        force_refresh: bool = False,
+        source_label: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Shared batch pipeline: change-detect, hash, upsert, log."""
         # One query for change detection instead of a lookup per file.
         existing = self.database.get_path_index()
 
@@ -150,7 +215,7 @@ class FileImporter:
                 "updated": stats["updated_files"],
                 "skipped": stats["skipped_files"],
                 "errors": stats["error_files"],
-                "roots": [str(p) for p in root_paths],
+                "roots": source_label or [],
             },
         )
 

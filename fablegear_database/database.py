@@ -272,6 +272,79 @@ class FableGearDatabase:
             )
             return {row[0]: (row[1], row[2], row[3]) for row in cursor.fetchall()}
 
+    def get_fingerprint_index(self) -> Dict[str, Tuple[Optional[str], int, Optional[float]]]:
+        """
+        Return a map of file_path -> (acoustic_fingerprint, file_size, duration).
+
+        Used by the duplicate scanner to reuse fingerprints the Archive already
+        knows instead of re-running fpcalc on every file. file_size is the
+        cheap staleness check: if the on-disk size differs, recompute.
+        """
+        with self.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT file_path, acoustic_fingerprint, file_size, duration FROM fg_content"
+            )
+            return {row[0]: (row[1], row[2], row[3]) for row in cursor.fetchall()}
+
+    def bulk_set_fingerprints(
+        self, entries: List[Tuple[str, str, Optional[float], int]]
+    ) -> int:
+        """
+        Persist computed fingerprints without clobbering other columns.
+
+        entries: (file_path, acoustic_fingerprint, duration, file_size).
+        Rows the Archive doesn't know yet are inserted; existing rows keep
+        their tags/metadata and only gain the fingerprint (+ duration when
+        we learned one). One transaction for the whole batch.
+        """
+        if not entries:
+            return 0
+        sql = (
+            "INSERT INTO fg_content (file_path, file_name, file_size, duration, acoustic_fingerprint) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(file_path) DO UPDATE SET "
+            "  acoustic_fingerprint = excluded.acoustic_fingerprint, "
+            "  duration = COALESCE(excluded.duration, duration), "
+            "  file_size = excluded.file_size, "
+            "  updated_at = datetime('now', 'localtime')"
+        )
+        rows = [
+            (path, Path(path).name, file_size, duration, fingerprint)
+            for path, fingerprint, duration, file_size in entries
+        ]
+        with self.transaction() as conn:
+            conn.executemany(sql, rows)
+        return len(rows)
+
+    def bulk_set_analysis(
+        self, entries: List[Tuple[str, Optional[float], Optional[str], int]]
+    ) -> int:
+        """
+        Persist tagger analysis (BPM / musical key) without clobbering other
+        columns. None values never overwrite an existing value (COALESCE).
+
+        entries: (file_path, bpm, key, file_size).
+        """
+        if not entries:
+            return 0
+        sql = (
+            "INSERT INTO fg_content (file_path, file_name, file_size, bpm, key) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(file_path) DO UPDATE SET "
+            "  bpm = COALESCE(excluded.bpm, bpm), "
+            "  key = COALESCE(excluded.key, key), "
+            "  file_size = excluded.file_size, "
+            "  updated_at = datetime('now', 'localtime')"
+        )
+        rows = [
+            (path, Path(path).name, file_size, bpm, key)
+            for path, bpm, key, file_size in entries
+        ]
+        with self.transaction() as conn:
+            conn.executemany(sql, rows)
+        return len(rows)
+
     def delete_content(self, record_id: int) -> bool:
         """
         Delete a content record by ID.

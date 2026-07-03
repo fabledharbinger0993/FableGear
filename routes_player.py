@@ -309,8 +309,6 @@ def _enumerate_drive_audio(
     per_volume_limit: int | None = None,
     skip_primary_os_drive: bool = True,
 ):
-    from user_config import discover_music_roots
-
     def _is_system_drive(path: Path) -> bool:
         if platform.system() == "Windows":
             return path.drive.upper() == "C:"
@@ -320,29 +318,54 @@ def _enumerate_drive_audio(
     if skip_primary_os_drive:
         all_volumes = [v for v in all_volumes if not _is_system_drive(Path(v["path"]))]
 
-    volume_roots = discover_music_roots(all_volumes)
+    # The configured music root is always scanned, even when it lives on the
+    # OS drive that skip_primary_os_drive excludes — otherwise a home-folder
+    # library is invisible to the split view.
+    scan_roots: list[tuple[Path, str, str]] = []  # (root, drive_name, drive_path)
+    seen_roots: set = set()
+    try:
+        from config import MUSIC_ROOT as _MR  # noqa: PLC0415
+        mr = Path(str(_MR))
+        if mr.is_dir():
+            scan_roots.append((mr, mr.name or "Music", str(mr)))
+            seen_roots.add(mr.resolve())
+    except Exception:
+        pass
+    for vol in all_volumes:
+        root = Path(vol["path"])
+        try:
+            resolved = root.resolve()
+        except OSError:
+            continue
+        if resolved in seen_roots or not root.is_dir():
+            continue
+        seen_roots.add(resolved)
+        scan_roots.append((root, vol["name"], vol["path"]))
+
     entries = []
     total_estimate = 0
     truncated = False
     limit_per_vol = per_volume_limit or limit
 
-    for vol in all_volumes:
-        roots = volume_roots.get(vol["path"], [Path(vol["path"])])
+    for root, drive_name, drive_path in scan_roots:
         vol_count = 0
-        
-        for root in roots:
-            if vol_count >= limit_per_vol: break
-            
-            # Focused scan: only walk the configured music roots
-            for p in root.rglob("*"):
+        try:
+            walker = root.rglob("*")
+            for p in walker:
                 if vol_count >= limit_per_vol or len(entries) >= limit:
                     truncated = True
                     break
-                
-                if p.is_file() and p.suffix.lower() in _FS_AUDIO_EXTS:
-                    entries.append((p, vol["name"], vol["path"]))
-                    vol_count += 1
-        
+                if p.name.startswith(".") or any(part.startswith(".") for part in p.parent.parts):
+                    continue  # AppleDouble ._* files, .Trashes, hidden dirs
+                try:
+                    if p.is_file() and p.suffix.lower() in _FS_AUDIO_EXTS:
+                        entries.append((p, drive_name, drive_path))
+                        vol_count += 1
+                except OSError:
+                    continue
+        except OSError:
+            continue
+
         total_estimate += vol_count
 
     return entries, total_estimate, truncated, all_volumes
@@ -685,67 +708,114 @@ def api_library_fs_browse():
 
 @bp.route("/api/library/split-data")
 def api_library_split_data():
-    """Integrated three-library view:
-    • all_music  — every audio file pooled across all connected drives (filesystem,
-                   independent of rekordbox), grouped by drive
-    • rekordbox  — every track in the rekordbox library database
-    • unimported — filesystem audio files (from the all_music scan) whose path is
-                   NOT present in the rekordbox database (i.e. not yet imported)
+    """Integrated three-library view (FableGear | Rekordbox | Novelty):
+    • fablegear — every track in the FableGear database (the Record Room source)
+    • rekordbox — every track in the rekordbox library database
+    • novelty   — filesystem audio (pooled across all connected drives) missing
+                  from at least one database, flagged with membership booleans:
+                  in_fablegear=False → "blue", in_rekordbox=False → "yellow",
+                  in neither → "green".
 
-    The filesystem scan is shared between all_music and unimported, so the third
-    column is exactly "what's on disk minus what rekordbox knows about".
+    One shared filesystem scan feeds the novelty column, so it is exactly
+    "what's on disk minus what each database already knows about".
     """
     from db_connection import read_db  # noqa: PLC0415
     from config import LOCAL_DB as _DB, MUSIC_ROOT as _MR  # noqa: PLC0415
 
     music_root = str(_MR)
 
+    # ── Column 1: FableGear database ─────────────────────────────────────────
+    fablegear_tracks: list = []
+    fg_error = None
+    fg_path_set: set = set()
+    fg_name_set: set = set()
+    try:
+        fgdb = _fablegear_db()
+        fg_rows = fgdb.get_all_content(limit=100000, order_by="artist")
+        fablegear_tracks = [_fablegear_track_payload(r) for r in fg_rows]
+        for r in fg_rows:
+            fp = (r.file_path or "").strip()
+            if fp:
+                fg_path_set.add(fp)
+                fg_name_set.add(Path(fp).name.lower())
+    except Exception as exc:
+        fg_error = str(exc)
+
     # ── Column 2: Rekordbox library (all DB tracks) ──────────────────────────
+    rekordbox_tracks: list = []
+    rb_error = None
+    db_path_set: set = set()
+    db_name_set: set = set()
     try:
         with read_db(_DB) as db:
             rekordbox_tracks = [_library_track_payload(t) for t in db.get_content().all()]
+        for track in rekordbox_tracks:
+            fp = (track.get("file_path") or "").strip()
+            if fp:
+                db_path_set.add(fp)
+                db_name_set.add(Path(fp).name.lower())
     except Exception as exc:
-        return jsonify({"error": f"rekordbox DB unavailable: {exc}"}), 500
+        rb_error = str(exc)
 
-    db_path_set: set = set()
-    db_name_set: set = set()
-    for track in rekordbox_tracks:
-        fp = (track.get("file_path") or "").strip()
-        if fp:
-            db_path_set.add(fp)
-            db_name_set.add(Path(fp).name.lower())
+    if fg_error and rb_error:
+        return jsonify({"error": f"both databases unavailable — FableGear: {fg_error} · rekordbox: {rb_error}"}), 500
 
-    # ── Columns 1 & 3: filesystem scan pooled across every connected drive ───
+    # ── Column 3: novelty — on disk, missing from at least one database ──────
     entries, fs_total, truncated, volumes = _enumerate_drive_audio()
     tag_limit = _FS_TAG_LIMIT if not truncated else min(_FS_TAG_LIMIT, len(entries))
 
-    all_music: list = []
-    unimported: list = []
+    novelty: list = []
     for item, drive_name, drive_path in entries[:tag_limit]:
+        path_str = str(item)
+        name_lc = item.name.lower()
+        in_rb = path_str in db_path_set or name_lc in db_name_set
+        in_fg = path_str in fg_path_set or name_lc in fg_name_set
+        if in_rb and in_fg:
+            continue
         payload = _fs_track_payload(item)
-        payload["drive_name"] = drive_name
-        payload["drive_path"] = drive_path
-        all_music.append(payload)
-        # Not in rekordbox if neither the exact path nor the filename is known.
-        if str(item) not in db_path_set and item.name.lower() not in db_name_set:
-            unimported.append({
-                "path":       str(item),
-                "filename":   item.name,
-                "title":      payload.get("title") or item.stem,
-                "drive_name": drive_name,
-            })
+        novelty.append({
+            "path":          path_str,
+            "filename":      item.name,
+            "title":         payload.get("title") or item.stem,
+            "drive_name":    drive_name,
+            "in_fablegear":  in_fg,
+            "in_rekordbox":  in_rb,
+        })
 
     return jsonify({
-        "music_root":        music_root,
-        "all_music":         all_music,
-        "all_music_count":   fs_total,
-        "rekordbox":         rekordbox_tracks,
-        "rekordbox_count":   len(rekordbox_tracks),
-        "unimported":        unimported,
-        "unimported_count":  len(unimported),
-        "truncated":         truncated,
-        "volumes":           volumes,
+        "music_root":       music_root,
+        "fablegear":        fablegear_tracks,
+        "fablegear_count":  len(fablegear_tracks),
+        "fablegear_error":  fg_error,
+        "rekordbox":        rekordbox_tracks,
+        "rekordbox_count":  len(rekordbox_tracks),
+        "rekordbox_error":  rb_error,
+        "novelty":          novelty,
+        "novelty_count":    len(novelty),
+        "fs_scanned":       fs_total,
+        "truncated":        truncated,
+        "volumes":          volumes,
     })
+
+
+@bp.route("/api/library/db/import", methods=["POST"])
+def api_library_db_import():
+    """Import specific files into the FableGear database (drag-to-import).
+
+    Body: {"paths": ["/abs/file.mp3", ...]}
+    """
+    body = request.get_json(force=True, silent=True) or {}
+    paths = [str(p).strip() for p in body.get("paths", []) if str(p).strip()]
+    if not paths:
+        return jsonify({"error": "paths list is required"}), 400
+
+    try:
+        from fablegear_database.importer import FileImporter  # noqa: PLC0415
+        db = _fablegear_db()
+        stats = FileImporter(db).import_paths([Path(p) for p in paths])
+        return jsonify(stats)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @bp.route("/api/library/integrity/canonical-paths/plan")
