@@ -875,12 +875,37 @@ body.fg-space-chop .workflow-rail { display: flex; }
   flex-shrink: 0;
 }
 
-.step-tab-util {
+/* Rekordbox-explicit tools (right of the rail divider). A separate family
+   from the FableGear icon tabs: labeled mono chips in the rekordbox blue,
+   matching the DB panel's own tab language. */
+.step-tab-rb-tool {
   flex: 0 0 auto;
-  min-width: 72px;
-  width: 72px;
-  padding: 0;
+  min-width: 64px;
+  max-width: 76px;
+  align-self: center;
+  height: 56px;
+  padding: 4px 8px;
+  font-family: var(--mono);
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  line-height: 1.35;
+  color: var(--text-muted);
+  background: rgba(var(--accent-rgb), .05);
+  border: 1px solid rgba(var(--accent-rgb), .22);
+  border-radius: 7px;
 }
+.step-tab-rb-tool:hover {
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), .11);
+  border-color: rgba(var(--accent-rgb), .45);
+}
+.step-tab-rb-tool.active {
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), .16);
+  border-color: rgba(var(--accent-rgb), .6);
+}
+.step-tab-rb-tool::after { content: none; }  /* chips carry their own border */
 
 .step-tab-entry {
   min-width: 176px;
@@ -937,31 +962,6 @@ body.fg-space-chop .workflow-rail { display: flex; }
   filter: brightness(1.08);
 }
 
-#nav-btn-db.step-tab-rekordbox {
-  flex: 0 0 auto;
-  width: 86px;
-  min-width: 86px;
-  height: 100%;
-  justify-content: center;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  padding: 0;
-}
-
-#nav-btn-db.step-tab-rekordbox .step-icon {
-  width: 64px;
-  height: 64px;
-  object-fit: contain;
-  filter: hue-rotate(248deg) saturate(1.4) brightness(1.12);
-}
-
-#nav-btn-db.step-tab-rekordbox:hover {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  filter: brightness(1.1);
-}
 
 @media (max-width: 840px) {
   .step-tab-entry {
@@ -972,12 +972,6 @@ body.fg-space-chop .workflow-rail { display: flex; }
   }
   .step-tab-entry .step-tab-label {
     display: none;
-  }
-  #nav-btn-db.step-tab-rekordbox {
-    min-width: 56px;
-    width: 56px;
-    justify-content: center;
-    padding: 10px;
   }
 }
 

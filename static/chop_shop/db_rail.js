@@ -18,9 +18,10 @@ let _dbPanelActive = null;
 function openDbPanel(tool) {
   if (_fgActiveSpace !== 'chop') setFableGearSpace('chop');
   closeRightNavDropdown();
-  // Deactivate all sections + rail buttons
+  // Deactivate all sections + rail buttons (panel tabs AND top-rail chips)
   document.querySelectorAll('.db-panel-section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.db-tool-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.step-tab-rb-tool').forEach(b => b.classList.remove('active'));
 
   const section = document.getElementById('db-panel-' + tool);
   const btn     = document.getElementById('rail-btn-' + tool);
@@ -33,7 +34,7 @@ function openDbPanel(tool) {
   document.getElementById('db-panel').classList.add('open');
   document.getElementById('db-panel-backdrop').classList.add('open');
   document.body.classList.add('sidebar-open');
-  document.getElementById('nav-btn-db')?.classList.add('active');
+  document.getElementById('nav-btn-rb-' + tool)?.classList.add('active');
   _dbPanelActive = tool;
 }
 
@@ -41,7 +42,7 @@ function closeDbPanel() {
   document.getElementById('db-panel').classList.remove('open');
   document.getElementById('db-panel-backdrop').classList.remove('open');
   document.querySelectorAll('.db-tool-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('nav-btn-db')?.classList.remove('active');
+  document.querySelectorAll('.step-tab-rb-tool').forEach(b => b.classList.remove('active'));
   _dbPanelActive = null;
   // Only remove sidebar-open if file browser isn't also open
   if (!document.getElementById('fb-panel').classList.contains('fb-open')) {

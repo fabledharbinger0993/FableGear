@@ -96,18 +96,23 @@
 
   <div class="workflow-rail-divider" aria-hidden="true"></div>
 
-  <button type="button" class="step-tab step-tab-util" id="nav-btn-library" onclick="toggleRightNavDropdown('library')" title="Library">
-    <img class="step-icon" src="/static/icon-record-room.png" alt="Library">
+  <!-- Right of the divider: the Rekordbox-explicit tools (the DB panel's
+       sections). FableGear-native tools live left; rekordbox maintenance
+       lives here. Generic nav (Library/Queue/Drives) is the left rail's job. -->
+  <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-audit" onclick="openDbPanel('audit')" title="Audit — read-only Rekordbox library health check">
+    AUDIT
   </button>
-  <button type="button" class="step-tab step-tab-util" id="nav-btn-files" onclick="toggleRightNavDropdown('files')" title="Files">
-    <img class="step-icon" src="/static/icon-queue.png" alt="Files">
+  <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-relocate" onclick="openDbPanel('relocate')" title="Fix Broken Paths — update DB paths after a drive move">
+    FIX<br>PATHS
   </button>
-  <button type="button" class="step-tab step-tab-util" id="nav-btn-drives" onclick="toggleRightNavDropdown('drives')" title="Drives">
-    <img class="step-icon" src="/static/icon-drives.png" alt="Drives">
-    <span class="nav-drives-badge" id="nav-drives-badge" style="display:none"></span>
+  <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-import" onclick="openDbPanel('import')" title="Import — add tracks to the Rekordbox database">
+    IMPORT
   </button>
-  <button type="button" class="step-tab step-tab-util step-tab-rekordbox" id="nav-btn-db" onclick="openDbPanel('audit')" title="Rekordbox Tools">
-    <img class="step-icon" src="/static/icon-settings.png" alt="DB Fix">
+  <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-link" onclick="openDbPanel('link')" title="Link Playlists — wire imported tracks into playlists">
+    LINK
+  </button>
+  <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-dead-files" onclick="openDbPanel('dead-files')" title="Dead Files — audio on disk not referenced by any Rekordbox DB">
+    DEAD<br>FILES
   </button>
 </nav>
 
