@@ -384,12 +384,22 @@ _FG_SYNC = {"running": False, "phase": "idle", "done": 0, "total": 0,
             "result": None, "error": None}
 
 
-def _fablegear_db():
-    """Open (once) the FableGear database — the primary Record Room source."""
+def _fablegear_db(create: bool = False):
+    """Open (once) the FableGear database — the primary Record Room source.
+
+    Read paths call this with the default ``create=False``: if the library
+    has not been built yet the function returns ``None`` rather than creating
+    the file, so merely *viewing* the Record Room never materialises a
+    database. Only explicit write paths (import / sync / onboarding) pass
+    ``create=True``. Callers must handle a ``None`` return.
+    """
     global _FABLEGEAR_DB
-    if _FABLEGEAR_DB is None:
-        from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
-        _FABLEGEAR_DB = FableGearDatabase()
+    if _FABLEGEAR_DB is not None:
+        return _FABLEGEAR_DB
+    from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
+    if not create and not FableGearDatabase.default_db_path().exists():
+        return None
+    _FABLEGEAR_DB = FableGearDatabase(create=create)
     return _FABLEGEAR_DB
 
 
@@ -436,7 +446,11 @@ def api_library_tracks():
     # Default / primary: FableGear's own database (source "", "undefined",
     # "fablegear"). This is the database-first Record Room library.
     try:
-        db = _fablegear_db()
+        db = _fablegear_db()  # read-only: None when the library isn't built yet
+        if db is None:
+            resp = jsonify([])
+            resp.headers["X-FableGear-Library"] = "missing"
+            return resp
         rows = db.get_all_content(limit=100000, order_by="artist")
         return jsonify([_fablegear_track_payload(r) for r in rows])
     except Exception as exc:
@@ -456,7 +470,7 @@ def api_library_db_sync():
             from config import MUSIC_ROOT  # noqa: PLC0415
             from fablegear_database.importer import FileImporter  # noqa: PLC0415
             from fablegear_database.sync import DatabaseSync  # noqa: PLC0415
-            db = _fablegear_db()
+            db = _fablegear_db(create=True)  # sync is an explicit write/seed op
             sync = DatabaseSync(db, importer=FileImporter(db))
             _FG_SYNC.update(phase="reconciling")
             _FG_SYNC["result"] = sync.reconcile([Path(str(MUSIC_ROOT))])
@@ -730,8 +744,8 @@ def api_library_split_data():
     fg_path_set: set = set()
     fg_name_set: set = set()
     try:
-        fgdb = _fablegear_db()
-        fg_rows = fgdb.get_all_content(limit=100000, order_by="artist")
+        fgdb = _fablegear_db()  # read-only: None when the library isn't built yet
+        fg_rows = fgdb.get_all_content(limit=100000, order_by="artist") if fgdb else []
         fablegear_tracks = [_fablegear_track_payload(r) for r in fg_rows]
         for r in fg_rows:
             fp = (r.file_path or "").strip()
@@ -811,7 +825,7 @@ def api_library_db_import():
 
     try:
         from fablegear_database.importer import FileImporter  # noqa: PLC0415
-        db = _fablegear_db()
+        db = _fablegear_db(create=True)  # drag-to-import is an explicit write op
         stats = FileImporter(db).import_paths([Path(p) for p in paths])
         return jsonify(stats)
     except Exception as exc:
@@ -882,8 +896,8 @@ def api_library_track_stream(track_id):
     # FableGear DB: numeric IDs, default source
     if source not in ("local", "device", "djmt"):
         try:
-            db = _fablegear_db()
-            rec = db.get_content_by_id(int(track_id))
+            db = _fablegear_db()  # read-only: None when the library isn't built yet
+            rec = db.get_content_by_id(int(track_id)) if db else None
             if rec is None:
                 return jsonify({"error": f"Track {track_id!r} not found in FableGear DB"}), 404
             file_path = (rec.file_path or "").strip()

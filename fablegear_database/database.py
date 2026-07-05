@@ -23,6 +23,19 @@ from .schema import DatabaseSchema, DatabaseConfig
 
 log = logging.getLogger(__name__)
 
+# Canonical on-disk location of the FableGear library database. Kept as a
+# module constant so callers can test for existence *without* constructing a
+# FableGearDatabase (which would create the file as a side effect).
+DEFAULT_DB_DIR = Path.home() / ".fablegear"
+DEFAULT_DB_PATH = DEFAULT_DB_DIR / "fablegear.db"
+
+
+class LibraryNotInitializedError(RuntimeError):
+    """Raised when the FableGear database is opened read-only (create=False)
+    but has not been created yet. Read paths catch this and present an empty
+    library instead of silently materialising the file — FableGear never
+    creates the library as a side effect of merely viewing it."""
+
 
 @dataclass
 class ContentRecord:
@@ -83,37 +96,56 @@ class FableGearDatabase:
     - Fast queries via indexed fields
     """
     
-    def __init__(self, config: Optional[DatabaseConfig] = None):
+    def __init__(self, config: Optional[DatabaseConfig] = None, *, create: bool = True):
         """
         Initialize the database connection.
-        
+
         Args:
             config: Database configuration (default: auto-detected)
+            create: When True (default) the database file and schema are
+                created if they do not exist. Pass ``create=False`` on read
+                paths that must not materialise the library — a missing file
+                then raises ``LibraryNotInitializedError``.
         """
         self.config = config or self._default_config()
         self._conn: Optional[sqlite3.Connection] = None
         self._in_transaction = False
-        
+
         # Initialize database if needed
-        self._initialize_database()
-    
+        self._initialize_database(create=create)
+
+    @staticmethod
+    def default_db_path() -> Path:
+        """Return the canonical library path without any side effects (no
+        directory creation, no connection). Use this to check existence
+        before deciding whether a read path should open the database."""
+        return DEFAULT_DB_PATH
+
     def _default_config(self) -> DatabaseConfig:
-        """Create default database configuration."""
-        db_dir = Path.home() / ".fablegear"
-        db_dir.mkdir(parents=True, exist_ok=True)
-        
+        """Create default database configuration.
+
+        Note: this no longer creates ``~/.fablegear`` — the directory is only
+        made when the database is actually created (see _initialize_database),
+        so constructing with ``create=False`` stays side-effect-free.
+        """
         return DatabaseConfig(
-            db_path=db_dir / "fablegear.db",
+            db_path=DEFAULT_DB_PATH,
             auto_vacuum_enabled=True,
             journal_mode="WAL",
             cache_size=-2000,
             synchronous="NORMAL",
             foreign_keys=True,
         )
-    
-    def _initialize_database(self) -> None:
+
+    def _initialize_database(self, *, create: bool = True) -> None:
         """Initialize database schema if needed."""
         if not self.config.db_path.exists():
+            if not create:
+                raise LibraryNotInitializedError(
+                    f"FableGear library database does not exist yet: "
+                    f"{self.config.db_path}"
+                )
+            self.config.db_path.parent.mkdir(parents=True, exist_ok=True)
             log.info("Creating new FableGear database: %s", self.config.db_path)
             DatabaseSchema.create_schema(self.config.db_path)
             self._set_metadata("schema_version", DatabaseSchema.get_schema_version())

@@ -447,8 +447,16 @@ def _check_archive_available() -> HealthFinding | None:
     reads from. If it cannot open, tool runs silently leave no record —
     surface that as a warn finding instead of letting the wiring rot."""
     try:
-        from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
-        FableGearDatabase()  # opens per-operation connections; constructing validates schema + writability
+        from fablegear_database.database import (  # noqa: PLC0415
+            FableGearDatabase, LibraryNotInitializedError,
+        )
+        # Read-only probe: a library that simply hasn't been built yet is not a
+        # fault, and the startup health check must never create it as a side
+        # effect — that is the user's explicit import/onboarding action.
+        try:
+            FableGearDatabase(create=False)  # validates schema + writability if present
+        except LibraryNotInitializedError:
+            return None
         return None
     except Exception as exc:
         return HealthFinding(
