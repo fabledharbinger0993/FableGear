@@ -4286,8 +4286,10 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 0 20px;
-  height: 52px;
+  row-gap: 8px;
+  padding: 7px 20px;
+  min-height: 52px;         /* grows to a tidy 2nd row instead of overlapping */
+  flex-wrap: wrap;          /* left group / search / actions wrap, never collide */
   background: rgba(4, 10, 16, 0.78);
   -webkit-backdrop-filter: blur(18px) saturate(1.4);
   backdrop-filter: blur(18px) saturate(1.4);
@@ -4296,7 +4298,7 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   box-shadow: 0 1px 0 rgba(0, 180, 200, 0.1);
 }
 .le-header-left  { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.le-header-center { flex: 1; max-width: 460px; }
+.le-header-center { flex: 1 1 240px; min-width: 200px; max-width: 460px; }
 .le-header-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .le-header-actions {
   flex-wrap: wrap;
@@ -4339,8 +4341,8 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   border: 1px solid rgba(0, 212, 232, 0.40);
   color: #a9eff8;
   border-radius: 999px;
-  padding: 0 16px;
-  min-width: 122px;
+  padding: 0 14px;
+  min-width: 0;            /* size to content — five 122px pills overflowed the row */
   height: 34px;
   font-size: .76rem;
   font-weight: 700;
@@ -4543,12 +4545,17 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
 .le-track-list {
   flex: 1;
   overflow-y: auto;
+  position: relative;              /* positioning context for virtualized rows */
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 180, 200, 0.25) transparent;
   background: rgba(2, 6, 10, 0.55);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }
+/* Sizer holds the full scroll height while only a window of rows is rendered. */
+#le-track-sizer { position: relative; width: 100%; pointer-events: none; }
+/* Virtualized rows are positioned by JS (top = index * row height). */
+.le-track-row.le-virtual-row { position: absolute; left: 0; right: 0; }
 
 .le-track-row {
   display: flex;
@@ -4561,7 +4568,7 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   cursor: default;
   color: rgba(230, 210, 255, 0.82);
 }
-.le-track-row:nth-child(even) {
+.le-track-row.le-row-alt {
   background: rgba(0, 160, 180, 0.03);
 }
 .le-track-row:hover {
@@ -6237,9 +6244,10 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: nowrap;
+  row-gap: 6px;
+  flex-wrap: wrap;        /* toggles drop below the title instead of overflowing */
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
 }
 .le-title { white-space: nowrap; }
 

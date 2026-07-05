@@ -659,6 +659,9 @@ async function leLoadLibrary() {
     if (!tracksRes.ok || !playlistsRes.ok) {
       throw new Error('library load failed');
     }
+    // "missing" → the FableGear library hasn't been built yet; the read path
+    // deliberately did NOT create the database file (no silent automation).
+    const libMissing = tracksRes.headers.get('X-FableGear-Library') === 'missing';
     if (tracksRes.ok) {
       _leAllTracks = await tracksRes.json();
       _leTracksLoaded = true;
@@ -671,6 +674,16 @@ async function leLoadLibrary() {
       leRenderPlaylistTree(playlists);
     }
     leActivateAllTracksSelection();
+    if (libMissing && !_leAllTracks.length) {
+      const empty = document.getElementById('le-empty-state');
+      if (empty) {
+        empty.style.display = 'flex';
+        empty.innerHTML = '<div style="font-size:2rem;margin-bottom:10px;opacity:.4">♫</div>'
+          + '<div>No library yet — import sources to build it.</div>'
+          + '<div style="font-size:.8rem;opacity:.6;margin-top:6px">Use ↻ Sync or drag tracks into the FableGear column (Integrated view).</div>';
+      }
+      leSetStatus('No FableGear library yet — import sources to build it.');
+    }
   } catch (err) {
     _leTracksLoaded = false;
     leSetStatus('Could not load library — is the database connected?');
@@ -793,10 +806,25 @@ async function leSelectHistory(buttonEl) {
 
 let _leDragSrcId = null;
 
-function leRenderTracks(tracks) {
-  const list = document.getElementById('le-track-list');
-  if (!list) return;
-  list.querySelectorAll('.le-track-row').forEach(row => row.remove());
+/* ── Virtualized track list ────────────────────────────────────────────────
+ * Rendering every row of a large library (70k+ tracks) into the DOM freezes
+ * the renderer — the old code appended one <div> per track with three event
+ * listeners each, which is why "Loading library…" never cleared. Instead we
+ * hold the full scroll height with a sizer element and build only the rows in
+ * (and just past) the viewport, rebuilding that window on scroll. Playlists
+ * and short lists still render directly so drag-reorder is untouched.
+ */
+const LE_ROW_H = 34;         // .le-track-row height (px) — must match the CSS
+const LE_VIRTUAL_MIN = 120;  // at/under this many rows, render directly
+const LE_OVERSCAN = 8;       // extra rows kept above/below the viewport
+
+let _leRenderRows = [];
+let _leVirtualActive = false;
+let _leVirtualRaf = 0;
+let _leWinStart = -1;
+let _leWinEnd = -1;
+
+function _leEnsureEmptyState(list) {
   let empty = document.getElementById('le-empty-state');
   if (!empty) {
     empty = document.createElement('div');
@@ -804,29 +832,33 @@ function leRenderTracks(tracks) {
     empty.className = 'le-empty-state';
     list.appendChild(empty);
   }
-  if (!tracks || !tracks.length) {
-    empty.style.display = 'flex';
-    empty.innerHTML = '<div style="font-size:2rem;margin-bottom:10px;opacity:.4">♫</div><div>No tracks here.</div>';
-    return;
-  }
-  empty.style.display = 'none';
-  const inPlaylist = _leActiveNodeType === 'playlist' && !!_leActivePlaylistId;
-  const sorted = inPlaylist ? tracks : leSorted(tracks);
-  sorted.forEach((t, i) => {
-    const row = document.createElement('div');
-    row.className = 'le-track-row';
-    row.dataset.id = t.id;
-    if (_leSelectedTrackIds.has(String(t.id))) row.classList.add('selected');
-    const playbackState = lePlaybackStateFor(t.id);
-    const key = t.key ? `<span class="le-key-badge">${_leEsc(t.key)}</span>` : '—';
-    const bpm = t.bpm ? Math.round(t.bpm) : '—';
-    const dur = t.duration ? leFormatDur(t.duration) : '—';
-    const date = t.date_added ? t.date_added.slice(0, 10) : '—';
-    const handle = inPlaylist ? '<div class="le-drag-handle" title="Drag to reorder">⠿</div>' : '';
-    row.innerHTML = `
+  return empty;
+}
+
+function _leClearTrackRows(list) {
+  list.querySelectorAll('.le-track-row').forEach(row => row.remove());
+  document.getElementById('le-track-sizer')?.remove();
+}
+
+// Build a single track row. `absIndex` is the row's position in the full
+// (sorted/filtered) list — used for the # column and zebra striping, so both
+// stay correct even when only a window of rows exists in the DOM.
+function _leBuildTrackRow(t, absIndex, inPlaylist) {
+  const row = document.createElement('div');
+  row.className = 'le-track-row';
+  if (absIndex % 2 === 1) row.classList.add('le-row-alt');
+  row.dataset.id = t.id;
+  if (_leSelectedTrackIds.has(String(t.id))) row.classList.add('selected');
+  const playbackState = lePlaybackStateFor(t.id);
+  const key = t.key ? `<span class="le-key-badge">${_leEsc(t.key)}</span>` : '—';
+  const bpm = t.bpm ? Math.round(t.bpm) : '—';
+  const dur = t.duration ? leFormatDur(t.duration) : '—';
+  const date = t.date_added ? t.date_added.slice(0, 10) : '—';
+  const handle = inPlaylist ? '<div class="le-drag-handle" title="Drag to reorder">⠿</div>' : '';
+  row.innerHTML = `
       ${handle}
       <div class="le-col le-col-play"><button class="le-play-btn${playbackState === 'pause' ? ' is-playing' : ''}" data-track-id="${_leEsc(t.id)}" aria-label="${playbackState === 'pause' ? 'Pause track' : 'Play track'}">${playbackState === 'pause' ? '❚❚' : '▶'}</button></div>
-      <div class="le-col le-col-num">${i + 1}</div>
+      <div class="le-col le-col-num">${absIndex + 1}</div>
       <div class="le-col le-col-title le-editable le-title-editable" data-field="title" data-id="${_leEsc(t.id)}" title="Double-click to edit title">${_leEsc(t.title || '—')}</div>
       <div class="le-col le-col-artist">${_leEsc(t.artist || '—')}</div>
       <div class="le-col le-col-album">${_leEsc(t.album || '—')}</div>
@@ -834,24 +866,97 @@ function leRenderTracks(tracks) {
       <div class="le-col le-col-key">${key}</div>
       <div class="le-col le-col-dur">${dur}</div>
       <div class="le-col le-col-date">${date}</div>`;
-    row.querySelector('.le-play-btn')?.addEventListener('click', evt => leToggleTrackPlayback(t.id, evt));
-    row.querySelector('.le-title-editable')?.addEventListener('dblclick', evt => leEditTrackTitle(t, evt));
-    row.addEventListener('click', evt => leToggleTrackSelection(String(t.id), evt));
-    if (inPlaylist) {
-      // Playlist view: row drag reorders within the playlist.
-      _leBindDragReorder(row, t.id);
-    } else {
-      // Library view: drag a track onto a deck (load) or a playlist (add).
-      row.draggable = true;
-      row.addEventListener('dragstart', (e) => {
-        e.dataTransfer.setData('text/fg-track', String(t.id));
-        e.dataTransfer.effectAllowed = 'copy';
-        row.classList.add('le-row-dragging');
-      });
-      row.addEventListener('dragend', () => row.classList.remove('le-row-dragging'));
-    }
-    list.appendChild(row);
+  row.querySelector('.le-play-btn')?.addEventListener('click', evt => leToggleTrackPlayback(t.id, evt));
+  row.querySelector('.le-title-editable')?.addEventListener('dblclick', evt => leEditTrackTitle(t, evt));
+  row.addEventListener('click', evt => leToggleTrackSelection(String(t.id), evt));
+  if (inPlaylist) {
+    // Playlist view: row drag reorders within the playlist.
+    _leBindDragReorder(row, t.id);
+  } else {
+    // Library view: drag a track onto a deck (load) or a playlist (add).
+    row.draggable = true;
+    row.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/fg-track', String(t.id));
+      e.dataTransfer.effectAllowed = 'copy';
+      row.classList.add('le-row-dragging');
+    });
+    row.addEventListener('dragend', () => row.classList.remove('le-row-dragging'));
+  }
+  return row;
+}
+
+function leRenderTracks(tracks) {
+  const list = document.getElementById('le-track-list');
+  if (!list) return;
+  const inPlaylist = _leActiveNodeType === 'playlist' && !!_leActivePlaylistId;
+  const sorted = inPlaylist ? tracks : leSorted(tracks);
+  _leRenderRows = sorted;
+  _leWinStart = _leWinEnd = -1;
+
+  _leClearTrackRows(list);
+  const empty = _leEnsureEmptyState(list);
+
+  if (!sorted || !sorted.length) {
+    _leVirtualActive = false;
+    empty.style.display = 'flex';
+    empty.innerHTML = '<div style="font-size:2rem;margin-bottom:10px;opacity:.4">♫</div><div>No tracks here.</div>';
+    return;
+  }
+  empty.style.display = 'none';
+  list.scrollTop = 0;  // fresh view starts at the top
+
+  if (inPlaylist || sorted.length <= LE_VIRTUAL_MIN) {
+    // Direct render (normal flow): small lists + playlist drag-reorder.
+    _leVirtualActive = false;
+    const frag = document.createDocumentFragment();
+    sorted.forEach((t, i) => frag.appendChild(_leBuildTrackRow(t, i, inPlaylist)));
+    list.appendChild(frag);
+    return;
+  }
+
+  // Virtualized render: only the visible window is ever in the DOM.
+  _leVirtualActive = true;
+  const sizer = document.createElement('div');
+  sizer.id = 'le-track-sizer';
+  sizer.style.height = (sorted.length * LE_ROW_H) + 'px';
+  list.appendChild(sizer);
+  _leBindVirtualScroll(list);
+  _leRenderWindow(list);
+}
+
+function _leBindVirtualScroll(list) {
+  if (list.dataset.leVirtualBound) return;
+  list.dataset.leVirtualBound = '1';
+  list.addEventListener('scroll', () => {
+    if (!_leVirtualActive || _leVirtualRaf) return;
+    _leVirtualRaf = requestAnimationFrame(() => {
+      _leVirtualRaf = 0;
+      _leRenderWindow(list);
+    });
   });
+}
+
+function _leRenderWindow(list) {
+  if (!_leVirtualActive) return;
+  const total = _leRenderRows.length;
+  const viewH = list.clientHeight || 600;
+  const maxScroll = Math.max(0, total * LE_ROW_H - viewH);
+  const st = Math.min(list.scrollTop, maxScroll);
+  const start = Math.max(0, Math.floor(st / LE_ROW_H) - LE_OVERSCAN);
+  const end = Math.min(total, Math.ceil((st + viewH) / LE_ROW_H) + LE_OVERSCAN);
+  if (start === _leWinStart && end === _leWinEnd) return;  // window unchanged
+  _leWinStart = start;
+  _leWinEnd = end;
+
+  list.querySelectorAll('.le-track-row').forEach(row => row.remove());
+  const frag = document.createDocumentFragment();
+  for (let i = start; i < end; i++) {
+    const row = _leBuildTrackRow(_leRenderRows[i], i, false);
+    row.classList.add('le-virtual-row');
+    row.style.top = (i * LE_ROW_H) + 'px';
+    frag.appendChild(row);
+  }
+  list.appendChild(frag);
 }
 
 function _leBindDragReorder(row, trackId) {
