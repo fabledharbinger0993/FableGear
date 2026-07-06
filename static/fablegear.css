@@ -1262,6 +1262,15 @@ details[open] > summary { color: var(--text); }
   color: var(--text-muted);
 }
 .btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--text-muted); }
+/* Secondary button — was undefined, so .btn's white text landed on a default
+   gray button (invisible). Themed as a subtle dark surface with muted text. */
+.btn-secondary {
+  background: var(--surface-hi);
+  border: 1px solid var(--border-hi);
+  color: var(--text-muted);
+}
+.btn-secondary:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.btn-sm { font-size: .78rem; padding: 5px 12px; }
 .btn-xs { font-size: .72rem; padding: 3px 9px; }
 .btn-danger-action {
   background: var(--danger-dim);
@@ -2067,6 +2076,44 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
   display: flex; flex-direction: column;
   overflow: hidden;
 }
+
+/* ── Settings tabs ─────────────────────────────────────────────────────────
+   Underline-style tab bar. Without these rules the tabs fall back to raw
+   browser buttons and — with no display:none on inactive panels — every panel
+   stacks at once, which is what made the modal look unfinished. */
+.settings-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 18px 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.settings-tabs::-webkit-scrollbar { display: none; }
+.settings-tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-size: .82rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+  padding: 10px 12px 9px;
+  margin-bottom: -1px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .15s, border-color .15s;
+}
+.settings-tab:hover { color: var(--text); }
+.settings-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.settings-tab-panel { display: none; }
+.settings-tab-panel.active { display: block; }
 
 /* ── Settings button ───────────────────────────────────────────────────── */
 #settings-btn {
