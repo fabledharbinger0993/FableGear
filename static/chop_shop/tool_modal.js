@@ -779,15 +779,16 @@ function leRenderPlaylistTree(nodes, parentEl, depth) {
         const trackId = e.dataTransfer?.getData('text/fg-track');
         if (!trackId) return;
         try {
-          const res = await fetch(`/api/library/playlists/${node.id}/tracks`, {
+          const res = await fetch(`/api/library/playlists/${node.id}/tracks?db=${encodeURIComponent(_leDbSource)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ track_id: trackId }),
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) { showToast(data.error || 'Could not add track to playlist.', 'error'); return; }
-          if (data.added === 0) showToast(`Already in “${node.name}”.`, 'info');
-          else showToast(`Added to “${node.name}”.`, 'success');
+          if (data.added > 0) showToast(`Added to “${node.name}”.`, 'success');
+          else if (data.missing && data.missing.length) showToast('Not in your Rekordbox library yet — import it there first.', 'info');
+          else showToast(`Already in “${node.name}”.`, 'info');
         } catch (_) {
           showToast('Could not add track to playlist.', 'error');
         }
@@ -818,7 +819,7 @@ async function leSelectPlaylist(node, buttonEl) {
   _leActivePlaylistName = node.name || 'Playlist';
   leSetActiveTreeItem(buttonEl);
   try {
-    const res = await fetch(`/api/library/playlists/${node.id}/tracks`);
+    const res = await fetch(`/api/library/playlists/${node.id}/tracks?db=${encodeURIComponent(_leDbSource)}`);
     if (res.ok) {
       const tracks = await res.json();
       leSetTrackView(tracks, node.name);
@@ -1068,7 +1069,7 @@ async function _leApplyReorder(srcId, targetId) {
   list.querySelectorAll('.le-col-num').forEach((el, i) => { el.textContent = i + 1; });
 
   try {
-    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActivePlaylistId)}/tracks/order`, {
+    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActivePlaylistId)}/tracks/order?db=${encodeURIComponent(_leDbSource)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ track_ids: ids }),
@@ -1184,7 +1185,7 @@ async function leSortPlaylistBy(col) {
   });
 
   try {
-    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActivePlaylistId)}/tracks/order`, {
+    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActivePlaylistId)}/tracks/order?db=${encodeURIComponent(_leDbSource)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ track_ids: sorted.map(t => String(t.id)) }),
@@ -1234,7 +1235,7 @@ async function leSubmitCreate() {
   }
   const parentId = _leActiveNodeType === 'folder' && _leActiveNodeId ? _leActiveNodeId : '';
   try {
-    const res = await fetch('/api/library/playlists', {
+    const res = await fetch(`/api/library/playlists?db=${encodeURIComponent(_leDbSource)}`, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ name, type: _leCreateType, parent_id: parentId }),
@@ -1264,7 +1265,7 @@ async function leAddSelectionToActivePlaylist() {
     return;
   }
   try {
-    const res = await fetch(`/api/library/playlists/${_leActivePlaylistId}/tracks`, {
+    const res = await fetch(`/api/library/playlists/${_leActivePlaylistId}/tracks?db=${encodeURIComponent(_leDbSource)}`, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ track_ids: trackIds }),
@@ -1301,7 +1302,7 @@ async function leRenameActivePlaylist() {
   }
   const savedNode = { id: _leActiveNodeId, type: _leActiveNodeType, name: trimmed };
   try {
-    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActiveNodeId)}`, {
+    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActiveNodeId)}?db=${encodeURIComponent(_leDbSource)}`, {
       method: 'PUT',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ name: trimmed }),
@@ -1333,7 +1334,7 @@ async function leDeleteActivePlaylist() {
     : confirm(`Delete playlist "${label}"?\n\nTracks will remain in your library.`);
   if (!ok) return;
   try {
-    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActiveNodeId)}`, {
+    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActiveNodeId)}?db=${encodeURIComponent(_leDbSource)}`, {
       method: 'DELETE',
     });
     const data = await res.json().catch(() => ({}));
@@ -1365,7 +1366,7 @@ async function leRemoveSelectionFromActivePlaylist() {
     return;
   }
   try {
-    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActivePlaylistId)}/tracks`, {
+    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActivePlaylistId)}/tracks?db=${encodeURIComponent(_leDbSource)}`, {
       method: 'DELETE',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ track_ids: trackIds }),
