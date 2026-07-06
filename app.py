@@ -472,6 +472,7 @@ def api_config():
             "custom_archive":   _custom_archive,
             "archive_enabled":  ARCHIVE_ENABLED,
             "excluded_dirs":    _ucfg.get("excluded_dirs", []),
+            "acoustid_api_key": _ucfg.get("acoustid_api_key", ""),
             "mode":             current_mode,
             "configured":       True,
         })
@@ -540,6 +541,10 @@ def api_settings():
             cfg["backup_dir"] = str(cfg.get("backup_dir", "")).strip() or str(Path.home() / ".fablegear" / "backups")
         if "excluded_dirs" in data:
             cfg["excluded_dirs"] = [d for d in data["excluded_dirs"] if isinstance(d, str) and d.strip()]
+        if "acoustid_api_key" in data:
+            # AcoustID key for MusicBrainz enrichment (music data only). Trim
+            # whitespace; empty string disables lookup.
+            cfg["acoustid_api_key"] = str(data.get("acoustid_api_key", "")).strip()
         if "mode" in data and data["mode"] in ("rural", "suburban"):
             cfg["mode"] = data["mode"]
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:

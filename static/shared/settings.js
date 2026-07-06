@@ -44,6 +44,8 @@ function openSettings() {
     document.getElementById('settings-custom-input').value = cfg.custom_archive || '';
     const excluded = Array.isArray(cfg.excluded_dirs) ? cfg.excluded_dirs : [];
     document.getElementById('settings-excluded-dirs').value = excluded.join('\n');
+    const acoustidEl = document.getElementById('settings-acoustid-key');
+    if (acoustidEl) acoustidEl.value = cfg.acoustid_api_key || '';
     _settingsUpdateUI(mode);
     // Populate paths tab
     const pathFields = {
@@ -140,6 +142,7 @@ async function saveSettings() {
         custom_archive_dir: custom,
         excluded_dirs: document.getElementById('settings-excluded-dirs').value
           .split('\n').map(s => s.trim()).filter(Boolean),
+        acoustid_api_key: (document.getElementById('settings-acoustid-key')?.value || '').trim(),
       }),
     });
     const data = await res.json();
