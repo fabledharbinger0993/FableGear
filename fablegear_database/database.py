@@ -413,6 +413,65 @@ class FableGearDatabase:
             "processing_status": "relinked",
         })
 
+    def relink_converted(self, record_id: int, new_path: str) -> bool:
+        """Repoint a record at its just-converted file (Rekordbox-style relocate)
+        AND refresh the fields the conversion invalidated, so nothing goes stale.
+
+        Retained (format-independent): the row id, tags, cues, playlist
+        membership, rating — everything attached to the record.
+        Refreshed (byte/audio-derived): file_size + file_hash are recomputed for
+        the new file, and acoustic_fingerprint is cleared so it is recomputed
+        lazily on the next dedup/tag pass instead of being trusted while stale.
+        """
+        import os  # noqa: PLC0415
+        import hashlib  # noqa: PLC0415
+        updates: Dict[str, Any] = {
+            "file_path": new_path,
+            "file_name": Path(new_path).name,
+            "processing_status": "relinked",
+            "acoustic_fingerprint": None,   # audio re-encoded → recompute later
+            "fingerprint_quality": 0,
+        }
+        try:
+            updates["file_size"] = os.path.getsize(new_path)
+        except OSError:
+            pass
+        try:
+            h = hashlib.sha256()
+            with open(new_path, "rb") as f:
+                for chunk in iter(lambda: f.read(65536), b""):
+                    h.update(chunk)
+            updates["file_hash"] = h.hexdigest()
+        except OSError as exc:
+            log.warning("Could not re-hash converted file %s: %s", new_path, exc)
+        return self.update_content(record_id, updates)
+
+    def get_paths_for_ids(self, ids) -> Dict[int, str]:
+        """Batch-resolve content ids to file paths in one query (chunked under
+        SQLite's variable limit). Lets the fast hash-based duplicate scan avoid
+        one query per id."""
+        id_list = []
+        for i in ids:
+            try:
+                id_list.append(int(i))
+            except (TypeError, ValueError):
+                continue
+        if not id_list:
+            return {}
+        out: Dict[int, str] = {}
+        with self.connection() as conn:
+            cur = conn.cursor()
+            for start in range(0, len(id_list), 900):
+                chunk = id_list[start:start + 900]
+                placeholders = ",".join("?" * len(chunk))
+                cur.execute(
+                    f"SELECT id, file_path FROM fg_content WHERE id IN ({placeholders})",
+                    chunk,
+                )
+                for rid, fp in cur.fetchall():
+                    out[rid] = fp
+        return out
+
     def get_content_by_path(self, file_path: str) -> Optional[ContentRecord]:
         """
         Get a content record by file path.
