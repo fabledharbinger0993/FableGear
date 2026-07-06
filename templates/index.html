@@ -334,6 +334,20 @@
               Folders with these names are skipped during all scans (Tag Tracks, Normalize, Convert, Audit).
             </div>
           </div>
+
+          <div class="settings-section-sep">
+            <label class="settings-excl-label">
+              🎵 AcoustID API key
+              <span class="settings-excl-hint"> — for MusicBrainz metadata enrichment</span>
+            </label>
+            <input type="text" id="settings-acoustid-key" class="settings-path-input"
+                   placeholder="Paste your AcoustID API key" autocomplete="off" spellcheck="false">
+            <div class="settings-excl-note">
+              Enables the “Metadata Enrichment” option in Tag Tracks — fingerprints each file and fills in
+              missing title / artist / album from MusicBrainz. Music data only; nothing else leaves your machine.
+              Free key at acoustid.org/new-application. Leave blank to disable.
+            </div>
+          </div>
         </div>
       </div>
 
