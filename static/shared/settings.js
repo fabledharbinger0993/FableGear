@@ -10,6 +10,7 @@
 function settingsSwitchTab(tabId) {
   document.querySelectorAll('.settings-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
   document.querySelectorAll('.settings-tab-panel').forEach(p => p.classList.toggle('active', p.id === tabId));
+  document.querySelector('.settings-body')?.scrollTo(0, 0);  // each tab starts at the top
   if (tabId === 'tab-mcp') _settingsLoadMcp();
 }
 
