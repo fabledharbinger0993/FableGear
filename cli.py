@@ -484,8 +484,15 @@ def _duplicates_checkpoint(roots, args):
 
 
 def cmd_duplicates(args: argparse.Namespace) -> None:
-    """Scan one or more PATHs for acoustically identical files and write a CSV report."""
-    from duplicate_detector import scan_duplicates, write_csv_report, write_trash_rescue_report
+    """Scan one or more PATHs for duplicate files and write a CSV report.
+
+    Two tiers: scan_mode='quick' does instant byte-identical matching from the
+    cached DB hashes; scan_mode='deep' (default) runs acoustic fingerprinting.
+    Both return a ScanResult, so the report / prune / resolve pipeline is shared.
+    """
+    from duplicate_detector import (
+        scan_duplicates, scan_duplicates_hash, write_csv_report, write_trash_rescue_report,
+    )
 
     paths = args.path if isinstance(args.path, list) else [args.path]
     roots = []
@@ -521,26 +528,34 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
     ).with_suffix(".txt")
 
     workers = max(1, args.workers)
+    scan_mode = getattr(args, "scan_mode", "deep")
     root_label = ", ".join(str(r) for r in roots)
-    log.info("Scanning for duplicates under: %s (workers=%d, match=%s)", root_label, workers, args.match_mode)
-    log.info("This may take a while for large libraries — progress logged every %d files", 100)
+    if scan_mode == "quick":
+        log.info("Quick scan under: %s — byte-identical match from cached hashes (no fpcalc).", root_label)
+    else:
+        log.info("Scanning for duplicates under: %s (workers=%d, match=%s)", root_label, workers, args.match_mode)
+        log.info("This may take a while for large libraries — progress logged every %d files", 100)
 
-    # ── Checkpoint: resume an interrupted scan, or start over with --checkpoint-action reset
-    ckpt = _duplicates_checkpoint(roots, args)
-    if len(roots) > 1:
+    # ── Checkpoint: only the deep (fpcalc) scan can be interrupted/resumed;
+    # the quick hash scan is instant, so it never touches the checkpoint.
+    ckpt = None if scan_mode == "quick" else _duplicates_checkpoint(roots, args)
+    if scan_mode != "quick" and len(roots) > 1:
         log.info(
             "Selected folders are scanned together as one comparison set so duplicates across different source folders are not missed."
         )
 
     try:
-        result = scan_duplicates(
-            root,
-            max_workers=workers,
-            match_mode=args.match_mode,
-            fuzzy_threshold=args.fuzzy_threshold,
-            checkpoint=ckpt,
-            archive=_archive(),
-        )
+        if scan_mode == "quick":
+            result = scan_duplicates_hash(root, archive=_archive())
+        else:
+            result = scan_duplicates(
+                root,
+                max_workers=workers,
+                match_mode=args.match_mode,
+                fuzzy_threshold=args.fuzzy_threshold,
+                checkpoint=ckpt,
+                archive=_archive(),
+            )
     except Exception:
         log.exception("Duplicate scan failed")
         sys.exit(1)
@@ -1587,7 +1602,10 @@ def cmd_convert(args: argparse.Namespace) -> None:
         try:
             rec = _fg_archive.get_content_by_path(str(src_path))
             if rec and rec.id is not None:
-                _fg_archive.relink_content(rec.id, str(dest))
+                # Rekordbox-style relocate + refresh: keep the row (tags/cues/
+                # playlists/id) but repoint it at the new file and refresh
+                # file_size/file_hash + clear the now-stale acoustic fingerprint.
+                _fg_archive.relink_converted(rec.id, str(dest))
             _fg_archive.log_operation(
                 "convert", str(dest), status="ok",
                 metadata={"from": str(src_path), "format": target_format},
@@ -2220,6 +2238,14 @@ Examples:
         dest="checkpoint_action",
         help="resume (default): continue an interrupted scan from its checkpoint. "
              "reset: discard the checkpoint and fingerprint from the beginning.",
+    )
+    p_dupes.add_argument(
+        "--scan-mode",
+        choices=["quick", "deep"],
+        default="deep",
+        dest="scan_mode",
+        help="quick = instant byte-identical match from cached DB hashes (no fpcalc); "
+             "deep (default) = acoustic Chromaprint fingerprinting (catches re-encodes / different formats).",
     )
     p_dupes.set_defaults(func=cmd_duplicates)
 

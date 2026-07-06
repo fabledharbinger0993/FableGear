@@ -384,6 +384,7 @@ def find_duplicates(
     match_mode: str = "exact",
     workers: int = 1,
     force: bool = False,
+    quick_mode: bool = False,
 ) -> str:
     """
     Scan the library for acoustically identical files using Chromaprint
@@ -401,6 +402,9 @@ def find_duplicates(
         workers:     Parallel fingerprinting workers. Default 1.
                      Increase to 2–4 on fast SSDs; keep at 1 on external drives.
         force:       Bypass the audit_library dependency gate. Default False.
+        quick_mode:  When True, run an INSTANT byte-identical scan from the
+                     cached database hashes (no fpcalc). Much faster; finds exact
+                     copies only. Default False (acoustic fingerprint scan).
     """
     if err := _cfg_gate():
         return err
@@ -420,6 +424,8 @@ def find_duplicates(
         "--workers",
         str(workers),
     ]
+    if quick_mode:
+        cli_args += ["--scan-mode", "quick"]
     return job_dispatcher.dispatch(
         tool="find_duplicates",
         cli_args=cli_args,

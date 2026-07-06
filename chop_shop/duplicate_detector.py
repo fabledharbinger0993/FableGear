@@ -536,6 +536,112 @@ class ScanResult:
     unique_in_trash: list[Path]
 
 
+def scan_duplicates_hash(root, *, archive=None, max_workers: int = 1,
+                         match_mode: str = "hash", fuzzy_threshold: float = 0.85,
+                         checkpoint=None, cancel_event=None,
+                         pause_seconds: float = 0.0, files_override=None) -> ScanResult:
+    """Tier-1 duplicate scan: byte-identical files via the FableGear DB's cached
+    SHA-256 hashes (find_duplicates_by_hash). Instant — no fpcalc, no audio
+    decode. Returns a ScanResult that is a drop-in for scan_duplicates(), so the
+    exact same CSV report / prune / resolve pipeline handles it unchanged.
+
+    The extra keyword args mirror scan_duplicates()'s signature so callers can
+    swap the two freely; only ``root`` and ``archive`` are used here.
+    """
+    roots = [Path(root)] if not isinstance(root, (list, tuple)) else [Path(r) for r in root]
+    print("FABLEGEAR_MATCH_MODE: " + json.dumps({"match_mode": "hash"}), flush=True)
+
+    if archive is None:
+        log.warning("Quick (hash) duplicate scan needs the FableGear database — none available.")
+        print("FABLEGEAR_PROGRESS: " + json.dumps({"scanned": 0, "total": 0, "remaining": 0, "errors": 0}), flush=True)
+        return ScanResult(groups=[], unique_in_trash=[])
+
+    try:
+        hash_groups = archive.find_duplicates_by_hash()   # [(hash, [record_id, ...]), ...]
+    except Exception as exc:
+        log.error("Quick duplicate scan: find_duplicates_by_hash failed: %s", exc)
+        return ScanResult(groups=[], unique_in_trash=[])
+
+    # Resolve every referenced content id → path in a single batched query.
+    all_ids = [rid for _h, ids in hash_groups for rid in ids]
+    try:
+        id_to_path = archive.get_paths_for_ids(all_ids)
+    except Exception as exc:
+        log.error("Quick duplicate scan: id→path resolution failed: %s", exc)
+        return ScanResult(groups=[], unique_in_trash=[])
+
+    resolved_roots = []
+    for r in roots:
+        try:
+            resolved_roots.append(r.resolve())
+        except OSError:
+            resolved_roots.append(r)
+
+    def _under_roots(p: Path) -> bool:
+        try:
+            rp = p.resolve()
+        except OSError:
+            rp = p
+        for rr in resolved_roots:
+            try:
+                rp.relative_to(rr)
+                return True
+            except ValueError:
+                continue
+        return False
+
+    groups: list[DuplicateGroup] = []
+    total = len(hash_groups)
+    for scanned, (file_hash, record_ids) in enumerate(hash_groups, start=1):
+        if cancel_event is not None and cancel_event.is_set():
+            break
+        # Only files that still exist on disk AND fall under the selected folders.
+        paths: list[Path] = []
+        seen: set[str] = set()
+        for rid in record_ids:
+            fp = id_to_path.get(rid)
+            if not fp or fp in seen:
+                continue
+            p = Path(fp)
+            if not _under_roots(p):
+                continue
+            try:
+                if not p.is_file():
+                    continue
+            except OSError:
+                continue
+            seen.add(fp)
+            paths.append(p)
+        if len(paths) >= 2:
+            ranked = sorted(paths, key=_rank_file)
+            keep = ranked[0]
+            remove = ranked[1:]
+            ranks = {str(p): _RANK_LABELS[_rank_file(p)] for p in paths}
+            groups.append(DuplicateGroup(
+                fingerprint=f"HASH:{file_hash}",
+                files=paths,
+                recommended_keep=keep,
+                recommended_remove=remove,
+                ranks=ranks,
+                keep_in_trash=_is_trash_adjacent(keep),
+            ))
+        if scanned % 200 == 0:
+            print("FABLEGEAR_PROGRESS: " + json.dumps(
+                {"scanned": scanned, "total": total, "remaining": total - scanned, "errors": 0}), flush=True)
+
+    groups.sort(key=lambda g: len(g.files), reverse=True)
+    print("FABLEGEAR_PROGRESS: " + json.dumps(
+        {"scanned": total, "total": total, "remaining": 0, "errors": 0}), flush=True)
+    log.info("Quick (hash) duplicate scan: %d byte-identical groups from %d cached-hash sets", len(groups), total)
+    try:
+        archive.log_operation("duplicate_scan", status="ok", metadata={
+            "match_mode": "hash", "groups": len(groups), "hash_sets": total, "method": "file_hash",
+        })
+    except Exception as exc:
+        log.warning("Archive log_operation failed for quick dedup scan: %s", exc)
+    return ScanResult(groups=groups, unique_in_trash=[])
+
+
 # ─── Fingerprinting ───────────────────────────────────────────────────────────
 
 def fingerprint_file(path: Path) -> str | None:

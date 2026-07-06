@@ -797,6 +797,10 @@ def api_duplicates():
         ], exit_code=1)
 
     cmd = [sys.executable, str(CLI_PATH), "duplicates"] + paths
+    # Tier select: quick = instant cached-hash match, deep = acoustic fpcalc (default).
+    scan_mode = request.args.get("scan_mode", "").strip().lower()
+    if scan_mode in ("quick", "deep"):
+        cmd += ["--scan-mode", scan_mode]
     workers = request.args.get("workers", "").strip()
     if workers and workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]

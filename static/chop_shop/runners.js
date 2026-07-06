@@ -254,19 +254,26 @@ function runDuplicates() {
   if (!paths.length) { _flashNeedsInput('dupes-pills'); showToast('Add at least one music folder first.', 'warning'); return; }
   const p = new URLSearchParams();
   paths.forEach(path => p.append('path', path));
-  const workers = document.getElementById('dupes-workers')?.value || '4';
-  if (parseInt(workers) > 1) p.set('workers', workers);
-  // Match mode
-  const matchMode = document.querySelector('input[name="dupes-match-mode"]:checked')?.value || 'exact';
-  if (matchMode !== 'exact') p.set('match_mode', matchMode);
-  // Fuzzy threshold (only relevant when fuzzy or all)
-  if (matchMode === 'fuzzy' || matchMode === 'all') {
-    const thresholdPct = parseInt(document.getElementById('fuzzy-threshold')?.value || '85');
-    p.set('fuzzy_threshold', (thresholdPct / 100).toFixed(2));
+  // Tier: quick = instant cached-hash match; deep = acoustic fpcalc.
+  const scanMode = document.querySelector('input[name="dupes-scan-mode"]:checked')?.value || 'quick';
+  p.set('scan_mode', scanMode);
+  let matchMode = 'exact';
+  if (scanMode === 'deep') {
+    const workers = document.getElementById('dupes-workers')?.value || '4';
+    if (parseInt(workers) > 1) p.set('workers', workers);
+    matchMode = document.querySelector('input[name="dupes-match-mode"]:checked')?.value || 'exact';
+    if (matchMode !== 'exact') p.set('match_mode', matchMode);
+    // Fuzzy threshold (only relevant when fuzzy or all)
+    if (matchMode === 'fuzzy' || matchMode === 'all') {
+      const thresholdPct = parseInt(document.getElementById('fuzzy-threshold')?.value || '85');
+      p.set('fuzzy_threshold', (thresholdPct / 100).toFixed(2));
+    }
   }
-  _saveToolCkpt('duplicates', { paths, workers, matchMode });
+  _saveToolCkpt('duplicates', { paths, scanMode, matchMode });
   document.getElementById('step-duplicates')?.querySelector('.tool-resume-banner')?.remove();
-  const title = 'Find Duplicates — Acoustic Fingerprinting';
+  const title = scanMode === 'quick'
+    ? 'Find Duplicates — Quick (exact copies)'
+    : 'Find Duplicates — Deep (acoustic fingerprint)';
   runCommand(`/api/run/duplicates?${p}`, title, (exitCode) => {
     if (exitCode === 0) {
       _clearToolCkpt('duplicates');
@@ -291,6 +298,14 @@ function _initMatchModeUI() {
   }));
 }
 document.addEventListener('DOMContentLoaded', _initMatchModeUI);
+
+// Show/hide the Deep (acoustic) options based on the Quick vs Deep scan tier.
+function _dupesUpdateScanMode() {
+  const mode = document.querySelector('input[name="dupes-scan-mode"]:checked')?.value || 'quick';
+  const deep = document.getElementById('dupes-deep-options');
+  if (deep) deep.style.display = (mode === 'deep') ? '' : 'none';
+}
+document.addEventListener('DOMContentLoaded', _dupesUpdateScanMode);
 
 function runConvert() {
   const paths = getFolderPaths('convert-pills');
