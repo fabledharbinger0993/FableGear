@@ -4,14 +4,36 @@
    Center strip has SYNC for matching tempo between decks.
    ──────────────────────────────────────────────────────────────────────── */
 
+/* ── Shared Web Audio engine (offline: SoundTouchJS phase-vocoder) ─────────
+   Each deck decodes its track into an AudioBuffer and plays it through a
+   SoundTouch PitchShifter, so the TEMPO fader changes tempo (pitch held) and
+   the KEY control changes key (tempo held) — real CDJ behavior, running
+   entirely in the WebView's built-in audio engine. No network, fully offline. */
+let _actx = null;
+function _deckCtx() {
+  if (!_actx) _actx = new (window.AudioContext || window.webkitAudioContext)();
+  return _actx;
+}
+let _PitchShifterPromise = null;
+function _deckLib() {
+  // The vendored library is a local ES module — imported on demand, never fetched
+  // from a CDN, so the decks work offline just like the rest of FableGear.
+  if (!_PitchShifterPromise) {
+    _PitchShifterPromise = import('/static/vendor/soundtouch.js').then(m => m.PitchShifter);
+  }
+  return _PitchShifterPromise;
+}
+
 /* ── Per-deck state ───────────────────────────────────────────────────── */
 const _decks = {
   a: { trackId: null, meta: { bpm: 0, key: '', duration: 0, title: '', artist: '', album: '' },
        tempoPct: 0, pitchSemitones: 0, keyLock: true, playing: false,
-       audio: null, animId: null, waveData: [] },
+       shifter: null, gain: null, buffer: null, connected: false, loadToken: 0,
+       animId: null, waveData: [] },
   b: { trackId: null, meta: { bpm: 0, key: '', duration: 0, title: '', artist: '', album: '' },
        tempoPct: 0, pitchSemitones: 0, keyLock: true, playing: false,
-       audio: null, animId: null, waveData: [] },
+       shifter: null, gain: null, buffer: null, connected: false, loadToken: 0,
+       animId: null, waveData: [] },
 };
 let _deckNextTarget = 'a';
 
@@ -34,62 +56,58 @@ function _deckShiftKey(key, semitones) {
 /* ── Helpers ──────────────────────────────────────────────────────────── */
 function _d(id, el) { return document.getElementById('deck-' + id + '-' + el); }
 
-function _deckGetAudio(id) {
+function _deckGain(id) {
   const dk = _decks[id];
-  if (dk.audio) return dk.audio;
-  dk.audio = document.getElementById('deck-audio-' + id);
-  if (!dk.audio) { dk.audio = new Audio(); dk.audio.id = 'deck-audio-' + id; }
-  dk.audio.addEventListener('play', () => _deckOnPlay(id));
-  dk.audio.addEventListener('pause', () => _deckOnPause(id));
-  dk.audio.addEventListener('ended', () => _deckOnEnded(id));
-  dk.audio.addEventListener('loadedmetadata', () => _deckOnMeta(id));
-  return dk.audio;
+  if (dk.gain) return dk.gain;
+  const ctx = _deckCtx();
+  dk.gain = ctx.createGain();
+  dk.gain.gain.value = 1;
+  dk.gain.connect(ctx.destination);
+  return dk.gain;
 }
 
-/* ── Playback events ──────────────────────────────────────────────────── */
-function _deckOnPlay(id) {
+// Current playback position (seconds) + duration for the loaded deck. The
+// SoundTouch pipeline tracks its own source position, so time comes from there.
+function _deckPos(id) {
   const dk = _decks[id];
-  dk.playing = true;
-  _d(id, 'vinyl')?.classList.add('deck-spin');
+  const dur = (dk.shifter && dk.shifter.duration) || dk.meta.duration || 0;
+  const cur = dk.shifter ? Math.min(dk.shifter.timePlayed || 0, dur || Infinity) : 0;
+  return { cur, dur };
+}
+
+// Show/clear the "decoding…" state while a track is being decoded for a deck.
+function _deckSetDecoding(id, on) {
+  document.getElementById('deck-half-' + id)?.classList.toggle('deck-decoding', !!on);
+}
+
+/* ── Playback UI ──────────────────────────────────────────────────────── */
+function _deckSetPlayingUI(id, playing) {
+  const dk = _decks[id];
+  dk.playing = playing;
   const ico = _d(id, 'play-ico');
   const btn = _d(id, 'play-btn');
-  if (ico) ico.innerHTML = '&#10074;&#10074;';
-  if (btn) { btn.lastChild.textContent = ' PAUSE'; btn.classList.add('deck-btn-active'); }
-  _deckStartAnim(id);
+  if (playing) {
+    _d(id, 'vinyl')?.classList.add('deck-spin');
+    if (ico) ico.innerHTML = '&#10074;&#10074;';
+    if (btn) { btn.lastChild.textContent = ' PAUSE'; btn.classList.add('deck-btn-active'); }
+    _deckStartAnim(id);
+  } else {
+    _d(id, 'vinyl')?.classList.remove('deck-spin');
+    if (ico) ico.innerHTML = '&#9654;';
+    if (btn) { btn.lastChild.textContent = ' PLAY'; btn.classList.remove('deck-btn-active'); }
+    cancelAnimationFrame(dk.animId);
+  }
   window.leRefreshPlaybackButtons?.();
 }
 
-function _deckOnPause(id) {
-  const dk = _decks[id];
-  dk.playing = false;
-  _d(id, 'vinyl')?.classList.remove('deck-spin');
-  const ico = _d(id, 'play-ico');
-  const btn = _d(id, 'play-btn');
-  if (ico) ico.innerHTML = '&#9654;';
-  if (btn) { btn.lastChild.textContent = ' PLAY'; btn.classList.remove('deck-btn-active'); }
-  cancelAnimationFrame(dk.animId);
-  window.leRefreshPlaybackButtons?.();
-}
-
+// Called by the SoundTouch pipeline when the track runs out.
 function _deckOnEnded(id) {
   const dk = _decks[id];
-  _deckOnPause(id);
-  const audio = _deckGetAudio(id);
-  audio.currentTime = 0;
+  _deckDisconnect(id);
+  _deckSetPlayingUI(id, false);
+  if (dk.shifter) dk.shifter.percentagePlayed = 0;
   _deckDrawWave(id, 0);
   _deckUpdateTimes(id, 0, dk.meta.duration || 0);
-}
-
-function _deckOnMeta(id) {
-  const dk = _decks[id];
-  const audio = _deckGetAudio(id);
-  if (audio.duration && isFinite(audio.duration)) {
-    dk.meta.duration = audio.duration;
-    const durEl = _d(id, 'dur');
-    if (durEl) durEl.textContent = _deckFmtTime(audio.duration);
-    const remEl = _d(id, 'time-remaining');
-    if (remEl) remEl.textContent = '-' + _deckFmtTime(audio.duration);
-  }
 }
 
 /* ── Animation loop ───────────────────────────────────────────────────── */
@@ -98,25 +116,27 @@ function _deckStartAnim(id) {
   cancelAnimationFrame(dk.animId);
   function tick() {
     if (!dk.playing) return;
-    const audio = _deckGetAudio(id);
-    const dur = audio.duration || dk.meta.duration || 1;
-    const pos = audio.currentTime / dur;
+    const { cur, dur } = _deckPos(id);
+    const pos = dur ? cur / dur : 0;
     _deckDrawWave(id, pos);
-    _deckUpdateTimes(id, audio.currentTime, dur);
+    _deckUpdateTimes(id, cur, dur);
     dk.animId = requestAnimationFrame(tick);
   }
   dk.animId = requestAnimationFrame(tick);
 }
 
 /* ── Public: load a track into a specific deck ────────────────────────── */
-function deckLoadTrack(trackId, meta, targetDeck) {
+async function deckLoadTrack(trackId, meta, targetDeck, opts) {
   const id = targetDeck || _deckNextTarget;
   const dk = _decks[id];
-  if (!dk) return;
+  if (!dk) return null;
+  const andPlay = !!(opts && opts.play);
 
-  if (dk.playing) {
-    _deckGetAudio(id).pause();
-  }
+  // Tear down whatever is currently on this deck.
+  _deckDisconnect(id);
+  _deckSetPlayingUI(id, false);
+  dk.shifter = null;
+  dk.buffer = null;
 
   dk.trackId = trackId;
   dk.meta = {
@@ -150,26 +170,52 @@ function deckLoadTrack(trackId, meta, targetDeck) {
   _deckDrawWave(id, 0);
   _deckUpdateTimes(id, 0, dk.meta.duration || 0);
 
-  const lePlayer = document.getElementById('le-player-audio');
-  if (lePlayer && !lePlayer.paused) lePlayer.pause();
-
-  const audio = _deckGetAudio(id);
-  audio.src = '/api/library/tracks/' + trackId + '/stream';
-  audio.load();
+  // Single audio focus: the inline sample player never doubles up on a deck.
+  window.leInlinePause?.();
 
   document.getElementById('deck-panel')?.classList.add('deck-active');
   document.body.classList.add('deck-open');
   document.getElementById('deck-toggle-btn')?.classList.add('is-active');
   document.getElementById('deck-half-' + id)?.classList.add('deck-loaded');
-
   _deckNextTarget = (id === 'a') ? 'b' : 'a';
   window.leRefreshPlaybackButtons?.();
+
+  // Decode the track and build its SoundTouch pipeline. A per-deck load token
+  // guards against a newer load landing before this decode resolves.
+  const token = ++dk.loadToken;
+  _deckSetDecoding(id, true);
+  try {
+    const ctx = _deckCtx();
+    const PitchShifter = await _deckLib();
+    const res = await fetch('/api/library/tracks/' + encodeURIComponent(trackId) + '/stream');
+    if (!res.ok) throw new Error('stream ' + res.status);
+    const buffer = await ctx.decodeAudioData(await res.arrayBuffer());
+    if (token !== dk.loadToken) return id;   // superseded by a newer load
+    dk.buffer = buffer;
+    dk.shifter = new PitchShifter(ctx, buffer, 4096, () => _deckOnEnded(id));
+    dk.connected = false;
+    if (!dk.meta.duration) {
+      dk.meta.duration = buffer.duration;
+      if (durEl) durEl.textContent = _deckFmtTime(buffer.duration);
+    }
+    _deckUpdateControls(id);   // applies tempo/pitch to the fresh pipeline
+    _deckSetDecoding(id, false);
+    if (andPlay) _deckPlay(id);
+  } catch (e) {
+    if (token === dk.loadToken) {
+      _deckSetDecoding(id, false);
+      if (typeof showToast === 'function') {
+        showToast('Could not load Deck ' + id.toUpperCase() + ' (' + (e.message || e) + ').', 'error');
+      }
+    }
+  }
   return id;
 }
 
 /* ── Public deck API (used by the library list + drag-drop) ───────────── */
 function deckPlay(id) { _deckPlay(id); }
-function deckPause(id) { _deckGetAudio(id).pause(); }
+function deckPause(id) { _deckPauseDeck(id); }
+function deckPauseAll() { _deckPauseDeck('a'); _deckPauseDeck('b'); }
 function deckFindTrack(trackId) {
   for (const id of ['a', 'b']) {
     if (_decks[id].trackId != null && String(_decks[id].trackId) === String(trackId)) return id;
@@ -183,30 +229,66 @@ function deckIsPlaying(trackId) {
 window.deckLoadTrack = deckLoadTrack;
 window.deckPlay = deckPlay;
 window.deckPause = deckPause;
+window.deckPauseAll = deckPauseAll;
 window.deckFindTrack = deckFindTrack;
 window.deckIsPlaying = deckIsPlaying;
 
-/* ── Transport ────────────────────────────────────────────────────────── */
+// Read-only introspection for diagnostics (support + tests). No side effects.
+window.deckState = (id) => {
+  const dk = _decks[id];
+  if (!dk) return null;
+  const st = dk.shifter && dk.shifter._soundtouch;
+  return {
+    trackId: dk.trackId, playing: dk.playing, connected: dk.connected,
+    keyLock: dk.keyLock, tempoPct: dk.tempoPct, pitchSemitones: dk.pitchSemitones,
+    hasShifter: !!dk.shifter,
+    timePlayed: dk.shifter ? dk.shifter.timePlayed : null,
+    duration: dk.shifter ? dk.shifter.duration : null,
+    stTempo: st ? st.tempo : null, stRate: st ? st.rate : null, stPitch: st ? st.pitch : null,
+  };
+};
+
+/* ── Transport ────────────────────────────────────────────────────────────
+   A SoundTouch pipeline is a ScriptProcessorNode that only pulls audio while
+   connected to the graph. So "play" = connect the node, "pause" = disconnect
+   it; the source position is preserved across the two. */
+function _deckConnect(id) {
+  const dk = _decks[id];
+  if (dk.shifter && !dk.connected) { dk.shifter.connect(_deckGain(id)); dk.connected = true; }
+}
+function _deckDisconnect(id) {
+  const dk = _decks[id];
+  if (dk.shifter && dk.connected) { try { dk.shifter.disconnect(); } catch (_) {} dk.connected = false; }
+}
+
 function _deckPlay(id) {
   const dk = _decks[id];
-  const audio = _deckGetAudio(id);
-  if (!audio.src && !dk.trackId) return;
-  audio.play().catch(() => {
-    if (typeof showToast === 'function') showToast('Could not play Deck ' + id.toUpperCase() + '.', 'error');
-  });
+  if (!dk.shifter) return;                  // nothing decoded yet
+  window.leInlinePause?.();                  // single audio focus
+  const ctx = _deckCtx();
+  if (ctx.state === 'suspended') ctx.resume();   // WKWebView needs a gesture-time resume
+  _deckConnect(id);
+  _deckSetPlayingUI(id, true);
+}
+
+function _deckPauseDeck(id) {
+  const dk = _decks[id];
+  if (!dk.playing && !dk.connected) return;
+  _deckDisconnect(id);
+  _deckSetPlayingUI(id, false);
 }
 
 function _deckTogglePlay(id) {
-  _decks[id].playing ? _deckGetAudio(id).pause() : _deckPlay(id);
+  _decks[id].playing ? _deckPauseDeck(id) : _deckPlay(id);
 }
 
 function _deckCue(id) {
   const dk = _decks[id];
-  const audio = _deckGetAudio(id);
-  audio.pause();
-  audio.currentTime = 0;
+  _deckDisconnect(id);
+  _deckSetPlayingUI(id, false);
+  if (dk.shifter) dk.shifter.percentagePlayed = 0;
   _deckDrawWave(id, 0);
-  _deckUpdateTimes(id, 0, audio.duration || dk.meta.duration || 0);
+  _deckUpdateTimes(id, 0, dk.meta.duration || 0);
 }
 
 /* ── Rate engine ──────────────────────────────────────────────────────── */
@@ -218,16 +300,20 @@ function _deckEffectiveRate(id) {
 
 function _deckApplyRate(id) {
   const dk = _decks[id];
-  const audio = _deckGetAudio(id);
-  if (dk.keyLock && dk.pitchSemitones === 0) {
-    audio.playbackRate = 1 + dk.tempoPct / 100;
-    audio.preservesPitch = true;
-  } else if (dk.keyLock && dk.pitchSemitones !== 0) {
-    audio.playbackRate = (1 + dk.tempoPct / 100) * Math.pow(2, dk.pitchSemitones / 12);
-    audio.preservesPitch = false;
+  if (!dk.shifter) return;
+  const tempoFactor = 1 + dk.tempoPct / 100;
+  if (dk.keyLock) {
+    // Keylock ON — independent controls: TEMPO time-stretches (pitch held) and
+    // KEY shifts pitch (tempo held). This is the fix: the tempo fader now
+    // actually changes speed, and the key control no longer changes speed.
+    dk.shifter.tempo = tempoFactor;
+    dk.shifter.rate = 1;
+    dk.shifter.pitchSemitones = dk.pitchSemitones;
   } else {
-    audio.playbackRate = _deckEffectiveRate(id);
-    audio.preservesPitch = false;
+    // Keylock OFF — vinyl: speed and pitch ride together on a single rate.
+    dk.shifter.tempo = 1;
+    dk.shifter.pitchSemitones = 0;
+    dk.shifter.rate = _deckEffectiveRate(id);
   }
 }
 
@@ -321,18 +407,18 @@ function _deckPhaseNudge(fromId, toId) {
   if (!src.playing || !dst.playing) return;
   const srcBpm = _deckEffectiveBpm(fromId);
   const dstBpm = _deckEffectiveBpm(toId);
-  if (!srcBpm || !dstBpm) return;
-  const srcAudio = _deckGetAudio(fromId);
-  const dstAudio = _deckGetAudio(toId);
-  const srcPhase = (srcAudio.currentTime * srcBpm / 60) % 1;   // fraction of a beat
-  const dstPhase = (dstAudio.currentTime * dstBpm / 60) % 1;
+  if (!srcBpm || !dstBpm || !dst.shifter) return;
+  const srcCur = _deckPos(fromId).cur;
+  const { cur: dstCur, dur: dstDur } = _deckPos(toId);
+  const srcPhase = (srcCur * srcBpm / 60) % 1;                  // fraction of a beat
+  const dstPhase = (dstCur * dstBpm / 60) % 1;
   let delta = srcPhase - dstPhase;                              // beats to shift
   if (delta > 0.5) delta -= 1;                                  // take the short way
   if (delta < -0.5) delta += 1;
   const shiftSec = delta * 60 / dstBpm;
-  const next = dstAudio.currentTime + shiftSec;
-  if (next >= 0 && (!dstAudio.duration || next < dstAudio.duration)) {
-    dstAudio.currentTime = next;
+  const next = dstCur + shiftSec;
+  if (next >= 0 && (!dstDur || next < dstDur)) {
+    dst.shifter.percentagePlayed = dstDur ? (next / dstDur) * 100 : 0;
   }
 }
 
@@ -481,10 +567,9 @@ function _deckWaveScrub(id, e) {
   const x = e.clientX - rect.left;
   const pct = Math.max(0, Math.min(1, x / rect.width));
   const dk = _decks[id];
-  const audio = _deckGetAudio(id);
-  const dur = audio.duration || dk.meta.duration || 0;
-  if (dur > 0) {
-    audio.currentTime = pct * dur;
+  const dur = (dk.shifter && dk.shifter.duration) || dk.meta.duration || 0;
+  if (dk.shifter && dur > 0) {
+    dk.shifter.percentagePlayed = pct * 100;
     _deckDrawWave(id, pct);
     _deckUpdateTimes(id, pct * dur, dur);
   }
@@ -547,10 +632,8 @@ function _deckInitOne(id) {
   const canvas = _d(id, 'wave-canvas');
   if (canvas) {
     new ResizeObserver(() => {
-      const dk = _decks[id];
-      const audio = _deckGetAudio(id);
-      const dur = audio.duration || dk.meta.duration || 1;
-      _deckDrawWave(id, audio.currentTime / dur);
+      const { cur, dur } = _deckPos(id);
+      _deckDrawWave(id, dur ? cur / dur : 0);
     }).observe(canvas);
   }
 }
@@ -599,8 +682,7 @@ function _deckInit() {
       if (!trackId) return;
       const meta = (window.leTrackMeta?.(trackId)) || {};
       deckSetPanel(true);
-      deckLoadTrack(trackId, meta, id);
-      deckPlay(id);
+      deckLoadTrack(trackId, meta, id, { play: true });
     });
   });
 }

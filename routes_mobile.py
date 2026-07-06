@@ -589,7 +589,7 @@ def _run_analysis(job_id: str, track_ids: list) -> None:
 
         try:
             with read_db(_DB) as db:
-                row = db.get_content(ID=track_id).one_or_none()
+                row = db.get_content(ID=track_id)
                 if row is None:
                     raise ValueError(f"Track {track_id} not found in DB")
                 file_path = row.FolderPath or ""
@@ -609,7 +609,7 @@ def _run_analysis(job_id: str, track_ids: list) -> None:
 
             try:
                 with write_db(_DB) as db:
-                    row = db.get_content(ID=track_id).one_or_none()
+                    row = db.get_content(ID=track_id)
                     if row:
                         if bpm is not None:
                             row.BPM = int(round(bpm * 100))
@@ -746,7 +746,7 @@ def mobile_rekordbox_playlist(playlist_id: str):
 
     try:
         with read_db(_DB) as db:
-            pl = db.get_playlist(ID=playlist_id).one_or_none()
+            pl = db.get_playlist(ID=playlist_id)
             if pl is None:
                 return jsonify({"error": "Playlist not found"}), 404
 
@@ -805,7 +805,7 @@ def mobile_rekordbox_rename_playlist(playlist_id: str):
 
     try:
         with write_db(_DB) as db:
-            pl = db.get_playlist(ID=playlist_id).one_or_none()
+            pl = db.get_playlist(ID=playlist_id)
             if pl is None:
                 return jsonify({"error": "Playlist not found"}), 404
             db.rename_playlist(pl, name)
@@ -825,7 +825,7 @@ def mobile_rekordbox_delete_playlist(playlist_id: str):
 
     try:
         with write_db(_DB) as db:
-            pl = db.get_playlist(ID=playlist_id).one_or_none()
+            pl = db.get_playlist(ID=playlist_id)
             if pl is None:
                 return jsonify({"error": "Playlist not found"}), 404
             db.delete_playlist(pl)
@@ -850,7 +850,7 @@ def mobile_rekordbox_add_to_playlist(playlist_id: str):
 
     try:
         with write_db(_DB) as db:
-            pl = db.get_playlist(ID=playlist_id).one_or_none()
+            pl = db.get_playlist(ID=playlist_id)
             if pl is None:
                 return jsonify({"error": "Playlist not found"}), 404
             if int(getattr(pl, "Attribute", 0) or 0) == 1:
@@ -864,7 +864,7 @@ def mobile_rekordbox_add_to_playlist(playlist_id: str):
                 if song_track is not None:
                     existing_signatures.add(_track_identity_signature(song_track))
 
-            track = db.get_content(ID=track_id).one_or_none()
+            track = db.get_content(ID=track_id)
             if track is None:
                 return jsonify({"error": "Track not found"}), 404
 

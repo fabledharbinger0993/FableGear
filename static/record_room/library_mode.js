@@ -334,6 +334,11 @@ function _playFsTrack(streamUrl, triggerBtn) {
                    document.getElementById('audio-player');
 
   if (playerEl && playerEl.tagName === 'AUDIO') {
+    // Single audio focus: silence any performance deck and release the library
+    // inline-preview's row ownership before this filesystem track takes over the
+    // shared audio element.
+    window.deckPauseAll?.();
+    window.leClearInlinePreview?.();
     // Stop other play buttons
     document.querySelectorAll('.fs-play-btn').forEach(b => b.textContent = '▶');
     if (triggerBtn) triggerBtn.textContent = '⏸';

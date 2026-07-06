@@ -4592,7 +4592,27 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   padding-right: 10px;
 }
 .le-col-num   { width: 36px; flex-shrink: 0; color: rgba(var(--accent-rgb), .3); font-size: .7rem; text-align: right; padding-right: 16px; font-variant-numeric: tabular-nums; }
-.le-col-title { flex: 3; min-width: 0; font-weight: 500; color: #ede4ff; }
+.le-col-title { flex: 3; min-width: 0; font-weight: 500; color: #ede4ff; position: relative; }
+/* ── Inline sample-player: progress fill + seek strip behind the title ───── */
+.le-title-text { position: relative; z-index: 1; }
+.le-title-progress {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+  background: linear-gradient(90deg, rgba(0, 180, 200, 0.30), rgba(0, 180, 200, 0.08));
+  border-right: 1px solid rgba(0, 212, 232, 0.55);
+  pointer-events: none; z-index: 0;
+  transition: width .12s linear;
+  display: none;
+}
+.le-title-playing .le-title-progress { display: block; }
+.le-title-seek {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 0;
+  cursor: pointer; z-index: 2; pointer-events: none;
+}
+.le-title-playing .le-title-seek {
+  height: 9px; pointer-events: auto;
+  background: linear-gradient(180deg, transparent, rgba(0, 212, 232, 0.18));
+}
+.le-title-playing .le-title-seek:hover { background: linear-gradient(180deg, transparent, rgba(0, 212, 232, 0.36)); }
 .le-col-artist{ flex: 2; min-width: 0; color: rgba(220,180,255,.65); }
 .le-col-album { flex: 2; min-width: 0; color: rgba(190,140,230,.4); }
 .le-col-bpm   { width: 54px; flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; color: rgba(220,180,255,.7); font-family: var(--mono); font-size: .78rem; }
@@ -7070,6 +7090,21 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   width: 100%;
   height: 34px;
   display: block;
+}
+/* Shown while a track is being decoded into the deck's audio pipeline. */
+.deck-half.deck-decoding .deck-wave-wrap::after {
+  content: "decoding…";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .68rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--accent2, #00d4e8);
+  background: rgba(6, 10, 18, 0.62);
+  pointer-events: none;
 }
 .deck-wave-pos {
   position: absolute;

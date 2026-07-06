@@ -428,6 +428,28 @@ def _fablegear_track_payload(rec):
     }
 
 
+def _resolve_local_content(db, track_id):
+    """Resolve a track id to a Rekordbox-local ``DjmdContent``.
+
+    The Record Room's default source is the FableGear database, which uses a
+    different id space than the Rekordbox local DB where playlists live. When an
+    id isn't a Rekordbox id, fall back to the FableGear track's file path and
+    match the local track by ``FolderPath`` (exact match only — never a fuzzy
+    guess, so we never add the wrong track)."""
+    track = db.get_content(ID=track_id)
+    if track is not None:
+        return track
+    try:
+        fg = _fablegear_db()
+        rec = fg.get_content_by_id(int(track_id)) if fg else None
+    except (ValueError, TypeError):
+        rec = None
+    path = (getattr(rec, "file_path", "") or "").strip() if rec else ""
+    if not path:
+        return None
+    return db.get_content(FolderPath=path).first()
+
+
 @bp.route("/api/library/tracks")
 def api_library_tracks():
     source = (request.args.get("db") or "").lower()
@@ -898,13 +920,14 @@ def api_library_track_stream(track_id):
         try:
             db = _fablegear_db()  # read-only: None when the library isn't built yet
             rec = db.get_content_by_id(int(track_id)) if db else None
-            if rec is None:
-                return jsonify({"error": f"Track {track_id!r} not found in FableGear DB"}), 404
-            file_path = (rec.file_path or "").strip()
-            if not file_path or not os.path.isfile(file_path):
-                return jsonify({"error": f"Audio file not found on disk: {file_path}"}), 404
-            mime, _ = mimetypes.guess_type(file_path)
-            return send_file(file_path, mimetype=mime or "audio/mpeg", conditional=True)
+            if rec is not None:
+                file_path = (rec.file_path or "").strip()
+                if not file_path or not os.path.isfile(file_path):
+                    return jsonify({"error": f"Audio file not found on disk: {file_path}"}), 404
+                mime, _ = mimetypes.guess_type(file_path)
+                return send_file(file_path, mimetype=mime or "audio/mpeg", conditional=True)
+            # Not a FableGear id — fall through to the Rekordbox lookup so tracks
+            # from a Rekordbox playlist still stream on the default source.
         except (ValueError, TypeError):
             pass
         except Exception as exc:
@@ -916,7 +939,7 @@ def api_library_track_stream(track_id):
 
     try:
         with read_db(_DB) as db:
-            track = db.get_content(ID=track_id).one_or_none()
+            track = db.get_content(ID=track_id)
             if track is None:
                 return jsonify({"error": f"Track {track_id!r} not found in DB"}), 404
             file_path = str(track.FolderPath or "").strip()
@@ -935,12 +958,22 @@ def api_library_track_stream(track_id):
 @bp.route("/api/library/playlists", methods=["GET"])
 def api_library_playlists():
     source = (request.args.get("db") or "").lower()
-    # FableGear DB has no playlist tree yet — return an empty tree, not an error.
+    # FableGear-native playlists are the default Record Room source (they hold
+    # the user's own library). Rekordbox databases stay reachable as demoted,
+    # explicit sources.
     if source not in ("local", "device", "djmt"):
-        return jsonify([])
+        fg = _fablegear_db()  # read-only: None when the library isn't built yet
+        if fg is None:
+            return jsonify([])
+        try:
+            return jsonify(fg.list_playlists())
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
 
     from db_connection import read_db  # noqa: PLC0415
-    _DB = _resolve_db(source)
+    _DB = _resolve_db(source)  # 'device' → DJMT_DB, everything else → LOCAL_DB
+    if not _DB or not os.path.exists(_DB):
+        return jsonify([])  # no Rekordbox DB yet → empty tree, never an error
 
     try:
         with read_db(_DB) as db:
@@ -958,17 +991,26 @@ def api_library_create_playlist():
     name = str(data.get("name", "")).strip()
     node_type = str(data.get("type", "playlist")).strip().lower() or "playlist"
     parent_id = str(data.get("parent_id", "")).strip()
+    source = (request.args.get("db") or data.get("db") or "").lower()
 
     if not name:
         return jsonify({"error": "name required"}), 400
     if node_type not in {"playlist", "folder"}:
         return jsonify({"error": "type must be playlist or folder"}), 400
 
+    if source not in ("local", "device", "djmt"):
+        fg = _fablegear_db(create=True)  # creating a playlist is an explicit write
+        try:
+            pid = fg.create_playlist(name, parent_id=parent_id or None, playlist_type=node_type)
+            return jsonify({"ok": True, "id": str(pid), "name": name, "type": node_type}), 201
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
     try:
         with write_db(_DB) as db:
             parent = None
             if parent_id:
-                parent = db.get_playlist(ID=parent_id).one_or_none()
+                parent = db.get_playlist(ID=parent_id)
                 if parent is None:
                     return jsonify({"error": "parent playlist not found"}), 404
 
@@ -991,12 +1033,24 @@ def api_library_create_playlist():
 
 @bp.route("/api/library/playlists/<playlist_id>/tracks")
 def api_library_playlist_tracks(playlist_id):
+    source = (request.args.get("db") or "").lower()
+    if source not in ("local", "device", "djmt"):
+        fg = _fablegear_db()
+        if fg is None:
+            return jsonify([])
+        try:
+            if fg.get_playlist(playlist_id) is None:
+                return jsonify({"error": "Playlist not found"}), 404
+            return jsonify([_fablegear_track_payload(r) for r in fg.get_playlist_songs(playlist_id)])
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
     from db_connection import read_db  # noqa: PLC0415
     from config import LOCAL_DB as _DB  # noqa: PLC0415
 
     try:
         with read_db(_DB) as db:
-            playlist = db.get_playlist(ID=playlist_id).one_or_none()
+            playlist = db.get_playlist(ID=playlist_id)
             if playlist is None:
                 return jsonify({"error": "Playlist not found"}), 404
             if int(getattr(playlist, "Attribute", 0) or 0) == 1:
@@ -1029,9 +1083,26 @@ def api_library_add_tracks_to_playlist(playlist_id):
     if not track_ids:
         return jsonify({"error": "track_ids required"}), 400
 
+    source = (request.args.get("db") or data.get("db") or "").lower()
+    if source not in ("local", "device", "djmt"):
+        fg = _fablegear_db()
+        if fg is None or fg.get_playlist(playlist_id) is None:
+            return jsonify({"error": "Playlist not found"}), 404
+        added, skipped, missing = 0, [], []
+        for tid in track_ids:
+            try:
+                if fg.add_song(playlist_id, tid):
+                    added += 1
+                else:
+                    skipped.append(tid)  # already present
+            except (LookupError, ValueError, TypeError):
+                missing.append(tid)
+                skipped.append(tid)
+        return jsonify({"ok": True, "added": added, "skipped": skipped, "missing": missing}), 201
+
     try:
         with write_db(_DB) as db:
-            playlist = db.get_playlist(ID=playlist_id).one_or_none()
+            playlist = db.get_playlist(ID=playlist_id)
             if playlist is None:
                 return jsonify({"error": "Playlist not found"}), 404
             if int(getattr(playlist, "Attribute", 0) or 0) == 1:
@@ -1047,9 +1118,14 @@ def api_library_add_tracks_to_playlist(playlist_id):
 
             added = 0
             skipped = []
+            missing = []
             for track_id in track_ids:
-                track = db.get_content(ID=track_id).one_or_none()
+                track = _resolve_local_content(db, track_id)
                 if track is None:
+                    # Not in the Rekordbox library (by id or by path) — report it
+                    # distinctly so the UI can say "import it first" rather than
+                    # the misleading "already in playlist".
+                    missing.append(track_id)
                     skipped.append(track_id)
                     continue
 
@@ -1065,7 +1141,7 @@ def api_library_add_tracks_to_playlist(playlist_id):
                 except Exception:
                     skipped.append(track_id)
             db.commit()
-            return jsonify({"ok": True, "added": added, "skipped": skipped}), 201
+            return jsonify({"ok": True, "added": added, "skipped": skipped, "missing": missing}), 201
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 503
     except Exception as exc:
@@ -1082,9 +1158,17 @@ def api_library_rename_playlist(playlist_id):
     if not name:
         return jsonify({"error": "name required"}), 400
 
+    source = (request.args.get("db") or data.get("db") or "").lower()
+    if source not in ("local", "device", "djmt"):
+        fg = _fablegear_db()
+        if fg is None or fg.get_playlist(playlist_id) is None:
+            return jsonify({"error": "Playlist not found"}), 404
+        fg.rename_playlist(playlist_id, name)
+        return jsonify({"ok": True, "id": str(playlist_id), "name": name})
+
     try:
         with write_db(_DB) as db:
-            playlist = db.get_playlist(ID=playlist_id).one_or_none()
+            playlist = db.get_playlist(ID=playlist_id)
             if playlist is None:
                 return jsonify({"error": "Playlist not found"}), 404
             db.rename_playlist(playlist, name)
@@ -1101,9 +1185,17 @@ def api_library_delete_playlist(playlist_id):
     from db_connection import write_db  # noqa: PLC0415
     from config import LOCAL_DB as _DB  # noqa: PLC0415
 
+    source = (request.args.get("db") or "").lower()
+    if source not in ("local", "device", "djmt"):
+        fg = _fablegear_db()
+        if fg is None or fg.get_playlist(playlist_id) is None:
+            return jsonify({"error": "Playlist not found"}), 404
+        fg.delete_playlist(playlist_id)
+        return jsonify({"ok": True, "id": str(playlist_id), "status": "deleted"})
+
     try:
         with write_db(_DB) as db:
-            playlist = db.get_playlist(ID=playlist_id).one_or_none()
+            playlist = db.get_playlist(ID=playlist_id)
             if playlist is None:
                 return jsonify({"error": "Playlist not found"}), 404
             db.delete_playlist(playlist)
@@ -1129,9 +1221,25 @@ def api_library_remove_tracks_from_playlist(playlist_id):
     if not track_ids:
         return jsonify({"error": "track_ids required"}), 400
 
+    source = (request.args.get("db") or data.get("db") or "").lower()
+    if source not in ("local", "device", "djmt"):
+        fg = _fablegear_db()
+        if fg is None or fg.get_playlist(playlist_id) is None:
+            return jsonify({"error": "Playlist not found"}), 404
+        removed, missing = 0, []
+        for tid in track_ids:
+            try:
+                n = fg.remove_song(playlist_id, tid)
+                removed += n
+                if n == 0:
+                    missing.append(tid)
+            except (ValueError, TypeError):
+                missing.append(tid)
+        return jsonify({"ok": True, "removed": removed, "missing": missing})
+
     try:
         with write_db(_DB) as db:
-            playlist = db.get_playlist(ID=playlist_id).one_or_none()
+            playlist = db.get_playlist(ID=playlist_id)
             if playlist is None:
                 return jsonify({"error": "Playlist not found"}), 404
             if int(getattr(playlist, "Attribute", 0) or 0) == 1:
@@ -1169,9 +1277,17 @@ def api_library_reorder_playlist_tracks(playlist_id):
 
     track_ids = [str(t).strip() for t in track_ids if str(t).strip()]
 
+    source = (request.args.get("db") or data.get("db") or "").lower()
+    if source not in ("local", "device", "djmt"):
+        fg = _fablegear_db()
+        if fg is None or fg.get_playlist(playlist_id) is None:
+            return jsonify({"error": "Playlist not found"}), 404
+        updated = fg.reorder_playlist(playlist_id, track_ids)
+        return jsonify({"ok": True, "updated": updated})
+
     try:
         with write_db(_DB) as db:
-            playlist = db.get_playlist(ID=playlist_id).one_or_none()
+            playlist = db.get_playlist(ID=playlist_id)
             if playlist is None:
                 return jsonify({"error": "Playlist not found"}), 404
             if int(getattr(playlist, "Attribute", 0) or 0) == 1:
@@ -1220,7 +1336,7 @@ def api_library_patch_track(track_id):
 
     try:
         with write_db(_DB) as db:
-            track = db.get_content(ID=track_id).one_or_none()
+            track = db.get_content(ID=track_id)
             if track is None:
                 return jsonify({"error": "Track not found"}), 404
             track.Title = new_title
