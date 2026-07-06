@@ -1542,9 +1542,18 @@ def cmd_convert(args: argparse.Namespace) -> None:
         return
 
     done = 0
-    success_count = 0
-    error_count = 0
+    converted_count = 0   # files actually converted   → footer "edited"
+    skipped_count = 0     # nothing to do (already the target, or target exists) → footer "clean"
+    error_count = 0       # genuine failures — corrupt or DRM-protected inputs
     root_sections: list[tuple[Path, str]] = []
+
+    def _classify(ok: bool, msg: str) -> str:
+        """Bucket a per-file result: 'converted' (file changed), 'skipped'
+        (already the target format, or an MP3 already exists — nothing to do and
+        nothing lost), or 'error' (a real decode/convert failure)."""
+        if ok:
+            return "skipped" if msg.startswith("Already") else "converted"
+        return "skipped" if msg.lower().endswith("already exists") else "error"
 
     def _emit_progress() -> None:
         print(
@@ -1552,8 +1561,11 @@ def cmd_convert(args: argparse.Namespace) -> None:
                 "done":      done,
                 "total":     total,
                 "remaining": total - done,
-                "converted": success_count,
+                "edited":    converted_count,   # live-counts converted files in the footer
+                "clean":     skipped_count,     # live-counts skipped files in the footer
                 "errors":    error_count,
+                "converted": converted_count,   # kept for the report / back-compat
+                "skipped":   skipped_count,
             }),
             flush=True,
         )
@@ -1587,7 +1599,8 @@ def cmd_convert(args: argparse.Namespace) -> None:
 
     for root_index, (root, tracks) in enumerate(tracks_by_root, start=1):
         _log_root_step("Convert", root, root_index, len(tracks_by_root))
-        root_success = 0
+        root_converted = 0
+        root_skipped = 0
         root_errors = 0
         root_total = len(tracks)
 
@@ -1600,10 +1613,15 @@ def cmd_convert(args: argparse.Namespace) -> None:
                     except Exception as exc:
                         ok, msg, name = False, str(exc), futures[future].path.name
                     done += 1
-                    if ok:
-                        success_count += 1
-                        root_success += 1
+                    kind = _classify(ok, msg)
+                    if kind == "converted":
+                        converted_count += 1
+                        root_converted += 1
                         log.info("✓ %s: %s", name, msg)
+                    elif kind == "skipped":
+                        skipped_count += 1
+                        root_skipped += 1
+                        log.info("• %s: %s", name, msg)
                     else:
                         error_count += 1
                         root_errors += 1
@@ -1615,31 +1633,39 @@ def cmd_convert(args: argparse.Namespace) -> None:
                 ok, msg = _convert_file(track.path, target_format)
                 _journal_convert(track.path, ok, msg)
                 done += 1
-                if ok:
-                    success_count += 1
-                    root_success += 1
+                kind = _classify(ok, msg)
+                if kind == "converted":
+                    converted_count += 1
+                    root_converted += 1
                     log.info("✓ %s: %s", track.path.name, msg)
+                elif kind == "skipped":
+                    skipped_count += 1
+                    root_skipped += 1
+                    log.info("• %s: %s", track.path.name, msg)
                 else:
                     error_count += 1
                     root_errors += 1
                     log.error("✗ %s: %s", track.path.name, msg)
                 _emit_progress()
 
-        root_lines = [f"{root_success} of {root_total} files were converted to {target_format.upper()}."]
+        root_lines = [f"{root_converted} of {root_total} files converted to {target_format.upper()}."]
+        if root_skipped:
+            root_lines.append(f"{root_skipped} skipped (already {target_format.upper()} or already present).")
         if root_errors:
-            root_lines.append(f"{root_errors} files had errors — check the log above.")
+            root_lines.append(f"{root_errors} could not be converted (corrupt or DRM-protected input).")
         else:
             root_lines.append("No errors.")
         root_sections.append((root, "\n".join(root_lines)))
 
-    if _fg_archive is not None and success_count:
+    if _fg_archive is not None and converted_count:
         try:
             _fg_archive.log_operation(
                 "convert_batch",
                 metadata={
                     "roots": [str(r) for r in roots],
                     "format": target_format,
-                    "converted": success_count,
+                    "converted": converted_count,
+                    "skipped": skipped_count,
                     "errors": error_count,
                 },
             )
@@ -1647,16 +1673,21 @@ def cmd_convert(args: argparse.Namespace) -> None:
             log.warning("Archive batch log failed for convert: %s", exc)
 
     fmt_upper = target_format.upper()
-    lines = ["Done converting.", "", f"{success_count} of {total} files were converted to {fmt_upper}."]
+    lines = ["Done converting.", "", f"{converted_count} of {total} files converted to {fmt_upper}."]
+    if skipped_count:
+        lines.append(f"{skipped_count} skipped — already {fmt_upper}, or an {fmt_upper} already exists (nothing lost).")
     if error_count:
-        lines.append(f"{error_count} files had errors — check the log above.")
+        lines.append(
+            f"{error_count} could not be converted — corrupt files or DRM-protected inputs "
+            "(e.g. iTunes .m4p, protected .wma). These are bad inputs, not a FableGear failure."
+        )
     else:
         lines.append("No errors.")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     _emit_report(_append_root_breakdown("\n".join(lines), root_sections), "Convert", f"convert_{timestamp}.txt")
 
     if error_count > 0:
-        log.warning("%d files had errors — check log above", error_count)
+        log.warning("%d files could not be converted (corrupt or DRM-protected)", error_count)
 
 
 def cmd_organize(args: argparse.Namespace) -> None:
