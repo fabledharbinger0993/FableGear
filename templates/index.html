@@ -320,7 +320,7 @@
           <div class="settings-section-sep">
             <label class="settings-excl-label">Updates</label>
             <div class="settings-excl-note">Check for new versions of FableGear.</div>
-            <button type="button" class="btn btn-secondary btn-xs" onclick="if(typeof fablegearUpdateCheck==='function') fablegearUpdateCheck()">Check for Updates</button>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="if(typeof fablegearUpdateCheckManual==='function') fablegearUpdateCheckManual(this)">Check for Updates</button>
           </div>
 
           <div class="settings-section-sep">
@@ -568,7 +568,7 @@
         </div>
         <div class="fgwin-pills">
           <button type="button" class="fgwin-pill" onclick="if(typeof openInstallWalkthrough==='function') openInstallWalkthrough(); else if(typeof reopenOnboardingWizard==='function') reopenOnboardingWizard();">Install Walkthrough</button>
-          <button type="button" class="fgwin-pill" onclick="if(typeof fablegearUpdateCheck==='function') fablegearUpdateCheck()">Updates</button>
+          <button type="button" class="fgwin-pill" onclick="if(typeof fablegearUpdateCheckManual==='function') fablegearUpdateCheckManual(this)">Updates</button>
           <button type="button" class="fgwin-pill" onclick="closeWelcome(); if(typeof openDbPanel==='function') openDbPanel('audit')">Database</button>
           <button type="button" class="fgwin-pill mcp-pill" id="mcp-pill" onclick="mcpPillClick()">
             <span class="mcp-dot" id="mcp-dot"></span> AI Agents

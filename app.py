@@ -216,6 +216,7 @@ _start_brew_checker()
 from update_checker import (                        # noqa: E402
     start_background_checker as _start_update_checker,
     get_status as _update_get_status,
+    check_now as _update_check_now,
 )
 _start_update_checker()
 
@@ -558,7 +559,18 @@ def api_settings():
 
 @app.route("/api/update/status")
 def api_update_status():
-    """Return the cached GitHub release check result (never blocks)."""
+    """Return the GitHub release check result.
+
+    Default: the cached status (never blocks) — used by the automatic startup
+    check. With ?refresh=1: run a live check first (blocks a few seconds) —
+    used by the manual "Check for Updates" button so the answer is current and
+    failures are reportable rather than silently stale.
+    """
+    if request.args.get("refresh") == "1":
+        try:
+            return jsonify(_update_check_now())
+        except Exception as exc:
+            return jsonify({"error": str(exc), "update_available": False}), 502
     return jsonify(_update_get_status())
 
 
