@@ -1186,6 +1186,9 @@ details[open] > summary { color: var(--text); }
   padding: 24px;
   gap: 6px;
 }
+/* No global .hidden exists — each element needs its scoped rule, or the JS
+   toggle silently loses to the ID/class display rule above. */
+.pipe-empty.hidden { display: none; }
 .pipe-step {
   display: flex;
   align-items: center;
@@ -3323,6 +3326,11 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 #pipeline-wizard.wizard-wide { max-width: 980px; }
 
 #pipe-wiz-p1 { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+/* Scoped .hidden (no global rule exists): without this, pipeWizNext() adds the
+   class but page 1 keeps rendering above page 2 — both wizard pages stack. */
+#pipe-wiz-p1.hidden { display: none; }
+#pipe-recommended-note.hidden { display: none; }
+#pipe-config-note.hidden { display: none; }
 
 .pipe-wiz-header {
   display: flex; align-items: center; gap: 14px;
@@ -5871,6 +5879,7 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
 .pipe-wiz-logo          { width: 26px; height: 26px; object-fit: contain; opacity: .7; mix-blend-mode: screen; flex-shrink: 0; }
 .pipe-wiz-title-col     { flex: 1; }
 #pipe-resume-banner     { margin: 0 16px 6px; padding: 10px 14px; background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.35); border-radius: 6px; font-size: .82rem; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+#pipe-resume-banner.hidden { display: none; }  /* else "Checkpoint found" shows with no checkpoint */
 .pipe-resume-bookmark   { font-size: 1.1rem; flex-shrink: 0; }
 .pipe-resume-body       { flex: 1; min-width: 0; }
 #pipe-resume-text       { font-weight: 600; color: var(--caution); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
