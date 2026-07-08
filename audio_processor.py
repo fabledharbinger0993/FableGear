@@ -10,7 +10,8 @@ Operations per file (each independently skippable):
 4. Normalisation via ffmpeg volume filter if outside tolerance, in-place replacement
 
 Design rules:
-- Existing tags are NEVER overwritten unless force=True is passed
+- Existing tags are NEVER overwritten unless force=True (both) or the per-effect
+  force_bpm/force_key are passed
 - Original files are never deleted until the replacement is verified
 - All failures are logged and returned in ProcessResult; nothing crashes the batch
 - MP3s are re-encoded at 320kbps CBR if normalisation is applied
@@ -791,7 +792,7 @@ def process_directory(
     ----------
     root : Path
         Directory to scan recursively.
-    detect_bpm, detect_key, normalise, force : bool
+    detect_bpm, detect_key, normalise, force, force_bpm, force_key : bool
         Passed through to process_file().
     max_workers : int
         Number of files to process in parallel. Default 1 (sequential).
