@@ -164,9 +164,11 @@ def test_relocate_with_archive_logs_operations(archive, tmp_path):
             # strategy (the corresponding file is created in new_root below).
             # This exercises the archive block without needing full filesystem setup.
             class MockContent:
-                ID = 1
-                FolderPath = str(old_root / "never_found.mp3")
-            return [MockContent()]
+                pass
+            row = MockContent()
+            row.ID = 1
+            row.FolderPath = str(old_root / "never_found.mp3")
+            return [row]
 
     class MockDb:
         def get_content(self):
