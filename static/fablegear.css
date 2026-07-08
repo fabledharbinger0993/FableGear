@@ -1113,6 +1113,7 @@ details[open] > summary { color: var(--text); }
   accent-color: var(--accent);
 }
 .checkbox-label:hover { color: var(--text); }
+.checkbox-label:has(input:disabled) { opacity: .45; cursor: not-allowed; }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
 .btn-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }

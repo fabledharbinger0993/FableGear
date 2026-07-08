@@ -29,8 +29,28 @@ function _showRetryOption() {
     row.style.display = 'none';
     const cb = document.getElementById('process-retry-errored');
     if (cb) cb.checked = false;
+    _syncProcessRetryDisabled();
   }
 }
+
+// Retry mode hardcodes --force --no-normalize server-side, so the per-effect
+// force / normalize checkboxes have no effect while it's on — disable them so
+// that's obvious instead of letting them silently do nothing.
+function _syncProcessRetryDisabled() {
+  const checked = !!document.getElementById('process-retry-errored')?.checked;
+  ['process-normalize', 'process-force-bpm', 'process-force-key'].forEach(id => {
+    const cb = document.getElementById(id);
+    if (cb) cb.disabled = checked;
+  });
+}
+
+function _initProcessRetryToggle() {
+  const retryCb = document.getElementById('process-retry-errored');
+  if (!retryCb) return;
+  retryCb.addEventListener('change', _syncProcessRetryDisabled);
+  _syncProcessRetryDisabled();
+}
+document.addEventListener('DOMContentLoaded', _initProcessRetryToggle);
 
 /* ── Individual command runners ────────────────────────────────────────────── */
 
