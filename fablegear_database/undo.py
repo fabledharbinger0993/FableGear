@@ -8,6 +8,7 @@ operations.
 
 import logging
 import json
+import gzip
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -73,19 +74,25 @@ class TransactionHistory:
         """
         self.database = database
         self.max_history = max_history
-        self._history_file = Path.home() / ".fablegear" / "transaction_history.json"
+        self._history_file = Path.home() / ".fablegear" / "transaction_history.json.gz"
+        self._legacy_history_file = Path.home() / ".fablegear" / "transaction_history.json"
         self._transactions: List[TransactionRecord] = []
         
         self._load_history()
     
     def _load_history(self) -> None:
         """Load transaction history from file."""
-        if not self._history_file.exists():
+        path = self._history_file if self._history_file.exists() else self._legacy_history_file
+        if not path.exists():
             return
         
         try:
-            with open(self._history_file, "r") as f:
-                data = json.load(f)
+            if path.suffix == ".gz":
+                with gzip.open(path, "rt", encoding="utf-8") as f:
+                    data = json.load(f)
+            else:
+                with open(path, "r") as f:
+                    data = json.load(f)
             
             self._transactions = [
                 TransactionRecord.from_dict(item) for item in data
@@ -107,8 +114,9 @@ class TransactionHistory:
             self._history_file.parent.mkdir(parents=True, exist_ok=True)
             
             data = [t.to_dict() for t in self._transactions]
-            with open(self._history_file, "w") as f:
+            with gzip.open(self._history_file, "wt", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
+            self._legacy_history_file.unlink(missing_ok=True)
             
         except Exception as exc:
             log.error("Failed to save transaction history: %s", exc)

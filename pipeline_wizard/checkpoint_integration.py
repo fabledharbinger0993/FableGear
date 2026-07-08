@@ -7,6 +7,7 @@ to enable pipeline-level resume and recovery capabilities.
 
 import json
 import logging
+import gzip
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -34,7 +35,8 @@ class PipelineCheckpointManager:
         self.pipeline_name = pipeline_name
         self.pipeline_config = pipeline_config
         self._checkpoint_dir = Path.home() / ".fablegear" / "pipeline_checkpoints"
-        self._checkpoint_path = self._checkpoint_dir / f"{pipeline_name}.json"
+        self._checkpoint_path = self._checkpoint_dir / f"{pipeline_name}.json.gz"
+        self._legacy_checkpoint_path = self._checkpoint_dir / f"{pipeline_name}.json"
         
     def save_pipeline_checkpoint(
         self,
@@ -67,8 +69,8 @@ class PipelineCheckpointManager:
             }
             
             # Atomic write
-            tmp_path = self._checkpoint_path.with_suffix(".tmp")
-            with open(tmp_path, "w", encoding="utf-8") as f:
+            tmp_path = self._checkpoint_path.with_name(self._checkpoint_path.name + ".tmp")
+            with gzip.open(tmp_path, "wt", encoding="utf-8") as f:
                 json.dump(checkpoint_data, f, indent=2)
             tmp_path.replace(self._checkpoint_path)
             
@@ -86,12 +88,17 @@ class PipelineCheckpointManager:
         Returns:
             Checkpoint data or None if no checkpoint exists
         """
-        if not self._checkpoint_path.exists():
+        if not self._checkpoint_path.exists() and not self._legacy_checkpoint_path.exists():
             return None
         
         try:
-            with open(self._checkpoint_path, encoding="utf-8") as f:
-                data = json.load(f)
+            path = self._checkpoint_path if self._checkpoint_path.exists() else self._legacy_checkpoint_path
+            if path.suffix == ".gz":
+                with gzip.open(path, "rt", encoding="utf-8") as f:
+                    data = json.load(f)
+            else:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
             
             # Validate checkpoint
             if not self._validate_checkpoint(data):
@@ -141,6 +148,7 @@ class PipelineCheckpointManager:
         """Remove pipeline checkpoint."""
         try:
             self._checkpoint_path.unlink(missing_ok=True)
+            self._legacy_checkpoint_path.unlink(missing_ok=True)
             log.info("Pipeline checkpoint cleaned up: %s", self.pipeline_name)
         except Exception as exc:
             log.error("Failed to cleanup pipeline checkpoint: %s", exc)

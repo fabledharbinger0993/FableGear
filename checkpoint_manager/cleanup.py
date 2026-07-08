@@ -94,7 +94,7 @@ class CheckpointCleanup:
                 if not tool_dir.exists():
                     continue
                 
-                for checkpoint_file in tool_dir.glob("*.json"):
+                for checkpoint_file in tool_dir.glob("*.json*"):
                     try:
                         # Check file age
                         file_mtime = datetime.fromtimestamp(checkpoint_file.stat().st_mtime)
@@ -171,7 +171,7 @@ class CheckpointCleanup:
             for tool_dir in self.checkpoint_base.iterdir():
                 if not tool_dir.is_dir():
                     continue
-                for checkpoint_file in tool_dir.glob("*.json"):
+                for checkpoint_file in tool_dir.glob("*.json*"):
                     try:
                         stat = checkpoint_file.stat()
                         checkpoint_files.append({
@@ -256,7 +256,7 @@ class CheckpointCleanup:
             tool_count = 0
             tool_size = 0
             
-            for checkpoint_file in tool_dir.glob("*.json"):
+            for checkpoint_file in tool_dir.glob("*.json*"):
                 try:
                     stat = checkpoint_file.stat()
                     tool_count += 1
