@@ -306,7 +306,9 @@ def _import_track(track: TrackInfo, db: Rekordbox6Database) -> TrackImportResult
             kwargs["ArtistID"] = artist_id
 
     if track.bpm is not None:
-        kwargs["BPM"] = int(round(track.bpm * 100))  # DB stores BPM × 100
+        # Rekordbox stores BPM as int(round(bpm * 100)) for precision without floats.
+        # FableGear DB stores raw float. Any cross-DB code must transform.
+        kwargs["BPM"] = int(round(track.bpm * 100))
 
     if track.key:
         key_id = resolve_key_id(track.key, db)

@@ -254,6 +254,10 @@ def validate_paths(db: Rekordbox6Database) -> PathReport:
             report.streaming_only += 1
             continue
 
+        # Use Path.exists() against the real filesystem without normalizing.
+        # _normalise_path is for set-membership on case-insensitive platforms (macOS/Windows),
+        # but .exists() must ask the filesystem directly — normalizing would break case-sensitive
+        # lookup on Linux where "File.mp3" and "file.mp3" are different paths.
         if Path(path_str).exists():
             report.found += 1
         else:

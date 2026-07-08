@@ -33,6 +33,11 @@ from chop_shop.duplicate_detector import (
 
 log = logging.getLogger(__name__)
 
+# Minimum fingerprint quality threshold for considering a fingerprint reliable.
+# Successful fpcalc runs store quality 100; below this threshold a stored
+# fingerprint is considered unreliable and will be re-computed.
+MIN_FINGERPRINT_QUALITY = 80
+
 
 @dataclass
 class DatabaseDuplicateResult:
@@ -118,7 +123,7 @@ def scan_duplicates_database_first(
             needs_fingerprinting = [
                 Path(record.file_path)
                 for record in all_records
-                if not record.acoustic_fingerprint or record.fingerprint_quality < 80
+                if not record.acoustic_fingerprint or record.fingerprint_quality < MIN_FINGERPRINT_QUALITY
             ]
             result.needs_fingerprinting = needs_fingerprinting
             
