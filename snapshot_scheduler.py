@@ -101,9 +101,14 @@ def _perform_snapshot() -> dict:
         "last_paths": paths,
         "last_error": None,
     }
-    _save_state(payload)
     with _state_lock:
         _status.update(payload)
+    try:
+        _save_state(payload)
+    except Exception as exc:
+        with _state_lock:
+            _status["last_error"] = f"Could not persist snapshot state: {exc}"
+        log.warning("snapshot_scheduler: could not persist state — %s", exc)
     return dict(_status)
 
 
