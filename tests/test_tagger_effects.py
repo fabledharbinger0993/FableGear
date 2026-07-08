@@ -24,8 +24,12 @@ def _silent_mp3_with_bpm(tmp_path: Path) -> Path:
     """1s silent MP3 tagged with an existing BPM, via ffmpeg + mutagen."""
     _require_ffmpeg()
     p = tmp_path / "track.mp3"
+    import shutil
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        pytest.skip("ffmpeg not available; required to generate MP3 fixture")
     subprocess.run(
-        ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+        [ffmpeg, "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
          "-t", "1", "-q:a", "9", str(p)],
         check=True, capture_output=True,
     )
