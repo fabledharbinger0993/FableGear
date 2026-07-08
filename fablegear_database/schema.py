@@ -56,7 +56,7 @@ class DatabaseSchema:
         artist TEXT,
         album TEXT,
         title TEXT,
-        bpm REAL,
+        bpm REAL,  -- FG DB stores raw float; Rekordbox stores ×100 int — cross-DB code must transform
         key TEXT,
         genre TEXT,
         label TEXT,

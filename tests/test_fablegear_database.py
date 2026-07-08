@@ -281,3 +281,42 @@ def test_backup_and_restore_roundtrip(db):
     assert db.get_statistics()["total_tracks"] == 1
     assert db.get_content_by_path("/music/keep.mp3") is not None
     assert db.get_content_by_path("/music/extra.mp3") is None
+
+
+# --------------------------------------------------------------------------- #
+# Bulk operations
+# --------------------------------------------------------------------------- #
+
+def test_bulk_relink_content_is_chunked_and_updates_rows(db):
+    """bulk_relink_content should update all rows across multiple chunks."""
+    ids = []
+    for i in range(5):
+        rid = db.insert_content(_track(f"/old/track{i}.mp3", title=f"T{i}"))
+        ids.append(rid)
+
+    updates = [(rid, f"/new/track{i}.mp3") for i, rid in enumerate(ids)]
+    rows_updated = db.bulk_relink_content(updates, chunk_size=2)
+
+    assert rows_updated == 5
+    for i, rid in enumerate(ids):
+        rec = db.get_content_by_id(rid)
+        assert rec is not None
+        assert rec.file_path == f"/new/track{i}.mp3"
+        assert rec.processing_status == "relinked"
+
+
+def test_bulk_log_operations_inserts_all_rows(db):
+    """bulk_log_operations should insert all log rows across multiple chunks."""
+    ops = [
+        {
+            "operation_type": "relocate",
+            "file_path": f"/music/track{i}.mp3",
+            "status": "ok",
+            "metadata": {"strategy": "exact"},
+        }
+        for i in range(7)
+    ]
+    inserted = db.bulk_log_operations(ops, chunk_size=3)
+
+    assert inserted == 7
+    assert db.count_operations("relocate") == 7

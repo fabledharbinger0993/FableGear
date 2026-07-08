@@ -835,21 +835,68 @@ class FableGearDatabase:
             )
             return cursor.lastrowid
 
-    def bulk_log_operations(
+    def bulk_relink_content(
         self,
-        operations: List[Tuple[str, Optional[str], str, Optional[str], Optional[Dict[str, Any]]]],
-        *,
+        updates: list[tuple[int, str]],
         chunk_size: int = 500,
     ) -> int:
         """
-        Insert many fg_processing_log rows in bounded chunks.
+        Re-point multiple records at new file paths in bounded chunks.
+
+        ``updates`` is a sequence of ``(record_id, new_path)`` pairs.  Each
+        chunk is issued as a single ``executemany`` UPDATE inside one
+        transaction so SQLite never accumulates an unbounded set of dirty
+        pages.  The caller is responsible for committing (or rolling back)
+        after this method returns.
 
         Args:
-            operations: List of (operation_type, file_path, status, error_message, metadata)
-            chunk_size: Rows per transaction chunk
+            updates: List of (record_id, new_path) pairs.
+            chunk_size: Maximum rows per executemany call.
 
         Returns:
-            Number of log rows inserted
+            Total number of rows updated.
+        """
+        total = 0
+        for start in range(0, len(updates), chunk_size):
+            chunk = updates[start : start + chunk_size]
+            rows = [
+                (
+                    Path(new_path).name,
+                    new_path,
+                    "relinked",
+                    record_id,
+                )
+                for record_id, new_path in chunk
+            ]
+            with self.transaction() as conn:
+                cursor = conn.cursor()
+                cursor.executemany(
+                    "UPDATE fg_content "
+                    "SET file_name=?, file_path=?, processing_status=? "
+                    "WHERE id=?",
+                    rows,
+                )
+                total += cursor.rowcount
+        return total
+
+    def bulk_log_operations(
+        self,
+        operations: List[Tuple[str, Optional[str], str, Optional[str], Optional[Dict[str, Any]]]] | list[dict],
+        chunk_size: int = 500,
+    ) -> int:
+        """
+        Insert multiple audit-log rows in bounded chunks.
+
+        Each operation may be either a tuple
+        ``(operation_type, file_path, status, error_message, metadata)``
+        or a dict with keys accepted by :meth:`log_operation`.
+
+        Args:
+            operations: List of operation tuples or dicts.
+            chunk_size: Maximum rows per executemany call.
+
+        Returns:
+            Total number of rows inserted.
         """
         if not operations:
             return 0
@@ -858,28 +905,43 @@ class FableGearDatabase:
 
         import json  # noqa: PLC0415
 
-        sql = (
-            "INSERT INTO fg_processing_log "
-            "(operation_type, file_path, status, error_message, completed_at, metadata) "
-            "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)"
-        )
-        inserted = 0
-        for i in range(0, len(operations), chunk_size):
-            chunk = operations[i:i + chunk_size]
-            rows = [
-                (
-                    op_type,
-                    file_path,
-                    status,
-                    error_message,
-                    json.dumps(metadata) if metadata is not None else None,
-                )
-                for op_type, file_path, status, error_message, metadata in chunk
-            ]
+        total = 0
+        for start in range(0, len(operations), chunk_size):
+            chunk = operations[start : start + chunk_size]
+            rows = []
+            for op in chunk:
+                if isinstance(op, dict):
+                    rows.append(
+                        (
+                            op["operation_type"],
+                            op.get("file_path"),
+                            op.get("status", "ok"),
+                            op.get("error_message"),
+                            json.dumps(op["metadata"]) if op.get("metadata") is not None else None,
+                        )
+                    )
+                else:
+                    op_type, file_path, status, error_message, metadata = op
+                    rows.append(
+                        (
+                            op_type,
+                            file_path,
+                            status,
+                            error_message,
+                            json.dumps(metadata) if metadata is not None else None,
+                        )
+                    )
             with self.transaction() as conn:
-                conn.executemany(sql, rows)
-            inserted += len(rows)
-        return inserted
+                cursor = conn.cursor()
+                cursor.executemany(
+                    "INSERT INTO fg_processing_log "
+                    "(operation_type, file_path, status, error_message, "
+                    " completed_at, metadata) "
+                    "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)",
+                    rows,
+                )
+                total += len(chunk)
+        return total
 
     def count_operations(self, operation_type: Optional[str] = None) -> int:
         """Count rows in the processing log, optionally by operation type."""

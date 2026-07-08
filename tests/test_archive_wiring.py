@@ -144,6 +144,135 @@ def test_dead_file_scan_logs_to_archive(archive, tmp_path):
 
 # ── Music-only contract ───────────────────────────────────────────────────────
 
+def test_relocate_with_archive_logs_operations(archive, tmp_path):
+    """Exercise relocate_directory's archive block with a real call.
+
+    This test calls relocate_directory with archive= to trigger the archive
+    block. Before the fix, accessing r.old_path in the archive block raises
+    AttributeError (RelocationResult has original_path, not old_path), causing
+    the function to crash after every successful relocation. The except handler
+    then tries to access r.old_path again, causing a second AttributeError that
+    propagates out.
+    """
+    from relocator import relocate_directory
+    from pathlib import Path
+
+    # Set up minimal Rekordbox db mock
+    class MockQuery:
+        def all(self):
+            # Return one mock content row that is expected to match via exact
+            # strategy (the corresponding file is created in new_root below).
+            # This exercises the archive block without needing full filesystem setup.
+            class MockContent:
+                pass
+            row = MockContent()
+            row.ID = 1
+            row.FolderPath = str(old_root / "never_found.mp3")
+            return [row]
+
+    class MockDb:
+        def get_content(self):
+            return MockQuery()
+        def commit(self):
+            pass
+        def rollback(self):
+            pass
+        def update_content_path(self, row, new_path, check_path=True):
+            # Allow the relocation to succeed so the archive block runs
+            pass
+
+    old_root = tmp_path / "old"
+    new_root = tmp_path / "new"
+    old_root.mkdir()
+    new_root.mkdir()
+
+    # Create a fake audio file in new_root so the exact match can find it
+    (new_root / "never_found.mp3").write_bytes(b"fake audio")
+
+    db = MockDb()
+
+    # Before the fix, this raises AttributeError on the archive block.
+    # After the fix, it completes without error and logs to the archive.
+    before = archive.count_operations("relocate")
+    try:
+        results = relocate_directory(old_root, new_root, db, archive=archive)
+        # Success — no AttributeError raised
+        assert isinstance(results, list), "relocate_directory should return a list"
+        # Verify the archive write that this test is named for
+        assert archive.count_operations("relocate") >= before + 1, (
+            "relocate_directory ran but appended nothing to fg_processing_log"
+        )
+    except AttributeError as e:
+        if "old_path" in str(e):
+            pytest.fail(
+                f"relocate_directory raised AttributeError accessing r.old_path: {e}\n"
+                "This is the F-01 bug — RelocationResult.original_path was accessed as r.old_path"
+            )
+        raise
+
+
+def test_relocate_filters_sibling_directories(tmp_path):
+    """Verify that prefix matching only includes true descendants, not siblings.
+
+    Regression test for F-04: if old_root is /Volumes/Music/Rock, tracks under
+    /Volumes/Music/Rockabilly should NOT be included. Before the fix, the
+    prefix match used str(old_root).startswith(...) without a path separator,
+    causing "Rock" to match "Rockabilly".
+    """
+    from relocator import relocate_directory
+
+    # Set up minimal Rekordbox db mock with TWO content rows
+    rock_path = tmp_path / "Rock" / "track.mp3"
+    rockabilly_path = tmp_path / "Rockabilly" / "other.mp3"
+    old_root = tmp_path / "Rock"
+
+    class MockQuery:
+        def all(self):
+            # Return two mock content rows: one under Rock (should match),
+            # one under Rockabilly (should NOT match due to sibling name collision)
+            class MockContent1:
+                ID = 1
+                FolderPath = str(rock_path)
+            class MockContent2:
+                ID = 2
+                FolderPath = str(rockabilly_path)
+            return [MockContent1(), MockContent2()]
+
+    class MockDb:
+        def get_content(self):
+            return MockQuery()
+        def commit(self):
+            pass
+        def rollback(self):
+            pass
+        def update_content_path(self, row, new_path, check_path=True):
+            pass
+
+    # Create directories and new_root
+    old_root.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "Rockabilly").mkdir(parents=True, exist_ok=True)
+    new_root = tmp_path / "NewMusic"
+    new_root.mkdir(parents=True, exist_ok=True)
+
+    # Create dummy files in new_root so exact match doesn't fail
+    (new_root / "track.mp3").write_bytes(b"fake audio")
+    (new_root / "other.mp3").write_bytes(b"fake audio")
+
+    db = MockDb()
+    results = relocate_directory(old_root, new_root, db)
+
+    # After the fix, only the Rock entry (ID=1) should be in results.
+    # Before the fix, both would be included (Rockabilly incorrectly matched).
+    assert len(results) == 1, (
+        f"Expected 1 affected track (Rock), but got {len(results)}. "
+        "Before the fix: Rockabilly was incorrectly included due to "
+        "prefix matching without path separator (Rock matches Rock*)."
+    )
+    assert results[0].content_id == "1", (
+        f"Expected result with content_id='1' (Rock track), got content_id={results[0].content_id}"
+    )
+
+
 def test_audio_extensions_contain_no_video_containers():
     """FableGear touches music, nothing else. Every file-touching tool scans by
     config.AUDIO_EXTENSIONS — video containers must never sneak back in."""

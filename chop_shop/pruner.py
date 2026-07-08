@@ -167,7 +167,7 @@ class DupeEntry:
     rank:          str            # PN | MIK | RAW
     file_path:     str
     file_size_mb:  float
-    bpm:           Optional[str]
+    bpm:           Optional[str]  # CSV-sourced text like "127.00"; TrackInfo/FG-DB use float — do not compare directly
     key:           Optional[str]
     filename:      str
     # enriched after load
@@ -176,6 +176,14 @@ class DupeEntry:
     exists_on_disk:bool = True
     in_db:         bool = False
     tag_completeness: int = 0
+
+    @property
+    def bpm_float(self) -> Optional[float]:
+        """DupeEntry.bpm is CSV-sourced text; use this for numeric comparisons."""
+        try:
+            return float(self.bpm) if self.bpm not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
 
     @property
     def quality_score(self) -> tuple:
