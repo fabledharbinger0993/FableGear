@@ -45,12 +45,21 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 from typing import Literal, TYPE_CHECKING
 import json
 
 from pyrekordbox import Rekordbox6Database
 
-from config import AUDIO_EXTENSIONS, BATCH_SIZE, SKIP_DIRS, SKIP_PREFIXES
+from config import (
+    ARCHIVE_CHUNK_SIZE as _ARCHIVE_CHUNK_SIZE,
+    AUDIO_EXTENSIONS,
+    BATCH_SIZE,
+    PROGRESS_ITEM_INTERVAL as _PROGRESS_ITEM_INTERVAL,
+    PROGRESS_MIN_SECONDS as _PROGRESS_MIN_SECONDS,
+    SKIP_DIRS,
+    SKIP_PREFIXES,
+)
 
 # Format-quality ranking, reused from pruner.py's FORMAT_TIER so relocator's
 # fuzzy-collision tie-break agrees with the same "higher = better" ordering
@@ -397,18 +406,19 @@ def relocate_directory(
 
     results: list[RelocationResult] = []
     batch_count = 0
+    succeeded_count = 0
+    not_found_count = 0
+    failed_count = 0
     total_affected = len(affected)
+    last_progress_emit = monotonic()
 
     def _emit_reloc_progress(processed: int) -> None:
-        succeeded = sum(1 for r in results if r.success)
-        not_found = sum(1 for r in results if r.strategy == "not_found")
-        failed    = sum(1 for r in results if not r.success and r.strategy != "not_found")
         print(
             "FABLEGEAR_PROGRESS: " + json.dumps({
                 "remaining": total_affected - processed,
-                "clean":     not_found,
-                "edited":    succeeded,
-                "errors":    failed,
+                "clean":     not_found_count,
+                "edited":    succeeded_count,
+                "errors":    failed_count,
             }),
             flush=True,
         )
@@ -425,10 +435,21 @@ def relocate_directory(
         results.append(result)
 
         if result.success:
+            succeeded_count += 1
             batch_count += 1
+        elif result.strategy == "not_found":
+            not_found_count += 1
+        else:
+            failed_count += 1
 
-        if (i + 1) % 20 == 0:
-            _emit_reloc_progress(i + 1)
+        processed = i + 1
+        now = monotonic()
+        if (
+            processed % _PROGRESS_ITEM_INTERVAL == 0
+            and (now - last_progress_emit) >= _PROGRESS_MIN_SECONDS
+        ):
+            _emit_reloc_progress(processed)
+            last_progress_emit = now
 
         if batch_count >= BATCH_SIZE:
             try:
@@ -461,21 +482,25 @@ def relocate_directory(
         by_strategy.get("not_found", 0),
     )
 
+    _emit_reloc_progress(total_affected)  # final emit — ensures UI reflects 100%
+
     if archive is not None:
-        succeeded = [r for r in results if r.success]
-        for r in succeeded:
-            try:
-                old_path = str(r.original_path)
-                new_path = str(r.new_path)
-                rec = archive.get_content_by_path(old_path)
-                if rec and rec.id is not None:
-                    archive.relink_content(rec.id, new_path)
-                archive.log_operation(
-                    "relocate", new_path, status="ok",
-                    metadata={"from": old_path, "strategy": r.strategy},
-                )
-            except Exception as exc:
-                log.warning("Archive update failed for relocate %s: %s", r.original_path, exc)
+        succeeded_list = [r for r in results if r.success]
+        for chunk_start in range(0, len(succeeded_list), _ARCHIVE_CHUNK_SIZE):
+            chunk = succeeded_list[chunk_start : chunk_start + _ARCHIVE_CHUNK_SIZE]
+            for r in chunk:
+                try:
+                    old_path = str(r.original_path)
+                    new_path = str(r.new_path)
+                    rec = archive.get_content_by_path(old_path)
+                    if rec and rec.id is not None:
+                        archive.relink_content(rec.id, new_path)
+                    archive.log_operation(
+                        "relocate", new_path, status="ok",
+                        metadata={"from": old_path, "strategy": r.strategy},
+                    )
+                except Exception as exc:
+                    log.warning("Archive update failed for relocate %s: %s", r.original_path, exc)
         archive.log_operation(
             "relocate_batch",
             metadata={

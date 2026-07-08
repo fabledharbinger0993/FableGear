@@ -25,9 +25,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from time import monotonic
+
 from pyrekordbox import Rekordbox6Database
 
-from config import BATCH_SIZE, MUSIC_ROOT
+from config import (
+    BATCH_SIZE,
+    MUSIC_ROOT,
+    PROGRESS_ITEM_INTERVAL as _PROGRESS_ITEM_INTERVAL,
+    PROGRESS_MIN_SECONDS as _PROGRESS_MIN_SECONDS,
+)
 
 if TYPE_CHECKING:
     # DjmdPlaylist and DjmdContent are ORM row types from pyrekordbox's SQLAlchemy
@@ -402,6 +409,7 @@ def link_directory(
 
     batch_count = 0
     total_tracks = len(under_root)
+    last_progress_emit = monotonic()
 
     def _emit_link_progress(processed: int) -> None:
         # `clean` in the scan bar means "no action needed — genuinely fine".
@@ -464,8 +472,14 @@ def link_directory(
             report.unmatched += 1
             log.warning("No playlist match for: %s", track_path.name)
 
-        if (i + 1) % 20 == 0:
-            _emit_link_progress(i + 1)
+        processed = i + 1
+        now = monotonic()
+        if (
+            processed % _PROGRESS_ITEM_INTERVAL == 0
+            and (now - last_progress_emit) >= _PROGRESS_MIN_SECONDS
+        ):
+            _emit_link_progress(processed)
+            last_progress_emit = now
 
         # Batch commit (skipped in dry run — nothing was written)
         if not dry_run and batch_count >= BATCH_SIZE:
@@ -488,6 +502,7 @@ def link_directory(
             db.rollback()
             raise
 
+    _emit_link_progress(total_tracks)  # final emit — ensures UI reflects 100%
     return report
 
 
