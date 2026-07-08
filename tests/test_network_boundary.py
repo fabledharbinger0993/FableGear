@@ -146,11 +146,34 @@ def test_onboarding_save_config_defaults_backup_to_archive_savepoints(client):
 
     cfg = json.loads((Path(os.environ["HOME"]) / ".fablegear" / "config.json").read_text())
     assert cfg["backup_dir"] == "/Volumes/MainLibrary/FableGear Archive/Savepoints"
+    assert cfg["snapshot_cadence"] == "monthly"
+    assert cfg["snapshot_include_master_db"] is False
 
 
 def test_api_config_uses_archive_reports_path(client):
     data = _hit(client, "/api/config", LOOPBACK).get_json()
     assert data["reports"].endswith("/FableGear Archive/Reports")
+    assert data["snapshot_cadence"] == "monthly"
+    assert data["snapshot_include_master_db"] is False
+
+
+def test_api_settings_persists_snapshot_options(client):
+    r = client.post("/api/settings", json={
+        "archive_mode": "custom",
+        "custom_archive_dir": "/Volumes/MainLibrary/Archives",
+        "snapshot_cadence": "weekly",
+        "snapshot_include_master_db": True,
+        "excluded_dirs": [],
+        "acoustid_api_key": "",
+    })
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+    cfg = json.loads((Path(os.environ["HOME"]) / ".fablegear" / "config.json").read_text())
+    assert cfg["archive_mode"] == "custom"
+    assert cfg["custom_archive_dir"] == "/Volumes/MainLibrary/Archives"
+    assert cfg["snapshot_cadence"] == "weekly"
+    assert cfg["snapshot_include_master_db"] is True
 
 
 def test_api_error_contract_is_sanitized(client, monkeypatch):

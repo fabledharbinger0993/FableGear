@@ -25,7 +25,13 @@ if sys.version_info < (3, 11):
 
 
 try:
-    from user_config import NotConfiguredError, archive_root_for_music_root, load_user_config
+    from user_config import (
+        NotConfiguredError,
+        archive_root_for_music_root,
+        load_user_config,
+        normalize_snapshot_cadence,
+        snapshot_cadence_seconds,
+    )
     _cfg = load_user_config()
 except NotConfiguredError as _exc:
     raise RuntimeError(str(_exc)) from _exc
@@ -92,6 +98,12 @@ LOG_DIRS: dict[str, Path] = {
 # back to Savepoints inside the archive on the DJ drive.
 _user_backup_dir = _cfg.get("backup_dir", "").strip()
 BACKUP_DIR = Path(_user_backup_dir) if _user_backup_dir else SAVEPOINTS_DIR
+
+# Periodic snapshot cadence — used by the background snapshot scheduler.
+SNAPSHOT_CADENCE = normalize_snapshot_cadence(_cfg.get("snapshot_cadence"))
+SNAPSHOT_INTERVAL_SECONDS = snapshot_cadence_seconds(SNAPSHOT_CADENCE)
+SNAPSHOT_INCLUDE_MASTER_DB = bool(_cfg.get("snapshot_include_master_db", False))
+SNAPSHOT_STATE_FILE = Path.home() / ".fablegear" / "snapshot_state.json"
 
 
 def ensure_archive_structure() -> None:
