@@ -881,7 +881,7 @@ class FableGearDatabase:
 
     def bulk_log_operations(
         self,
-        operations: List[Tuple[str, Optional[str], str, Optional[str], Optional[Dict[str, Any]]]] | list[dict],
+        operations: list[tuple[str, str | None, str, str | None, dict[str, Any] | None]] | list[dict[str, Any]],
         chunk_size: int = 500,
     ) -> int:
         """

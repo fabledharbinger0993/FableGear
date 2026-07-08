@@ -26,8 +26,6 @@ from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING
 
-from time import monotonic
-
 from pyrekordbox import Rekordbox6Database
 
 from config import (
