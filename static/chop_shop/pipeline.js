@@ -583,7 +583,8 @@ function _resumeProcess(ckpt) {
   _populatePills('process-pills', ckpt.paths);
   document.getElementById('process-no-bpm').checked  = !!ckpt.no_bpm;
   document.getElementById('process-no-key').checked  = !!ckpt.no_key;
-  document.getElementById('process-force').checked   = false; // never force on resume
+  const _fb = document.getElementById('process-force-bpm'); if (_fb) _fb.checked = false; // never force on resume
+  const _fk = document.getElementById('process-force-key'); if (_fk) _fk.checked = false;
   const enrich = document.getElementById('process-enrich-tags');
   if (enrich) enrich.checked = !!ckpt.enrich_tags;
   document.getElementById('step-process')?.scrollIntoView({ behavior: 'smooth', block: 'start' });

@@ -104,16 +104,20 @@ function _doRunProcess(paths) {
   paths.forEach(path => p.append('path', path));
   if (document.getElementById('process-no-bpm').checked)  p.set('no_bpm', '1');
   if (document.getElementById('process-no-key').checked)  p.set('no_key', '1');
-  if (document.getElementById('process-force').checked)   p.set('force',  '1');
+  if (document.getElementById('process-force-bpm')?.checked) p.set('force_bpm', '1');
+  if (document.getElementById('process-force-key')?.checked) p.set('force_key', '1');
   if (document.getElementById('process-enrich-tags')?.checked) p.set('enrich_tags', '1');
-  p.set('no_normalize', '1');
+  // Normalize is now user-controlled: only skip it when the box is unchecked.
+  if (!document.getElementById('process-normalize')?.checked) p.set('no_normalize', '1');
   const el = document.getElementById('process-result');
   if (el) el.classList.add('hidden');
   _saveToolCkpt('process', {
     paths,
     no_bpm:      document.getElementById('process-no-bpm').checked,
     no_key:      document.getElementById('process-no-key').checked,
-    force:       document.getElementById('process-force').checked,
+    force_bpm:   document.getElementById('process-force-bpm')?.checked || false,
+    force_key:   document.getElementById('process-force-key')?.checked || false,
+    normalize:   document.getElementById('process-normalize')?.checked || false,
     enrich_tags: document.getElementById('process-enrich-tags')?.checked || false,
   });
   document.getElementById('step-process')?.querySelector('.tool-resume-banner')?.remove();

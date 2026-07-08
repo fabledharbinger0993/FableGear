@@ -54,20 +54,26 @@
         <div class="folder-pills" id="process-pills"></div>
       </div>
       <div class="field">
-        <label>Options</label>
+        <label>Effects</label>
         <div class="checkbox-row">
           <label class="checkbox-label">
             <input type="checkbox" id="process-no-bpm"> Skip BPM detection
           </label>
           <label class="checkbox-label">
+            <input type="checkbox" id="process-force-bpm"> Re-detect BPM even if tagged
+          </label>
+          <label class="checkbox-label">
             <input type="checkbox" id="process-no-key"> Skip key detection
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="process-force-key"> Re-detect key even if tagged
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="process-normalize"> Normalize loudness (fold-in of Balance Loudness)
           </label>
           <label class="checkbox-label" id="process-retry-errored-row">
             <input type="checkbox" id="process-retry-errored">
             <span>Retry errored tracks only <span class="field-badge caution" id="process-retry-count"></span></span>
-          </label>
-          <label class="checkbox-label">
-            <input type="checkbox" id="process-force"> Force overwrite <em>all</em> existing tags
           </label>
         </div>
       </div>
@@ -78,7 +84,7 @@
             <input type="checkbox" id="process-enrich-tags">
             <span>Look up title, artist &amp; album from MusicBrainz after tagging</span>
           </label>
-          <p class="field-hint">Fingerprints each track and queries the AcoustID web service (~1 req/s). Only fills in <em>missing</em> fields unless Force Overwrite is on. Requires <code>acoustid_api_key</code> in your FableGear config.</p>
+          <p class="field-hint">Fingerprints each track and queries the AcoustID web service (~1 req/s). Only fills in <em>missing</em> fields. Requires <code>acoustid_api_key</code> in your FableGear config.</p>
         </div>
       </div>
       <div class="btn-row">
