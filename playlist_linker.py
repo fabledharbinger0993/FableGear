@@ -404,12 +404,25 @@ def link_directory(
     total_tracks = len(under_root)
 
     def _emit_link_progress(processed: int) -> None:
+        # `clean` in the scan bar means "no action needed — genuinely fine".
+        # Unmatched tracks are the opposite: the user expected them linked and
+        # they weren't. The linker has no "already linked, no-op" bucket to
+        # report as genuinely clean, so clean stays 0 here — unmatched is
+        # surfaced under its own honest key instead (see F-03).
+        #
+        # done/total are explicit so the Chop Shop readout (_chopReadoutUpdate
+        # in scan_bar.js) uses this honest processed/total_tracks count rather
+        # than deriving `done` from clean+edited+errors, which would silently
+        # drop unmatched tracks from the done/percent math entirely.
         print(
             "FABLEGEAR_PROGRESS: " + json.dumps({
+                "done":      processed,
+                "total":     total_tracks,
                 "remaining": total_tracks - processed,
-                "clean":     report.unmatched,
+                "clean":     0,
                 "edited":    report.linked,
                 "errors":    report.failed,
+                "unmatched": report.unmatched,
             }),
             flush=True,
         )

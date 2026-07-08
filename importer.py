@@ -306,7 +306,9 @@ def _import_track(track: TrackInfo, db: Rekordbox6Database) -> TrackImportResult
             kwargs["ArtistID"] = artist_id
 
     if track.bpm is not None:
-        kwargs["BPM"] = int(round(track.bpm * 100))  # DB stores BPM × 100
+        # Rekordbox stores BPM as int(round(bpm * 100)) for precision without floats.
+        # FableGear DB stores raw float. Any cross-DB code must transform.
+        kwargs["BPM"] = int(round(track.bpm * 100))
 
     if track.key:
         key_id = resolve_key_id(track.key, db)
@@ -427,20 +429,38 @@ def import_directory(
     # progress plus what we commit now). Used to save progress after each batch.
     committed_set: set[str] = set(done_set)
 
+    # Materialize the scan up front so the scan bar gets an honest `total`.
+    # This is the same single metadata-extraction pass the streaming loop
+    # would have done anyway (scan_directory is only ever consumed once per
+    # import_directory() call) — it's just eagerly completed instead of
+    # streamed, exactly like audio_processor.py's process_directory() already
+    # does for the same libraries. Emit progress ticks every 200 files to keep
+    # the scan phase from looking frozen on large libraries.
+    tracks: list[TrackInfo] = []
+    for t in scan_directory(root):
+        tracks.append(t)
+        if len(tracks) % 200 == 0:
+            print("FABLEGEAR_PROGRESS: " + json.dumps({"scanned": len(tracks)}), flush=True)
+    total = len(tracks)
+
     # Running counters for live scan bar progress
     _p_count = 0
 
     def _emit_import_progress() -> None:
+        done = report.total_attempted  # imported + skipped + resumed + failed
         print(
             "FABLEGEAR_PROGRESS: " + json.dumps({
-                "clean":  report.skipped + report.resumed,
-                "edited": report.imported,
-                "errors": report.failed,
+                "done":      done,
+                "total":     total,
+                "remaining": total - done,
+                "clean":     report.skipped + report.resumed,
+                "edited":    report.imported,
+                "errors":    report.failed,
             }),
             flush=True,
         )
 
-    for track in scan_directory(root):
+    for track in tracks:
         if not track.is_valid:
             r = TrackImportResult(path=track.path, error="invalid or unreadable file")
             report.results.append(r)

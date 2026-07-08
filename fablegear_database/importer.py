@@ -249,6 +249,7 @@ class FileImporter:
             genre=getattr(track, "genre", None),
             year=getattr(track, "year", None),
             track_number=getattr(track, "track_number", None),
+            # FableGear DB stores raw float BPM; Rekordbox stores ×100 int. Cross-DB code must transform.
             bpm=getattr(track, "bpm", None),
             key=getattr(track, "key", None),
             duration=getattr(track, "duration_seconds", None),
