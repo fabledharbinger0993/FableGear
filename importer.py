@@ -40,6 +40,7 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from time import monotonic
 
 try:
     import fcntl  # POSIX file locking
@@ -54,7 +55,11 @@ try:
 except Exception:  # pragma: no cover - defensive fallback
     MultipleResultsFound = Exception
 
-from config import BATCH_SIZE
+from config import (
+    BATCH_SIZE,
+    PROGRESS_ITEM_INTERVAL as _PROGRESS_ITEM_INTERVAL,
+    PROGRESS_MIN_SECONDS as _PROGRESS_MIN_SECONDS,
+)
 from key_mapper import clear_cache as clear_key_cache, resolve_key_id
 from scanner import TrackInfo, scan_directory
 
@@ -429,6 +434,7 @@ def import_directory(
 
     # Running counters for live scan bar progress
     _p_count = 0
+    _last_progress_emit = monotonic()
 
     def _emit_import_progress() -> None:
         print(
@@ -473,8 +479,13 @@ def import_directory(
             report.failed += 1
 
         _p_count += 1
-        if _p_count % 20 == 0:
+        now = monotonic()
+        if (
+            _p_count % _PROGRESS_ITEM_INTERVAL == 0
+            and (now - _last_progress_emit) >= _PROGRESS_MIN_SECONDS
+        ):
             _emit_import_progress()
+            _last_progress_emit = now
 
         if batch_count >= BATCH_SIZE:
             try:
@@ -516,6 +527,9 @@ def import_directory(
     # Clean completion: clear the progress state for this root
     if resume:
         _clear_progress(root)
+
+    if report.total_attempted > 0:
+        _emit_import_progress()
 
     return report
 

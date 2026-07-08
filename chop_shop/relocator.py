@@ -43,12 +43,21 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 from typing import Literal, TYPE_CHECKING
 import json
 
 from pyrekordbox import Rekordbox6Database
 
-from config import AUDIO_EXTENSIONS, BATCH_SIZE, SKIP_DIRS, SKIP_PREFIXES
+from config import (
+    ARCHIVE_CHUNK_SIZE as _ARCHIVE_CHUNK_SIZE,
+    AUDIO_EXTENSIONS,
+    BATCH_SIZE,
+    PROGRESS_ITEM_INTERVAL as _PROGRESS_ITEM_INTERVAL,
+    PROGRESS_MIN_SECONDS as _PROGRESS_MIN_SECONDS,
+    SKIP_DIRS,
+    SKIP_PREFIXES,
+)
 
 if TYPE_CHECKING:
     # DjmdContent is an ORM row type from pyrekordbox's SQLAlchemy models.
@@ -324,7 +333,7 @@ def relocate_directory(
     if not new_root.is_dir():
         raise ValueError(f"new_root does not exist or is not a directory: {new_root}")
 
-    old_root_str = str(old_root)
+    old_root_str = str(old_root).rstrip(os.sep) + os.sep
     try:
         all_content = db.get_content().all()
         affected = [
@@ -357,17 +366,20 @@ def relocate_directory(
     results: list[RelocationResult] = []
     batch_count = 0
     total_affected = len(affected)
+    succeeded_count = 0
+    not_found_count = 0
+    failed_count = 0
+    last_progress_emit = monotonic()
 
     def _emit_reloc_progress(processed: int) -> None:
-        succeeded = sum(1 for r in results if r.success)
-        not_found = sum(1 for r in results if r.strategy == "not_found")
-        failed    = sum(1 for r in results if not r.success and r.strategy != "not_found")
         print(
             "FABLEGEAR_PROGRESS: " + json.dumps({
+                "done":      processed,
+                "total":     total_affected,
                 "remaining": total_affected - processed,
-                "clean":     not_found,
-                "edited":    succeeded,
-                "errors":    failed,
+                "clean":     not_found_count,
+                "edited":    succeeded_count,
+                "errors":    failed_count,
             }),
             flush=True,
         )
@@ -384,10 +396,20 @@ def relocate_directory(
         results.append(result)
 
         if result.success:
+            succeeded_count += 1
             batch_count += 1
+        elif result.strategy == "not_found":
+            not_found_count += 1
+        else:
+            failed_count += 1
 
-        if (i + 1) % 20 == 0:
+        now = monotonic()
+        if (
+            (i + 1) % _PROGRESS_ITEM_INTERVAL == 0
+            and (now - last_progress_emit) >= _PROGRESS_MIN_SECONDS
+        ):
             _emit_reloc_progress(i + 1)
+            last_progress_emit = now
 
         if batch_count >= BATCH_SIZE:
             try:
@@ -409,6 +431,9 @@ def relocate_directory(
             db.rollback()
             raise
 
+    if total_affected > 0:
+        _emit_reloc_progress(total_affected)
+
     by_strategy: dict[str, int] = {}
     for r in results:
         by_strategy[r.strategy] = by_strategy.get(r.strategy, 0) + 1
@@ -421,20 +446,54 @@ def relocate_directory(
     )
 
     if archive is not None:
-        succeeded = [r for r in results if r.success]
-        for r in succeeded:
+        pending_relinks: list[tuple[int, str]] = []
+        pending_logs: list[tuple[str, str, str, None, dict[str, str]]] = []
+
+        def _flush_archive_chunk() -> None:
+            if not pending_relinks and not pending_logs:
+                return
             try:
-                old_path = str(r.old_path)
-                new_path = str(r.new_path)
+                if pending_relinks:
+                    if hasattr(archive, "bulk_relink_content"):
+                        archive.bulk_relink_content(pending_relinks, chunk_size=_ARCHIVE_CHUNK_SIZE)
+                    else:
+                        for rec_id, new_path in pending_relinks:
+                            archive.relink_content(rec_id, new_path)
+                if pending_logs:
+                    if hasattr(archive, "bulk_log_operations"):
+                        archive.bulk_log_operations(pending_logs, chunk_size=_ARCHIVE_CHUNK_SIZE)
+                    else:
+                        for op_type, file_path, status, error_message, metadata in pending_logs:
+                            archive.log_operation(
+                                op_type,
+                                file_path,
+                                status=status,
+                                error_message=error_message,
+                                metadata=metadata,
+                            )
+            except Exception as exc:
+                log.warning("Archive batch update failed: %s", exc)
+            finally:
+                pending_relinks.clear()
+                pending_logs.clear()
+
+        for r in results:
+            if not r.success or r.new_path is None:
+                continue
+            old_path = str(r.original_path)
+            new_path = str(r.new_path)
+            try:
                 rec = archive.get_content_by_path(old_path)
                 if rec and rec.id is not None:
-                    archive.relink_content(rec.id, new_path)
-                archive.log_operation(
-                    "relocate", new_path, status="ok",
-                    metadata={"from": old_path, "strategy": r.strategy},
+                    pending_relinks.append((int(rec.id), new_path))
+                pending_logs.append(
+                    ("relocate", new_path, "ok", None, {"from": old_path, "strategy": r.strategy})
                 )
+                if len(pending_logs) >= _ARCHIVE_CHUNK_SIZE:
+                    _flush_archive_chunk()
             except Exception as exc:
-                log.warning("Archive update failed for relocate %s: %s", r.old_path, exc)
+                log.warning("Archive update failed for relocate %s: %s", old_path, exc)
+        _flush_archive_chunk()
         archive.log_operation(
             "relocate_batch",
             metadata={

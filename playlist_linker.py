@@ -23,11 +23,17 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING
 
 from pyrekordbox import Rekordbox6Database
 
-from config import BATCH_SIZE, MUSIC_ROOT
+from config import (
+    BATCH_SIZE,
+    MUSIC_ROOT,
+    PROGRESS_ITEM_INTERVAL as _PROGRESS_ITEM_INTERVAL,
+    PROGRESS_MIN_SECONDS as _PROGRESS_MIN_SECONDS,
+)
 
 if TYPE_CHECKING:
     # DjmdPlaylist and DjmdContent are ORM row types from pyrekordbox's SQLAlchemy
@@ -47,6 +53,8 @@ _FUZZY_CUTOFF: float = 0.85
 # Reviewers should verify the sample output and tighten this if false positives
 # appear in practice.
 _FUZZY_MAX_MATCHES: int = 3
+_UNMATCHED_WARN_SAMPLE: int = 10
+_UNMATCHED_WARN_EVERY: int = 500
 
 
 # ─── Result types ─────────────────────────────────────────────────────────────
@@ -402,14 +410,18 @@ def link_directory(
 
     batch_count = 0
     total_tracks = len(under_root)
+    last_progress_emit = monotonic()
 
     def _emit_link_progress(processed: int) -> None:
         print(
             "FABLEGEAR_PROGRESS: " + json.dumps({
+                "done":      processed,
+                "total":     total_tracks,
                 "remaining": total_tracks - processed,
-                "clean":     report.unmatched,
+                "clean":     0,
                 "edited":    report.linked,
                 "errors":    report.failed,
+                "unmatched": report.unmatched,
             }),
             flush=True,
         )
@@ -449,10 +461,18 @@ def link_directory(
             batch_count += len(result.playlist_ids_linked)
         else:
             report.unmatched += 1
-            log.warning("No playlist match for: %s", track_path.name)
+            if report.unmatched <= _UNMATCHED_WARN_SAMPLE:
+                log.warning("No playlist match for: %s", track_path.name)
+            elif report.unmatched % _UNMATCHED_WARN_EVERY == 0:
+                log.warning("No playlist match count now at %d tracks", report.unmatched)
 
-        if (i + 1) % 20 == 0:
+        now = monotonic()
+        if (
+            (i + 1) % _PROGRESS_ITEM_INTERVAL == 0
+            and (now - last_progress_emit) >= _PROGRESS_MIN_SECONDS
+        ):
             _emit_link_progress(i + 1)
+            last_progress_emit = now
 
         # Batch commit (skipped in dry run — nothing was written)
         if not dry_run and batch_count >= BATCH_SIZE:
@@ -474,6 +494,9 @@ def link_directory(
             log.exception("Final commit failed — rolling back")
             db.rollback()
             raise
+
+    if total_tracks > 0:
+        _emit_link_progress(total_tracks)
 
     return report
 

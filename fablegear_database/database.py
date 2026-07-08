@@ -413,6 +413,45 @@ class FableGearDatabase:
             "processing_status": "relinked",
         })
 
+    def bulk_relink_content(
+        self,
+        updates: List[Tuple[int, str]],
+        *,
+        chunk_size: int = 500,
+    ) -> int:
+        """
+        Relink many records in bounded chunks to avoid per-row transactions.
+
+        Args:
+            updates: List of (record_id, new_path)
+            chunk_size: Rows per transaction chunk
+
+        Returns:
+            Number of rows relinked
+        """
+        if not updates:
+            return 0
+        if chunk_size < 1:
+            raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
+
+        sql = (
+            "UPDATE fg_content SET "
+            "  file_path = ?, "
+            "  file_name = ?, "
+            "  processing_status = 'relinked', "
+            "  updated_at = CURRENT_TIMESTAMP "
+            "WHERE id = ?"
+        )
+        total = 0
+        for i in range(0, len(updates), chunk_size):
+            chunk = updates[i:i + chunk_size]
+            rows = [(new_path, Path(new_path).name, int(record_id)) for record_id, new_path in chunk]
+            with self.transaction() as conn:
+                cursor = conn.cursor()
+                cursor.executemany(sql, rows)
+                total += cursor.rowcount if cursor.rowcount is not None else 0
+        return total
+
     def relink_converted(self, record_id: int, new_path: str) -> bool:
         """Repoint a record at its just-converted file (Rekordbox-style relocate)
         AND refresh the fields the conversion invalidated, so nothing goes stale.
@@ -795,6 +834,52 @@ class FableGearDatabase:
                 ),
             )
             return cursor.lastrowid
+
+    def bulk_log_operations(
+        self,
+        operations: List[Tuple[str, Optional[str], str, Optional[str], Optional[Dict[str, Any]]]],
+        *,
+        chunk_size: int = 500,
+    ) -> int:
+        """
+        Insert many fg_processing_log rows in bounded chunks.
+
+        Args:
+            operations: List of (operation_type, file_path, status, error_message, metadata)
+            chunk_size: Rows per transaction chunk
+
+        Returns:
+            Number of log rows inserted
+        """
+        if not operations:
+            return 0
+        if chunk_size < 1:
+            raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
+
+        import json  # noqa: PLC0415
+
+        sql = (
+            "INSERT INTO fg_processing_log "
+            "(operation_type, file_path, status, error_message, completed_at, metadata) "
+            "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)"
+        )
+        inserted = 0
+        for i in range(0, len(operations), chunk_size):
+            chunk = operations[i:i + chunk_size]
+            rows = [
+                (
+                    op_type,
+                    file_path,
+                    status,
+                    error_message,
+                    json.dumps(metadata) if metadata is not None else None,
+                )
+                for op_type, file_path, status, error_message, metadata in chunk
+            ]
+            with self.transaction() as conn:
+                conn.executemany(sql, rows)
+            inserted += len(rows)
+        return inserted
 
     def count_operations(self, operation_type: Optional[str] = None) -> int:
         """Count rows in the processing log, optionally by operation type."""
