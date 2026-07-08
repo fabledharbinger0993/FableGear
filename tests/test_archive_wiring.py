@@ -160,8 +160,9 @@ def test_relocate_with_archive_logs_operations(archive, tmp_path):
     # Set up minimal Rekordbox db mock
     class MockQuery:
         def all(self):
-            # Return one mock content row that will NOT match (to keep test simple)
-            # This exercises the archive block without needing filesystem setup
+            # Return one mock content row that is expected to match via exact
+            # strategy (the corresponding file is created in new_root below).
+            # This exercises the archive block without needing full filesystem setup.
             class MockContent:
                 ID = 1
                 FolderPath = str(old_root / "never_found.mp3")
@@ -189,11 +190,16 @@ def test_relocate_with_archive_logs_operations(archive, tmp_path):
     db = MockDb()
 
     # Before the fix, this raises AttributeError on the archive block.
-    # After the fix, it completes without error.
+    # After the fix, it completes without error and logs to the archive.
+    before = archive.count_operations("relocate")
     try:
         results = relocate_directory(old_root, new_root, db, archive=archive)
         # Success — no AttributeError raised
         assert isinstance(results, list), "relocate_directory should return a list"
+        # Verify the archive write that this test is named for
+        assert archive.count_operations("relocate") >= before + 1, (
+            "relocate_directory ran but appended nothing to fg_processing_log"
+        )
     except AttributeError as e:
         if "old_path" in str(e):
             pytest.fail(
