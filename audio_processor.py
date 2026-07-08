@@ -10,7 +10,8 @@ Operations per file (each independently skippable):
 4. Normalisation via ffmpeg volume filter if outside tolerance, in-place replacement
 
 Design rules:
-- Existing tags are NEVER overwritten unless force=True is passed
+- Existing tags are NEVER overwritten unless force=True (both) or the per-effect
+  force_bpm/force_key are passed
 - Original files are never deleted until the replacement is verified
 - All failures are logged and returned in ProcessResult; nothing crashes the batch
 - MP3s are re-encoded at 320kbps CBR if normalisation is applied
@@ -650,6 +651,8 @@ def process_file(
     detect_key: bool = True,
     normalise: bool = True,
     force: bool = False,
+    force_bpm: bool = False,
+    force_key: bool = False,
     enrich_tags: bool = False,
 ) -> ProcessResult:
     """Run the full analysis + normalisation pipeline on a single file."""
@@ -694,8 +697,11 @@ def process_file(
         return frame is not None and str(frame).strip() not in ("", "0")
 
     # ── Load audio once for BPM + key (shared decode) ──
-    needs_bpm = detect_bpm and not (_existing("TBPM", "bpm") and not force)
-    needs_key = detect_key and not (_existing("TKEY", "initialkey") and not force)
+    # Per-effect force: the global `force` still forces both (back-compat).
+    _force_bpm = force or force_bpm
+    _force_key = force or force_key
+    needs_bpm = detect_bpm and not (_existing("TBPM", "bpm") and not _force_bpm)
+    needs_key = detect_key and not (_existing("TKEY", "initialkey") and not _force_key)
     _audio: "tuple[np.ndarray, int] | None" = None
     if needs_bpm or needs_key:
         _audio = _load_audio_ffmpeg(path)
@@ -772,6 +778,8 @@ def process_directory(
     detect_key: bool = True,
     normalise: bool = True,
     force: bool = False,
+    force_bpm: bool = False,
+    force_key: bool = False,
     enrich_tags: bool = False,
     max_workers: int = 1,
     pause_seconds: float = 0.0,
@@ -784,7 +792,7 @@ def process_directory(
     ----------
     root : Path
         Directory to scan recursively.
-    detect_bpm, detect_key, normalise, force : bool
+    detect_bpm, detect_key, normalise, force, force_bpm, force_key : bool
         Passed through to process_file().
     max_workers : int
         Number of files to process in parallel. Default 1 (sequential).
@@ -908,6 +916,8 @@ def process_directory(
             detect_key=detect_key,
             normalise=normalise,
             force=force,
+            force_bpm=force_bpm,
+            force_key=force_key,
             enrich_tags=enrich_tags,
         )
         if r.errors:

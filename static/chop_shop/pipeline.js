@@ -317,6 +317,12 @@ function pipeWizSelectStep(i) {
       _wizUpdateProgress();
     });
   });
+  panel.querySelectorAll('input[type=checkbox]').forEach(el => {
+    el.addEventListener('change', () => {
+      _pipeWizReadDraft(step);
+      _wizUpdateProgress();
+    });
+  });
   // Wire drop zones — single-path inputs use setupDropZone; multi-path textareas use setupMultiDropZone
   panel.querySelectorAll('input[type=text]').forEach(setupDropZone);
   panel.querySelectorAll('textarea.pipe-cfg-input').forEach(setupMultiDropZone);
@@ -367,8 +373,16 @@ function _pipeWizConfigHTML(step, saved) {
     case 'audit':
       return multiPathRow('paths', 'Music folders (optional)', 'Choose or enter a music folder', false);
 
-    case 'process':
-      return multiPathRow('paths', 'Music folders', 'Choose or enter a music folder') + workersRow(4);
+    case 'process': {
+      const normChecked = saved && saved.no_normalize !== undefined ? !saved.no_normalize : false;
+      return multiPathRow('paths', 'Music folders', 'Choose or enter a music folder') + workersRow(4) + `
+        <div class="pipe-cfg-field">
+          <label class="checkbox-label">
+            <input type="checkbox" data-cfg="normalize" ${normChecked ? 'checked' : ''}>
+            Normalize loudness — re-encodes audio to a target volume
+          </label>
+        </div>`;
+    }
 
     case 'rename':
       return multiPathRow('paths', 'Folders to rename', 'Choose or enter a music folder') + workersRow(1);
@@ -454,6 +468,10 @@ function _pipeWizReadDraft(step) {
     if (!el) return [];
     return el.value.split('\n').map(s => s.trim()).filter(Boolean);
   };
+  const getChecked = (field, def = false) => {
+    const el = panel.querySelector(`[data-cfg="${field}"]`);
+    return el ? el.checked : def;
+  };
 
   const draft = {};
   switch (step.type) {
@@ -464,9 +482,9 @@ function _pipeWizReadDraft(step) {
     case 'link':
       draft.paths = getLines('paths'); break;
     case 'process':
-      draft.paths       = getLines('paths');
-      draft.workers     = getN('workers', 1);
-      draft.no_normalize = true; break;
+      draft.paths        = getLines('paths');
+      draft.workers      = getN('workers', 1);
+      draft.no_normalize  = !getChecked('normalize', false); break;
     case 'rename':
       draft.paths   = getLines('paths');
       draft.workers = getN('workers', 1); break;
@@ -583,9 +601,12 @@ function _resumeProcess(ckpt) {
   _populatePills('process-pills', ckpt.paths);
   document.getElementById('process-no-bpm').checked  = !!ckpt.no_bpm;
   document.getElementById('process-no-key').checked  = !!ckpt.no_key;
-  document.getElementById('process-force').checked   = false; // never force on resume
+  const _fb = document.getElementById('process-force-bpm'); if (_fb) _fb.checked = false; // never force on resume
+  const _fk = document.getElementById('process-force-key'); if (_fk) _fk.checked = false;
   const enrich = document.getElementById('process-enrich-tags');
   if (enrich) enrich.checked = !!ckpt.enrich_tags;
+  const norm = document.getElementById('process-normalize');
+  if (norm) norm.checked = !!ckpt.normalize;
   document.getElementById('step-process')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   runProcess();
 }
