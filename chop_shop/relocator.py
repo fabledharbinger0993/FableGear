@@ -324,7 +324,7 @@ def relocate_directory(
     if not new_root.is_dir():
         raise ValueError(f"new_root does not exist or is not a directory: {new_root}")
 
-    old_root_str = str(old_root)
+    old_root_str = str(old_root).rstrip(os.sep) + os.sep
     try:
         all_content = db.get_content().all()
         affected = [
