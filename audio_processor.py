@@ -650,6 +650,8 @@ def process_file(
     detect_key: bool = True,
     normalise: bool = True,
     force: bool = False,
+    force_bpm: bool = False,
+    force_key: bool = False,
     enrich_tags: bool = False,
 ) -> ProcessResult:
     """Run the full analysis + normalisation pipeline on a single file."""
@@ -694,8 +696,11 @@ def process_file(
         return frame is not None and str(frame).strip() not in ("", "0")
 
     # ── Load audio once for BPM + key (shared decode) ──
-    needs_bpm = detect_bpm and not (_existing("TBPM", "bpm") and not force)
-    needs_key = detect_key and not (_existing("TKEY", "initialkey") and not force)
+    # Per-effect force: the global `force` still forces both (back-compat).
+    _force_bpm = force or force_bpm
+    _force_key = force or force_key
+    needs_bpm = detect_bpm and not (_existing("TBPM", "bpm") and not _force_bpm)
+    needs_key = detect_key and not (_existing("TKEY", "initialkey") and not _force_key)
     _audio: "tuple[np.ndarray, int] | None" = None
     if needs_bpm or needs_key:
         _audio = _load_audio_ffmpeg(path)
