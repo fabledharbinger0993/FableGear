@@ -1,6 +1,8 @@
+import shutil
 import subprocess, sys
 from pathlib import Path
 
+import pytest
 from mutagen.id3 import ID3, TBPM, TKEY
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -10,8 +12,17 @@ if str(REPO_ROOT) not in sys.path:
 import audio_processor as ap
 
 
+def _require_ffmpeg() -> None:
+    """Audio fixtures are synthesized with ffmpeg (a hard runtime dependency of
+    the app itself); skip fixture-based tests on runners that lack it instead
+    of failing the whole suite with FileNotFoundError."""
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed — skipping audio-fixture test")
+
+
 def _silent_mp3_with_bpm(tmp_path: Path) -> Path:
     """1s silent MP3 tagged with an existing BPM, via ffmpeg + mutagen."""
+    _require_ffmpeg()
     p = tmp_path / "track.mp3"
     subprocess.run(
         ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
@@ -26,6 +37,7 @@ def _silent_mp3_with_bpm(tmp_path: Path) -> Path:
 
 def _silent_mp3_with_key(tmp_path: Path) -> Path:
     """1s silent MP3 tagged with an existing key, via ffmpeg + mutagen."""
+    _require_ffmpeg()
     p = tmp_path / "track_key.mp3"
     subprocess.run(
         ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
