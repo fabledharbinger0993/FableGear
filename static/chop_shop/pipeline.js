@@ -587,6 +587,8 @@ function _resumeProcess(ckpt) {
   const _fk = document.getElementById('process-force-key'); if (_fk) _fk.checked = false;
   const enrich = document.getElementById('process-enrich-tags');
   if (enrich) enrich.checked = !!ckpt.enrich_tags;
+  const norm = document.getElementById('process-normalize');
+  if (norm) norm.checked = !!ckpt.normalize;
   document.getElementById('step-process')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   runProcess();
 }
