@@ -612,6 +612,25 @@
         </div>
         <div id="archive-root-note" class="path-note"></div>
         <div class="ob-inline-note" id="archive-backup-note"></div>
+        <div class="ob-card" style="margin-top:12px;padding:12px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)">
+          <div class="ob-card-title" style="margin-bottom:8px">Snapshot protection</div>
+          <div class="path-row" style="border-bottom:none;padding:0;margin-bottom:10px">
+            <span class="path-label">Cadence</span>
+            <select class="ob-select" id="inp-snapshot-cadence">
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Bi-weekly</option>
+              <option value="monthly" selected>Monthly</option>
+              <option value="quarterly">Every 3 months</option>
+            </select>
+          </div>
+          <label class="ob-radio" style="padding:0;align-items:flex-start">
+            <input type="checkbox" id="inp-snapshot-master-db" style="margin-top:4px">
+            <div>
+              <strong>Include Rekordbox master.db snapshots</strong>
+              <small>Optional periodic copy of the local Rekordbox database for rollback safety.</small>
+            </div>
+          </label>
+        </div>
       </div>
 
     </div><!-- /scan-results -->
@@ -1187,6 +1206,8 @@ function confirmPaths() {
     backup_dir: (scanData && scanData.recommended_music_root === musicRoot && scanData.recommended_backup_dir)
       ? scanData.recommended_backup_dir
       : (archiveRoot ? archiveRoot + '/Savepoints' : ''),
+    snapshot_cadence: document.getElementById('inp-snapshot-cadence').value || 'monthly',
+    snapshot_include_master_db: document.getElementById('inp-snapshot-master-db').checked,
     db_read:  true,
     db_write: true,
     drive_scan: scanConsent === true,
@@ -1429,6 +1450,12 @@ function _buildSetupSummary() {
   msg += confirmedPaths.mcp_opted_in
     ? ' AI integration is ON (localhost MCP).'
     : ' AI integration is off — enable it any time in Settings.';
+  if (confirmedPaths.snapshot_cadence) {
+    msg += ' Snapshots: ' + confirmedPaths.snapshot_cadence + '.';
+    if (confirmedPaths.snapshot_include_master_db) {
+      msg += ' Includes master.db.';
+    }
+  }
   if (confirmedPaths._imported_summary) {
     msg += ' FableGear library seeded: ' + confirmedPaths._imported_summary + '.';
   }

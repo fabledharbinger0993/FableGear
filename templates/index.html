@@ -463,6 +463,28 @@
               <strong>Duplicate reports:</strong> CSV reports require a manual destination path each run.
             </div>
           </div>
+
+          <div class="settings-section-sep">
+            <label class="settings-excl-label" for="settings-snapshot-cadence">
+              Periodic snapshot cadence
+            </label>
+            <select id="settings-snapshot-cadence" class="settings-path-input">
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Bi-weekly</option>
+              <option value="monthly" selected>Monthly</option>
+              <option value="quarterly">Every 3 months</option>
+            </select>
+            <div class="settings-excl-note">
+              Controls how often FableGear writes a periodic savepoint snapshot in the archive.
+            </div>
+            <label class="settings-radio" style="margin-top:10px">
+              <input type="checkbox" id="settings-snapshot-master-db">
+              <div>
+                <div class="settings-radio-label">Include Rekordbox master.db snapshots</div>
+                <div class="settings-radio-desc">Also save a periodic copy of the local Rekordbox database alongside the savepoint.</div>
+              </div>
+            </label>
+          </div>
         </div>
       </div>
 
