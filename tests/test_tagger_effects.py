@@ -46,3 +46,21 @@ def test_force_bpm_overrides_existing_tag(tmp_path, monkeypatch):
     assert r.skipped_bpm is False
     assert r.bpm_detected == 128.0
     assert written.get("bpm") == 128.0
+
+
+def test_process_directory_forwards_per_effect_force(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_process_file(path, **kwargs):
+        captured.update(kwargs)
+        return ap.ProcessResult(path=path)
+
+    # one file so scan_directory yields something
+    (tmp_path / "a.mp3").write_bytes(b"\x00" * 32)
+    monkeypatch.setattr(ap, "process_file", fake_process_file)
+    monkeypatch.setattr("scanner.scan_directory",
+                        lambda root: [type("T", (), {"path": tmp_path / "a.mp3"})()])
+
+    ap.process_directory(tmp_path, force_bpm=True, force_key=False, normalise=False)
+    assert captured.get("force_bpm") is True
+    assert captured.get("force_key") is False

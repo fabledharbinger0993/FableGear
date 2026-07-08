@@ -777,6 +777,8 @@ def process_directory(
     detect_key: bool = True,
     normalise: bool = True,
     force: bool = False,
+    force_bpm: bool = False,
+    force_key: bool = False,
     enrich_tags: bool = False,
     max_workers: int = 1,
     pause_seconds: float = 0.0,
@@ -913,6 +915,8 @@ def process_directory(
             detect_key=detect_key,
             normalise=normalise,
             force=force,
+            force_bpm=force_bpm,
+            force_key=force_key,
             enrich_tags=enrich_tags,
         )
         if r.errors:
