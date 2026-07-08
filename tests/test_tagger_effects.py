@@ -1,8 +1,7 @@
 import subprocess, sys
 from pathlib import Path
 
-import pytest
-from mutagen.id3 import ID3, TBPM
+from mutagen.id3 import ID3, TBPM, TKEY
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -21,6 +20,20 @@ def _silent_mp3_with_bpm(tmp_path: Path) -> Path:
     )
     tags = ID3()
     tags.add(TBPM(encoding=3, text=["120"]))
+    tags.save(str(p))
+    return p
+
+
+def _silent_mp3_with_key(tmp_path: Path) -> Path:
+    """1s silent MP3 tagged with an existing key, via ffmpeg + mutagen."""
+    p = tmp_path / "track_key.mp3"
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+         "-t", "1", "-q:a", "9", str(p)],
+        check=True, capture_output=True,
+    )
+    tags = ID3()
+    tags.add(TKEY(encoding=3, text=["8A"]))
     tags.save(str(p))
     return p
 
@@ -46,6 +59,29 @@ def test_force_bpm_overrides_existing_tag(tmp_path, monkeypatch):
     assert r.skipped_bpm is False
     assert r.bpm_detected == 128.0
     assert written.get("bpm") == 128.0
+
+
+def test_existing_key_skipped_without_force(tmp_path, monkeypatch):
+    f = _silent_mp3_with_key(tmp_path)
+    monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: None)
+    r = ap.process_file(f, detect_bpm=False, detect_key=True, normalise=False)
+    assert r.skipped_key is True
+    assert r.key_written is False
+
+
+def test_force_key_overrides_existing_tag(tmp_path, monkeypatch):
+    f = _silent_mp3_with_key(tmp_path)
+    monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: ("AUDIO", 44100))
+    monkeypatch.setattr(ap, "_detect_key", lambda *a, **k: "3A")
+    written = {}
+    monkeypatch.setattr(ap, "_write_tags",
+                        lambda path, bpm=None, key=None: written.update(key=key))
+    r = ap.process_file(f, detect_bpm=False, detect_key=True, normalise=False,
+                        force_key=True)
+    assert r.skipped_key is False
+    assert r.key_written is True
+    assert r.key_detected == "3A"
+    assert written.get("key") == "3A"
 
 
 def test_process_directory_forwards_per_effect_force(tmp_path, monkeypatch):
