@@ -424,7 +424,7 @@ def relocate_directory(
         succeeded = [r for r in results if r.success]
         for r in succeeded:
             try:
-                old_path = str(r.old_path)
+                old_path = str(r.original_path)
                 new_path = str(r.new_path)
                 rec = archive.get_content_by_path(old_path)
                 if rec and rec.id is not None:
@@ -434,7 +434,7 @@ def relocate_directory(
                     metadata={"from": old_path, "strategy": r.strategy},
                 )
             except Exception as exc:
-                log.warning("Archive update failed for relocate %s: %s", r.old_path, exc)
+                log.warning("Archive update failed for relocate %s: %s", r.original_path, exc)
         archive.log_operation(
             "relocate_batch",
             metadata={

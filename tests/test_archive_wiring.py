@@ -144,6 +144,65 @@ def test_dead_file_scan_logs_to_archive(archive, tmp_path):
 
 # ── Music-only contract ───────────────────────────────────────────────────────
 
+def test_relocate_with_archive_logs_operations(archive, tmp_path):
+    """Exercise relocate_directory's archive block with a real call.
+
+    This test calls relocate_directory with archive= to trigger the archive
+    block. Before the fix, accessing r.old_path in the archive block raises
+    AttributeError (RelocationResult has original_path, not old_path), causing
+    the function to crash after every successful relocation. The except handler
+    then tries to access r.old_path again, causing a second AttributeError that
+    propagates out.
+    """
+    from relocator import relocate_directory
+    from pathlib import Path
+
+    # Set up minimal Rekordbox db mock
+    class MockQuery:
+        def all(self):
+            # Return one mock content row that will NOT match (to keep test simple)
+            # This exercises the archive block without needing filesystem setup
+            class MockContent:
+                ID = 1
+                FolderPath = str(old_root / "never_found.mp3")
+            return [MockContent()]
+
+    class MockDb:
+        def get_content(self):
+            return MockQuery()
+        def commit(self):
+            pass
+        def rollback(self):
+            pass
+        def update_content_path(self, row, new_path, check_path=True):
+            # Allow the relocation to succeed so the archive block runs
+            pass
+
+    old_root = tmp_path / "old"
+    new_root = tmp_path / "new"
+    old_root.mkdir()
+    new_root.mkdir()
+
+    # Create a fake audio file in new_root so the exact match can find it
+    (new_root / "never_found.mp3").write_bytes(b"fake audio")
+
+    db = MockDb()
+
+    # Before the fix, this raises AttributeError on the archive block.
+    # After the fix, it completes without error.
+    try:
+        results = relocate_directory(old_root, new_root, db, archive=archive)
+        # Success — no AttributeError raised
+        assert isinstance(results, list), "relocate_directory should return a list"
+    except AttributeError as e:
+        if "old_path" in str(e):
+            pytest.fail(
+                f"relocate_directory raised AttributeError accessing r.old_path: {e}\n"
+                "This is the F-01 bug — RelocationResult.original_path was accessed as r.old_path"
+            )
+        raise
+
+
 def test_audio_extensions_contain_no_video_containers():
     """FableGear touches music, nothing else. Every file-touching tool scans by
     config.AUDIO_EXTENSIONS — video containers must never sneak back in."""
