@@ -41,10 +41,10 @@ function updateScanBar(p) {
     return;
   }
   document.getElementById('sb-scanned-wrap').style.display = 'none';
-  document.getElementById('sb-remaining').textContent = p.remaining.toLocaleString();
-  document.getElementById('sb-clean').textContent     = p.clean.toLocaleString();
-  document.getElementById('sb-edited').textContent    = p.edited.toLocaleString();
-  document.getElementById('sb-errors').textContent    = p.errors.toLocaleString();
+  document.getElementById('sb-remaining').textContent = (p.remaining ?? 0).toLocaleString();
+  document.getElementById('sb-clean').textContent     = (p.clean ?? 0).toLocaleString();
+  document.getElementById('sb-edited').textContent    = (p.edited ?? 0).toLocaleString();
+  document.getElementById('sb-errors').textContent    = (p.errors ?? 0).toLocaleString();
   document.getElementById('sb-warnings').textContent  = scanWarnings.toLocaleString();
   if (p.quarantined > 0) {
     document.getElementById('sb-quarantined').textContent = p.quarantined.toLocaleString();
