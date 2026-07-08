@@ -1348,6 +1348,8 @@ def cmd_process(args: argparse.Namespace) -> None:
                 detect_key=detect_key,
                 normalise=normalise,
                 force=args.force,
+                force_bpm=getattr(args, "force_bpm", False),
+                force_key=getattr(args, "force_key", False),
                 max_workers=max(1, args.workers),
                 quarantine_dir=_quarantine_dir,
                 enrich_tags=args.enrich_tags,
@@ -2339,6 +2341,18 @@ Examples:
         help="Overwrite existing BPM/key tags",
     )
     p_process.add_argument(
+        "--force-bpm",
+        action="store_true",
+        dest="force_bpm",
+        help="Re-detect and overwrite BPM even if a BPM tag already exists",
+    )
+    p_process.add_argument(
+        "--force-key",
+        action="store_true",
+        dest="force_key",
+        help="Re-detect and overwrite key even if a key tag already exists",
+    )
+    p_process.add_argument(
         "--no-bpm",
         action="store_true",
         help="Skip BPM detection and tag writes",
@@ -2585,10 +2599,15 @@ Examples:
     return parser
 
 
+def build_parser() -> argparse.ArgumentParser:
+    """Public parser factory for testing and programmatic access."""
+    return _build_parser()
+
+
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = _build_parser()
+    parser = build_parser()
     args = parser.parse_args()
     _setup_logging(args.verbose)
 

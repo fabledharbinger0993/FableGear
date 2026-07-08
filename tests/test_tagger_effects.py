@@ -99,3 +99,11 @@ def test_journal_records_per_effect_counts(tmp_path):
     meta = json.loads(rows[-1][0])
     assert meta["normalized"] == 1
     assert meta["enrich_written"] == 1
+
+
+def test_cli_parser_has_per_effect_force():
+    import cli
+    parser = cli.build_parser()
+    ns = parser.parse_args(["process", "/tmp/x", "--force-bpm"])
+    assert ns.force_bpm is True
+    assert ns.force_key is False
