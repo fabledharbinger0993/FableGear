@@ -150,6 +150,26 @@ def test_onboarding_save_config_defaults_backup_to_archive_savepoints(client):
     assert cfg["snapshot_include_master_db"] is False
 
 
+def test_onboarding_save_config_persists_and_normalizes_snapshot_options(client):
+    music_root = "/Volumes/MainLibrary/Music Library"
+    r = client.post("/api/onboarding/save-config", json={
+        "local_db": "/tmp/local.db",
+        "device_db": "/tmp/device.db",
+        "music_root": music_root,
+        "db_read": True,
+        "db_write": False,
+        "snapshot_cadence": "  Weekly  ",  # mixed whitespace — should normalize to "weekly"
+        "snapshot_include_master_db": "yes",  # string bool — should coerce to True
+    })
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+    cfg = json.loads((Path(os.environ["HOME"]) / ".fablegear" / "config.json").read_text())
+    assert cfg["backup_dir"] == "/Volumes/MainLibrary/FableGear Archive/Savepoints"
+    assert cfg["snapshot_cadence"] == "weekly"
+    assert cfg["snapshot_include_master_db"] is True
+
+
 def test_api_config_uses_archive_reports_path(client):
     data = _hit(client, "/api/config", LOOPBACK).get_json()
     assert data["reports"].endswith("/FableGear Archive/Reports")
@@ -174,6 +194,69 @@ def test_api_settings_persists_snapshot_options(client):
     assert cfg["custom_archive_dir"] == "/Volumes/MainLibrary/Archives"
     assert cfg["snapshot_cadence"] == "weekly"
     assert cfg["snapshot_include_master_db"] is True
+
+
+@pytest.mark.parametrize(
+    "input_cadence, expected_cadence",
+    [
+        ("Monthly", "monthly"),       # case normalization
+        ("monthly ", "monthly"),      # trimming whitespace
+        ("bi-weekly", "biweekly"),    # hyphen stripped → "biweekly"
+        ("never", "monthly"),         # invalid falls back to default
+    ],
+)
+def test_api_settings_normalizes_snapshot_cadence(client, input_cadence, expected_cadence):
+    r = client.post(
+        "/api/settings",
+        json={
+            "archive_mode": "custom",
+            "custom_archive_dir": "/Volumes/MainLibrary/Archives",
+            "snapshot_cadence": input_cadence,
+            "snapshot_include_master_db": False,
+            "excluded_dirs": [],
+            "acoustid_api_key": "",
+        },
+    )
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+    cfg = json.loads((Path(os.environ["HOME"]) / ".fablegear" / "config.json").read_text())
+    assert cfg["snapshot_cadence"] == expected_cadence
+    assert cfg["snapshot_include_master_db"] is False
+
+
+@pytest.mark.parametrize(
+    "input_value, expected_bool",
+    [
+        ("yes", True),
+        ("YES", True),
+        ("no", False),
+        ("No", False),
+        (1, True),
+        (0, False),
+        (True, True),
+        (False, False),
+        (None, False),  # falls back to default False
+    ],
+)
+def test_api_settings_coerces_snapshot_include_master_db(client, input_value, expected_bool):
+    r = client.post(
+        "/api/settings",
+        json={
+            "archive_mode": "custom",
+            "custom_archive_dir": "/Volumes/MainLibrary/Archives",
+            "snapshot_cadence": "monthly",
+            "snapshot_include_master_db": input_value,
+            "excluded_dirs": [],
+            "acoustid_api_key": "",
+        },
+    )
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+    cfg = json.loads((Path(os.environ["HOME"]) / ".fablegear" / "config.json").read_text())
+    assert cfg["snapshot_cadence"] == "monthly"
+    assert cfg["snapshot_include_master_db"] is expected_bool
 
 
 def test_api_error_contract_is_sanitized(client, monkeypatch):

@@ -41,7 +41,21 @@ def _load_state() -> dict:
     path = _state_path()
     try:
         return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        # State file does not exist yet; treat as "never run"
+        return {}
+    except json.JSONDecodeError:
+        log.warning(
+            "Snapshot state file %s contains invalid JSON; ignoring state and treating as empty.",
+            path,
+        )
+        return {}
     except Exception:
+        # Unexpected errors (permissions, corruption, etc.) are logged for diagnosis
+        log.exception(
+            "Unexpected error while loading snapshot state from %s; treating state as empty.",
+            path,
+        )
         return {}
 
 
@@ -80,17 +94,20 @@ def _perform_snapshot() -> dict:
 
     timestamp = _now().strftime("%Y%m%d_%H%M%S")
     paths: list[str] = []
+    errors: list[str] = []
 
     try:
         paths.append(_snapshot_device_db())
     except Exception as exc:
         log.warning("snapshot_scheduler: device DB snapshot failed — %s", exc)
+        errors.append(f"device DB: {exc}")
 
     if SNAPSHOT_INCLUDE_MASTER_DB:
         try:
             paths.append(_snapshot_master_db(timestamp))
         except Exception as exc:
             log.warning("snapshot_scheduler: master.db snapshot failed — %s", exc)
+            errors.append(f"master DB: {exc}")
 
     if not paths:
         raise RuntimeError("No snapshot files were written")
@@ -99,7 +116,7 @@ def _perform_snapshot() -> dict:
         "last_run": _now().isoformat(),
         "last_interval_seconds": SNAPSHOT_INTERVAL_SECONDS,
         "last_paths": paths,
-        "last_error": None,
+        "last_error": "; ".join(errors) if errors else None,
     }
     with _state_lock:
         _status.update(payload)
