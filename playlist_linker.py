@@ -4,10 +4,6 @@ fablegear / playlist_linker.py
 Links imported tracks to existing Rekordbox playlists by matching
 filesystem folder names to playlist names already in the database.
 
-The 2,190 playlists in this DB were created from the folder structure —
-artist folders, label folders, VA compilations — so their names correspond
-directly to directory names in the configured music library.
-
 Matching strategy per track:
   1. Walk up the path (from immediate parent toward MUSIC_ROOT)
   2. For each folder name, try exact match against playlist names
@@ -239,7 +235,7 @@ def link_track(
     track_path: Path,
     content_row: object,
     db: Rekordbox6Database,
-    index: dict[str, object],
+    index: dict[str, list[object]],
     playlist_names_lower: list[str],
     music_root: Path = MUSIC_ROOT,
     *,
