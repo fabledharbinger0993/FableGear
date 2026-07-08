@@ -638,6 +638,8 @@ def _persist_process_results(all_results, archive) -> int:
                 "analysis_persisted": written,
                 "bpm_written": sum(1 for r in all_results if r.bpm_written),
                 "key_written": sum(1 for r in all_results if r.key_written),
+                "normalized": sum(1 for r in all_results if r.normalised),
+                "enrich_written": sum(1 for r in all_results if r.enrich_written),
                 "errors": sum(1 for r in all_results if not r.ok),
             },
         )

@@ -64,3 +64,38 @@ def test_process_directory_forwards_per_effect_force(tmp_path, monkeypatch):
     ap.process_directory(tmp_path, force_bpm=True, force_key=False, normalise=False)
     assert captured.get("force_bpm") is True
     assert captured.get("force_key") is False
+
+
+def test_journal_records_per_effect_counts(tmp_path):
+    import sys
+    from pathlib import Path
+    REPO_ROOT = Path(__file__).resolve().parent.parent
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    if str(REPO_ROOT / "chop_shop") not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT / "chop_shop"))
+
+    import cli
+    from fablegear_database.database import FableGearDatabase
+    from fablegear_database.schema import DatabaseConfig
+    import json
+
+    archive = FableGearDatabase(DatabaseConfig(db_path=tmp_path / "archive.db"))
+    r1 = ap.ProcessResult(path=tmp_path / "a.mp3", bpm_detected=120.0,
+                          bpm_written=True, normalised=True)
+    r2 = ap.ProcessResult(path=tmp_path / "b.mp3", key_detected="8A",
+                          key_written=True, enrich_written=True)
+    cli._persist_process_results([r1, r2], archive)
+
+    # Read the fg_processing_log directly to get the metadata
+    with archive.connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT metadata FROM fg_processing_log WHERE operation_type='tag_tracks'"
+        )
+        rows = cursor.fetchall()
+
+    assert len(rows) > 0, "No tag_tracks operation found in log"
+    meta = json.loads(rows[-1][0])
+    assert meta["normalized"] == 1
+    assert meta["enrich_written"] == 1
