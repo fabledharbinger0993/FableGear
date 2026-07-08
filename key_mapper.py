@@ -149,6 +149,11 @@ def _get_or_create_key_row(scale_name: str, db: Rekordbox6Database) -> str:
     Returns str. Raises ValueError if scale_name is not in CANONICAL_SCALE_NAMES.
     """
     with _key_id_cache_lock:
+        if scale_name not in CANONICAL_SCALE_NAMES:
+            raise ValueError(
+                f"Cannot create DjmdKey row for unknown scale name: {scale_name!r}"
+            )
+
         if scale_name in _key_id_cache:
             return _key_id_cache[scale_name]
 
@@ -156,11 +161,6 @@ def _get_or_create_key_row(scale_name: str, db: Rekordbox6Database) -> str:
         if existing is not None:
             _key_id_cache[scale_name] = str(existing.ID)
             return str(existing.ID)
-
-        if scale_name not in CANONICAL_SCALE_NAMES:
-            raise ValueError(
-                f"Cannot create DjmdKey row for unknown scale name: {scale_name!r}"
-            )
 
         # _next_seq must run inside this same critical section (see its
         # docstring) — that is the F-13 fix.
