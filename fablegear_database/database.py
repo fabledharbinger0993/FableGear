@@ -413,6 +413,45 @@ class FableGearDatabase:
             "processing_status": "relinked",
         })
 
+    def bulk_relink_content(
+        self,
+        updates: List[Tuple[int, str]],
+        *,
+        chunk_size: int = 500,
+    ) -> int:
+        """
+        Relink many records in bounded chunks to avoid per-row transactions.
+
+        Args:
+            updates: List of (record_id, new_path)
+            chunk_size: Rows per transaction chunk
+
+        Returns:
+            Number of rows relinked
+        """
+        if not updates:
+            return 0
+        if chunk_size < 1:
+            raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
+
+        sql = (
+            "UPDATE fg_content SET "
+            "  file_path = ?, "
+            "  file_name = ?, "
+            "  processing_status = 'relinked', "
+            "  updated_at = CURRENT_TIMESTAMP "
+            "WHERE id = ?"
+        )
+        total = 0
+        for i in range(0, len(updates), chunk_size):
+            chunk = updates[i:i + chunk_size]
+            rows = [(new_path, Path(new_path).name, int(record_id)) for record_id, new_path in chunk]
+            with self.transaction() as conn:
+                cursor = conn.cursor()
+                cursor.executemany(sql, rows)
+                total += cursor.rowcount if cursor.rowcount is not None else 0
+        return total
+
     def relink_converted(self, record_id: int, new_path: str) -> bool:
         """Repoint a record at its just-converted file (Rekordbox-style relocate)
         AND refresh the fields the conversion invalidated, so nothing goes stale.
@@ -842,38 +881,56 @@ class FableGearDatabase:
 
     def bulk_log_operations(
         self,
-        operations: list[dict],
+        operations: list[tuple[str, str | None, str, str | None, dict[str, Any] | None]] | list[dict[str, Any]],
         chunk_size: int = 500,
     ) -> int:
         """
         Insert multiple audit-log rows in bounded chunks.
 
-        Each item in ``operations`` is a dict with the same keys accepted by
-        :meth:`log_operation`: ``operation_type`` (required), ``file_path``,
-        ``status``, ``error_message``, ``metadata``.
+        Each operation may be either a tuple
+        ``(operation_type, file_path, status, error_message, metadata)``
+        or a dict with keys accepted by :meth:`log_operation`.
 
         Args:
-            operations: List of operation dicts.
+            operations: List of operation tuples or dicts.
             chunk_size: Maximum rows per executemany call.
 
         Returns:
             Total number of rows inserted.
         """
-        import json as _json  # noqa: PLC0415
+        if not operations:
+            return 0
+        if chunk_size < 1:
+            raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
+
+        import json  # noqa: PLC0415
 
         total = 0
         for start in range(0, len(operations), chunk_size):
             chunk = operations[start : start + chunk_size]
-            rows = [
-                (
-                    op["operation_type"],
-                    op.get("file_path"),
-                    op.get("status", "ok"),
-                    op.get("error_message"),
-                    _json.dumps(op["metadata"]) if op.get("metadata") is not None else None,
-                )
-                for op in chunk
-            ]
+            rows = []
+            for op in chunk:
+                if isinstance(op, dict):
+                    rows.append(
+                        (
+                            op["operation_type"],
+                            op.get("file_path"),
+                            op.get("status", "ok"),
+                            op.get("error_message"),
+                            json.dumps(op["metadata"]) if op.get("metadata") is not None else None,
+                        )
+                    )
+                else:
+                    op_type, file_path, status, error_message, metadata = op
+                    rows.append(
+                        (
+                            op_type,
+                            file_path,
+                            status,
+                            error_message,
+                            json.dumps(metadata) if metadata is not None else None,
+                        )
+                    )
             with self.transaction() as conn:
                 cursor = conn.cursor()
                 cursor.executemany(

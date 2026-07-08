@@ -60,7 +60,6 @@ from config import (
     SKIP_DIRS,
     SKIP_PREFIXES,
 )
-
 # Format-quality ranking, reused from pruner.py's FORMAT_TIER so relocator's
 # fuzzy-collision tie-break agrees with the same "higher = better" ordering
 # duplicate-pruning uses elsewhere. pruner.py's module-level imports are
@@ -415,6 +414,8 @@ def relocate_directory(
     def _emit_reloc_progress(processed: int) -> None:
         print(
             "FABLEGEAR_PROGRESS: " + json.dumps({
+                "done":      processed,
+                "total":     total_affected,
                 "remaining": total_affected - processed,
                 "clean":     not_found_count,
                 "edited":    succeeded_count,
@@ -471,6 +472,9 @@ def relocate_directory(
             db.rollback()
             raise
 
+    if total_affected > 0:
+        _emit_reloc_progress(total_affected)
+
     by_strategy: dict[str, int] = {}
     for r in results:
         by_strategy[r.strategy] = by_strategy.get(r.strategy, 0) + 1
@@ -485,22 +489,54 @@ def relocate_directory(
     _emit_reloc_progress(total_affected)  # final emit — ensures UI reflects 100%
 
     if archive is not None:
-        succeeded_list = [r for r in results if r.success]
-        for chunk_start in range(0, len(succeeded_list), _ARCHIVE_CHUNK_SIZE):
-            chunk = succeeded_list[chunk_start : chunk_start + _ARCHIVE_CHUNK_SIZE]
-            for r in chunk:
-                try:
-                    old_path = str(r.original_path)
-                    new_path = str(r.new_path)
-                    rec = archive.get_content_by_path(old_path)
-                    if rec and rec.id is not None:
-                        archive.relink_content(rec.id, new_path)
-                    archive.log_operation(
-                        "relocate", new_path, status="ok",
-                        metadata={"from": old_path, "strategy": r.strategy},
-                    )
-                except Exception as exc:
-                    log.warning("Archive update failed for relocate %s: %s", r.original_path, exc)
+        pending_relinks: list[tuple[int, str]] = []
+        pending_logs: list[tuple[str, str, str, None, dict[str, str]]] = []
+
+        def _flush_archive_chunk() -> None:
+            if not pending_relinks and not pending_logs:
+                return
+            try:
+                if pending_relinks:
+                    if hasattr(archive, "bulk_relink_content"):
+                        archive.bulk_relink_content(pending_relinks, chunk_size=_ARCHIVE_CHUNK_SIZE)
+                    else:
+                        for rec_id, new_path in pending_relinks:
+                            archive.relink_content(rec_id, new_path)
+                if pending_logs:
+                    if hasattr(archive, "bulk_log_operations"):
+                        archive.bulk_log_operations(pending_logs, chunk_size=_ARCHIVE_CHUNK_SIZE)
+                    else:
+                        for op_type, file_path, status, error_message, metadata in pending_logs:
+                            archive.log_operation(
+                                op_type,
+                                file_path,
+                                status=status,
+                                error_message=error_message,
+                                metadata=metadata,
+                            )
+            except Exception as exc:
+                log.warning("Archive batch update failed: %s", exc)
+            finally:
+                pending_relinks.clear()
+                pending_logs.clear()
+
+        for r in results:
+            if not r.success or r.new_path is None:
+                continue
+            old_path = str(r.original_path)
+            new_path = str(r.new_path)
+            try:
+                rec = archive.get_content_by_path(old_path)
+                if rec and rec.id is not None:
+                    pending_relinks.append((int(rec.id), new_path))
+                pending_logs.append(
+                    ("relocate", new_path, "ok", None, {"from": old_path, "strategy": r.strategy})
+                )
+                if len(pending_logs) >= _ARCHIVE_CHUNK_SIZE:
+                    _flush_archive_chunk()
+            except Exception as exc:
+                log.warning("Archive update failed for relocate %s: %s", old_path, exc)
+        _flush_archive_chunk()
         archive.log_operation(
             "relocate_batch",
             metadata={

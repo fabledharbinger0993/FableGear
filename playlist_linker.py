@@ -23,9 +23,8 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
-
 from time import monotonic
+from typing import TYPE_CHECKING
 
 from pyrekordbox import Rekordbox6Database
 
@@ -54,6 +53,8 @@ _FUZZY_CUTOFF: float = 0.85
 # Reviewers should verify the sample output and tighten this if false positives
 # appear in practice.
 _FUZZY_MAX_MATCHES: int = 3
+_UNMATCHED_WARN_SAMPLE: int = 10
+_UNMATCHED_WARN_EVERY: int = 500
 
 
 # ─── Result types ─────────────────────────────────────────────────────────────
@@ -470,7 +471,10 @@ def link_directory(
             batch_count += len(result.playlist_ids_linked)
         else:
             report.unmatched += 1
-            log.warning("No playlist match for: %s", track_path.name)
+            if report.unmatched <= _UNMATCHED_WARN_SAMPLE:
+                log.warning("No playlist match for: %s", track_path.name)
+            elif report.unmatched % _UNMATCHED_WARN_EVERY == 0:
+                log.warning("No playlist match count now at %d tracks", report.unmatched)
 
         processed = i + 1
         now = monotonic()

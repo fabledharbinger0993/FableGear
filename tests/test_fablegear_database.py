@@ -157,6 +157,40 @@ def test_update_content(db):
     assert got.genre == "House"
 
 
+def test_bulk_relink_content_is_chunked_and_updates_rows(db):
+    rid1 = db.insert_content(_track("/music/a.mp3", title="A"))
+    rid2 = db.insert_content(_track("/music/b.mp3", title="B"))
+    rid3 = db.insert_content(_track("/music/c.mp3", title="C"))
+
+    updated = db.bulk_relink_content(
+        [
+            (rid1, "/new/a.mp3"),
+            (rid2, "/new/b.mp3"),
+            (rid3, "/new/c.mp3"),
+        ],
+        chunk_size=2,
+    )
+    assert updated == 3
+    assert db.get_content_by_path("/new/a.mp3") is not None
+    assert db.get_content_by_path("/new/b.mp3") is not None
+    assert db.get_content_by_path("/new/c.mp3") is not None
+
+
+def test_bulk_log_operations_inserts_all_rows(db):
+    inserted = db.bulk_log_operations(
+        [
+            ("relocate", "/new/a.mp3", "ok", None, {"from": "/old/a.mp3"}),
+            ("relocate", "/new/b.mp3", "ok", None, {"from": "/old/b.mp3"}),
+            ("relocate", "/new/c.mp3", "ok", None, {"from": "/old/c.mp3"}),
+            ("relocate", "/new/d.mp3", "ok", None, {"from": "/old/d.mp3"}),
+            ("relocate", "/new/e.mp3", "ok", None, {"from": "/old/e.mp3"}),
+        ],
+        chunk_size=2,
+    )
+    assert inserted == 5
+    assert db.count_operations("relocate") == 5
+
+
 def test_unique_file_path_constraint(db):
     db.insert_content(_track("/music/dup.mp3"))
     import sqlite3

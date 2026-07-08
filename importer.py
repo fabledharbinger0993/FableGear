@@ -449,7 +449,6 @@ def import_directory(
     total = len(tracks)
 
     _last_progress_emit = monotonic()
-    _p_count = 0
 
     def _emit_import_progress() -> None:
         done = report.total_attempted  # imported + skipped + resumed + failed
