@@ -427,20 +427,33 @@ def import_directory(
     # progress plus what we commit now). Used to save progress after each batch.
     committed_set: set[str] = set(done_set)
 
+    # Materialize the scan up front so the scan bar gets an honest `total`.
+    # This is the same single metadata-extraction pass the streaming loop
+    # would have done anyway (scan_directory is only ever consumed once per
+    # import_directory() call) — it's just eagerly completed instead of
+    # streamed, exactly like audio_processor.py's process_directory() already
+    # does for the same libraries (`tracks = list(scan_directory(root))`).
+    tracks = list(scan_directory(root))
+    total = len(tracks)
+
     # Running counters for live scan bar progress
     _p_count = 0
 
     def _emit_import_progress() -> None:
+        done = report.total_attempted  # imported + skipped + resumed + failed
         print(
             "FABLEGEAR_PROGRESS: " + json.dumps({
-                "clean":  report.skipped + report.resumed,
-                "edited": report.imported,
-                "errors": report.failed,
+                "done":      done,
+                "total":     total,
+                "remaining": total - done,
+                "clean":     report.skipped + report.resumed,
+                "edited":    report.imported,
+                "errors":    report.failed,
             }),
             flush=True,
         )
 
-    for track in scan_directory(root):
+    for track in tracks:
         if not track.is_valid:
             r = TrackImportResult(path=track.path, error="invalid or unreadable file")
             report.results.append(r)
