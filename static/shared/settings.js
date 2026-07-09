@@ -48,7 +48,7 @@ function openSettings() {
     const excluded = Array.isArray(cfg.excluded_dirs) ? cfg.excluded_dirs : [];
     document.getElementById('settings-excluded-dirs').value = excluded.join('\n');
     const acoustidEl = document.getElementById('settings-acoustid-key');
-    if (acoustidEl) acoustidEl.value = cfg.acoustid_api_key || '';
+    if (acoustidEl && cfg.acoustid_api_key_configured) acoustidEl.placeholder = 'Configured — enter a new key to replace it';
     _settingsUpdateUI(mode);
     // Populate paths tab
     const pathFields = {
