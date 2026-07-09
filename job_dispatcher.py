@@ -903,20 +903,33 @@ def _read_text_payload(path: Path) -> str:
 
 def _prune_checkpoint_archive(checkpoint_dir: Path, tool: str) -> None:
     """Keep recent checkpoints local and roll older ones into monthly archive folders."""
+    prefix = f"{tool}_"
     try:
         active_files = [p for p in checkpoint_dir.glob(f"{tool}_*.json.gz") if p.is_file()]
     except OSError:
         return
     grouped: dict[str, list[Path]] = defaultdict(list)
     for path in active_files:
-        parts = path.name.split("_", 3)
-        if len(parts) < 4:
+        # Filename shape: {tool}_{scope_hash}_{ts}_{job_id}.json.gz. Tool names
+        # contain underscores (organize_library, rename_files), so strip the
+        # known tool prefix instead of splitting on "_" blindly, and require
+        # the hash-token shape so a prefix-colliding tool (glob "scan_*" also
+        # matches scan_library_*) can't be grouped into the wrong scope.
+        scope_hash = path.name[len(prefix):].split("_", 1)[0]
+        if scope_hash != "global" and not re.fullmatch(r"[0-9a-f]{8}", scope_hash):
             continue
-        scope_hash = parts[1]
         grouped[scope_hash].append(path)
 
+    def _mtime_or_zero(p: Path) -> float:
+        # A concurrently deleted file must not blow up the prune — this runs
+        # on the job-completion path.
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            return 0.0
+
     for scope_hash, paths in grouped.items():
-        paths.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        paths.sort(key=_mtime_or_zero, reverse=True)
         for path in paths[CHECKPOINT_RECENT_LIMIT:]:
             try:
                 mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)

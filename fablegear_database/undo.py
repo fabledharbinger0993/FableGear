@@ -52,7 +52,18 @@ class TransactionRecord:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TransactionRecord":
-        """Create TransactionRecord from dictionary."""
+        """Create TransactionRecord from dictionary.
+
+        JSON round-trips coerce the int record-id keys of before_state /
+        after_state to strings; normalize them back so undo_transaction's
+        `record_id in before_state` lookups (int keys) still match after a
+        reload from disk.
+        """
+        data = dict(data)
+        for state_key in ("before_state", "after_state"):
+            state = data.get(state_key)
+            if isinstance(state, dict):
+                data[state_key] = {int(k): v for k, v in state.items()}
         return cls(**data)
 
 
@@ -81,32 +92,38 @@ class TransactionHistory:
         self._load_history()
     
     def _load_history(self) -> None:
-        """Load transaction history from file."""
-        path = self._history_file if self._history_file.exists() else self._legacy_history_file
-        if not path.exists():
-            return
-        
-        try:
-            if path.suffix == ".gz":
-                with gzip.open(path, "rt", encoding="utf-8") as f:
-                    data = json.load(f)
-            else:
-                with open(path, "r") as f:
-                    data = json.load(f)
-            
-            self._transactions = [
-                TransactionRecord.from_dict(item) for item in data
-            ]
-            
-            # Trim to max history
-            if len(self._transactions) > self.max_history:
-                self._transactions = self._transactions[-self.max_history:]
-            
-            log.info("Loaded %d transactions from history", len(self._transactions))
-            
-        except Exception as exc:
-            log.error("Failed to load transaction history: %s", exc)
-            self._transactions = []
+        """Load transaction history from file.
+
+        Tries the compressed file first, then the legacy .json — a corrupt
+        .gz must not wipe the rollback history when an intact legacy file
+        is still on disk.
+        """
+        self._transactions = []
+        for path in (self._history_file, self._legacy_history_file):
+            if not path.exists():
+                continue
+            try:
+                if path.suffix == ".gz":
+                    with gzip.open(path, "rt", encoding="utf-8") as f:
+                        data = json.load(f)
+                else:
+                    with open(path, "r") as f:
+                        data = json.load(f)
+
+                self._transactions = [
+                    TransactionRecord.from_dict(item) for item in data
+                ]
+
+                # Trim to max history
+                if len(self._transactions) > self.max_history:
+                    self._transactions = self._transactions[-self.max_history:]
+
+                log.info("Loaded %d transactions from history", len(self._transactions))
+                return
+
+            except Exception as exc:
+                log.error("Failed to load transaction history from %s: %s", path, exc)
+                self._transactions = []
     
     def _save_history(self) -> None:
         """Save transaction history to file."""
@@ -114,8 +131,12 @@ class TransactionHistory:
             self._history_file.parent.mkdir(parents=True, exist_ok=True)
             
             data = [t.to_dict() for t in self._transactions]
-            with gzip.open(self._history_file, "wt", encoding="utf-8") as f:
+            # Atomic write: this file is the rollback record store, and once
+            # the legacy .json is gone a torn write would leave no fallback.
+            tmp = self._history_file.with_name(self._history_file.name + ".tmp")
+            with gzip.open(tmp, "wt", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
+            tmp.replace(self._history_file)
             self._legacy_history_file.unlink(missing_ok=True)
             
         except Exception as exc:
@@ -185,14 +206,34 @@ class TransactionHistory:
         
         try:
             # Restore before state for each affected record
+            restored = 0
             for record_id in transaction.affected_records:
                 if record_id in transaction.before_state:
                     before_state = transaction.before_state[record_id]
                     self.database.update_content(record_id, before_state)
-            
-            log.info("Undid transaction %s: %s", transaction_id, transaction.description)
+                    restored += 1
+                else:
+                    log.warning(
+                        "Undo %s: no before-state for record %s — skipped",
+                        transaction_id, record_id,
+                    )
+
+            if transaction.affected_records and restored == 0:
+                # Nothing actually restored — reporting success here would
+                # tell the user their rollback worked when it did not.
+                log.error(
+                    "Undo %s restored 0 of %d records; refusing to report success",
+                    transaction_id, len(transaction.affected_records),
+                )
+                return False
+
+            log.info(
+                "Undid transaction %s (%d/%d records): %s",
+                transaction_id, restored, len(transaction.affected_records),
+                transaction.description,
+            )
             return True
-            
+
         except Exception as exc:
             log.error("Failed to undo transaction %s: %s", transaction_id, exc)
             return False

@@ -17,6 +17,11 @@ Subprocess notes:
   ``_detect_storage_type`` and ``_has_gpu`` spawn short-lived ``system_profiler``
   (macOS) or ``/sys/block`` reads (Linux) with a 3-second hard timeout. Both
   fail silently so a missing or slow system_profiler never blocks startup.
+  Their results are cached in ~/.fablegear/hardware_probe_cache.json for 24
+  hours — hardware doesn't change between runs, and every dispatched CLI job
+  subprocess imports this module, so uncached probes would tax each job with
+  up to two system_profiler spawns. RAM and CPU stay live (psutil, no
+  subprocess) because available RAM drives tier selection.
 """
 from __future__ import annotations
 
@@ -24,6 +29,7 @@ import json
 import logging
 import platform
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -67,6 +73,39 @@ class SystemProfile:
     source: str         # "override" | "detected" | "fallback"
 
 
+# ─── Hardware probe cache ─────────────────────────────────────────────────────
+# Storage type and GPU presence don't change between runs, but probing them
+# spawns system_profiler (up to 3s each). Cache on disk so only the first
+# process of the day pays; all cache failures degrade to a fresh probe.
+
+_HW_CACHE_PATH = Path.home() / ".fablegear" / "hardware_probe_cache.json"
+_HW_CACHE_TTL_SECONDS = 24 * 3600.0
+
+
+def _hw_cache_load() -> dict:
+    try:
+        if _HW_CACHE_PATH.exists():
+            if time.time() - _HW_CACHE_PATH.stat().st_mtime < _HW_CACHE_TTL_SECONDS:
+                data = json.loads(_HW_CACHE_PATH.read_text())
+                if isinstance(data, dict):
+                    return data
+    except Exception:
+        pass
+    return {}
+
+
+def _hw_cache_store(key: str, value) -> None:
+    try:
+        data = _hw_cache_load()
+        data[key] = value
+        _HW_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _HW_CACHE_PATH.with_name(_HW_CACHE_PATH.name + ".tmp")
+        tmp.write_text(json.dumps(data))
+        tmp.replace(_HW_CACHE_PATH)
+    except Exception:
+        pass
+
+
 # ─── Hardware probe helpers ───────────────────────────────────────────────────
 
 def _available_ram_gb() -> float:
@@ -94,8 +133,15 @@ def _detect_storage_type() -> str:
     - macOS: parses ``system_profiler SPStorageDataType -detailLevel mini``
     - Linux: reads ``/sys/block/<dev>/queue/rotational``
     - All other platforms / any error: returns ``"unknown"``
+
+    Conclusive results are cached for 24h (see _HW_CACHE_PATH).
     """
+    cached = _hw_cache_load().get("storage_type")
+    if cached in ("ssd", "hdd"):
+        return cached
+
     system = platform.system()
+    result_type = "unknown"
     try:
         if system == "Darwin":
             result = subprocess.run(
@@ -105,9 +151,9 @@ def _detect_storage_type() -> str:
                 timeout=3,
             )
             if "Solid State: Yes" in result.stdout:
-                return "ssd"
-            if "Solid State: No" in result.stdout:
-                return "hdd"
+                result_type = "ssd"
+            elif "Solid State: No" in result.stdout:
+                result_type = "hdd"
 
         elif system == "Linux":
             block = Path("/sys/block")
@@ -116,11 +162,14 @@ def _detect_storage_type() -> str:
                     rotational_path = dev / "queue" / "rotational"
                     if rotational_path.exists():
                         rotational = rotational_path.read_text().strip()
-                        return "hdd" if rotational == "1" else "ssd"
+                        result_type = "hdd" if rotational == "1" else "ssd"
+                        break
 
     except Exception:
         pass
-    return "unknown"
+    if result_type != "unknown":
+        _hw_cache_store("storage_type", result_type)
+    return result_type
 
 
 def _has_gpu() -> bool:
@@ -130,7 +179,13 @@ def _has_gpu() -> bool:
     - macOS: parses ``system_profiler SPDisplaysDataType -detailLevel mini``
     - Other platforms: probes ``nvidia-smi``
     - Any error: returns False
+
+    Results are cached for 24h (see _HW_CACHE_PATH).
     """
+    cached = _hw_cache_load().get("gpu_available")
+    if isinstance(cached, bool):
+        return cached
+
     system = platform.system()
     try:
         if system == "Darwin":
@@ -140,7 +195,7 @@ def _has_gpu() -> bool:
                 text=True,
                 timeout=3,
             )
-            return "Chipset Model" in result.stdout
+            gpu = "Chipset Model" in result.stdout
         else:
             result = subprocess.run(
                 ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
@@ -148,9 +203,11 @@ def _has_gpu() -> bool:
                 text=True,
                 timeout=3,
             )
-            return result.returncode == 0 and bool(result.stdout.strip())
+            gpu = result.returncode == 0 and bool(result.stdout.strip())
     except Exception:
         return False
+    _hw_cache_store("gpu_available", gpu)
+    return gpu
 
 
 def _read_user_overrides() -> dict:
@@ -174,6 +231,24 @@ def _read_user_overrides() -> dict:
     except Exception:
         pass
     return {}
+
+
+def _override_value(overrides: dict, key: str, fallback, cast):
+    """
+    Coerce one user override, keeping the detected value when the entry is
+    missing or malformed. This runs at import time, so a typo in
+    ~/.fablegear/config.json must never raise.
+    """
+    if key not in overrides:
+        return fallback
+    try:
+        return cast(overrides[key])
+    except (TypeError, ValueError):
+        log.warning(
+            "system_probe: ignoring invalid performance override %s=%r (expected %s)",
+            key, overrides[key], cast.__name__,
+        )
+        return fallback
 
 
 # ─── Main detection ───────────────────────────────────────────────────────────
@@ -219,12 +294,21 @@ def detect_system_profile() -> SystemProfile:
     source = "detected"
 
     if overrides:
-        batch_size             = int(overrides.get("batch_size",             batch_size))
-        archive_chunk_size     = int(overrides.get("archive_chunk_size",     archive_chunk_size))
-        progress_item_interval = int(overrides.get("progress_item_interval", progress_item_interval))
-        progress_min_seconds   = float(overrides.get("progress_min_seconds", progress_min_seconds))
-        max_workers            = int(overrides.get("max_workers",            max_workers))
+        batch_size             = _override_value(overrides, "batch_size",             batch_size,             int)
+        archive_chunk_size     = _override_value(overrides, "archive_chunk_size",     archive_chunk_size,     int)
+        progress_item_interval = _override_value(overrides, "progress_item_interval", progress_item_interval, int)
+        progress_min_seconds   = _override_value(overrides, "progress_min_seconds",   progress_min_seconds,   float)
+        max_workers            = _override_value(overrides, "max_workers",            max_workers,            int)
         source = "override"
+
+    # Floor everything a consumer divides by, chunks with, or hands to a thread
+    # pool — a zero or negative value would crash mid-run (modulo throttles,
+    # chunked writes, ThreadPoolExecutor), so bad overrides degrade instead.
+    batch_size             = max(1, batch_size)
+    archive_chunk_size     = max(1, archive_chunk_size)
+    progress_item_interval = max(1, progress_item_interval)
+    progress_min_seconds   = max(0.0, progress_min_seconds)
+    max_workers            = max(1, max_workers)
 
     log.debug(
         "system_probe: tier=%s ram_avail=%.1fGB cores=%d storage=%s gpu=%s "

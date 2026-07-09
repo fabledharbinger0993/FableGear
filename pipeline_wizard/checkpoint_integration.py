@@ -113,8 +113,8 @@ class PipelineCheckpointManager:
             return None
     
     def has_checkpoint(self) -> bool:
-        """Check if a pipeline checkpoint exists."""
-        return self._checkpoint_path.exists()
+        """Check if a pipeline checkpoint exists (compressed or legacy)."""
+        return self._checkpoint_path.exists() or self._legacy_checkpoint_path.exists()
     
     def get_checkpoint_info(self) -> Dict[str, Any]:
         """

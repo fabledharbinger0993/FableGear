@@ -159,6 +159,26 @@ class TestUserOverrides:
         assert p.source == "override"
 
 
+class TestOverrideHardening:
+    def test_malformed_override_falls_back_to_detected(self):
+        """A typo in config.json must not raise at import time."""
+        p = _probe(available_gb=8.0, overrides={"batch_size": "fast"})
+        assert p.batch_size == 250          # mid-tier detected value survives
+        assert p.source == "override"
+
+    def test_zero_and_negative_overrides_are_floored(self):
+        """Values consumers divide or chunk by must never be <= 0."""
+        overrides = {"batch_size": 0, "progress_item_interval": -5, "max_workers": 0}
+        p = _probe(available_gb=8.0, overrides=overrides)
+        assert p.batch_size == 1
+        assert p.progress_item_interval == 1
+        assert p.max_workers == 1
+
+    def test_negative_min_seconds_floored_to_zero(self):
+        p = _probe(available_gb=8.0, overrides={"progress_min_seconds": -1.0})
+        assert p.progress_min_seconds == 0.0
+
+
 # ─── psutil unavailable ───────────────────────────────────────────────────────
 
 class TestPsutilUnavailable:
@@ -166,13 +186,20 @@ class TestPsutilUnavailable:
         """If psutil is not importable, available RAM=0 → low tier."""
         saved = sys.modules.pop("psutil", None)
         try:
-            # Temporarily make psutil unimportable
+            # Temporarily make psutil unimportable; mock the slow probes so
+            # the test never spawns subprocesses or touches the real
+            # ~/.fablegear config / hardware cache.
             sys.modules["psutil"] = None  # type: ignore[assignment]
-            p = sp.detect_system_profile()
+            with (
+                patch.object(sp, "_detect_storage_type", return_value="unknown"),
+                patch.object(sp, "_has_gpu", return_value=False),
+                patch.object(sp, "_read_user_overrides", return_value={}),
+            ):
+                p = sp.detect_system_profile()
             # _available_ram_gb returns 0.0 → low tier
             assert p.batch_size == 100
             assert p.max_workers == 2
-            assert p.source in ("detected", "override", "fallback")
+            assert p.source == "detected"
         finally:
             if saved is not None:
                 sys.modules["psutil"] = saved

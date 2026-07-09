@@ -9,7 +9,10 @@ from pipeline_wizard.checkpoint_integration import PipelineCheckpointManager
 
 
 def test_checkpoint_round_trip_uses_gzip(tmp_path, monkeypatch):
-    monkeypatch.setattr(checkpoint_mod.Path, "home", lambda: tmp_path)
+    # _CHECKPOINT_BASE is resolved at import time, so patching Path.home is
+    # ineffective — patch the constant itself or the test writes into the
+    # user's real ~/.fablegear/checkpoints.
+    monkeypatch.setattr(checkpoint_mod, "_CHECKPOINT_BASE", tmp_path / "checkpoints")
     ck = checkpoint_mod.Checkpoint("duplicates", [Path("/music")], {"match_mode": "all"})
 
     ck.save({"completed": 12, "total": 34, "fp_map": {"a": 1}})
@@ -38,6 +41,38 @@ def test_transaction_history_persists_compressed(tmp_path, monkeypatch):
     with gzip.open(history._history_file, "rt", encoding="utf-8") as f:
         data = json.load(f)
     assert data[0]["operation_type"] == "rename"
+
+
+class _StubDatabase:
+    """Records update_content calls so undo restoration can be asserted."""
+
+    def __init__(self):
+        self.updates = []
+
+    def update_content(self, record_id, state):
+        self.updates.append((record_id, state))
+        return True
+
+
+def test_undo_restores_records_after_reload_from_disk(tmp_path, monkeypatch):
+    """Undo must still work on history reloaded from disk — JSON coerces the
+    int record-id keys of before_state to strings, which used to make undo a
+    silent no-op that still reported success."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    db = _StubDatabase()
+    history = TransactionHistory(database=db, max_history=10)
+    tx_id = history.record_transaction(
+        operation_type="rename",
+        description="Rename a track",
+        affected_records=[1],
+        before_state={1: {"file_path": "/old.mp3"}},
+        after_state={1: {"file_path": "/new.mp3"}},
+    )
+
+    # Fresh instance = reload from the persisted .json.gz
+    reloaded = TransactionHistory(database=db, max_history=10)
+    assert reloaded.undo_transaction(tx_id) is True
+    assert db.updates == [(1, {"file_path": "/old.mp3"})]
 
 
 def test_pipeline_checkpoint_round_trip_uses_gzip(tmp_path, monkeypatch):
