@@ -28,7 +28,6 @@ from chop_shop.duplicate_detector import (
     _walk_audio_files,
     AUDIO_EXTENSIONS,
     fingerprint_file,
-    hamming_distance,
 )
 
 log = logging.getLogger(__name__)

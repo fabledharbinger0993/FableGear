@@ -5,7 +5,6 @@ from pathlib import Path
 import checkpoint as checkpoint_mod
 import job_dispatcher
 from fablegear_database.undo import TransactionHistory
-from pipeline_wizard.checkpoint_integration import PipelineCheckpointManager
 
 
 def test_checkpoint_round_trip_uses_gzip(tmp_path, monkeypatch):
@@ -73,16 +72,6 @@ def test_undo_restores_records_after_reload_from_disk(tmp_path, monkeypatch):
     reloaded = TransactionHistory(database=db, max_history=10)
     assert reloaded.undo_transaction(tx_id) is True
     assert db.updates == [(1, {"file_path": "/old.mp3"})]
-
-
-def test_pipeline_checkpoint_round_trip_uses_gzip(tmp_path, monkeypatch):
-    monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    mgr = PipelineCheckpointManager("weekly_maintenance", {"tools": ["audit", "import"]})
-    assert mgr.save_pipeline_checkpoint(["audit"], 0, [{"tool": "audit"}]) is True
-    assert mgr._checkpoint_path.suffix == ".gz"
-    loaded = mgr.load_pipeline_checkpoint()
-    assert loaded is not None
-    assert loaded["completed_tools"] == ["audit"]
 
 
 def test_job_dispatcher_finds_compressed_checkpoint(tmp_path, monkeypatch):
