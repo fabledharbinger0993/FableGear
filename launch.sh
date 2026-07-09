@@ -9,6 +9,22 @@ SENTINEL="$SCRIPT_DIR/.fablegear_ready"
 FAILED="$SCRIPT_DIR/.fablegear_failed"
 LOG="$SCRIPT_DIR/fablegear.log"
 
+# ── Single-launcher lock ──────────────────────────────────────────────────
+# The .app hands off to this script detached, so an impatient double-click
+# could start two launchers racing through pip installs and git updates at
+# once. mkdir is atomic: second instance bails out silently. A lock older
+# than 30 minutes is from a dead launcher — take it over.
+LOCK_DIR="$SCRIPT_DIR/.launch_lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  if [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then
+    rmdir "$LOCK_DIR" 2>/dev/null
+    mkdir "$LOCK_DIR" 2>/dev/null || exit 0
+  else
+    exit 0
+  fi
+fi
+trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT
+
 # ── Locate Homebrew (works on both Apple Silicon and Intel) ───────────────
 _brew() {
   for p in /opt/homebrew/bin/brew /usr/local/bin/brew; do
@@ -95,6 +111,9 @@ if [ ! -f "$SCRIPT_DIR/.dev" ]; then
     | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
   CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
   if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "$CURRENT_TAG" ]; then
+    # Best-effort heads-up: an update can take minutes and everything below
+    # is silenced, so without this the only user feedback is a missing window.
+    osascript -e "display notification \"Updating to $LATEST_TAG — the window will open when ready\" with title \"FableGear\"" >/dev/null 2>&1 &
     if git merge-base --is-ancestor HEAD "$LATEST_TAG" 2>/dev/null; then
       echo "FableGear: updating ${CURRENT_TAG:-untagged} -> $LATEST_TAG" >> "$LOG"
       PREV_HEAD=$(git rev-parse HEAD)
