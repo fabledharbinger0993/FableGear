@@ -46,11 +46,23 @@ document.addEventListener('DOMContentLoaded', () => {
   // Keep the docked Chop Shop modal clear of pinned safety alerts.
   _initChopBannerWatch();
 
-  // Prevent WKWebView frameless-window drag from swallowing range inputs.
+  // Prevent WKWebView frameless-window drag from swallowing range inputs,
+  // waveform scrub targets, and scrollable list areas.
   // -webkit-app-region: no-drag is set in CSS but WKWebView doesn't reliably
-  // honour it on <input type="range"> thumb/track hits. Stopping mousedown
+  // honour it on <input type="range"> thumb/track hits, canvas elements, or
+  // scrollbar thumbs inside overflow containers. Stopping mousedown
   // propagation in capture phase blocks the drag hittest before it fires.
   document.addEventListener('mousedown', e => {
-    if (e.target.closest('input[type="range"]')) e.stopPropagation();
+    if (
+      e.target.closest('input[type="range"]') ||
+      e.target.closest('.deck-wave-wrap')     ||
+      e.target.closest('.deck-panel')         ||
+      e.target.closest('.le-track-list')      ||
+      e.target.closest('.le-split-col-list')  ||
+      e.target.closest('.le-sidebar')         ||
+      e.target.closest('#library-editor-overlay')
+    ) {
+      e.stopPropagation();
+    }
   }, true);
 });

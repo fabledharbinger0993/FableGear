@@ -4290,6 +4290,8 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   display: flex;
   align-items: stretch;
   justify-content: stretch;
+  /* WKWebView frameless: library editor is interactive, never a drag handle */
+  -webkit-app-region: no-drag;
 }
 #library-editor-overlay.hidden { display: none !important; }
 /* le-visible is no-op — editor is always visible */
@@ -4517,6 +4519,8 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   padding: 10px 0;
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 180, 200, 0.3) transparent;
+  /* Scrollable area: keep its scrollbar thumb from being a drag handle */
+  -webkit-app-region: no-drag;
 }
 .le-sidebar-section {
   padding: 14px 16px 5px;
@@ -4607,6 +4611,8 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   background: rgba(2, 6, 10, 0.55);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
+  /* Scrollable list: keep scrollbar thumb from triggering window drag */
+  -webkit-app-region: no-drag;
 }
 /* Sizer holds the full scroll height while only a window of rows is rendered. */
 #le-track-sizer { position: relative; width: 100%; pointer-events: none; }
@@ -6408,6 +6414,8 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 4px 0;
+  /* Scrollable list column: keep scrollbar thumb from triggering window drag */
+  -webkit-app-region: no-drag;
 }
 
 .le-split-track {
@@ -6899,6 +6907,8 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   gap: 0;
   align-items: stretch;
   transition: transform .25s cubic-bezier(.4,0,.2,1), opacity .2s;
+  /* WKWebView frameless: ensure the deck panel never becomes a window-drag target */
+  -webkit-app-region: no-drag;
 }
 .deck-panel.deck-active {
   display: flex;
@@ -7142,6 +7152,8 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   position: relative;
   cursor: pointer;
   overflow: hidden;
+  /* Waveform is an interactive scrub target — must not be a drag handle */
+  -webkit-app-region: no-drag;
 }
 .deck-wave-canvas {
   width: 100%;
@@ -7322,6 +7334,9 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   border: none;
   padding: 0;
   min-height: 0 !important;
+  /* Belt-and-suspenders: WKWebView can miss the global input[type="range"] rule */
+  -webkit-app-region: no-drag;
+  touch-action: none;
 }
 .deck-range::-webkit-slider-thumb {
   -webkit-appearance: none;
