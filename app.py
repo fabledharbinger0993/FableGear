@@ -479,7 +479,7 @@ def api_config():
             "snapshot_cadence": SNAPSHOT_CADENCE,
             "snapshot_include_master_db": SNAPSHOT_INCLUDE_MASTER_DB,
             "excluded_dirs":    _ucfg.get("excluded_dirs", []),
-            "acoustid_api_key": _ucfg.get("acoustid_api_key", ""),
+            "acoustid_api_key_configured": bool(_ucfg.get("acoustid_api_key", "").strip()),
             "mode":             current_mode,
             "configured":       True,
         })
