@@ -472,9 +472,6 @@ def relocate_directory(
             db.rollback()
             raise
 
-    if total_affected > 0:
-        _emit_reloc_progress(total_affected)
-
     by_strategy: dict[str, int] = {}
     for r in results:
         by_strategy[r.strategy] = by_strategy.get(r.strategy, 0) + 1
