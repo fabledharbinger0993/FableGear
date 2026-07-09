@@ -549,8 +549,8 @@ def scan_duplicates_hash(root, *, archive=None, max_workers: int = 1,
     swap the two freely; only ``root`` and ``archive`` are used here.
     """
     roots = [Path(root)] if not isinstance(root, (list, tuple)) else [Path(r) for r in root]
+    _guard_sources(roots, "the duplicate scanner")
     print("FABLEGEAR_MATCH_MODE: " + json.dumps({"match_mode": "hash"}), flush=True)
-
     if archive is None:
         log.warning("Quick (hash) duplicate scan needs the FableGear database — none available.")
         print("FABLEGEAR_PROGRESS: " + json.dumps({"scanned": 0, "total": 0, "remaining": 0, "errors": 0}), flush=True)
