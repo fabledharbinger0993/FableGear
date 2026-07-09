@@ -448,6 +448,7 @@ def import_directory(
             print("FABLEGEAR_PROGRESS: " + json.dumps({"scanned": len(tracks)}), flush=True)
     total = len(tracks)
 
+    _p_count = 0
     _last_progress_emit = monotonic()
 
     def _emit_import_progress() -> None:
