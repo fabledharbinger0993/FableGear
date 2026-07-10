@@ -7336,7 +7336,7 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   min-height: 0 !important;
   /* Belt-and-suspenders: WKWebView can miss the global input[type="range"] rule */
   -webkit-app-region: no-drag;
-  touch-action: none;
+  touch-action: pan-y;
 }
 .deck-range::-webkit-slider-thumb {
   -webkit-appearance: none;
