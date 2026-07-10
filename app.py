@@ -1247,7 +1247,10 @@ def onboarding():
             if state.get("setup_complete") and not request.args.get("reconfigure"):
                 return _redirect("/")
     except Exception:
-        pass
+        # Fails open onto the wizard (the safe default), but silently — log
+        # it so a real setup-state bug is visible instead of just "onboarding
+        # showed up again for no obvious reason."
+        app.logger.exception("onboarding gate: setup state check failed — showing wizard")
     return render_template("onboarding.html")
 
 
