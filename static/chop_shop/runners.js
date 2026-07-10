@@ -29,8 +29,28 @@ function _showRetryOption() {
     row.style.display = 'none';
     const cb = document.getElementById('process-retry-errored');
     if (cb) cb.checked = false;
+    _syncProcessRetryDisabled();
   }
 }
+
+// Retry mode hardcodes --force --no-normalize server-side, so the per-effect
+// force / normalize checkboxes have no effect while it's on — disable them so
+// that's obvious instead of letting them silently do nothing.
+function _syncProcessRetryDisabled() {
+  const checked = !!document.getElementById('process-retry-errored')?.checked;
+  ['process-normalize', 'process-force-bpm', 'process-force-key'].forEach(id => {
+    const cb = document.getElementById(id);
+    if (cb) cb.disabled = checked;
+  });
+}
+
+function _initProcessRetryToggle() {
+  const retryCb = document.getElementById('process-retry-errored');
+  if (!retryCb) return;
+  retryCb.addEventListener('change', _syncProcessRetryDisabled);
+  _syncProcessRetryDisabled();
+}
+document.addEventListener('DOMContentLoaded', _initProcessRetryToggle);
 
 /* ── Individual command runners ────────────────────────────────────────────── */
 
@@ -104,16 +124,20 @@ function _doRunProcess(paths) {
   paths.forEach(path => p.append('path', path));
   if (document.getElementById('process-no-bpm').checked)  p.set('no_bpm', '1');
   if (document.getElementById('process-no-key').checked)  p.set('no_key', '1');
-  if (document.getElementById('process-force').checked)   p.set('force',  '1');
+  if (document.getElementById('process-force-bpm')?.checked) p.set('force_bpm', '1');
+  if (document.getElementById('process-force-key')?.checked) p.set('force_key', '1');
   if (document.getElementById('process-enrich-tags')?.checked) p.set('enrich_tags', '1');
-  p.set('no_normalize', '1');
+  // Normalize is now user-controlled: only skip it when the box is unchecked.
+  if (!document.getElementById('process-normalize')?.checked) p.set('no_normalize', '1');
   const el = document.getElementById('process-result');
   if (el) el.classList.add('hidden');
   _saveToolCkpt('process', {
     paths,
     no_bpm:      document.getElementById('process-no-bpm').checked,
     no_key:      document.getElementById('process-no-key').checked,
-    force:       document.getElementById('process-force').checked,
+    force_bpm:   document.getElementById('process-force-bpm')?.checked || false,
+    force_key:   document.getElementById('process-force-key')?.checked || false,
+    normalize:   document.getElementById('process-normalize')?.checked || false,
     enrich_tags: document.getElementById('process-enrich-tags')?.checked || false,
   });
   document.getElementById('step-process')?.querySelector('.tool-resume-banner')?.remove();

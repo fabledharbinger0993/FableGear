@@ -167,7 +167,7 @@ class DupeEntry:
     rank:          str            # PN | MIK | RAW
     file_path:     str
     file_size_mb:  float
-    bpm:           Optional[str]
+    bpm:           Optional[str]  # CSV-sourced text like "127.00"; TrackInfo/FG-DB use float — do not compare directly
     key:           Optional[str]
     filename:      str
     # enriched after load

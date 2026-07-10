@@ -43,10 +43,12 @@ function openSettings() {
     const mode = cfg.archive_mode || 'auto';
     document.querySelector(`input[name="archive-mode"][value="${mode}"]`).checked = true;
     document.getElementById('settings-custom-input').value = cfg.custom_archive || '';
+    document.getElementById('settings-snapshot-cadence').value = cfg.snapshot_cadence || 'monthly';
+    document.getElementById('settings-snapshot-master-db').checked = !!cfg.snapshot_include_master_db;
     const excluded = Array.isArray(cfg.excluded_dirs) ? cfg.excluded_dirs : [];
     document.getElementById('settings-excluded-dirs').value = excluded.join('\n');
     const acoustidEl = document.getElementById('settings-acoustid-key');
-    if (acoustidEl) acoustidEl.value = cfg.acoustid_api_key || '';
+    if (acoustidEl && cfg.acoustid_api_key_configured) acoustidEl.placeholder = 'Configured — enter a new key to replace it';
     _settingsUpdateUI(mode);
     // Populate paths tab
     const pathFields = {
@@ -128,6 +130,7 @@ function applyPermissions() {
 async function saveSettings() {
   const mode   = document.querySelector('input[name="archive-mode"]:checked')?.value || 'auto';
   const custom = document.getElementById('settings-custom-input').value.trim();
+  const cadence = document.getElementById('settings-snapshot-cadence').value || 'monthly';
   if (mode === 'custom' && !custom) {
     showToast('Enter a folder path for the custom archive location.', 'warning');
     return;
@@ -141,6 +144,8 @@ async function saveSettings() {
       body: JSON.stringify({
         archive_mode: mode,
         custom_archive_dir: custom,
+        snapshot_cadence: cadence,
+        snapshot_include_master_db: document.getElementById('settings-snapshot-master-db').checked,
         excluded_dirs: document.getElementById('settings-excluded-dirs').value
           .split('\n').map(s => s.trim()).filter(Boolean),
         acoustid_api_key: (document.getElementById('settings-acoustid-key')?.value || '').trim(),

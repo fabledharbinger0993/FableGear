@@ -230,6 +230,8 @@ def api_process():
     no_key = request.args.get("no_key") == "1"
     no_normalize = request.args.get("no_normalize") == "1"
     force = request.args.get("force") == "1"
+    force_bpm = request.args.get("force_bpm") == "1"
+    force_key = request.args.get("force_key") == "1"
     enrich_tags = request.args.get("enrich_tags") == "1"
     smart_skip = request.args.get("smart_skip", "1") == "1"
 
@@ -248,6 +250,10 @@ def api_process():
         cmd.append("--no-normalize")
     if force:
         cmd.append("--force")
+    if force_bpm:
+        cmd.append("--force-bpm")
+    if force_key:
+        cmd.append("--force-key")
     if enrich_tags:
         cmd.append("--enrich-tags")
     if request.args.get("dry_run") == "1":
@@ -259,7 +265,7 @@ def api_process():
 
     if (
         smart_skip
-        and not force
+        and not force and not force_bpm and not force_key
         and no_normalize
         and not enrich_tags
         and (detect_bpm or detect_key)

@@ -44,11 +44,25 @@ cat > "$APP_PATH/Contents/MacOS/FableGear" << 'LAUNCHER'
 # First run: clones the repo. Every run: hands off to launch.sh.
 # Uses open -a Terminal (Launch Services) — no Automation permission required.
 
+# ── Escape Rosetta ────────────────────────────────────────────────────────
+# Launch Services can run this script-app translated (x86_64) — observed in
+# the wild as a launcher stuck inside Rosetta runtime routines forever: the
+# Dock icon bounces, launch.sh never runs, and no window ever appears. It
+# also makes `uname -m` lie to launch.sh's arch check. If we're translated
+# on Apple Silicon, re-exec natively before doing anything else.
+if [ "$(/usr/sbin/sysctl -in sysctl.proc_translated 2>/dev/null)" = "1" ]; then
+  exec /usr/bin/arch -arm64 /bin/bash "$0" "$@"
+fi
+
 INSTALL_DIR="$HOME/FableGear"
 REPO_URL="https://github.com/fabledharbinger0993/FableGear.git"
 
 if [ -d "$INSTALL_DIR/.git" ]; then
-  bash "$INSTALL_DIR/launch.sh"
+  # Detach: launch.sh can legitimately take minutes (dependency install,
+  # release update) — running it synchronously keeps this process alive,
+  # which macOS renders as the Dock icon bouncing the whole time. Hand off
+  # and exit so the icon settles immediately; launch.sh owns the rest.
+  nohup /bin/bash "$INSTALL_DIR/launch.sh" >/dev/null 2>&1 &
 else
   SETUP_SCRIPT="$(mktemp /tmp/fablegear-install.XXXXXX.sh)"
   cat > "$SETUP_SCRIPT" << 'INNER'
@@ -96,6 +110,11 @@ cat > "$APP_PATH/Contents/Info.plist" << PLIST
   <string>${VERSION#v}</string>
   <key>LSMinimumSystemVersion</key>
   <string>12.0</string>
+  <key>LSArchitecturePriority</key>
+  <array>
+    <string>arm64</string>
+    <string>x86_64</string>
+  </array>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSAppleEventsUsageDescription</key>

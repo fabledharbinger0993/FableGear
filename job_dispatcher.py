@@ -1,3 +1,4 @@
+import gzip
 import hashlib
 import json
 import logging
@@ -10,6 +11,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
@@ -19,6 +21,8 @@ CHECKPOINT_RESULT_TRUNCATE = 800
 DB_FILENAME = "fablegear_jobs.db"
 RESULTS_DIRNAME = "results"
 TOOL_NAME_RE = re.compile(r"^[a-z0-9_]+$")
+CHECKPOINT_RECENT_LIMIT = 5
+CHECKPOINT_ARCHIVE_DIRNAME = "Archive"
 
 
 @dataclass
@@ -254,16 +258,18 @@ def _write_checkpoint(record: JobRecord) -> Optional[str]:
             scoped_payload["scope_hash"] = scope_hash
             if idx > 0:
                 scoped_payload["scope_alias_of"] = primary_scope
-            scoped_filename = f"{record.tool}_{scope_hash}_{ts}_{record.job_id}.json"
+            scoped_filename = f"{record.tool}_{scope_hash}_{ts}_{record.job_id}.json.gz"
             path = checkpoint_dir / scoped_filename
             try:
-                tmp = path.with_suffix(".tmp")
-                tmp.write_text(json.dumps(scoped_payload, indent=2) + "\n", encoding="utf-8")
+                tmp = path.with_name(path.name + ".tmp")
+                with gzip.open(tmp, "wt", encoding="utf-8") as f:
+                    json.dump(scoped_payload, f, indent=2)
                 tmp.replace(path)
                 if idx == 0 and primary_written_path is None:
                     primary_written_path = str(path)
             except OSError:
                 continue
+        _prune_checkpoint_archive(checkpoint_dir, record.tool)
     return primary_written_path
 
 
@@ -392,11 +398,12 @@ def find_checkpoint(tool: str, scope: str = "") -> Optional[Dict]:
 
     normalized_scope = _canonical_scope(scope)
     hash_tok = hashlib.sha256(normalized_scope.encode()).hexdigest()[:8] if normalized_scope else "global"
-    pattern = f"{tool}_{hash_tok}_*.json"
+    patterns = [f"{tool}_{hash_tok}_*.json.gz", f"{tool}_{hash_tok}_*.json"]
     matches = []
     for checkpoint_dir in candidate_dirs:
         try:
-            matches.extend(checkpoint_dir.glob(pattern))
+            for pattern in patterns:
+                matches.extend(checkpoint_dir.rglob(pattern))
         except OSError:
             continue
     timed_matches = []
@@ -409,7 +416,7 @@ def find_checkpoint(tool: str, scope: str = "") -> Optional[Dict]:
 
     for path, _mtime in timed_matches:
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = _read_json_payload(path)
             if data.get("state") == "done":
                 _db_record_dependency_check(
                     tool=tool,
@@ -524,7 +531,7 @@ def get_output(job_id: str, max_chars: int = 0) -> Optional[Dict]:
         try:
             blob_candidate = Path(blob_path).resolve(strict=False)
             if _is_allowed_blob_path(blob_candidate):
-                output = blob_candidate.read_text(encoding="utf-8")
+                output = _read_text_payload(blob_candidate)
                 source = "blob"
         except OSError:
             output = None
@@ -854,9 +861,10 @@ def _write_result_blob(record: JobRecord) -> Optional[str]:
         try:
             blob_dir = checkpoints_dir / RESULTS_DIRNAME / when.strftime("%Y") / when.strftime("%m") / when.strftime("%d")
             blob_dir.mkdir(parents=True, exist_ok=True)
-            blob_path = blob_dir / f"{record.job_id}_{record.tool}.log"
-            tmp_path = blob_path.with_suffix(".tmp")
-            tmp_path.write_text((record.result or "") + "\n", encoding="utf-8")
+            blob_path = blob_dir / f"{record.job_id}_{record.tool}.log.gz"
+            tmp_path = blob_path.with_name(blob_path.name + ".tmp")
+            with gzip.open(tmp_path, "wt", encoding="utf-8") as f:
+                f.write((record.result or "") + "\n")
             tmp_path.replace(blob_path)
             return str(blob_path)
         except OSError:
@@ -876,6 +884,90 @@ def _checkpoint_dirs() -> List[Path]:
         except OSError:
             continue
     return dirs
+
+
+def _read_json_payload(path: Path) -> dict:
+    if path.suffix == ".gz":
+        with gzip.open(path, "rt", encoding="utf-8") as f:
+            return json.load(f)
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _read_text_payload(path: Path) -> str:
+    if path.suffix == ".gz":
+        with gzip.open(path, "rt", encoding="utf-8") as f:
+            return f.read()
+    return path.read_text(encoding="utf-8")
+
+
+def _prune_checkpoint_archive(checkpoint_dir: Path, tool: str) -> None:
+    """Keep recent checkpoints local and roll older ones into monthly archive folders."""
+    prefix = f"{tool}_"
+    try:
+        active_files = [p for p in checkpoint_dir.glob(f"{tool}_*.json.gz") if p.is_file()]
+    except OSError:
+        return
+    grouped: dict[str, list[Path]] = defaultdict(list)
+    for path in active_files:
+        # Filename shape: {tool}_{scope_hash}_{ts}_{job_id}.json.gz. Tool names
+        # contain underscores (organize_library, rename_files), so strip the
+        # known tool prefix instead of splitting on "_" blindly, and require
+        # the hash-token shape so a prefix-colliding tool (glob "scan_*" also
+        # matches scan_library_*) can't be grouped into the wrong scope.
+        scope_hash = path.name[len(prefix):].split("_", 1)[0]
+        if scope_hash != "global" and not re.fullmatch(r"[0-9a-f]{8}", scope_hash):
+            continue
+        grouped[scope_hash].append(path)
+
+    def _mtime_or_zero(p: Path) -> float:
+        # A concurrently deleted file must not blow up the prune — this runs
+        # on the job-completion path.
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    for scope_hash, paths in grouped.items():
+        paths.sort(key=_mtime_or_zero, reverse=True)
+        for path in paths[CHECKPOINT_RECENT_LIMIT:]:
+            try:
+                mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+                archive_dir = (
+                    checkpoint_dir
+                    / CHECKPOINT_ARCHIVE_DIRNAME
+                    / tool
+                    / scope_hash
+                    / mtime.strftime("%Y")
+                    / mtime.strftime("%m")
+                )
+                archive_dir.mkdir(parents=True, exist_ok=True)
+                new_path = archive_dir / path.name
+                path.replace(new_path)
+                _db_repoint_checkpoint_path(str(path), str(new_path))
+            except OSError:
+                continue
+
+
+def _db_repoint_checkpoint_path(old_path: str, new_path: str) -> None:
+    with _db_lock:
+        conn = _db_connect()
+        if conn is None:
+            return
+        try:
+            conn.execute(
+                "UPDATE jobs SET checkpoint_path = ? WHERE checkpoint_path = ?",
+                (new_path, old_path),
+            )
+            conn.execute(
+                "UPDATE dependency_checks SET checkpoint_path = ? WHERE checkpoint_path = ?",
+                (new_path, old_path),
+            )
+            conn.commit()
+        except sqlite3.Error:
+            _log.exception("job checkpoint path repoint failed: %s -> %s", old_path, new_path)
+        finally:
+            conn.close()
 
 
 def _is_allowed_blob_path(blob_path: Path) -> bool:

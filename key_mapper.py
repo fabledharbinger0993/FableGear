@@ -102,8 +102,13 @@ def notation_to_scale_name(raw: str | None) -> str | None:
 # ─── Get-or-create ────────────────────────────────────────────────────────────
 
 # Module-level cache: ScaleName → DjmdKey.ID (always str)
-# CONCURRENCY FIX: Thread lock to prevent race conditions when parallel SSE
-# streams or subprocess workers access the cache simultaneously.
+# CONCURRENCY FIX (F-05, F-13): _key_id_cache_lock guards more than the cache
+# dict — it is held across the ENTIRE get-or-create critical section in
+# _get_or_create_key_row (cache check → DB lookup → Seq computation → row
+# create → flush → cache populate). Parallel SSE streams / subprocess workers
+# that share a session can therefore never both miss the cache, both miss the
+# DB row, and race each other into creating duplicate ScaleName rows or
+# colliding on the same Seq value.
 _key_id_cache: dict[str, str] = {}
 _key_id_cache_lock = threading.Lock()
 
@@ -116,6 +121,11 @@ def _next_seq(db: Rekordbox6Database) -> int:
     canonical musical ordering. We replicate that behaviour: find the current
     maximum Seq and add 1. Rows with Seq = None (created by third-party tools)
     are ignored. Returns 1 if no rows with a Seq value exist yet.
+
+    CONCURRENCY: this is a check-then-act read (max of existing Seq values)
+    with no locking of its own. Callers MUST only invoke this while holding
+    _key_id_cache_lock — see _get_or_create_key_row, the sole caller — or two
+    racing creators can compute the same Seq (F-13).
     """
     rows = db.get_key().all()
     seqs = [r.Seq for r in rows if r.Seq is not None]
@@ -126,41 +136,51 @@ def _get_or_create_key_row(scale_name: str, db: Rekordbox6Database) -> str:
     """
     Return the DjmdKey.ID for scale_name, creating the row if it doesn't exist.
 
+    The full sequence — cache check, DB lookup, Seq computation, row create,
+    flush, and cache populate — runs as ONE atomic critical section under
+    _key_id_cache_lock. This is deliberate: two threads racing on the same
+    scale_name (e.g. parallel SSE import streams sharing a session) must not
+    both observe a cache miss, both observe no existing DB row, and then both
+    create a ScaleName row (unique-constraint error / duplicate rows) or both
+    compute the same Seq (F-05, F-13). The lock is a plain, non-reentrant
+    threading.Lock — nothing this function calls (directly or transitively)
+    may re-acquire it, or the thread will deadlock itself.
+
     Returns str. Raises ValueError if scale_name is not in CANONICAL_SCALE_NAMES.
     """
     with _key_id_cache_lock:
+        if scale_name not in CANONICAL_SCALE_NAMES:
+            raise ValueError(
+                f"Cannot create DjmdKey row for unknown scale name: {scale_name!r}"
+            )
+
         if scale_name in _key_id_cache:
             return _key_id_cache[scale_name]
 
-    existing = db.get_key(ScaleName=scale_name).first()
-    if existing is not None:
-        with _key_id_cache_lock:
+        existing = db.get_key(ScaleName=scale_name).first()
+        if existing is not None:
             _key_id_cache[scale_name] = str(existing.ID)
-        return str(existing.ID)
+            return str(existing.ID)
 
-    if scale_name not in CANONICAL_SCALE_NAMES:
-        raise ValueError(
-            f"Cannot create DjmdKey row for unknown scale name: {scale_name!r}"
+        # _next_seq must run inside this same critical section (see its
+        # docstring) — that is the F-13 fix.
+        seq = _next_seq(db)
+        new_id = db.generate_unused_id(tables.DjmdKey)
+        key_row = tables.DjmdKey.create(
+            ID=new_id,
+            ScaleName=scale_name,
+            Seq=seq,
+            UUID=str(uuid4()),
         )
+        db.add(key_row)
+        db.flush()
 
-    seq = _next_seq(db)
-    new_id = db.generate_unused_id(tables.DjmdKey)
-    key_row = tables.DjmdKey.create(
-        ID=new_id,
-        ScaleName=scale_name,
-        Seq=seq,
-        UUID=str(uuid4()),
-    )
-    db.add(key_row)
-    db.flush()
-
-    log.info(
-        "Created DjmdKey row: ScaleName=%r ID=%s Seq=%s",
-        scale_name, new_id, seq,
-    )
-    with _key_id_cache_lock:
+        log.info(
+            "Created DjmdKey row: ScaleName=%r ID=%s Seq=%s",
+            scale_name, new_id, seq,
+        )
         _key_id_cache[scale_name] = str(new_id)
-    return str(new_id)
+        return str(new_id)
 
 
 # ─── Public interface ─────────────────────────────────────────────────────────
