@@ -50,19 +50,21 @@ document.addEventListener('DOMContentLoaded', () => {
   // waveform scrub targets, and scrollable list areas.
   // -webkit-app-region: no-drag is set in CSS but WKWebView doesn't reliably
   // honour it on <input type="range"> thumb/track hits, canvas elements, or
-  // scrollbar thumbs inside overflow containers. Stopping mousedown
-  // propagation in capture phase blocks the drag hittest before it fires.
-  document.addEventListener('mousedown', e => {
-    if (
-      e.target.closest('input[type="range"]') ||
-      e.target.closest('.deck-wave-wrap')     ||
-      e.target.closest('.deck-panel')         ||
-      e.target.closest('.le-track-list')      ||
-      e.target.closest('.le-split-col-list')  ||
-      e.target.closest('.le-sidebar')         ||
-      e.target.closest('#library-editor-overlay')
-    ) {
-      e.stopPropagation();
-    }
-  }, true);
+  // scrollbar thumbs inside overflow containers. Stop propagation on the
+  // interactive roots in bubble phase so events still reach component handlers
+  // (e.g. CUE button mousedown) before being blocked from reaching any
+  // window-drag listener on document.
+  [
+    'input[type="range"]',
+    '.deck-wave-wrap',
+    '.deck-panel',
+    '.le-track-list',
+    '.le-split-col-list',
+    '.le-sidebar',
+    '#library-editor-overlay',
+  ].forEach(sel => {
+    document.querySelectorAll(sel).forEach(el =>
+      el.addEventListener('mousedown', e => e.stopPropagation())
+    );
+  });
 });
