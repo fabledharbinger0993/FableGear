@@ -286,8 +286,6 @@ def undo_operations():
 
     Consecutive rows of the same operation type with < 15 min between them
     form one session (one tool run, or a tight cluster of runs)."""
-    import json as _json  # noqa: PLC0415
-
     limit = min(request.args.get("limit", 8000, type=int), 20000)
     try:
         db = _fg_archive_db()

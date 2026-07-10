@@ -273,6 +273,31 @@ def test_relocate_filters_sibling_directories(tmp_path):
     )
 
 
+# ── CLI-layer contract: write commands must not run un-journaled ─────────────
+#
+# The library functions above stay archive-*optional* (archive=None is a
+# valid, silently-degraded call) — that's unchanged. But cli.py's write
+# commands (relocate, prune, organize, novelty, rename, ...) now refuse to
+# proceed at all if the archive is unavailable, via cli._require_archive().
+# Dry runs are exempt since they touch nothing.
+
+def test_require_archive_exits_when_archive_unavailable(monkeypatch):
+    import cli
+
+    monkeypatch.setattr(cli, "_archive", lambda: None)
+    with pytest.raises(SystemExit) as exc_info:
+        cli._require_archive("organize")
+    assert exc_info.value.code == 2
+
+
+def test_require_archive_returns_archive_when_available(monkeypatch):
+    import cli
+
+    sentinel = object()
+    monkeypatch.setattr(cli, "_archive", lambda: sentinel)
+    assert cli._require_archive("organize") is sentinel
+
+
 def test_audio_extensions_contain_no_video_containers():
     """FableGear touches music, nothing else. Every file-touching tool scans by
     config.AUDIO_EXTENSIONS — video containers must never sneak back in."""

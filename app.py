@@ -213,6 +213,9 @@ from brew_updater import (                          # noqa: E402
 )
 _start_brew_checker()
 
+from snapshot_scheduler import start_background_scheduler as _start_snapshot_scheduler  # noqa: E402
+_start_snapshot_scheduler()
+
 from update_checker import (                        # noqa: E402
     start_background_checker as _start_update_checker,
     get_status as _update_get_status,
@@ -456,7 +459,8 @@ def api_config():
     try:
         from config import (  # noqa: PLC0415
             DJMT_DB, LOCAL_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
-            BACKUP_DIR, ARCHIVE_ENABLED, _archive_mode, _custom_archive,
+            BACKUP_DIR, ARCHIVE_ENABLED, SNAPSHOT_CADENCE, SNAPSHOT_INCLUDE_MASTER_DB,
+            _archive_mode, _custom_archive,
         )
         from user_config import load_user_config as _luc  # noqa: PLC0415
         _ucfg = _luc()
@@ -472,8 +476,10 @@ def api_config():
             "archive_mode":     _archive_mode,
             "custom_archive":   _custom_archive,
             "archive_enabled":  ARCHIVE_ENABLED,
+            "snapshot_cadence": SNAPSHOT_CADENCE,
+            "snapshot_include_master_db": SNAPSHOT_INCLUDE_MASTER_DB,
             "excluded_dirs":    _ucfg.get("excluded_dirs", []),
-            "acoustid_api_key": _ucfg.get("acoustid_api_key", ""),
+            "acoustid_api_key_configured": bool(_ucfg.get("acoustid_api_key", "").strip()),
             "mode":             current_mode,
             "configured":       True,
         })
@@ -489,6 +495,8 @@ def api_config():
             "archive_mode":    "auto",
             "custom_archive":  "",
             "archive_enabled": True,
+            "snapshot_cadence": "monthly",
+            "snapshot_include_master_db": False,
             "mode":            current_mode,
             "configured":      False,
         })
@@ -519,7 +527,13 @@ def api_setup_archive():
 def api_settings():
     """Save archive mode and custom path to user config."""
     try:
-        from user_config import archive_root_for_music_root, load_user_config, CONFIG_PATH  # noqa: PLC0415
+        from user_config import (  # noqa: PLC0415
+            archive_root_for_music_root,
+            load_user_config,
+            CONFIG_PATH,
+            normalize_snapshot_cadence,
+            _coerce_bool,
+        )
         import json as _json
         data = request.get_json(force=True) or {}
         cfg = load_user_config()
@@ -548,6 +562,13 @@ def api_settings():
             cfg["acoustid_api_key"] = str(data.get("acoustid_api_key", "")).strip()
         if "mode" in data and data["mode"] in ("rural", "suburban"):
             cfg["mode"] = data["mode"]
+        if "snapshot_cadence" in data:
+            cfg["snapshot_cadence"] = normalize_snapshot_cadence(data.get("snapshot_cadence"))
+        if "snapshot_include_master_db" in data:
+            cfg["snapshot_include_master_db"] = _coerce_bool(
+                data.get("snapshot_include_master_db"),
+                cfg.get("snapshot_include_master_db", False),
+            )
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             _json.dump(cfg, f, indent=2)
         return jsonify({"ok": True, "note": "Restart FableGear for changes to take effect."})
@@ -1226,7 +1247,10 @@ def onboarding():
             if state.get("setup_complete") and not request.args.get("reconfigure"):
                 return _redirect("/")
     except Exception:
-        pass
+        # Fails open onto the wizard (the safe default), but silently — log
+        # it so a real setup-state bug is visible instead of just "onboarding
+        # showed up again for no obvious reason."
+        app.logger.exception("onboarding gate: setup state check failed — showing wizard")
     return render_template("onboarding.html")
 
 
@@ -1454,7 +1478,13 @@ def api_onboarding_open_fda_prefs():
 @app.route("/api/onboarding/save-config", methods=["POST"])
 def api_onboarding_save_config():
     """Save confirmed paths to config.json and mark setup complete."""
-    from user_config import DEFAULTS, archive_root_for_music_root, save_user_config  # noqa: PLC0415
+    from user_config import (  # noqa: PLC0415
+        DEFAULTS,
+        archive_root_for_music_root,
+        save_user_config,
+        normalize_snapshot_cadence,
+        _coerce_bool,
+    )
 
     data = request.get_json(silent=True) or {}
     required = {"local_db", "device_db", "music_root"}
@@ -1484,6 +1514,8 @@ def api_onboarding_save_config():
         "backup_dir": backup_dir,
         "archive_mode": archive_mode,
         "custom_archive_dir": custom_archive_dir if archive_mode == "custom" else "",
+        "snapshot_cadence": normalize_snapshot_cadence(data.get("snapshot_cadence")),
+        "snapshot_include_master_db": _coerce_bool(data.get("snapshot_include_master_db"), False),
     }
     for key, default in DEFAULTS.items():
         cfg.setdefault(key, default)

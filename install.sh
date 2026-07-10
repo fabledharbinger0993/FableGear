@@ -50,6 +50,13 @@ if [ -d "$INSTALL_DIR/.git" ]; then
         git -C "$INSTALL_DIR" reset --hard origin/main
     fi
 else
+    # git clone refuses to write into a non-empty directory, and set -e turns
+    # that refusal into a bare "fatal:" git error with no recovery — back up
+    # whatever's there first, same as the .app bootstrap launcher does.
+    if [ -d "$INSTALL_DIR" ]; then
+        _blue "$INSTALL_DIR exists but isn't a git repo — backing up to ${INSTALL_DIR}.bak"
+        mv "$INSTALL_DIR" "${INSTALL_DIR}.bak"
+    fi
     _blue "Cloning FableGear to $INSTALL_DIR ..."
     git clone "$REPO_URL" "$INSTALL_DIR"
     FRESH_INSTALL=1

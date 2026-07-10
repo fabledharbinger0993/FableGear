@@ -157,7 +157,7 @@ def test_update_content(db):
     assert got.genre == "House"
 
 
-def test_bulk_relink_content_is_chunked_and_updates_rows(db):
+def test_bulk_relink_content_rows_findable_by_new_path(db):
     rid1 = db.insert_content(_track("/music/a.mp3", title="A"))
     rid2 = db.insert_content(_track("/music/b.mp3", title="B"))
     rid3 = db.insert_content(_track("/music/c.mp3", title="C"))
@@ -176,7 +176,7 @@ def test_bulk_relink_content_is_chunked_and_updates_rows(db):
     assert db.get_content_by_path("/new/c.mp3") is not None
 
 
-def test_bulk_log_operations_inserts_all_rows(db):
+def test_bulk_log_operations_accepts_tuple_form(db):
     inserted = db.bulk_log_operations(
         [
             ("relocate", "/new/a.mp3", "ok", None, {"from": "/old/a.mp3"}),

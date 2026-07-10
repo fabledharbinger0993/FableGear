@@ -835,50 +835,6 @@ class FableGearDatabase:
             )
             return cursor.lastrowid
 
-    def bulk_relink_content(
-        self,
-        updates: list[tuple[int, str]],
-        chunk_size: int = 500,
-    ) -> int:
-        """
-        Re-point multiple records at new file paths in bounded chunks.
-
-        ``updates`` is a sequence of ``(record_id, new_path)`` pairs.  Each
-        chunk is issued as a single ``executemany`` UPDATE inside one
-        transaction so SQLite never accumulates an unbounded set of dirty
-        pages.  The caller is responsible for committing (or rolling back)
-        after this method returns.
-
-        Args:
-            updates: List of (record_id, new_path) pairs.
-            chunk_size: Maximum rows per executemany call.
-
-        Returns:
-            Total number of rows updated.
-        """
-        total = 0
-        for start in range(0, len(updates), chunk_size):
-            chunk = updates[start : start + chunk_size]
-            rows = [
-                (
-                    Path(new_path).name,
-                    new_path,
-                    "relinked",
-                    record_id,
-                )
-                for record_id, new_path in chunk
-            ]
-            with self.transaction() as conn:
-                cursor = conn.cursor()
-                cursor.executemany(
-                    "UPDATE fg_content "
-                    "SET file_name=?, file_path=?, processing_status=? "
-                    "WHERE id=?",
-                    rows,
-                )
-                total += cursor.rowcount
-        return total
-
     def bulk_log_operations(
         self,
         operations: list[tuple[str, str | None, str, str | None, dict[str, Any] | None]] | list[dict[str, Any]],

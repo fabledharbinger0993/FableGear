@@ -40,6 +40,7 @@ out, and call `ck.save(...)` before writing the partial report.
 """
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import logging
@@ -73,17 +74,46 @@ class Checkpoint:
         self.config = config or {}
         self._key = _config_key(tool, self.roots, self.config)
         self._dir = _CHECKPOINT_BASE / tool
-        self._path = self._dir / f"{self._key}.json"
+        self._path = self._dir / f"{self._key}.json.gz"
 
     @property
     def path(self) -> Path:
         return self._path
 
+    def _legacy_path(self) -> Path:
+        return self._path.with_suffix("")
+
+    def _candidate_paths(self) -> list[Path]:
+        return [self._path, self._legacy_path()]
+
+    def _existing_path(self) -> Path | None:
+        for path in self._candidate_paths():
+            if path.exists():
+                return path
+        return None
+
+    @staticmethod
+    def _read_payload(path: Path) -> dict:
+        if path.suffix == ".gz":
+            with gzip.open(path, "rt", encoding="utf-8") as f:
+                return json.load(f)
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+
+    @staticmethod
+    def _write_payload(path: Path, payload: dict, compress: bool) -> None:
+        if compress:
+            with gzip.open(path, "wt", encoding="utf-8") as f:
+                json.dump(payload, f)
+            return
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+
     # ── Existence / query ─────────────────────────────────────────────────────
 
     def exists(self) -> bool:
         """Return True if a checkpoint file exists for this slot."""
-        return self._path.exists()
+        return self._existing_path() is not None
 
     def info(self) -> dict:
         """
@@ -93,10 +123,14 @@ class Checkpoint:
         user a "resume or start over?" dialog before spawning the subprocess.
         """
         if not self._path.exists():
-            return {"exists": False}
+            legacy = self._legacy_path()
+            if not legacy.exists():
+                return {"exists": False}
         try:
-            with open(self._path, encoding="utf-8") as f:
-                data = json.load(f)
+            existing = self._existing_path()
+            if existing is None:
+                return {"exists": False}
+            data = self._read_payload(existing)
             return {
                 "exists": True,
                 "tool": data.get("tool", self.tool),
@@ -117,11 +151,11 @@ class Checkpoint:
         Load and return checkpoint data, or {} if absent / unreadable.
         Does NOT remove the checkpoint — call reset() on clean completion.
         """
-        if not self._path.exists():
+        existing = self._existing_path()
+        if existing is None:
             return {}
         try:
-            with open(self._path, encoding="utf-8") as f:
-                data = json.load(f)
+            data = self._read_payload(existing)
             log.info(
                 "Checkpoint loaded for %s (completed=%s / total=%s, saved %s)",
                 self.tool,
@@ -142,7 +176,7 @@ class Checkpoint:
         """
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
-            tmp = self._path.with_suffix(".tmp")
+            tmp = self._path.with_name(self._path.name + ".tmp")
             payload: dict = {
                 "tool": self.tool,
                 "roots": [str(r) for r in self.roots],
@@ -150,9 +184,11 @@ class Checkpoint:
                 "saved_at": datetime.now().isoformat(timespec="seconds"),
                 **data,
             }
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(payload, f)
+            self._write_payload(tmp, payload, compress=True)
             tmp.replace(self._path)
+            legacy = self._legacy_path()
+            if legacy.exists():
+                legacy.unlink(missing_ok=True)
         except Exception as exc:
             log.warning("Could not save checkpoint: %s", exc)
 
@@ -160,6 +196,7 @@ class Checkpoint:
         """Delete the checkpoint file (clean completion or explicit user reset)."""
         try:
             self._path.unlink(missing_ok=True)
+            self._legacy_path().unlink(missing_ok=True)
             log.info("Checkpoint cleared for %s", self.tool)
         except Exception as exc:
             log.warning("Could not remove checkpoint: %s", exc)
