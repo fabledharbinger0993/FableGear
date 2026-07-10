@@ -29,8 +29,28 @@ function _showRetryOption() {
     row.style.display = 'none';
     const cb = document.getElementById('process-retry-errored');
     if (cb) cb.checked = false;
+    _syncProcessRetryDisabled();
   }
 }
+
+// Retry mode hardcodes --force --no-normalize server-side, so the per-effect
+// force / normalize checkboxes have no effect while it's on — disable them so
+// that's obvious instead of letting them silently do nothing.
+function _syncProcessRetryDisabled() {
+  const checked = !!document.getElementById('process-retry-errored')?.checked;
+  ['process-normalize', 'process-force-bpm', 'process-force-key'].forEach(id => {
+    const cb = document.getElementById(id);
+    if (cb) cb.disabled = checked;
+  });
+}
+
+function _initProcessRetryToggle() {
+  const retryCb = document.getElementById('process-retry-errored');
+  if (!retryCb) return;
+  retryCb.addEventListener('change', _syncProcessRetryDisabled);
+  _syncProcessRetryDisabled();
+}
+document.addEventListener('DOMContentLoaded', _initProcessRetryToggle);
 
 /* ── Individual command runners ────────────────────────────────────────────── */
 
@@ -104,16 +124,20 @@ function _doRunProcess(paths) {
   paths.forEach(path => p.append('path', path));
   if (document.getElementById('process-no-bpm').checked)  p.set('no_bpm', '1');
   if (document.getElementById('process-no-key').checked)  p.set('no_key', '1');
-  if (document.getElementById('process-force').checked)   p.set('force',  '1');
+  if (document.getElementById('process-force-bpm')?.checked) p.set('force_bpm', '1');
+  if (document.getElementById('process-force-key')?.checked) p.set('force_key', '1');
   if (document.getElementById('process-enrich-tags')?.checked) p.set('enrich_tags', '1');
-  p.set('no_normalize', '1');
+  // Normalize is now user-controlled: only skip it when the box is unchecked.
+  if (!document.getElementById('process-normalize')?.checked) p.set('no_normalize', '1');
   const el = document.getElementById('process-result');
   if (el) el.classList.add('hidden');
   _saveToolCkpt('process', {
     paths,
     no_bpm:      document.getElementById('process-no-bpm').checked,
     no_key:      document.getElementById('process-no-key').checked,
-    force:       document.getElementById('process-force').checked,
+    force_bpm:   document.getElementById('process-force-bpm')?.checked || false,
+    force_key:   document.getElementById('process-force-key')?.checked || false,
+    normalize:   document.getElementById('process-normalize')?.checked || false,
     enrich_tags: document.getElementById('process-enrich-tags')?.checked || false,
   });
   document.getElementById('step-process')?.querySelector('.tool-resume-banner')?.remove();
@@ -254,19 +278,26 @@ function runDuplicates() {
   if (!paths.length) { _flashNeedsInput('dupes-pills'); showToast('Add at least one music folder first.', 'warning'); return; }
   const p = new URLSearchParams();
   paths.forEach(path => p.append('path', path));
-  const workers = document.getElementById('dupes-workers')?.value || '4';
-  if (parseInt(workers) > 1) p.set('workers', workers);
-  // Match mode
-  const matchMode = document.querySelector('input[name="dupes-match-mode"]:checked')?.value || 'exact';
-  if (matchMode !== 'exact') p.set('match_mode', matchMode);
-  // Fuzzy threshold (only relevant when fuzzy or all)
-  if (matchMode === 'fuzzy' || matchMode === 'all') {
-    const thresholdPct = parseInt(document.getElementById('fuzzy-threshold')?.value || '85');
-    p.set('fuzzy_threshold', (thresholdPct / 100).toFixed(2));
+  // Tier: quick = instant cached-hash match; deep = acoustic fpcalc.
+  const scanMode = document.querySelector('input[name="dupes-scan-mode"]:checked')?.value || 'quick';
+  p.set('scan_mode', scanMode);
+  let matchMode = 'exact';
+  if (scanMode === 'deep') {
+    const workers = document.getElementById('dupes-workers')?.value || '4';
+    if (parseInt(workers) > 1) p.set('workers', workers);
+    matchMode = document.querySelector('input[name="dupes-match-mode"]:checked')?.value || 'exact';
+    if (matchMode !== 'exact') p.set('match_mode', matchMode);
+    // Fuzzy threshold (only relevant when fuzzy or all)
+    if (matchMode === 'fuzzy' || matchMode === 'all') {
+      const thresholdPct = parseInt(document.getElementById('fuzzy-threshold')?.value || '85');
+      p.set('fuzzy_threshold', (thresholdPct / 100).toFixed(2));
+    }
   }
-  _saveToolCkpt('duplicates', { paths, workers, matchMode });
+  _saveToolCkpt('duplicates', { paths, scanMode, matchMode });
   document.getElementById('step-duplicates')?.querySelector('.tool-resume-banner')?.remove();
-  const title = 'Find Duplicates — Acoustic Fingerprinting';
+  const title = scanMode === 'quick'
+    ? 'Find Duplicates — Quick (exact copies)'
+    : 'Find Duplicates — Deep (acoustic fingerprint)';
   runCommand(`/api/run/duplicates?${p}`, title, (exitCode) => {
     if (exitCode === 0) {
       _clearToolCkpt('duplicates');
@@ -291,6 +322,14 @@ function _initMatchModeUI() {
   }));
 }
 document.addEventListener('DOMContentLoaded', _initMatchModeUI);
+
+// Show/hide the Deep (acoustic) options based on the Quick vs Deep scan tier.
+function _dupesUpdateScanMode() {
+  const mode = document.querySelector('input[name="dupes-scan-mode"]:checked')?.value || 'quick';
+  const deep = document.getElementById('dupes-deep-options');
+  if (deep) deep.style.display = (mode === 'deep') ? '' : 'none';
+}
+document.addEventListener('DOMContentLoaded', _dupesUpdateScanMode);
 
 function runConvert() {
   const paths = getFolderPaths('convert-pills');

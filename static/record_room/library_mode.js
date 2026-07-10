@@ -2,8 +2,6 @@
    FableGear — record_room / library_mode (Hardened)
    ──────────────────────────────────────────────────────────────────────── */
 
-import { DeckManager } from './deck_control.js';
-
 // This module is loaded before some classic scripts. Keep mode state on
 // window so module/classic ordering never throws ReferenceError.
 function _leGetState(key, fallback) {
@@ -15,15 +13,6 @@ function _leSetState(key, value) {
   window[key] = value;
   return value;
 }
-
-function onPlayClick(trackId, deckId, trackMeta = null) {
-    const url = `/api/library/tracks/${trackId}/stream`;
-  DeckManager.loadTrackToDeck(deckId, url, trackMeta).then(() => {
-    DeckManager.playDeck(deckId);
-    });
-}
-
-window.onPlayClick = onPlayClick;
 
 // Helper: Securely creates a row element
 function _leCreateRowElement(t, col, type = 'track') {
@@ -44,12 +33,25 @@ function _leCreateRowElement(t, col, type = 'track') {
         div.appendChild(meta);
     }
     
-    // Add "Stage" button for unimported tracks
-    if (type === 'unimported') {
+    // Novelty rows: membership color coding + drag-to-import + stage button.
+    // blue = missing from FableGear · yellow = missing from Rekordbox ·
+    // green = in neither database.
+    if (type === 'novelty') {
+        const inFg = !!t.in_fablegear;
+        const inRb = !!t.in_rekordbox;
+        div.classList.add(
+            (!inFg && !inRb) ? 'le-novel-green' : (!inFg ? 'le-novel-blue' : 'le-novel-yellow')
+        );
+        div.draggable = true;
+        div.addEventListener('dragstart', (ev) => {
+            ev.dataTransfer.setData('application/x-fablegear-novelty', t.path || '');
+            ev.dataTransfer.effectAllowed = 'copy';
+        });
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'le-stage-btn le-split-stage';
         btn.textContent = '+Q';
+        btn.title = 'Add to the staging queue';
         btn.onclick = () => stagingAddPath(t.path);
         div.appendChild(btn);
     }
@@ -332,6 +334,11 @@ function _playFsTrack(streamUrl, triggerBtn) {
                    document.getElementById('audio-player');
 
   if (playerEl && playerEl.tagName === 'AUDIO') {
+    // Single audio focus: silence any performance deck and release the library
+    // inline-preview's row ownership before this filesystem track takes over the
+    // shared audio element.
+    window.deckPauseAll?.();
+    window.leClearInlinePreview?.();
     // Stop other play buttons
     document.querySelectorAll('.fs-play-btn').forEach(b => b.textContent = '▶');
     if (triggerBtn) triggerBtn.textContent = '⏸';
@@ -348,13 +355,13 @@ function _playFsTrack(streamUrl, triggerBtn) {
 
 async function leLoadSplitView() {
   const lists = {
-      all: document.getElementById('le-split-list-allmusic'),
+      fg: document.getElementById('le-split-list-fablegear'),
       rb: document.getElementById('le-split-list-rekordbox'),
-      unim: document.getElementById('le-split-list-unimported')
+      novel: document.getElementById('le-split-list-novelty')
   };
-  const cntAll = document.getElementById('le-split-cnt-allmusic');
+  const cntFg = document.getElementById('le-split-cnt-fablegear');
   const cntRb = document.getElementById('le-split-cnt-rekordbox');
-  const cntUnim = document.getElementById('le-split-cnt-unimported');
+  const cntNovel = document.getElementById('le-split-cnt-novelty');
 
   Object.values(lists).forEach(el => { if (el) el.textContent = '⏳ Scanning drives…'; });
 
@@ -364,33 +371,75 @@ async function leLoadSplitView() {
     const data = await res.json();
 
     // Update Counts
-    if (cntAll) cntAll.textContent = data.truncated ? `(${data.all_music.length} of ${data.all_music_count.toLocaleString()})` : `(${data.all_music_count})`;
+    if (cntFg) cntFg.textContent = `(${data.fablegear_count})`;
     if (cntRb) cntRb.textContent = `(${data.rekordbox_count})`;
-    if (cntUnim) cntUnim.textContent = `(${data.unimported_count})`;
+    if (cntNovel) cntNovel.textContent = data.truncated
+      ? `(${data.novelty_count} of ~${data.fs_scanned.toLocaleString()} scanned)`
+      : `(${data.novelty_count})`;
 
     // Secure Render Helper
-    const render = (container, items, type) => {
+    const render = (container, items, type, emptyMsg, errMsg) => {
+        if (!container) return;
         container.innerHTML = '';
+        if (errMsg) { container.textContent = `⚠ ${errMsg}`; return; }
         if (!items || items.length === 0) {
-            container.textContent = type === 'unimported' ? 'Every file on disk is in rekordbox ✓' : 'No tracks found';
+            container.textContent = emptyMsg;
             return;
         }
         items.forEach(t => container.appendChild(_leCreateRowElement(t, type, type)));
     };
 
-    render(lists.all, data.all_music, 'allmusic');
-    render(lists.rb, data.rekordbox, 'rekordbox');
-    render(lists.unim, data.unimported, 'unimported');
+    render(lists.fg, data.fablegear, 'fablegear',
+           'FableGear database is empty — sync your library or drop tracks here', data.fablegear_error);
+    render(lists.rb, data.rekordbox, 'rekordbox', 'No tracks found', data.rekordbox_error);
+    render(lists.novel, data.novelty, 'novelty', 'Both databases know every file on disk ✓', null);
 
   } catch (e) {
     Object.values(lists).forEach(el => { if (el) el.textContent = `⚠ ${e.message}`; });
   }
 }
 
+/* ── Drag novelty tracks onto the FableGear column to import them ─────────── */
+function leSplitDragOver(ev) {
+  if (![...ev.dataTransfer.types].includes('application/x-fablegear-novelty')) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'copy';
+  ev.currentTarget.classList.add('le-split-drop-hot');
+}
+
+function leSplitDragLeave(ev) {
+  ev.currentTarget.classList.remove('le-split-drop-hot');
+}
+
+async function leSplitDropImport(ev) {
+  ev.preventDefault();
+  ev.currentTarget.classList.remove('le-split-drop-hot');
+  const path = ev.dataTransfer.getData('application/x-fablegear-novelty');
+  if (!path) return;
+  try {
+    const res = await fetch('/api/library/db/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths: [path] }),
+    });
+    const stats = await res.json();
+    if (!res.ok) throw new Error(stats.error || res.statusText);
+    if (typeof showToast === 'function') {
+      const what = stats.new_files ? 'imported' : (stats.updated_files ? 'updated' : 'already in the database');
+      showToast(`${path.split('/').pop()} ${what}.`, 'success');
+    }
+    leLoadSplitView();
+  } catch (e) {
+    if (typeof showToast === 'function') showToast(`Import failed: ${e.message}`, 'error');
+  }
+}
+
 // Expose functions to the global window object for HTML onclick handlers
 window.setLibraryMode = setLibraryMode;
 window.leFsBrowse = leFsBrowse;
-window.onPlayClick = onPlayClick;
 window.setLeDbSource = setLeDbSource;
 window.leLoadSplitView = leLoadSplitView;
 window._leStageFsCurrentFolder = _leStageFsCurrentFolder;
+window.leSplitDragOver = leSplitDragOver;
+window.leSplitDragLeave = leSplitDragLeave;
+window.leSplitDropImport = leSplitDropImport;

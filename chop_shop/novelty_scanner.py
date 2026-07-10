@@ -55,6 +55,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
+try:
+    from path_guard import guard_sources as _guard_sources
+except ImportError:  # imported via the chop_shop package
+    from chop_shop.path_guard import guard_sources as _guard_sources
+
 log = logging.getLogger(__name__)
 
 # ─── Tolerances (same as duplicate_detector for consistency) ─────────────────
@@ -342,6 +347,7 @@ def scan_novel(
     from config import AUDIO_EXTENSIONS, SKIP_DIRS, SKIP_PREFIXES
 
     source_list: list[Path] = [source] if isinstance(source, Path) else list(source)
+    _guard_sources(source_list, "the novelty scanner")
     match_mode = (match_mode or "fingerprint").strip().lower()
     if match_mode not in {"fingerprint", "filename"}:
         raise ValueError(f"Unsupported match_mode: {match_mode}")
@@ -437,6 +443,19 @@ def scan_novel(
         log.debug("Novel (fingerprint mismatch): %s", src.name)
         return _copy_novel(src, destination, dry_run)
 
+    def _journal_copy(r: NovelTrack) -> None:
+        """Journal each copy the moment it lands — an interrupted scan must
+        still record every track it brought into the library."""
+        if archive is None or r.action != "copied" or r.dest is None:
+            return
+        try:
+            archive.log_operation(
+                "novelty_copy", str(r.dest), status="ok",
+                metadata={"from": str(r.path)},
+            )
+        except Exception as exc:
+            log.warning("Archive update failed for novelty copy %s: %s", r.path, exc)
+
     if max_workers > 1:
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             futures = {ex.submit(_process, t): t for t in src_tracks}
@@ -449,6 +468,7 @@ def scan_novel(
                 if r.action in ("copied", "dry_run"):
                     copied  += 1
                     result.novel.append(r)
+                    _journal_copy(r)
                 elif r.action == "skipped":
                     skipped += 1
                     result.present.append(futures[future])
@@ -467,6 +487,7 @@ def scan_novel(
             if r.action in ("copied", "dry_run"):
                 copied  += 1
                 result.novel.append(r)
+                _journal_copy(r)
             elif r.action == "skipped":
                 skipped += 1
                 result.present.append(src)

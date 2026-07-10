@@ -77,9 +77,6 @@
   <button type="button" class="step-tab" data-target="step-convert">
     <img class="step-icon" src="/static/icon-converter.png" alt="Convert">
   </button>
-  <button type="button" class="step-tab" data-target="step-normalize">
-    <img class="step-icon" src="/static/icon-normalizer.png" alt="Normalize">
-  </button>
   <button type="button" class="step-tab" data-target="step-organize">
     <img class="step-icon" src="/static/icon-organizer.png" alt="Organize">
   </button>
@@ -90,24 +87,32 @@
     <img class="step-icon" src="/static/icon-novelty.png" alt="Novelty">
   </button>
 
-  <button type="button" class="step-tab step-tab-entry" id="nav-btn-pipeline-wizard" onclick="openPipelineWizard()" title="Pipeline Wizard">
-    <img class="step-icon" src="/static/icon-logo-fablegear.png" alt="Pipeline Wizard">
+  <button type="button" class="step-tab step-tab-entry" id="nav-btn-pipeline-wizard" onclick="openPipelineWizard()" title="Pipeline Wizard" aria-label="Pipeline Wizard">
+    <!-- alt="" (decorative): the button carries the accessible name via aria-label, so a
+         missing/still-loading image paints nothing instead of floating "Pipeline Wizard"
+         alt text + a broken-image glyph in the background. -->
+    <img class="step-icon" src="/static/icon-logo-fablegear.png" alt="">
   </button>
 
   <div class="workflow-rail-divider" aria-hidden="true"></div>
 
-  <button type="button" class="step-tab step-tab-util" id="nav-btn-library" onclick="toggleRightNavDropdown('library')" title="Library">
-    <img class="step-icon" src="/static/icon-record-room.png" alt="Library">
+  <!-- Right of the divider: the Rekordbox-explicit tools (the DB panel's
+       sections). FableGear-native tools live left; rekordbox maintenance
+       lives here. Generic nav (Library/Queue/Drives) is the left rail's job. -->
+  <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-audit" onclick="openDbPanel('audit')" title="Audit — read-only Rekordbox library health check">
+    AUDIT
   </button>
-  <button type="button" class="step-tab step-tab-util" id="nav-btn-files" onclick="toggleRightNavDropdown('files')" title="Files">
-    <img class="step-icon" src="/static/icon-queue.png" alt="Files">
+  <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-relocate" onclick="openDbPanel('relocate')" title="Fix Broken Paths — update DB paths after a drive move">
+    FIX<br>PATHS
   </button>
-  <button type="button" class="step-tab step-tab-util" id="nav-btn-drives" onclick="toggleRightNavDropdown('drives')" title="Drives">
-    <img class="step-icon" src="/static/icon-drives.png" alt="Drives">
-    <span class="nav-drives-badge" id="nav-drives-badge" style="display:none"></span>
+  <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-import" onclick="openDbPanel('import')" title="Import — add tracks to the Rekordbox database">
+    IMPORT
   </button>
-  <button type="button" class="step-tab step-tab-util step-tab-rekordbox" id="nav-btn-db" onclick="openDbPanel('audit')" title="Rekordbox Tools">
-    <img class="step-icon" src="/static/icon-settings.png" alt="DB Fix">
+  <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-link" onclick="openDbPanel('link')" title="Link Playlists — wire imported tracks into playlists">
+    LINK
+  </button>
+  <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-dead-files" onclick="openDbPanel('dead-files')" title="Dead Files — audio on disk not referenced by any Rekordbox DB">
+    DEAD<br>FILES
   </button>
 </nav>
 
@@ -315,7 +320,7 @@
           <div class="settings-section-sep">
             <label class="settings-excl-label">Updates</label>
             <div class="settings-excl-note">Check for new versions of FableGear.</div>
-            <button type="button" class="btn btn-secondary btn-xs" onclick="if(typeof fablegearUpdateCheck==='function') fablegearUpdateCheck()">Check for Updates</button>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="if(typeof fablegearUpdateCheckManual==='function') fablegearUpdateCheckManual(this)">Check for Updates</button>
           </div>
 
           <div class="settings-section-sep">
@@ -327,6 +332,20 @@
                    placeholder="cache&#10;PROCESSING_CACHE&#10;POST_PROCESS_ARCHIVE"></textarea>
             <div class="settings-excl-note">
               Folders with these names are skipped during all scans (Tag Tracks, Normalize, Convert, Audit).
+            </div>
+          </div>
+
+          <div class="settings-section-sep">
+            <label class="settings-excl-label">
+              🎵 AcoustID API key
+              <span class="settings-excl-hint"> — for MusicBrainz metadata enrichment</span>
+            </label>
+            <input type="text" id="settings-acoustid-key" class="settings-path-input"
+                   placeholder="Paste your AcoustID API key" autocomplete="off" spellcheck="false">
+            <div class="settings-excl-note">
+              Enables the “Metadata Enrichment” option in Tag Tracks — fingerprints each file and fills in
+              missing title / artist / album from MusicBrainz. Music data only; nothing else leaves your machine.
+              Free key at acoustid.org/new-application. Leave blank to disable.
             </div>
           </div>
         </div>
@@ -444,6 +463,28 @@
               <strong>Duplicate reports:</strong> CSV reports require a manual destination path each run.
             </div>
           </div>
+
+          <div class="settings-section-sep">
+            <label class="settings-excl-label" for="settings-snapshot-cadence">
+              Periodic snapshot cadence
+            </label>
+            <select id="settings-snapshot-cadence" class="settings-path-input">
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Bi-weekly</option>
+              <option value="monthly" selected>Monthly</option>
+              <option value="quarterly">Every 3 months</option>
+            </select>
+            <div class="settings-excl-note">
+              Controls how often FableGear writes a periodic savepoint snapshot in the archive.
+            </div>
+            <label class="settings-radio" style="margin-top:10px">
+              <input type="checkbox" id="settings-snapshot-master-db">
+              <div>
+                <div class="settings-radio-label">Include Rekordbox master.db snapshots</div>
+                <div class="settings-radio-desc">Also save a periodic copy of the local Rekordbox database alongside the savepoint.</div>
+              </div>
+            </label>
+          </div>
         </div>
       </div>
 
@@ -549,7 +590,7 @@
         </div>
         <div class="fgwin-pills">
           <button type="button" class="fgwin-pill" onclick="if(typeof openInstallWalkthrough==='function') openInstallWalkthrough(); else if(typeof reopenOnboardingWizard==='function') reopenOnboardingWizard();">Install Walkthrough</button>
-          <button type="button" class="fgwin-pill" onclick="if(typeof fablegearUpdateCheck==='function') fablegearUpdateCheck()">Updates</button>
+          <button type="button" class="fgwin-pill" onclick="if(typeof fablegearUpdateCheckManual==='function') fablegearUpdateCheckManual(this)">Updates</button>
           <button type="button" class="fgwin-pill" onclick="closeWelcome(); if(typeof openDbPanel==='function') openDbPanel('audit')">Database</button>
           <button type="button" class="fgwin-pill mcp-pill" id="mcp-pill" onclick="mcpPillClick()">
             <span class="mcp-dot" id="mcp-dot"></span> AI Agents
@@ -776,7 +817,6 @@
 <script src="/static/shared/health.js?v={{ cb }}"></script>
 <script src="/static/shared/drives.js?v={{ cb }}"></script>
 <script type="module" src="/static/record_room/library_mode.js?v={{ cb }}"></script>
-<script type="module" src="/static/record_room/performance_ui.js?v={{ cb }}"></script>
 <script src="/static/shared/utility.js?v={{ cb }}"></script>
 <script src="/static/shared/scan_bar.js?v={{ cb }}"></script>
 <script src="/static/chop_shop/runners.js?v={{ cb }}"></script>
@@ -979,20 +1019,25 @@
 
         <!-- Integrated view container (3 libraries) — hidden unless mode=split -->
         <div id="le-split-view" style="display:none">
-          <div class="le-split-col" id="le-split-col-allmusic">
-            <div class="le-split-col-header le-split-green">All Music <span class="le-split-count" id="le-split-cnt-allmusic"></span></div>
-            <div class="le-split-col-sub">Every track on every connected drive</div>
-            <div class="le-split-col-list" id="le-split-list-allmusic"></div>
+          <div class="le-split-col" id="le-split-col-fablegear"
+               ondragover="leSplitDragOver(event)" ondragleave="leSplitDragLeave(event)" ondrop="leSplitDropImport(event)">
+            <div class="le-split-col-header le-split-green">FableGear Library <span class="le-split-count" id="le-split-cnt-fablegear"></span></div>
+            <div class="le-split-col-sub">Your database — drop novelty tracks here to import</div>
+            <div class="le-split-col-list" id="le-split-list-fablegear"></div>
           </div>
           <div class="le-split-col" id="le-split-col-rekordbox">
             <div class="le-split-col-header le-split-blue">Rekordbox Library <span class="le-split-count" id="le-split-cnt-rekordbox"></span></div>
             <div class="le-split-col-sub">Tracks in your rekordbox database</div>
             <div class="le-split-col-list" id="le-split-list-rekordbox"></div>
           </div>
-          <div class="le-split-col" id="le-split-col-unimported">
-            <div class="le-split-col-header le-split-amber">Not in Rekordbox <span class="le-split-count" id="le-split-cnt-unimported"></span></div>
-            <div class="le-split-col-sub">On disk but not yet imported</div>
-            <div class="le-split-col-list" id="le-split-list-unimported"></div>
+          <div class="le-split-col" id="le-split-col-novelty">
+            <div class="le-split-col-header le-split-amber">Novelty <span class="le-split-count" id="le-split-cnt-novelty"></span></div>
+            <div class="le-split-col-sub le-novel-legend">
+              <span class="le-novel-dot le-novel-dot-blue"></span>not in FableGear
+              <span class="le-novel-dot le-novel-dot-yellow"></span>not in Rekordbox
+              <span class="le-novel-dot le-novel-dot-green"></span>in neither
+            </div>
+            <div class="le-split-col-list" id="le-split-list-novelty"></div>
           </div>
         </div>
 

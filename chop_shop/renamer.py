@@ -62,6 +62,11 @@ from scanner import extract_metadata
 if TYPE_CHECKING:
     pass
 
+try:
+    from path_guard import guard_sources as _guard_sources
+except ImportError:  # imported via the chop_shop package
+    from chop_shop.path_guard import guard_sources as _guard_sources
+
 log = logging.getLogger(__name__)
 
 # Patterns to detect and clean from filenames
@@ -1110,6 +1115,7 @@ def rename_directory(
     list[RenameResult]
         Outcome for each file processed.
     """
+    _guard_sources([root], "the renamer")
     if rules is None:
         rules = _learned.load()
 

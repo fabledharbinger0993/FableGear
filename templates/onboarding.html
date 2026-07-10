@@ -429,8 +429,10 @@
     <div class="ob-dot"        id="dot-1"></div>
     <div class="ob-dot"        id="dot-2"></div>
     <div class="ob-dot"        id="dot-3"></div>
-    <div class="ob-dot"        id="dot-4"></div>
-    <div class="ob-dot"        id="dot-5"></div>
+    <div class="ob-dot" id="dot-4"></div>
+    <div class="ob-dot" id="dot-5"></div>
+    <div class="ob-dot" id="dot-6"></div>
+    <div class="ob-dot" id="dot-7"></div>
   </div>
 
   <!-- ══ Step 1: Dependencies ══════════════════════════════════════════════ -->
@@ -610,6 +612,25 @@
         </div>
         <div id="archive-root-note" class="path-note"></div>
         <div class="ob-inline-note" id="archive-backup-note"></div>
+        <div class="ob-card" style="margin-top:12px;padding:12px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)">
+          <div class="ob-card-title" style="margin-bottom:8px">Snapshot protection</div>
+          <div class="path-row" style="border-bottom:none;padding:0;margin-bottom:10px">
+            <span class="path-label">Cadence</span>
+            <select class="ob-select" id="inp-snapshot-cadence">
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Bi-weekly</option>
+              <option value="monthly" selected>Monthly</option>
+              <option value="quarterly">Every 3 months</option>
+            </select>
+          </div>
+          <label class="ob-radio" style="padding:0;align-items:flex-start">
+            <input type="checkbox" id="inp-snapshot-master-db" style="margin-top:4px">
+            <div>
+              <strong>Include Rekordbox master.db snapshots</strong>
+              <small>Optional periodic copy of the local Rekordbox database for rollback safety.</small>
+            </div>
+          </label>
+        </div>
       </div>
 
     </div><!-- /scan-results -->
@@ -690,8 +711,70 @@
     </div>
   </section>
 
-  <!-- ══ Step 6: Choose a room ════════════════════════════════════════════ -->
+  <!-- ══ Step 6: AI integration (MCP) — opt-in ═══════════════════════════ -->
   <section class="ob-step" id="step-5">
+    <div class="ob-icon">🤖</div>
+    <h1 class="ob-title">AI integration</h1>
+    <p class="ob-sub">FableGear can run a local MCP server so AI copilots (Claude Code,
+      Claude Desktop, Cursor) can drive your tools — audit, tag, dedupe, organize —
+      from a conversation. It listens on localhost only and is <strong>off by
+      default</strong>. You can change this any time in Settings.</p>
+
+    <div class="ob-card">
+      <div class="ob-card-title">What an AI copilot can do once connected</div>
+      <div class="dep-row"><span class="dep-icon">🩺</span><span class="dep-name">Audit &amp; report</span><span class="dep-hint">Run library health checks and read the results back to you</span></div>
+      <div class="dep-row"><span class="dep-icon">⚙️</span><span class="dep-name">Run tools with your rules</span><span class="dep-hint">Every safety gate still applies — dry-runs, backups, Rekordbox-closed checks</span></div>
+      <div class="dep-row"><span class="dep-icon">📜</span><span class="dep-name">Read job history</span><span class="dep-hint">Checkpoints and past runs from the FableGear archive</span></div>
+    </div>
+
+    <div class="ob-card" id="mcp-snippet-card" style="display:none">
+      <div class="ob-card-title">Paste this into your AI client
+        <select id="mcp-client-pick" onchange="mcpFetchSnippet()" style="margin-left:8px;background:rgba(255,255,255,.06);color:var(--text);border:1px solid rgba(255,255,255,.15);border-radius:6px;padding:2px 6px;font-size:.75rem">
+          <option value="claude-code">Claude Code</option>
+          <option value="claude-desktop">Claude Desktop</option>
+          <option value="cursor">Cursor</option>
+          <option value="generic">Generic MCP</option>
+        </select>
+      </div>
+      <pre id="mcp-snippet" style="white-space:pre-wrap;font-size:.72rem;background:rgba(0,0,0,.35);border-radius:8px;padding:10px;max-height:180px;overflow:auto"></pre>
+      <button class="ob-btn ob-btn-secondary" type="button" onclick="mcpCopySnippet()">Copy snippet</button>
+    </div>
+
+    <div class="ob-actions">
+      <button class="ob-btn ob-btn-secondary" onclick="goToStep(4)">← Back</button>
+      <button class="ob-btn ob-btn-ghost" id="mcp-skip-btn" onclick="mcpSkip()">Not now →</button>
+      <button class="ob-btn ob-btn-primary" id="mcp-enable-btn" onclick="mcpOptIn()">Enable AI integration</button>
+      <button class="ob-btn ob-btn-primary" id="mcp-continue-btn" onclick="goToStep(6)" style="display:none">Continue →</button>
+    </div>
+  </section>
+
+  <!-- ══ Step 7: Build the FableGear library ══════════════════════════════ -->
+  <section class="ob-step" id="step-6">
+    <div class="ob-icon">📀</div>
+    <h1 class="ob-title">Build your FableGear library</h1>
+    <p class="ob-sub">Rekordbox stays untouched — FableGear builds its own database
+      alongside it. Pick the music sources to bring in now (you can add more later
+      from the Record Room).</p>
+
+    <div class="ob-card">
+      <div class="ob-card-title">Discovered music sources</div>
+      <div id="import-source-list"><div class="ob-scanning"><span class="spin"></span>Looking at your drives…</div></div>
+    </div>
+
+    <div class="ob-card" id="import-progress-card" style="display:none">
+      <div class="ob-card-title">Importing into FableGear.db</div>
+      <div id="import-progress" style="font-size:.85rem;color:var(--text-muted)"></div>
+    </div>
+
+    <div class="ob-actions" id="import-actions">
+      <button class="ob-btn ob-btn-secondary" onclick="goToStep(5)">← Back</button>
+      <button class="ob-btn ob-btn-ghost" onclick="goToStep(7)">Skip for now →</button>
+      <button class="ob-btn ob-btn-primary" id="import-start-btn" onclick="importSelectedSources()">Import selected →</button>
+    </div>
+  </section>
+
+  <!-- ══ Step 8: Choose a room ════════════════════════════════════════════ -->
+  <section class="ob-step" id="step-7">
     <div class="ob-icon">✅</div>
     <h1 class="ob-title">You're all set</h1>
     <p class="ob-sub" id="setup-summary">Setup complete. Pick a room to start.</p>
@@ -737,6 +820,8 @@ function goToStep(n) {
   // Side effects per step
   if (n === 2) prepareScanStep();
   if (n === 3) checkFDA();
+  if (n === 6) prepareImportStep();
+  if (n === 7) _buildSetupSummary();
 }
 
 // ── Step 1: Dependencies ───────────────────────────────────────────────────────
@@ -1121,6 +1206,8 @@ function confirmPaths() {
     backup_dir: (scanData && scanData.recommended_music_root === musicRoot && scanData.recommended_backup_dir)
       ? scanData.recommended_backup_dir
       : (archiveRoot ? archiveRoot + '/Savepoints' : ''),
+    snapshot_cadence: document.getElementById('inp-snapshot-cadence').value || 'monthly',
+    snapshot_include_master_db: document.getElementById('inp-snapshot-master-db').checked,
     db_read:  true,
     db_write: true,
     drive_scan: scanConsent === true,
@@ -1182,14 +1269,174 @@ function permDenyRead() {
 // ── Step 5: Write permission ───────────────────────────────────────────────────
 function permGrantWrite() {
   confirmedPaths.db_write = true;
-  _buildSetupSummary();
   goToStep(5);
 }
 
 function permDenyWrite() {
   confirmedPaths.db_write = false;
-  _buildSetupSummary();
   goToStep(5);
+}
+
+// ── Step 6: AI integration (MCP) — strictly opt-in ─────────────────────────────
+// Enabling needs a saved config (the MCP port/token live in config.json), so
+// the choice first persists everything collected so far, then flips MCP on.
+function _saveConfigNow() {
+  return fetch('/api/onboarding/save-config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(confirmedPaths),
+  }).then(function(r) { return r.json(); });
+}
+
+function mcpSkip() {
+  confirmedPaths.mcp_opted_in = false;
+  goToStep(6);
+}
+
+function mcpOptIn() {
+  var btn = document.getElementById('mcp-enable-btn');
+  btn.disabled = true;
+  btn.textContent = 'Enabling…';
+  confirmedPaths.mcp_opted_in = true;
+  _saveConfigNow()
+    .then(function(d) {
+      if (!d.ok) throw new Error(d.error || 'could not save configuration');
+      return fetch('/api/mcp/enable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autostart: true }),
+      }).then(function(r) { return r.json(); });
+    })
+    .then(function(d) {
+      if (!d.ok) throw new Error(d.error || 'could not enable MCP');
+      btn.style.display = 'none';
+      document.getElementById('mcp-skip-btn').style.display = 'none';
+      document.getElementById('mcp-continue-btn').style.display = '';
+      document.getElementById('mcp-snippet-card').style.display = '';
+      mcpFetchSnippet();
+    })
+    .catch(function(e) {
+      confirmedPaths.mcp_opted_in = false;
+      btn.disabled = false;
+      btn.textContent = 'Enable AI integration';
+      obNotice('AI integration failed: ' + e.message, 'error');
+    });
+}
+
+function mcpFetchSnippet() {
+  var client = document.getElementById('mcp-client-pick').value;
+  fetch('/api/mcp/config-snippet?client=' + encodeURIComponent(client))
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      document.getElementById('mcp-snippet').textContent =
+        d.snippet || d.error || 'Snippet unavailable.';
+    })
+    .catch(function() {
+      document.getElementById('mcp-snippet').textContent = 'Snippet unavailable.';
+    });
+}
+
+function mcpCopySnippet() {
+  var text = document.getElementById('mcp-snippet').textContent;
+  navigator.clipboard.writeText(text)
+    .then(function() { obNotice('Snippet copied to clipboard.', ''); })
+    .catch(function() { obNotice('Copy failed — select and copy manually.', 'error'); });
+}
+
+// ── Step 7: Build the FableGear library ────────────────────────────────────────
+// Sources come from the step-2 scan (scanData.music_roots) plus the confirmed
+// home library folder. Nothing imports until the user picks and clicks.
+function prepareImportStep() {
+  var list = document.getElementById('import-source-list');
+  var sources = [];
+  var seen = {};
+  var home = (confirmedPaths.music_root || '').trim();
+  if (home) {
+    sources.push({ path: home, label: 'Home library', audio_count: null, recommended: true });
+    seen[home] = true;
+  }
+  if (scanData && Array.isArray(scanData.music_roots)) {
+    scanData.music_roots.forEach(function(m) {
+      if (seen[m.path]) return;
+      seen[m.path] = true;
+      sources.push({ path: m.path, label: m.label || m.path, audio_count: m.audio_count, recommended: false });
+    });
+  }
+  if (!sources.length) {
+    list.innerHTML = '<div style="font-size:.85rem;color:var(--text-dim)">No sources discovered — allow the drive scan in the library step, or add folders later from the Record Room.</div>';
+    return;
+  }
+  var html = '';
+  sources.forEach(function(s, i) {
+    html += '<label class="dep-row" style="cursor:pointer">'
+      + '<input type="checkbox" class="import-src" value="' + escAttr(s.path) + '"' + (s.recommended ? ' checked' : '') + ' style="accent-color:var(--accent);margin-right:8px">'
+      + '<span class="dep-name">' + escHtml(s.label) + (s.recommended ? ' · recommended' : '') + '</span>'
+      + '<span class="dep-hint">' + escHtml(s.path) + (s.audio_count != null ? ' · ~' + s.audio_count + ' tracks' : '') + '</span>'
+      + '</label>';
+  });
+  list.innerHTML = html;
+}
+
+var _obImportPoll = null;
+
+function importSelectedSources() {
+  var picked = Array.prototype.map.call(
+    document.querySelectorAll('.import-src:checked'),
+    function(el) { return el.value; }
+  );
+  if (!picked.length) { obNotice('Pick at least one source, or Skip for now.', 'error'); return; }
+
+  var startBtn = document.getElementById('import-start-btn');
+  startBtn.disabled = true;
+  startBtn.textContent = 'Importing…';
+  document.getElementById('import-progress-card').style.display = '';
+  var prog = document.getElementById('import-progress');
+  prog.textContent = 'Starting…';
+
+  _saveConfigNow()
+    .then(function(d) {
+      if (!d.ok) throw new Error(d.error || 'could not save configuration');
+      return fetch('/api/onboarding/import-sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths: picked }),
+      }).then(function(r) { return r.json(); });
+    })
+    .then(function(d) {
+      if (d.error) throw new Error(d.error);
+      _obImportPoll = setInterval(function() {
+        fetch('/api/onboarding/import-sources/status')
+          .then(function(r) { return r.json(); })
+          .then(function(s) {
+            if (s.running) {
+              prog.textContent = s.phase === 'importing'
+                ? ('Importing ' + s.done + ' / ' + s.total + '…')
+                : (s.phase + '…');
+              return;
+            }
+            clearInterval(_obImportPoll);
+            if (s.error) {
+              prog.textContent = '⚠ Import failed: ' + s.error;
+              startBtn.disabled = false;
+              startBtn.textContent = 'Retry import →';
+              return;
+            }
+            var r = s.result || {};
+            confirmedPaths._imported_summary =
+              (r.new_files || 0) + ' new · ' + (r.updated_files || 0) + ' updated · '
+              + (r.skipped_files || 0) + ' already known' + ((r.error_files || 0) ? ' · ' + r.error_files + ' errors' : '');
+            prog.textContent = '✓ ' + confirmedPaths._imported_summary;
+            startBtn.style.display = 'none';
+            setTimeout(function() { goToStep(7); }, 1200);
+          })
+          .catch(function() {});
+      }, 700);
+    })
+    .catch(function(e) {
+      startBtn.disabled = false;
+      startBtn.textContent = 'Import selected →';
+      obNotice('Import failed: ' + e.message, 'error');
+    });
 }
 
 function _buildSetupSummary() {
@@ -1200,6 +1447,18 @@ function _buildSetupSummary() {
     : r
     ? '⚠ Read-only — write tools locked. Enable them any time via Settings.'
     : '⚠ Limited mode — database tools unavailable until access is granted.'
+  msg += confirmedPaths.mcp_opted_in
+    ? ' AI integration is ON (localhost MCP).'
+    : ' AI integration is off — enable it any time in Settings.';
+  if (confirmedPaths.snapshot_cadence) {
+    msg += ' Snapshots: ' + confirmedPaths.snapshot_cadence + '.';
+    if (confirmedPaths.snapshot_include_master_db) {
+      msg += ' Includes master.db.';
+    }
+  }
+  if (confirmedPaths._imported_summary) {
+    msg += ' FableGear library seeded: ' + confirmedPaths._imported_summary + '.';
+  }
   document.getElementById('setup-summary').textContent = msg;
 }
 

@@ -167,7 +167,7 @@ class DupeEntry:
     rank:          str            # PN | MIK | RAW
     file_path:     str
     file_size_mb:  float
-    bpm:           Optional[str]
+    bpm:           Optional[str]  # CSV-sourced text like "127.00"; TrackInfo/FG-DB use float — do not compare directly
     key:           Optional[str]
     filename:      str
     # enriched after load
@@ -506,6 +506,26 @@ def prune_files(
     if _cancel_requested():
         emit("  ⚠  Cancel requested after database commit — finishing file operations to keep DB and filesystem in sync.")
 
+    def _journal_prune(src_path: str, dest) -> None:
+        """Journal each removal the moment it happens — an interrupted prune
+        must still leave a record of every file it moved or deleted."""
+        if archive is None:
+            return
+        try:
+            rec = archive.get_content_by_path(src_path)
+            if rec and rec.id is not None:
+                archive.delete_content(rec.id)
+            archive.log_operation(
+                "prune", src_path, status="ok",
+                metadata={
+                    "permanent": permanent,
+                    "moved_to": str(dest) if dest else None,
+                    "trash_dir": str(trash_dir) if trash_dir else None,
+                },
+            )
+        except Exception as exc:
+            _log.warning("Archive update failed for prune %s: %s", src_path, exc)
+
     action_label = "Permanently deleting" if permanent else "Moving files to recovery folder"
     emit(f"  {action_label}…")
     for path in file_paths:
@@ -522,6 +542,7 @@ def prune_files(
                 p.unlink()
                 files_moved += 1
                 emit(f"    Deleted ✓  {p.name}")
+                _journal_prune(path, dest=None)
             else:
                 dest = trash_dir / p.name
                 # Handle name collisions within the recovery folder
@@ -530,6 +551,7 @@ def prune_files(
                 shutil.move(str(p), str(dest))
                 files_moved += 1
                 emit(f"    Moved ✓  {p.name}")
+                _journal_prune(path, dest=dest)
         except Exception as exc:
             msg = f"Could not {'delete' if permanent else 'move'} {p.name}: {exc}"
             errors.append(msg)
@@ -551,22 +573,6 @@ def prune_files(
     emit("═════════════════════")
 
     if archive is not None and files_moved > 0:
-        for path in file_paths:
-            if path in protected_paths:
-                continue
-            try:
-                rec = archive.get_content_by_path(path)
-                if rec and rec.id is not None:
-                    archive.delete_content(rec.id)
-                archive.log_operation(
-                    "prune", path, status="ok",
-                    metadata={
-                        "permanent": permanent,
-                        "trash_dir": str(trash_dir) if trash_dir else None,
-                    },
-                )
-            except Exception as exc:
-                _log.warning("Archive update failed for prune %s: %s", path, exc)
         archive.log_operation(
             "prune_batch",
             metadata={

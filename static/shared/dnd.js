@@ -402,9 +402,7 @@ async function _recoverDroppedPath() {
 function runAudit() {
   const paths = getFolderPaths('audit-pills');
   if (!paths.length) { showToast('Add at least one folder path to scan.', 'warning'); return; }
-  const savePhys = document.getElementById('audit-save-physical')?.checked ? '1' : '0';
   const p = new URLSearchParams();
-  p.set('save_physical', savePhys);
   // 'paths' param — api_audit() uses first as --root, rest as --also-scan
   paths.forEach(path => p.append('paths', path));
   runCommand(`/api/run/audit?${p.toString()}`, 'Audit — Database + Physical Scan', null, true);

@@ -23,6 +23,19 @@ from .schema import DatabaseSchema, DatabaseConfig
 
 log = logging.getLogger(__name__)
 
+# Canonical on-disk location of the FableGear library database. Kept as a
+# module constant so callers can test for existence *without* constructing a
+# FableGearDatabase (which would create the file as a side effect).
+DEFAULT_DB_DIR = Path.home() / ".fablegear"
+DEFAULT_DB_PATH = DEFAULT_DB_DIR / "fablegear.db"
+
+
+class LibraryNotInitializedError(RuntimeError):
+    """Raised when the FableGear database is opened read-only (create=False)
+    but has not been created yet. Read paths catch this and present an empty
+    library instead of silently materialising the file — FableGear never
+    creates the library as a side effect of merely viewing it."""
+
 
 @dataclass
 class ContentRecord:
@@ -83,37 +96,56 @@ class FableGearDatabase:
     - Fast queries via indexed fields
     """
     
-    def __init__(self, config: Optional[DatabaseConfig] = None):
+    def __init__(self, config: Optional[DatabaseConfig] = None, *, create: bool = True):
         """
         Initialize the database connection.
-        
+
         Args:
             config: Database configuration (default: auto-detected)
+            create: When True (default) the database file and schema are
+                created if they do not exist. Pass ``create=False`` on read
+                paths that must not materialise the library — a missing file
+                then raises ``LibraryNotInitializedError``.
         """
         self.config = config or self._default_config()
         self._conn: Optional[sqlite3.Connection] = None
         self._in_transaction = False
-        
+
         # Initialize database if needed
-        self._initialize_database()
-    
+        self._initialize_database(create=create)
+
+    @staticmethod
+    def default_db_path() -> Path:
+        """Return the canonical library path without any side effects (no
+        directory creation, no connection). Use this to check existence
+        before deciding whether a read path should open the database."""
+        return DEFAULT_DB_PATH
+
     def _default_config(self) -> DatabaseConfig:
-        """Create default database configuration."""
-        db_dir = Path.home() / ".fablegear"
-        db_dir.mkdir(parents=True, exist_ok=True)
-        
+        """Create default database configuration.
+
+        Note: this no longer creates ``~/.fablegear`` — the directory is only
+        made when the database is actually created (see _initialize_database),
+        so constructing with ``create=False`` stays side-effect-free.
+        """
         return DatabaseConfig(
-            db_path=db_dir / "fablegear.db",
+            db_path=DEFAULT_DB_PATH,
             auto_vacuum_enabled=True,
             journal_mode="WAL",
             cache_size=-2000,
             synchronous="NORMAL",
             foreign_keys=True,
         )
-    
-    def _initialize_database(self) -> None:
+
+    def _initialize_database(self, *, create: bool = True) -> None:
         """Initialize database schema if needed."""
         if not self.config.db_path.exists():
+            if not create:
+                raise LibraryNotInitializedError(
+                    f"FableGear library database does not exist yet: "
+                    f"{self.config.db_path}"
+                )
+            self.config.db_path.parent.mkdir(parents=True, exist_ok=True)
             log.info("Creating new FableGear database: %s", self.config.db_path)
             DatabaseSchema.create_schema(self.config.db_path)
             self._set_metadata("schema_version", DatabaseSchema.get_schema_version())
@@ -272,6 +304,79 @@ class FableGearDatabase:
             )
             return {row[0]: (row[1], row[2], row[3]) for row in cursor.fetchall()}
 
+    def get_fingerprint_index(self) -> Dict[str, Tuple[Optional[str], int, Optional[float]]]:
+        """
+        Return a map of file_path -> (acoustic_fingerprint, file_size, duration).
+
+        Used by the duplicate scanner to reuse fingerprints the Archive already
+        knows instead of re-running fpcalc on every file. file_size is the
+        cheap staleness check: if the on-disk size differs, recompute.
+        """
+        with self.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT file_path, acoustic_fingerprint, file_size, duration FROM fg_content"
+            )
+            return {row[0]: (row[1], row[2], row[3]) for row in cursor.fetchall()}
+
+    def bulk_set_fingerprints(
+        self, entries: List[Tuple[str, str, Optional[float], int]]
+    ) -> int:
+        """
+        Persist computed fingerprints without clobbering other columns.
+
+        entries: (file_path, acoustic_fingerprint, duration, file_size).
+        Rows the Archive doesn't know yet are inserted; existing rows keep
+        their tags/metadata and only gain the fingerprint (+ duration when
+        we learned one). One transaction for the whole batch.
+        """
+        if not entries:
+            return 0
+        sql = (
+            "INSERT INTO fg_content (file_path, file_name, file_size, duration, acoustic_fingerprint) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(file_path) DO UPDATE SET "
+            "  acoustic_fingerprint = excluded.acoustic_fingerprint, "
+            "  duration = COALESCE(excluded.duration, duration), "
+            "  file_size = excluded.file_size, "
+            "  updated_at = datetime('now', 'localtime')"
+        )
+        rows = [
+            (path, Path(path).name, file_size, duration, fingerprint)
+            for path, fingerprint, duration, file_size in entries
+        ]
+        with self.transaction() as conn:
+            conn.executemany(sql, rows)
+        return len(rows)
+
+    def bulk_set_analysis(
+        self, entries: List[Tuple[str, Optional[float], Optional[str], int]]
+    ) -> int:
+        """
+        Persist tagger analysis (BPM / musical key) without clobbering other
+        columns. None values never overwrite an existing value (COALESCE).
+
+        entries: (file_path, bpm, key, file_size).
+        """
+        if not entries:
+            return 0
+        sql = (
+            "INSERT INTO fg_content (file_path, file_name, file_size, bpm, key) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(file_path) DO UPDATE SET "
+            "  bpm = COALESCE(excluded.bpm, bpm), "
+            "  key = COALESCE(excluded.key, key), "
+            "  file_size = excluded.file_size, "
+            "  updated_at = datetime('now', 'localtime')"
+        )
+        rows = [
+            (path, Path(path).name, file_size, bpm, key)
+            for path, bpm, key, file_size in entries
+        ]
+        with self.transaction() as conn:
+            conn.executemany(sql, rows)
+        return len(rows)
+
     def delete_content(self, record_id: int) -> bool:
         """
         Delete a content record by ID.
@@ -307,6 +412,104 @@ class FableGearDatabase:
             "file_name": Path(new_path).name,
             "processing_status": "relinked",
         })
+
+    def bulk_relink_content(
+        self,
+        updates: List[Tuple[int, str]],
+        *,
+        chunk_size: int = 500,
+    ) -> int:
+        """
+        Relink many records in bounded chunks to avoid per-row transactions.
+
+        Args:
+            updates: List of (record_id, new_path)
+            chunk_size: Rows per transaction chunk
+
+        Returns:
+            Number of rows relinked
+        """
+        if not updates:
+            return 0
+        if chunk_size < 1:
+            raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
+
+        sql = (
+            "UPDATE fg_content SET "
+            "  file_path = ?, "
+            "  file_name = ?, "
+            "  processing_status = 'relinked', "
+            "  updated_at = CURRENT_TIMESTAMP "
+            "WHERE id = ?"
+        )
+        total = 0
+        for i in range(0, len(updates), chunk_size):
+            chunk = updates[i:i + chunk_size]
+            rows = [(new_path, Path(new_path).name, int(record_id)) for record_id, new_path in chunk]
+            with self.transaction() as conn:
+                cursor = conn.cursor()
+                cursor.executemany(sql, rows)
+                total += cursor.rowcount if cursor.rowcount is not None else 0
+        return total
+
+    def relink_converted(self, record_id: int, new_path: str) -> bool:
+        """Repoint a record at its just-converted file (Rekordbox-style relocate)
+        AND refresh the fields the conversion invalidated, so nothing goes stale.
+
+        Retained (format-independent): the row id, tags, cues, playlist
+        membership, rating — everything attached to the record.
+        Refreshed (byte/audio-derived): file_size + file_hash are recomputed for
+        the new file, and acoustic_fingerprint is cleared so it is recomputed
+        lazily on the next dedup/tag pass instead of being trusted while stale.
+        """
+        import os  # noqa: PLC0415
+        import hashlib  # noqa: PLC0415
+        updates: Dict[str, Any] = {
+            "file_path": new_path,
+            "file_name": Path(new_path).name,
+            "processing_status": "relinked",
+            "acoustic_fingerprint": None,   # audio re-encoded → recompute later
+            "fingerprint_quality": 0,
+        }
+        try:
+            updates["file_size"] = os.path.getsize(new_path)
+        except OSError:
+            pass
+        try:
+            h = hashlib.sha256()
+            with open(new_path, "rb") as f:
+                for chunk in iter(lambda: f.read(65536), b""):
+                    h.update(chunk)
+            updates["file_hash"] = h.hexdigest()
+        except OSError as exc:
+            log.warning("Could not re-hash converted file %s: %s", new_path, exc)
+        return self.update_content(record_id, updates)
+
+    def get_paths_for_ids(self, ids) -> Dict[int, str]:
+        """Batch-resolve content ids to file paths in one query (chunked under
+        SQLite's variable limit). Lets the fast hash-based duplicate scan avoid
+        one query per id."""
+        id_list = []
+        for i in ids:
+            try:
+                id_list.append(int(i))
+            except (TypeError, ValueError):
+                continue
+        if not id_list:
+            return {}
+        out: Dict[int, str] = {}
+        with self.connection() as conn:
+            cur = conn.cursor()
+            for start in range(0, len(id_list), 900):
+                chunk = id_list[start:start + 900]
+                placeholders = ",".join("?" * len(chunk))
+                cur.execute(
+                    f"SELECT id, file_path FROM fg_content WHERE id IN ({placeholders})",
+                    chunk,
+                )
+                for rid, fp in cur.fetchall():
+                    out[rid] = fp
+        return out
 
     def get_content_by_path(self, file_path: str) -> Optional[ContentRecord]:
         """
@@ -353,7 +556,179 @@ class FableGearDatabase:
                 columns = [desc[0] for desc in cursor.description]
                 return ContentRecord.from_dict(dict(zip(columns, row)))
             return None
-    
+
+    # ── Playlists ──────────────────────────────────────────────────────────
+    # FableGear-native playlists live alongside the library in fg_playlist /
+    # fg_playlist_song and reference fg_content by its own id — so a user whose
+    # music lives in the FableGear Archive (not Rekordbox) can build playlists
+    # from their actual tracks. These are the source of truth the Record Room
+    # uses by default; Rekordbox playlists remain reachable as a demoted source.
+
+    def list_playlists(self) -> List[dict]:
+        """Return the playlist/folder tree as nested dicts (Record Room shape)."""
+        with self.connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT p.id, p.name, p.playlist_type, p.parent_id, "
+                "(SELECT COUNT(*) FROM fg_playlist_song s WHERE s.playlist_id = p.id) "
+                "FROM fg_playlist p "
+                "ORDER BY (p.playlist_type = 'folder') DESC, p.name COLLATE NOCASE"
+            )
+            rows = cur.fetchall()
+        nodes = {}
+        for pid, name, ptype, parent, tcount in rows:
+            nodes[pid] = {
+                "id": str(pid),
+                "name": name or "",
+                "type": "folder" if ptype == "folder" else "playlist",
+                "parent_id": parent,
+                "track_count": tcount,
+                "children": [],
+            }
+        roots = []
+        for pid, node in nodes.items():
+            parent = node["parent_id"]
+            if parent is not None and parent in nodes:
+                nodes[parent]["children"].append(node)
+            else:
+                roots.append(node)
+
+        def _clean(node):
+            node.pop("parent_id", None)
+            if node["type"] == "folder":
+                node["children"] = [_clean(c) for c in node["children"]]
+            else:
+                node.pop("children", None)
+            return node
+
+        return [_clean(n) for n in roots]
+
+    def get_playlist(self, playlist_id) -> Optional[dict]:
+        """Return one playlist/folder as a dict, or None if it doesn't exist."""
+        with self.connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id, name, playlist_type, parent_id FROM fg_playlist WHERE id = ?",
+                (int(playlist_id),),
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": str(row[0]),
+            "name": row[1] or "",
+            "type": "folder" if row[2] == "folder" else "playlist",
+            "parent_id": row[3],
+        }
+
+    def create_playlist(self, name: str, parent_id=None,
+                        playlist_type: str = "playlist") -> int:
+        """Create a playlist or folder; returns the new id."""
+        ptype = "folder" if playlist_type == "folder" else "playlist"
+        with self.transaction() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO fg_playlist (name, playlist_type, parent_id) VALUES (?, ?, ?)",
+                (name, ptype, int(parent_id) if parent_id else None),
+            )
+            return cur.lastrowid
+
+    def rename_playlist(self, playlist_id, name: str) -> bool:
+        with self.transaction() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE fg_playlist SET name = ?, updated_at = datetime('now','localtime') "
+                "WHERE id = ?",
+                (name, int(playlist_id)),
+            )
+            return cur.rowcount > 0
+
+    def delete_playlist(self, playlist_id) -> bool:
+        """Delete a playlist/folder and its song rows (children reparent to root)."""
+        with self.transaction() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM fg_playlist_song WHERE playlist_id = ?", (int(playlist_id),))
+            cur.execute("UPDATE fg_playlist SET parent_id = NULL WHERE parent_id = ?", (int(playlist_id),))
+            cur.execute("DELETE FROM fg_playlist WHERE id = ?", (int(playlist_id),))
+            return cur.rowcount > 0
+
+    def get_playlist_songs(self, playlist_id) -> List[ContentRecord]:
+        """Return the playlist's tracks as ContentRecords in playlist order."""
+        with self.connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT c.* FROM fg_playlist_song s JOIN fg_content c ON c.id = s.content_id "
+                "WHERE s.playlist_id = ? ORDER BY s.track_number, s.id",
+                (int(playlist_id),),
+            )
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description]
+        return [ContentRecord.from_dict(dict(zip(columns, row))) for row in rows]
+
+    def add_song(self, playlist_id, content_id) -> bool:
+        """Append a track if not already present. Returns True when added.
+
+        Raises LookupError if the content id isn't in the library.
+        """
+        with self.transaction() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT 1 FROM fg_playlist_song WHERE playlist_id = ? AND content_id = ?",
+                (int(playlist_id), int(content_id)),
+            )
+            if cur.fetchone():
+                return False
+            cur.execute("SELECT 1 FROM fg_content WHERE id = ?", (int(content_id),))
+            if not cur.fetchone():
+                raise LookupError(f"content {content_id} not in library")
+            cur.execute(
+                "SELECT COALESCE(MAX(track_number), 0) + 1 FROM fg_playlist_song "
+                "WHERE playlist_id = ?",
+                (int(playlist_id),),
+            )
+            next_no = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO fg_playlist_song (playlist_id, content_id, track_number) "
+                "VALUES (?, ?, ?)",
+                (int(playlist_id), int(content_id), next_no),
+            )
+            self._refresh_playlist_count(cur, playlist_id)
+            return True
+
+    def remove_song(self, playlist_id, content_id) -> int:
+        with self.transaction() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "DELETE FROM fg_playlist_song WHERE playlist_id = ? AND content_id = ?",
+                (int(playlist_id), int(content_id)),
+            )
+            removed = cur.rowcount
+            self._refresh_playlist_count(cur, playlist_id)
+            return removed
+
+    def reorder_playlist(self, playlist_id, ordered_content_ids: List) -> int:
+        """Set track_number from the given content-id order. Returns rows touched."""
+        with self.transaction() as conn:
+            cur = conn.cursor()
+            touched = 0
+            for pos, cid in enumerate(ordered_content_ids, start=1):
+                cur.execute(
+                    "UPDATE fg_playlist_song SET track_number = ? "
+                    "WHERE playlist_id = ? AND content_id = ?",
+                    (pos, int(playlist_id), int(cid)),
+                )
+                touched += cur.rowcount
+            return touched
+
+    @staticmethod
+    def _refresh_playlist_count(cur, playlist_id) -> None:
+        cur.execute(
+            "UPDATE fg_playlist SET "
+            "track_count = (SELECT COUNT(*) FROM fg_playlist_song WHERE playlist_id = ?), "
+            "updated_at = datetime('now','localtime') WHERE id = ?",
+            (int(playlist_id), int(playlist_id)),
+        )
+
     def find_duplicates_by_hash(self) -> List[Tuple[str, List[int]]]:
         """
         Find duplicate files by file hash (fast).
@@ -459,6 +834,70 @@ class FableGearDatabase:
                 ),
             )
             return cursor.lastrowid
+
+    def bulk_log_operations(
+        self,
+        operations: list[tuple[str, str | None, str, str | None, dict[str, Any] | None]] | list[dict[str, Any]],
+        chunk_size: int = 500,
+    ) -> int:
+        """
+        Insert multiple audit-log rows in bounded chunks.
+
+        Each operation may be either a tuple
+        ``(operation_type, file_path, status, error_message, metadata)``
+        or a dict with keys accepted by :meth:`log_operation`.
+
+        Args:
+            operations: List of operation tuples or dicts.
+            chunk_size: Maximum rows per executemany call.
+
+        Returns:
+            Total number of rows inserted.
+        """
+        if not operations:
+            return 0
+        if chunk_size < 1:
+            raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
+
+        import json  # noqa: PLC0415
+
+        total = 0
+        for start in range(0, len(operations), chunk_size):
+            chunk = operations[start : start + chunk_size]
+            rows = []
+            for op in chunk:
+                if isinstance(op, dict):
+                    rows.append(
+                        (
+                            op["operation_type"],
+                            op.get("file_path"),
+                            op.get("status", "ok"),
+                            op.get("error_message"),
+                            json.dumps(op["metadata"]) if op.get("metadata") is not None else None,
+                        )
+                    )
+                else:
+                    op_type, file_path, status, error_message, metadata = op
+                    rows.append(
+                        (
+                            op_type,
+                            file_path,
+                            status,
+                            error_message,
+                            json.dumps(metadata) if metadata is not None else None,
+                        )
+                    )
+            with self.transaction() as conn:
+                cursor = conn.cursor()
+                cursor.executemany(
+                    "INSERT INTO fg_processing_log "
+                    "(operation_type, file_path, status, error_message, "
+                    " completed_at, metadata) "
+                    "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)",
+                    rows,
+                )
+                total += len(chunk)
+        return total
 
     def count_operations(self, operation_type: Optional[str] = None) -> int:
         """Count rows in the processing log, optionally by operation type."""

@@ -13,6 +13,8 @@ Config file schema
   "device_db":       "/Volumes/MYDRIVE/PIONEER/Master/master.db",
   "music_root":      "/Volumes/MYDRIVE/MY MUSIC",
   "backup_dir":      "/Users/name/.fablegear/backups",
+  "snapshot_cadence": "monthly",
+  "snapshot_include_master_db": false,
   "target_lufs":     -8.0,
   "lufs_tolerance":  0.5,
   "excluded_dirs":   ["ollama", "DJMT PRIMARY_PROCESSING_LOGIC"]
@@ -61,9 +63,19 @@ DEFAULTS: dict = {
     "lufs_tolerance":  0.5,
     "archive_mode":        "auto",
     "custom_archive_dir":  "",
+    "snapshot_cadence":    "monthly",
+    "snapshot_include_master_db": False,
     "excluded_dirs":       [],   # extra folder names to skip when scanning music root
     "acoustid_api_key":    "",   # AcoustID API key for fingerprint lookup
     "mode": "suburban",  # 'rural' (no AI) or 'suburban' (AI enabled)
+}
+
+SNAPSHOT_CADENCE_CHOICES = ("weekly", "biweekly", "monthly", "quarterly")
+SNAPSHOT_CADENCE_SECONDS = {
+    "weekly": 7 * 24 * 60 * 60,
+    "biweekly": 14 * 24 * 60 * 60,
+    "monthly": 30 * 24 * 60 * 60,
+    "quarterly": 90 * 24 * 60 * 60,
 }
 
 # Smart defaults for the setup wizard (platform-aware where relevant)
@@ -92,6 +104,32 @@ class NotConfiguredError(RuntimeError):
     Raised when the config file is missing, unreadable, or incomplete.
     The message is human-readable and always ends with a 'Run: ... setup' hint.
     """
+
+
+def _coerce_bool(value, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def normalize_snapshot_cadence(value: object) -> str:
+    text = str(value or "").strip().lower().replace("-", "")
+    if text in SNAPSHOT_CADENCE_CHOICES:
+        return text
+    return DEFAULTS["snapshot_cadence"]
+
+
+def snapshot_cadence_seconds(value: object) -> int:
+    return SNAPSHOT_CADENCE_SECONDS[normalize_snapshot_cadence(value)]
 
 
 # ─── Core I/O ─────────────────────────────────────────────────────────────────
@@ -187,6 +225,11 @@ def load_user_config() -> dict:
     for key, default in DEFAULTS.items():
         if key not in cfg:
             cfg[key] = default
+    cfg["snapshot_cadence"] = normalize_snapshot_cadence(cfg.get("snapshot_cadence"))
+    cfg["snapshot_include_master_db"] = _coerce_bool(
+        cfg.get("snapshot_include_master_db"),
+        DEFAULTS["snapshot_include_master_db"],
+    )
     # Validate mode
     if cfg.get("mode") not in ("rural", "suburban"):
         cfg["mode"] = "suburban"
@@ -205,6 +248,13 @@ def save_user_config(cfg: dict) -> None:
     # Ensure mode is valid before saving
     if cfg.get("mode") not in ("rural", "suburban"):
         cfg["mode"] = "suburban"
+    cfg["snapshot_cadence"] = normalize_snapshot_cadence(cfg.get("snapshot_cadence"))
+    cfg["snapshot_include_master_db"] = _coerce_bool(
+        cfg.get("snapshot_include_master_db"),
+        DEFAULTS["snapshot_include_master_db"],
+    )
+    for key, default in DEFAULTS.items():
+        cfg.setdefault(key, default)
     content = json.dumps(cfg, indent=2) + "\n"  # POSIX: trailing newline
     fd, tmp_path = tempfile.mkstemp(dir=CONFIG_DIR, prefix=".config_tmp_", suffix=".json")
     try:
@@ -508,6 +558,60 @@ def interactive_setup(*, update: bool = False) -> dict:
         must_exist=False,  # Will be created on first write — doesn't need to exist yet
     )
 
+    print()
+    print("  Snapshot capture cadence:")
+    cadence_default = normalize_snapshot_cadence(existing.get("snapshot_cadence"))
+    cadence_choice = {
+        "weekly": "1",
+        "biweekly": "2",
+        "monthly": "3",
+        "quarterly": "4",
+    }.get(cadence_default, "3")
+    print("    1. Weekly")
+    print("    2. Bi-weekly")
+    print("    3. Monthly (recommended)")
+    print("    4. Every 3 months")
+    while True:
+        try:
+            raw_cadence = input(f"  → Enter 1-4 [{cadence_choice}]: ").strip() or cadence_choice
+        except (EOFError, KeyboardInterrupt):
+            print("\nSetup cancelled.")
+            sys.exit(0)
+        cadence_map = {
+            "1": "weekly",
+            "2": "biweekly",
+            "3": "monthly",
+            "4": "quarterly",
+        }
+        if raw_cadence in cadence_map:
+            cfg["snapshot_cadence"] = cadence_map[raw_cadence]
+            break
+        print("  ✗  Choose 1, 2, 3, or 4.")
+
+    include_default = _coerce_bool(
+        existing.get("snapshot_include_master_db"),
+        DEFAULTS["snapshot_include_master_db"],
+    )
+    include_hint = "Y" if include_default else "n"
+    while True:
+        try:
+            raw_include = input(
+                f"\n  Include Rekordbox master.db snapshots as part of the archive? [{include_hint}] "
+            ).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nSetup cancelled.")
+            sys.exit(0)
+        if not raw_include:
+            cfg["snapshot_include_master_db"] = include_default
+            break
+        if raw_include in {"y", "yes"}:
+            cfg["snapshot_include_master_db"] = True
+            break
+        if raw_include in {"n", "no"}:
+            cfg["snapshot_include_master_db"] = False
+            break
+        print("  ✗  Please answer yes or no.")
+
     # ── Optional: loudness target ──
     current_lufs = existing.get("target_lufs", DEFAULTS["target_lufs"])
     print(
@@ -554,6 +658,8 @@ def interactive_setup(*, update: bool = False) -> dict:
     print(f"  Device DB  : {cfg['device_db']}")
     print(f"  Music root : {cfg['music_root']}")
     print(f"  Backup dir : {cfg['backup_dir']}")
+    print(f"  Snapshot cadence : {cfg['snapshot_cadence']}")
+    print(f"  Include master.db : {cfg['snapshot_include_master_db']}")
     print(f"  Target LUFS: {cfg['target_lufs']}")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print()
@@ -573,7 +679,7 @@ def interactive_setup(*, update: bool = False) -> dict:
 # ─── Drive and archive discovery helpers ────────────────────────────────────
 
 _AUDIO_EXTS = {
-    ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac", ".m4a", ".m4p", ".mp4", ".m4v",
+    ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac", ".m4a", ".m4p",
     ".ogg", ".opus", ".wma", ".ape", ".mpc", ".mp+", ".wv", ".aac", ".ac3", ".dff", ".dsf",
 }
 

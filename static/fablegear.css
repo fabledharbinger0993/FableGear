@@ -32,12 +32,25 @@
   --accent2:       #00b4c8;
   --accent2-dim:   rgba(0, 180, 200, 0.15);
 
+  /* The app's second voice — the magenta that lives in the Chop Shop icon set
+     and Deck B. Formalized so the two rooms can speak their own color. */
+  --accent-b:      #ff2d78;
+  --accent-b-rgb:  255, 45, 120;
+  --accent-b-dim:  rgba(255, 45, 120, 0.15);
+
+  /* Room accent: cyan in the Record Room, magenta in the Chop Shop.
+     Chrome (rails, active states) reads this so each space feels tuned,
+     not re-themed. */
+  --room-accent:     var(--accent);
+  --room-accent-rgb: var(--accent-rgb);
+
   --mono: 'JetBrains Mono','Fira Code','Cascadia Code',ui-monospace,monospace;
   --sans: system-ui,-apple-system,'Segoe UI',sans-serif;
 
   --radius: 8px;
   --log-h: clamp(180px, 30vh, 400px);
   --scan-bar-h: 44px;
+  --rail-h: 84px;   /* Chop Shop workflow rail height — single source of truth */
 
   /* VS Code-style layout */
   --sidebar-w: 260px;
@@ -78,7 +91,7 @@ body::before {
 }
 a { color: var(--accent); text-decoration: none; }
 button { cursor: pointer; font-family: inherit; }
-input, select {
+input, select, textarea {
   font-family: var(--mono);
   font-size: .85rem;
   background: var(--surface);
@@ -89,11 +102,11 @@ input, select {
   width: 100%;
   transition: border-color .15s;
 }
-input:focus, select:focus {
+input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--accent);
 }
-input::placeholder { color: var(--text-dim); }
+input::placeholder, textarea::placeholder { color: var(--text-dim); }
 /* Checkboxes/radios should stay at their natural size — the global width:100%
    above is meant for text fields and selects. */
 input[type="checkbox"],
@@ -268,7 +281,7 @@ input[type="range"] { -webkit-app-region: no-drag; }
   flex-shrink: 0;
 }
 .lp-logo img {
-  width: 54px; height: 54px;
+  width: 56px; height: 56px;
   object-fit: contain;
   mix-blend-mode: screen;
   filter: brightness(1.05);
@@ -278,36 +291,48 @@ input[type="range"] { -webkit-app-region: no-drag; }
   width: 100%;
   flex-shrink: 0;
 }
+/* Every rail button is the same box; every icon — image or glyph — lives in
+   the same 52px slot. One size system, no more mixed weights. */
 .lp-btn {
+  position: relative;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
   width: 100%;
-  min-height: 62px;
+  min-height: 64px;
   padding: 6px 4px;
   gap: 0;
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: filter .15s, transform .15s;
+  transition: filter .15s, background .15s;
   color: var(--text-dim);
 }
+.lp-btn::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 18%; bottom: 18%;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: rgb(var(--room-accent-rgb));
+  opacity: 0;
+  transition: opacity .15s;
+}
 .lp-btn:hover {
-  background: transparent;
+  background: rgba(var(--room-accent-rgb), .05);
   color: var(--text-muted);
-  filter: brightness(1.08);
 }
 .lp-btn.active {
-  background: transparent;
-  border-right: none;
-  color: var(--accent);
+  background: rgba(var(--room-accent-rgb), .07);
+  color: rgb(var(--room-accent-rgb));
 }
+.lp-btn.active::before { opacity: .9; }
 .lp-btn:disabled {
   cursor: default;
   opacity: .45;
   pointer-events: none;
 }
 .lp-icon {
-  width: 56px; height: 56px;
+  width: 52px; height: 52px;
   object-fit: contain;
   opacity: .92;
   transition: opacity .15s, filter .15s;
@@ -315,10 +340,12 @@ input[type="range"] { -webkit-app-region: no-drag; }
 .lp-btn:hover .lp-icon,
 .lp-btn.active .lp-icon {
   opacity: 1;
-  filter: drop-shadow(0 0 8px rgba(0, 255, 255, .35));
+  filter: drop-shadow(0 0 8px rgba(var(--room-accent-rgb), .4));
 }
 .lp-glyph {
-  font-size: 1.45rem;
+  width: 52px; height: 52px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.9rem;
   line-height: 1;
   opacity: .92;
   transition: opacity .15s, text-shadow .15s;
@@ -326,7 +353,7 @@ input[type="range"] { -webkit-app-region: no-drag; }
 .lp-btn:hover .lp-glyph,
 .lp-btn.active .lp-glyph {
   opacity: 1;
-  text-shadow: 0 0 9px rgba(0, 255, 255, .38);
+  text-shadow: 0 0 9px rgba(var(--room-accent-rgb), .42);
 }
 .lp-label {
   display: none;
@@ -756,6 +783,13 @@ body.fg-space-record .workflow-rail { display: none !important; }
 
 body.fg-space-chop #library-editor-overlay { display: none !important; }
 
+/* Each room speaks its own accent: Record Room stays cyan, Chop Shop leans
+   into the magenta of its icon set. Chrome reads --room-accent. */
+body.fg-space-chop {
+  --room-accent:     var(--accent-b);
+  --room-accent-rgb: var(--accent-b-rgb);
+}
+
 /* ── Workflow rail ─────────────────────────────────────────────────────── */
 .workflow-rail {
   display: none;
@@ -764,9 +798,9 @@ body.fg-space-chop #library-editor-overlay { display: none !important; }
   left: var(--left-panel-w);
   right: var(--nav-bar-right-w);
   z-index: 30;
-  min-height: 72px;
-  padding: 9px 14px;
-  gap: 8px;
+  height: var(--rail-h);
+  padding: 6px 14px;
+  gap: 6px;
   align-items: stretch;
   overflow-x: auto;
   background: rgba(8, 12, 18, .92);
@@ -776,10 +810,13 @@ body.fg-space-chop #library-editor-overlay { display: none !important; }
 }
 body.fg-space-chop .workflow-rail { display: flex; }
 .step-tab {
+  position: relative;
+  flex: 1 1 0;              /* tools share the bar — no dead space */
   min-width: 68px;
-  height: 56px;
+  max-width: 112px;
+  height: 100%;
   border: 0;
-  border-radius: 0;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-muted);
   padding: 0;
@@ -787,28 +824,47 @@ body.fg-space-chop .workflow-rail { display: flex; }
   font-weight: 700;
   letter-spacing: .03em;
   text-transform: uppercase;
-  transition: filter .15s, color .15s, transform .15s;
+  transition: filter .15s, color .15s, background .15s;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0;
   flex-shrink: 0;
 }
-.step-tab:hover,
+/* Active tool: room-accent glow + underline. Color alone is invisible on
+   image icons — the indicator must survive a PNG. */
+.step-tab::after {
+  content: '';
+  position: absolute;
+  left: 18%; right: 18%; bottom: 3px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgb(var(--room-accent-rgb));
+  opacity: 0;
+  transition: opacity .15s;
+}
+.step-tab:hover {
+  background: rgba(var(--room-accent-rgb), .06);
+  color: var(--text);
+}
 .step-tab.active {
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-  filter: brightness(1.08);
+  background: rgba(var(--room-accent-rgb), .08);
+  color: rgb(var(--room-accent-rgb));
+}
+.step-tab.active::after { opacity: .9; }
+.step-tab.active .step-icon,
+.step-tab:hover .step-icon {
+  filter: drop-shadow(0 0 9px rgba(var(--room-accent-rgb), .45));
 }
 .step-num { display: block; font-size: 1rem; line-height: 1; margin-bottom: 4px; }
 
 .step-icon {
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   object-fit: contain;
   display: block;
   opacity: .98;
+  transition: filter .15s;
 }
 
 .workflow-rail-divider {
@@ -819,11 +875,37 @@ body.fg-space-chop .workflow-rail { display: flex; }
   flex-shrink: 0;
 }
 
-.step-tab-util {
-  min-width: 68px;
-  width: 68px;
-  padding: 0;
+/* Rekordbox-explicit tools (right of the rail divider). A separate family
+   from the FableGear icon tabs: labeled mono chips in the rekordbox blue,
+   matching the DB panel's own tab language. */
+.step-tab-rb-tool {
+  flex: 0 0 auto;
+  min-width: 64px;
+  max-width: 76px;
+  align-self: center;
+  height: 56px;
+  padding: 4px 8px;
+  font-family: var(--mono);
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  line-height: 1.35;
+  color: var(--text-muted);
+  background: rgba(var(--accent-rgb), .05);
+  border: 1px solid rgba(var(--accent-rgb), .22);
+  border-radius: 7px;
 }
+.step-tab-rb-tool:hover {
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), .11);
+  border-color: rgba(var(--accent-rgb), .45);
+}
+.step-tab-rb-tool.active {
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), .16);
+  border-color: rgba(var(--accent-rgb), .6);
+}
+.step-tab-rb-tool::after { content: none; }  /* chips carry their own border */
 
 .step-tab-entry {
   min-width: 176px;
@@ -850,14 +932,16 @@ body.fg-space-chop .workflow-rail { display: flex; }
 
 #nav-btn-pipeline-wizard {
   position: relative;
+  flex: 0 0 auto;          /* centrepiece keeps its size; tools share the rest */
   min-width: 282px;
-  height: 56px;
+  max-width: 282px;
+  height: 100%;
   justify-content: center;
   overflow: hidden;
   border: 0;
   background: transparent;
   box-shadow: none;
-  padding: 0;
+  padding: 4px 0;
 }
 
 #nav-btn-pipeline-wizard::before {
@@ -878,30 +962,6 @@ body.fg-space-chop .workflow-rail { display: flex; }
   filter: brightness(1.08);
 }
 
-#nav-btn-db.step-tab-rekordbox {
-  width: 86px;
-  min-width: 86px;
-  height: 56px;
-  justify-content: center;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  padding: 0;
-}
-
-#nav-btn-db.step-tab-rekordbox .step-icon {
-  width: 56px;
-  height: 56px;
-  object-fit: contain;
-  filter: hue-rotate(248deg) saturate(1.4) brightness(1.12);
-}
-
-#nav-btn-db.step-tab-rekordbox:hover {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  filter: brightness(1.1);
-}
 
 @media (max-width: 840px) {
   .step-tab-entry {
@@ -912,12 +972,6 @@ body.fg-space-chop .workflow-rail { display: flex; }
   }
   .step-tab-entry .step-tab-label {
     display: none;
-  }
-  #nav-btn-db.step-tab-rekordbox {
-    min-width: 56px;
-    width: 56px;
-    justify-content: center;
-    padding: 10px;
   }
 }
 
@@ -1059,6 +1113,7 @@ details[open] > summary { color: var(--text); }
   accent-color: var(--accent);
 }
 .checkbox-label:hover { color: var(--text); }
+.checkbox-label:has(input:disabled) { opacity: .45; cursor: not-allowed; }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
 .btn-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
@@ -1132,6 +1187,9 @@ details[open] > summary { color: var(--text); }
   padding: 24px;
   gap: 6px;
 }
+/* No global .hidden exists — each element needs its scoped rule, or the JS
+   toggle silently loses to the ID/class display rule above. */
+.pipe-empty.hidden { display: none; }
 .pipe-step {
   display: flex;
   align-items: center;
@@ -1208,6 +1266,15 @@ details[open] > summary { color: var(--text); }
   color: var(--text-muted);
 }
 .btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--text-muted); }
+/* Secondary button — was undefined, so .btn's white text landed on a default
+   gray button (invisible). Themed as a subtle dark surface with muted text. */
+.btn-secondary {
+  background: var(--surface-hi);
+  border: 1px solid var(--border-hi);
+  color: var(--text-muted);
+}
+.btn-secondary:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.btn-sm { font-size: .78rem; padding: 5px 12px; }
 .btn-xs { font-size: .72rem; padding: 3px 9px; }
 .btn-danger-action {
   background: var(--danger-dim);
@@ -2013,6 +2080,44 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
   display: flex; flex-direction: column;
   overflow: hidden;
 }
+
+/* ── Settings tabs ─────────────────────────────────────────────────────────
+   Underline-style tab bar. Without these rules the tabs fall back to raw
+   browser buttons and — with no display:none on inactive panels — every panel
+   stacks at once, which is what made the modal look unfinished. */
+.settings-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 18px 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.settings-tabs::-webkit-scrollbar { display: none; }
+.settings-tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-size: .82rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+  padding: 10px 12px 9px;
+  margin-bottom: -1px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .15s, border-color .15s;
+}
+.settings-tab:hover { color: var(--text); }
+.settings-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.settings-tab-panel { display: none; }
+.settings-tab-panel.active { display: block; }
 
 /* ── Settings button ───────────────────────────────────────────────────── */
 #settings-btn {
@@ -3222,6 +3327,11 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 #pipeline-wizard.wizard-wide { max-width: 980px; }
 
 #pipe-wiz-p1 { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+/* Scoped .hidden (no global rule exists): without this, pipeWizNext() adds the
+   class but page 1 keeps rendering above page 2 — both wizard pages stack. */
+#pipe-wiz-p1.hidden { display: none; }
+#pipe-recommended-note.hidden { display: none; }
+#pipe-config-note.hidden { display: none; }
 
 .pipe-wiz-header {
   display: flex; align-items: center; gap: 14px;
@@ -4180,6 +4290,8 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   display: flex;
   align-items: stretch;
   justify-content: stretch;
+  /* WKWebView frameless: library editor is interactive, never a drag handle */
+  -webkit-app-region: no-drag;
 }
 #library-editor-overlay.hidden { display: none !important; }
 /* le-visible is no-op — editor is always visible */
@@ -4232,8 +4344,10 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 0 20px;
-  height: 52px;
+  row-gap: 8px;
+  padding: 7px 20px;
+  min-height: 52px;         /* grows to a tidy 2nd row instead of overlapping */
+  flex-wrap: wrap;          /* left group / search / actions wrap, never collide */
   background: rgba(4, 10, 16, 0.78);
   -webkit-backdrop-filter: blur(18px) saturate(1.4);
   backdrop-filter: blur(18px) saturate(1.4);
@@ -4242,7 +4356,7 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   box-shadow: 0 1px 0 rgba(0, 180, 200, 0.1);
 }
 .le-header-left  { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.le-header-center { flex: 1; max-width: 460px; }
+.le-header-center { flex: 1 1 240px; min-width: 200px; max-width: 460px; }
 .le-header-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .le-header-actions {
   flex-wrap: wrap;
@@ -4285,8 +4399,8 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   border: 1px solid rgba(0, 212, 232, 0.40);
   color: #a9eff8;
   border-radius: 999px;
-  padding: 0 16px;
-  min-width: 122px;
+  padding: 0 14px;
+  min-width: 0;            /* size to content — five 122px pills overflowed the row */
   height: 34px;
   font-size: .76rem;
   font-weight: 700;
@@ -4405,6 +4519,8 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   padding: 10px 0;
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 180, 200, 0.3) transparent;
+  /* Scrollable area: keep its scrollbar thumb from being a drag handle */
+  -webkit-app-region: no-drag;
 }
 .le-sidebar-section {
   padding: 14px 16px 5px;
@@ -4489,12 +4605,19 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
 .le-track-list {
   flex: 1;
   overflow-y: auto;
+  position: relative;              /* positioning context for virtualized rows */
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 180, 200, 0.25) transparent;
   background: rgba(2, 6, 10, 0.55);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
+  /* Scrollable list: keep scrollbar thumb from triggering window drag */
+  -webkit-app-region: no-drag;
 }
+/* Sizer holds the full scroll height while only a window of rows is rendered. */
+#le-track-sizer { position: relative; width: 100%; pointer-events: none; }
+/* Virtualized rows are positioned by JS (top = index * row height). */
+.le-track-row.le-virtual-row { position: absolute; left: 0; right: 0; }
 
 .le-track-row {
   display: flex;
@@ -4507,7 +4630,7 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   cursor: default;
   color: rgba(230, 210, 255, 0.82);
 }
-.le-track-row:nth-child(even) {
+.le-track-row.le-row-alt {
   background: rgba(0, 160, 180, 0.03);
 }
 .le-track-row:hover {
@@ -4530,8 +4653,28 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   justify-content: center;
   padding-right: 10px;
 }
-.le-col-num   { width: 36px; flex-shrink: 0; color: rgba(200,130,240,.3); font-size: .7rem; text-align: right; padding-right: 16px; font-variant-numeric: tabular-nums; }
-.le-col-title { flex: 3; min-width: 0; font-weight: 500; color: #ede4ff; }
+.le-col-num   { width: 36px; flex-shrink: 0; color: rgba(var(--accent-rgb), .3); font-size: .7rem; text-align: right; padding-right: 16px; font-variant-numeric: tabular-nums; }
+.le-col-title { flex: 3; min-width: 0; font-weight: 500; color: #ede4ff; position: relative; }
+/* ── Inline sample-player: progress fill + seek strip behind the title ───── */
+.le-title-text { position: relative; z-index: 1; }
+.le-title-progress {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+  background: linear-gradient(90deg, rgba(0, 180, 200, 0.30), rgba(0, 180, 200, 0.08));
+  border-right: 1px solid rgba(0, 212, 232, 0.55);
+  pointer-events: none; z-index: 0;
+  transition: width .12s linear;
+  display: none;
+}
+.le-title-playing .le-title-progress { display: block; }
+.le-title-seek {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 0;
+  cursor: pointer; z-index: 2; pointer-events: none;
+}
+.le-title-playing .le-title-seek {
+  height: 9px; pointer-events: auto;
+  background: linear-gradient(180deg, transparent, rgba(0, 212, 232, 0.18));
+}
+.le-title-playing .le-title-seek:hover { background: linear-gradient(180deg, transparent, rgba(0, 212, 232, 0.36)); }
 .le-col-artist{ flex: 2; min-width: 0; color: rgba(220,180,255,.65); }
 .le-col-album { flex: 2; min-width: 0; color: rgba(190,140,230,.4); }
 .le-col-bpm   { width: 54px; flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; color: rgba(220,180,255,.7); font-family: var(--mono); font-size: .78rem; }
@@ -5743,6 +5886,7 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
 .pipe-wiz-logo          { width: 26px; height: 26px; object-fit: contain; opacity: .7; mix-blend-mode: screen; flex-shrink: 0; }
 .pipe-wiz-title-col     { flex: 1; }
 #pipe-resume-banner     { margin: 0 16px 6px; padding: 10px 14px; background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.35); border-radius: 6px; font-size: .82rem; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+#pipe-resume-banner.hidden { display: none; }  /* else "Checkpoint found" shows with no checkpoint */
 .pipe-resume-bookmark   { font-size: 1.1rem; flex-shrink: 0; }
 .pipe-resume-body       { flex: 1; min-width: 0; }
 #pipe-resume-text       { font-weight: 600; color: var(--caution); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -5776,15 +5920,23 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
 #sb-quarantine-wrap { display: none; }
 #scan-bar-dismiss   { display: none; }
 
-/* ── Footer ─────────────────────────────────────────────────────────────── */
+/* ── Footer ─────────────────────────────────────────────────────────────────
+   Every workspace surface is a fixed panel, so a normal-flow footer floats
+   near the TOP of the base layer and peeks out behind the modals like a
+   ghost page. Pin it to the bottom of the base layer instead: a deliberate
+   Guthrie Entertainment watermark, behind everything, never interactive. */
 footer {
-  max-width: 1080px; margin: 64px auto 0; padding: 40px 28px 48px;
-  border-top: 1px solid var(--border);
-  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  position: fixed;
+  left: var(--left-panel-w); right: 0; bottom: 0;
+  z-index: 0;
+  pointer-events: none;
+  margin: 0; padding: 0 0 18px;
+  border-top: none;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
 }
-.footer-logo    { width: 160px; height: 160px; object-fit: contain; mix-blend-mode: screen; opacity: .85; }
-.footer-tagline { font-size: .82rem; color: var(--text-dim); letter-spacing: .06em; text-align: center; }
-.footer-tagline strong { color: var(--text-muted); letter-spacing: .08em; }
+.footer-logo    { width: 110px; height: 110px; object-fit: contain; mix-blend-mode: screen; opacity: .45; }
+.footer-tagline { font-size: .72rem; color: var(--text-dim); letter-spacing: .08em; text-align: center; opacity: .7; }
+.footer-tagline strong { color: var(--text-muted); letter-spacing: .1em; }
 
 /* ── Settings ───────────────────────────────────────────────────────────── */
 .settings-excl-label  { display: block; font-size: .82rem; color: var(--text-muted); margin-bottom: 6px; }
@@ -5839,7 +5991,7 @@ footer {
 :root {
   --chop-terminal-w: clamp(260px, 28vw, 380px);
   --chop-readout-h: clamp(110px, 16vh, 170px);
-  --chop-zone-top: calc(var(--titlebar-h) + var(--header-h) + 66px);
+  --chop-zone-top: calc(var(--titlebar-h) + var(--header-h) + var(--rail-h) + 4px);
 }
 
 body.fg-space-chop #chop-card-stack { display: none; }
@@ -5848,7 +6000,7 @@ body.fg-space-chop #chop-banner-dock {
   position: fixed;
   left: calc(var(--left-panel-w) + var(--chop-terminal-w) + 14px);
   right: calc(var(--nav-bar-right-w) + 14px);
-  top: calc(var(--titlebar-h) + var(--header-h) + 62px);
+  top: calc(var(--titlebar-h) + var(--header-h) + var(--rail-h));
   z-index: 80;
   display: flex;
   flex-direction: column;
@@ -6033,7 +6185,7 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
 /* ── Inline style migration — pass 2 additions ──────────────────────────── */
 .section-title-mt         { margin-top: 48px; }
 .pipe-wiz-header-center   { padding: 16px 24px 0; text-align: center; flex-shrink: 0; }
-.le-range-sep             { color: rgba(200,130,240,.35); font-size: .7rem; }
+.le-range-sep             { color: rgba(var(--accent-rgb), .35); font-size: .7rem; }
 .pipe-empty-hint          { font-size: .8rem; color: var(--text-dim); }
 .icon-rb-logo-sm          { width: 20px; height: 20px; object-fit: contain; opacity: .5; mix-blend-mode: screen; }
 .btn-pipe-load-recommended {
@@ -6054,7 +6206,7 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   gap: 2px;
   margin-left: 12px;
   background: rgba(0,0,0,.35);
-  border: 1px solid rgba(200,130,240,.15);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 2px;
   flex-shrink: 0;
@@ -6073,8 +6225,9 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   transition: background .15s, color .15s;
   white-space: nowrap;
 }
-.le-mode-btn:hover  { background: rgba(200,130,240,.12); color: var(--accent); }
-.le-mode-active     { background: var(--accent) !important; color: #fff !important; }
+.le-mode-btn:hover  { background: rgba(var(--accent-rgb), .10); color: var(--text); }
+.le-mode-active     { background: rgba(var(--accent-rgb), .18) !important; color: var(--accent) !important;
+                      box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .35); }
 
 /* ── DB source picker toggle ─────────────────────────────────────────────── */
 
@@ -6084,7 +6237,7 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   gap: 2px;
   margin-left: 6px;
   background: rgba(0,0,0,.3);
-  border: 1px solid rgba(130,200,255,.15);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 2px;
   flex-shrink: 0;
@@ -6103,8 +6256,9 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   transition: background .15s, color .15s;
   white-space: nowrap;
 }
-.le-db-btn:hover { background: rgba(130,200,255,.12); color: #8cc4f5; }
-.le-db-active    { background: rgba(130,200,255,.25) !important; color: #8cc4f5 !important; }
+.le-db-btn:hover { background: rgba(var(--accent-rgb), .10); color: var(--text); }
+.le-db-active    { background: rgba(var(--accent-rgb), .18) !important; color: var(--accent) !important;
+                   box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .35); }
 
 #le-db-notice {
   font-size: .68rem;
@@ -6129,7 +6283,7 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
 
 .le-vol-card {
   background: rgba(30,25,50,.7);
-  border: 1px solid rgba(200,130,240,.18);
+  border: 1px solid rgba(var(--accent-rgb), .18);
   border-radius: 10px;
   padding: 16px 14px;
   cursor: pointer;
@@ -6142,8 +6296,8 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   overflow: hidden;
 }
 .le-vol-card:hover {
-  background: rgba(200,130,240,.1);
-  border-color: rgba(200,130,240,.4);
+  background: rgba(var(--accent-rgb), .1);
+  border-color: rgba(var(--accent-rgb), .4);
   transform: translateY(-2px);
 }
 
@@ -6173,9 +6327,10 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: nowrap;
+  row-gap: 6px;
+  flex-wrap: wrap;        /* toggles drop below the title instead of overflowing */
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
 }
 .le-title { white-space: nowrap; }
 
@@ -6195,13 +6350,13 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   font-size: .78rem;
   color: var(--accent);
   cursor: pointer;
-  border-bottom: 1px solid rgba(200,130,240,.08);
+  border-bottom: 1px solid rgba(var(--accent-rgb), .08);
 }
-.le-fs-up:hover { background: rgba(200,130,240,.08); }
+.le-fs-up:hover { background: rgba(var(--accent-rgb), .08); }
 .le-fs-dir      { cursor: pointer; }
-.le-fs-dir:hover { background: rgba(200,130,240,.07); }
+.le-fs-dir:hover { background: rgba(var(--accent-rgb), .07); }
 .le-fs-crumb-path {
-  font-size: .68rem; color: rgba(200,130,240,.4);
+  font-size: .68rem; color: rgba(var(--accent-rgb), .4);
   padding: 2px 10px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -6259,6 +6414,8 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 4px 0;
+  /* Scrollable list column: keep scrollbar thumb from triggering window drag */
+  -webkit-app-region: no-drag;
 }
 
 .le-split-track {
@@ -6269,7 +6426,7 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   font-size: .78rem;
   line-height: 1.3;
 }
-.le-split-track:hover { background: rgba(200,130,240,.06); }
+.le-split-track:hover { background: rgba(var(--accent-rgb), .06); }
 .le-split-title { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .le-split-meta  { color: var(--text-dim); font-size: .68rem; margin-top: 1px;
                   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -6294,6 +6451,23 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   flex-shrink: 0;
 }
 .le-split-unimported-row { opacity: .75; }
+
+/* Novelty membership coding: blue = not in FableGear · yellow = not in
+   Rekordbox · green = in neither database. */
+.le-novel-blue   { border-left: 3px solid #60a5fa; background: rgba(96,165,250,.05); }
+.le-novel-yellow { border-left: 3px solid var(--caution); background: rgba(250,200,0,.04); }
+.le-novel-green  { border-left: 3px solid var(--safe); background: rgba(34,197,94,.05); }
+.le-novel-legend { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.le-novel-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-left: 6px; flex-shrink: 0; }
+.le-novel-dot:first-child { margin-left: 0; }
+.le-novel-dot-blue   { background: #60a5fa; }
+.le-novel-dot-yellow { background: var(--caution); }
+.le-novel-dot-green  { background: var(--safe); }
+.le-split-drop-hot {
+  outline: 2px dashed var(--safe);
+  outline-offset: -4px;
+  background: rgba(34,197,94,.06);
+}
 .le-split-loading { padding: 20px; color: var(--text-dim); text-align: center; font-size: .8rem; }
 .le-split-empty   { padding: 20px; color: var(--text-dim); text-align: center; font-size: .78rem; font-style: italic; }
 .le-split-err     { padding: 12px; color: var(--danger); font-size: .78rem; }
@@ -6521,7 +6695,7 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
      --chop-readout-h:  height of the compact progress strip. */
   --chop-terminal-w: clamp(260px, 28vw, 380px);
   --chop-readout-h: clamp(110px, 16vh, 170px);
-  --chop-zone-top: calc(var(--titlebar-h) + var(--header-h) + 66px);
+  --chop-zone-top: calc(var(--titlebar-h) + var(--header-h) + var(--rail-h) + 4px);
 }
 
 /* Hide the scrolling card stack + intro — the docked modal is the tool surface */
@@ -6533,7 +6707,7 @@ body.fg-space-chop #chop-banner-dock {
   position: fixed;
   left: calc(var(--left-panel-w) + var(--chop-terminal-w) + 14px);
   right: calc(var(--nav-bar-right-w) + 14px);
-  top: calc(var(--titlebar-h) + var(--header-h) + 62px);
+  top: calc(var(--titlebar-h) + var(--header-h) + var(--rail-h));
   z-index: 80;
   display: flex;
   flex-direction: column;
@@ -6710,11 +6884,11 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
    DJ Deck — Dual A/B decks with center SYNC strip
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── Pink accent token ──────────────────────────────────────────────────── */
+/* ── Pink accent token — alias of the app-wide second voice (--accent-b) ── */
 :root {
-  --pink: #ff2d78;
-  --pink-rgb: 255, 45, 120;
-  --pink-dim: rgba(255, 45, 120, 0.15);
+  --pink: var(--accent-b);
+  --pink-rgb: var(--accent-b-rgb);
+  --pink-dim: var(--accent-b-dim);
 }
 
 /* ── Panel layout ──────────────────────────────────────────────────────── */
@@ -6733,6 +6907,8 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   gap: 0;
   align-items: stretch;
   transition: transform .25s cubic-bezier(.4,0,.2,1), opacity .2s;
+  /* WKWebView frameless: ensure the deck panel never becomes a window-drag target */
+  -webkit-app-region: no-drag;
 }
 .deck-panel.deck-active {
   display: flex;
@@ -6772,6 +6948,19 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   flex-shrink: 0;
   padding: 0 4px;
 }
+/* Harmonic compatibility of the two decks' current keys:
+   green = harmonic mix, red = key clash, dim = a deck is empty/untagged. */
+.deck-harmony {
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-dim);
+  padding: 4px 0;
+  transition: color .2s, text-shadow .2s;
+  cursor: default;
+}
+.deck-harmony-good  { color: var(--safe);   text-shadow: 0 0 8px rgba(34,197,94,.6); }
+.deck-harmony-clash { color: var(--danger); text-shadow: 0 0 8px rgba(239,68,68,.5); }
+
 .deck-sync-btn {
   font-family: var(--mono);
   font-size: 8px;
@@ -6963,11 +7152,28 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   position: relative;
   cursor: pointer;
   overflow: hidden;
+  /* Waveform is an interactive scrub target — must not be a drag handle */
+  -webkit-app-region: no-drag;
 }
 .deck-wave-canvas {
   width: 100%;
   height: 34px;
   display: block;
+}
+/* Shown while a track is being decoded into the deck's audio pipeline. */
+.deck-half.deck-decoding .deck-wave-wrap::after {
+  content: "decoding…";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .68rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--accent2, #00d4e8);
+  background: rgba(6, 10, 18, 0.62);
+  pointer-events: none;
 }
 .deck-wave-pos {
   position: absolute;
@@ -7128,6 +7334,9 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   border: none;
   padding: 0;
   min-height: 0 !important;
+  /* Belt-and-suspenders: WKWebView can miss the global input[type="range"] rule */
+  -webkit-app-region: no-drag;
+  touch-action: pan-y;
 }
 .deck-range::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -7240,3 +7449,150 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
 body.deck-open #library-editor-overlay {
   bottom: calc(var(--scan-bar-h) + 200px);
 }
+
+/* ── MCP panel (AI Agent Access) ───────────────────────────────────────────
+   This component shipped with NO stylesheet: the backdrop's .hidden did
+   nothing (panel rendered as bare text in the page flow), all three
+   .mcp-state sections showed at once, and the tabs/copy buttons fell back to
+   raw browser buttons. Class-based selectors on purpose — Settings copies
+   #mcp-panel's innerHTML into #settings-mcp-container, so both render paths
+   share these rules. */
+#mcp-panel-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.75);
+  z-index: 12000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+#mcp-panel-backdrop.hidden { display: none; }
+#mcp-panel {
+  position: relative;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-hi) 90%, black), var(--surface));
+  border: 1px solid var(--border-hi);
+  border-radius: 12px;
+  width: 100%; max-width: 560px;
+  max-height: 88vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 80px rgba(0,0,0,.8);
+  padding: 24px 28px;
+}
+.mcp-state.hidden { display: none; }   /* one state at a time: running / stopped / wizard */
+.mcp-panel-close {
+  position: absolute; top: 14px; right: 16px;
+  background: none; border: none;
+  color: var(--text-dim); font-size: 1.1rem; line-height: 1;
+  cursor: pointer; padding: 2px 4px;
+}
+.mcp-panel-close:hover { color: var(--text); }
+#settings-mcp-container .mcp-panel-close { display: none; }  /* embedded copy: tab already has its own close */
+.mcp-panel-header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.mcp-panel-header h3 { margin: 0; font-size: 1rem; font-weight: 700; }
+.mcp-status-dot { width: 10px; height: 10px; border-radius: 999px; flex-shrink: 0; }
+.mcp-status-dot.green { background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,.7); }
+.mcp-status-dot.amber { background: #fbbf24; box-shadow: 0 0 8px rgba(251,191,36,.7); }
+.mcp-panel-sub { color: var(--text-muted); font-size: .84rem; margin: 4px 0 14px; }
+.mcp-info-row {
+  display: flex; align-items: center; gap: 10px;
+  margin: 8px 0; font-size: .82rem;
+}
+.mcp-info-row label {
+  width: 72px; flex-shrink: 0;
+  font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-dim);
+}
+.mcp-info-row code {
+  font-family: var(--mono); font-size: .8rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 5px; padding: 4px 8px;
+  overflow-x: auto; white-space: nowrap;
+}
+.mcp-copy-btn {
+  background: var(--surface-hi); border: 1px solid var(--border-hi);
+  color: var(--text-muted); border-radius: 5px;
+  font-size: .72rem; padding: 4px 10px; cursor: pointer;
+  transition: color .15s, border-color .15s;
+  flex-shrink: 0;
+}
+.mcp-copy-btn:hover { color: var(--text); border-color: var(--accent); }
+.mcp-copy-btn.wide { width: 100%; margin-top: 8px; padding: 7px 10px; }
+.mcp-snippet-section { margin-top: 16px; }
+.mcp-snippet-section h4 {
+  margin: 0 0 8px; font-size: .75rem; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--accent);
+}
+.mcp-snippet-tabs {
+  display: flex; gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+  overflow-x: auto; scrollbar-width: none;
+}
+.mcp-snippet-tabs::-webkit-scrollbar { display: none; }
+.mcp-tab {
+  appearance: none; background: none; border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim); font-size: .78rem; font-weight: 600;
+  padding: 7px 10px; margin-bottom: -1px;
+  cursor: pointer; white-space: nowrap;
+  transition: color .15s, border-color .15s;
+}
+.mcp-tab:hover { color: var(--text); }
+.mcp-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.mcp-snippet-pre {
+  font-family: var(--mono); font-size: .74rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px 12px;
+  overflow-x: auto; max-height: 180px;
+  margin: 0; color: var(--text-muted);
+}
+.mcp-panel-actions { display: flex; gap: 10px; margin-top: 16px; align-items: center; }
+.mcp-wizard-detail { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 14px; }
+.mcp-wizard-point { font-size: .82rem; color: var(--text-muted); }
+.mcp-wizard-point strong { color: var(--text); }
+.mcp-toggle-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: .82rem; color: var(--text-muted); cursor: pointer;
+}
+
+/* ── Command palette (was created by ui_extras.js with zero CSS) ─────────── */
+#fg-palette-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.6);
+  z-index: 13000;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 12vh;
+}
+#fg-palette-backdrop.hidden { display: none; }
+#fg-palette {
+  width: 100%; max-width: 520px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-hi) 90%, black), var(--surface));
+  border: 1px solid var(--border-hi);
+  border-radius: 10px;
+  box-shadow: 0 24px 80px rgba(0,0,0,.8);
+  overflow: hidden;
+}
+#fg-palette-input {
+  border: none; border-bottom: 1px solid var(--border);
+  border-radius: 0; background: transparent;
+  padding: 13px 16px; font-size: .95rem;
+}
+#fg-palette-input:focus { border-color: var(--border); }
+#fg-palette-list { max-height: 320px; overflow-y: auto; padding: 6px; }
+.fg-palette-item {
+  padding: 9px 12px; border-radius: 6px;
+  font-size: .85rem; color: var(--text-muted); cursor: pointer;
+}
+.fg-palette-item:hover { background: rgba(0,180,200,.08); color: var(--text); }
+.fg-palette-item.active { background: rgba(0,180,200,.14); color: var(--accent2, #00d4e8); }
+.fg-palette-empty { padding: 16px; text-align: center; color: var(--text-dim); font-size: .82rem; }
+
+/* ── USB-export modal internals (state sections had no .hidden rules) ────── */
+.le-export-progress.hidden { display: none; }
+.le-export-errors {
+  margin-top: 10px; padding: 10px 12px;
+  background: var(--danger-dim, rgba(239,68,68,.08));
+  border: 1px solid var(--danger-border, rgba(239,68,68,.35));
+  border-radius: 6px;
+  font-size: .78rem; color: var(--danger, #f87171);
+  max-height: 140px; overflow-y: auto;
+}
+.le-export-errors.hidden { display: none; }

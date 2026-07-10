@@ -25,7 +25,13 @@ if sys.version_info < (3, 11):
 
 
 try:
-    from user_config import NotConfiguredError, archive_root_for_music_root, load_user_config
+    from user_config import (
+        NotConfiguredError,
+        archive_root_for_music_root,
+        load_user_config,
+        normalize_snapshot_cadence,
+        snapshot_cadence_seconds,
+    )
     _cfg = load_user_config()
 except NotConfiguredError as _exc:
     raise RuntimeError(str(_exc)) from _exc
@@ -93,6 +99,12 @@ LOG_DIRS: dict[str, Path] = {
 _user_backup_dir = _cfg.get("backup_dir", "").strip()
 BACKUP_DIR = Path(_user_backup_dir) if _user_backup_dir else SAVEPOINTS_DIR
 
+# Periodic snapshot cadence — used by the background snapshot scheduler.
+SNAPSHOT_CADENCE = normalize_snapshot_cadence(_cfg.get("snapshot_cadence"))
+SNAPSHOT_INTERVAL_SECONDS = snapshot_cadence_seconds(SNAPSHOT_CADENCE)
+SNAPSHOT_INCLUDE_MASTER_DB = bool(_cfg.get("snapshot_include_master_db", False))
+SNAPSHOT_STATE_FILE = Path.home() / ".fablegear" / "snapshot_state.json"
+
 
 def ensure_archive_structure() -> None:
     """
@@ -142,7 +154,10 @@ ACOUSTID_API_KEY: str = _cfg.get("acoustid_api_key", "")
 #
 AUDIO_EXTENSIONS = {
     # Modern formats — Rekordbox native
-    ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac", ".m4a", ".m4p", ".mp4", ".m4v", ".ogg", ".opus",
+    ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac", ".m4a", ".m4p", ".ogg", ".opus",
+    # NOTE: .mp4 / .m4v are deliberately ABSENT. They are video containers, and
+    # every file-touching tool (organizer, renamer, converter, dedupe, novelty)
+    # scans by this set — FableGear touches music, nothing else.
     # Legacy formats — auto-converted on import
     ".wma",        # Windows Media Audio
     ".ape",        # Monkey's Audio (lossless)
@@ -191,8 +206,49 @@ _user_excluded: list = _cfg.get("excluded_dirs", [])
 if _user_excluded:
     SKIP_DIRS = SKIP_DIRS | set(_user_excluded)
 
-# Batch size for database commits — one commit per N tracks
-BATCH_SIZE: int = 250
+# ─── Hardware-adaptive performance constants ──────────────────────────────────
+#
+# These are derived once at startup from the host machine's available RAM,
+# physical CPU core count, and storage type via system_probe.SYSTEM_PROFILE.
+# Users may override any value via the ``"performance"`` stanza in
+# ~/.fablegear/config.json, e.g.:
+#
+#   {
+#     "performance": {
+#       "batch_size": 500,
+#       "archive_chunk_size": 500,
+#       "progress_item_interval": 50,
+#       "progress_min_seconds": 0.15
+#     }
+#   }
+#
+# Auto-detected tiers (by available RAM at startup):
+#   <4 GB   → batch=100,  chunk=100,  interval=200, min_sec=0.50
+#   4–12 GB → batch=250,  chunk=250,  interval=100, min_sec=0.25
+#  12–32 GB → batch=500,  chunk=500,  interval=50,  min_sec=0.15
+#   >32 GB  → batch=1000, chunk=1000, interval=25,  min_sec=0.10
+#
+# SSD storage reduces progress_min_seconds by 25% (I/O is faster → loops run
+# faster → the time gate can be tighter without flooding the UI).
+#
+# system_probe.SYSTEM_PROFILE also computes max_workers (a "how many cores
+# does this machine have" tier value, with its own config.json override) —
+# it isn't re-exported here because nothing in FableGear currently reads it;
+# every parallel scan/convert path takes its own explicit --workers flag.
+
+from system_probe import SYSTEM_PROFILE as _sys_profile  # noqa: E402
+
+# Batch size for database commits — one commit per N tracks.
+BATCH_SIZE: int = _sys_profile.batch_size
+
+# Maximum number of items buffered before a chunked archive write is flushed.
+ARCHIVE_CHUNK_SIZE: int = _sys_profile.archive_chunk_size
+
+# Progress-event throttle: emit at most once every N items ...
+PROGRESS_ITEM_INTERVAL: int = _sys_profile.progress_item_interval
+
+# ... and at most once per this many seconds (whichever gate fires later).
+PROGRESS_MIN_SECONDS: float = _sys_profile.progress_min_seconds
 
 # BPM sanity-check range — shared by scanner and audio_processor
 BPM_MIN: float = 30.0

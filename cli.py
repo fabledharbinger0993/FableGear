@@ -58,18 +58,59 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 _ARCHIVE = None
+_ARCHIVE_ERROR: str | None = None
 
 
 def _archive():
-    """Lazily open the FableGear database so every tool can log to it."""
-    global _ARCHIVE
-    if _ARCHIVE is None:
+    """Lazily open the FableGear database so every tool can log to it.
+
+    Failure is LOUD: without the archive, tool runs leave no record in
+    fg_processing_log and every cross-tool optimization is lost, so the
+    operator must be able to see the disconnect the moment it happens.
+    """
+    global _ARCHIVE, _ARCHIVE_ERROR
+    if _ARCHIVE is None and _ARCHIVE_ERROR is None:
         try:
             from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
             _ARCHIVE = FableGearDatabase()
-        except Exception:
-            log.debug("FableGear database not available — archive logging disabled")
+        except Exception as exc:
+            _ARCHIVE_ERROR = f"{type(exc).__name__}: {exc}"
+            log.warning("FableGear archive unavailable — tool runs will NOT be recorded: %s", _ARCHIVE_ERROR)
+            # Also emit on stdout so SSE-streamed UI logs surface it.
+            print(f"[WARN] FableGear archive unavailable — this run will not be recorded ({_ARCHIVE_ERROR})", flush=True)
     return _ARCHIVE
+
+
+def _require_archive(command_name: str):
+    """Return the archive handle or exit — write commands must not run un-journaled.
+
+    ``_archive()`` already warns loudly on failure, but a warning is easy to
+    miss in a long SSE-streamed run. A destructive command with no archive
+    means no journal row, no undo record, and no cross-tool report — exactly
+    the silent-failure class the archive contract exists to prevent, so this
+    is a hard stop (exit 2), not a soft warning. Callers exempt dry runs by
+    calling ``_archive()`` directly instead when ``dry_run`` is set.
+    """
+    archive = _archive()
+    if archive is None:
+        log.error(
+            "Archive unavailable for '%s' — this command writes and requires archive logging. "
+            "See the warning above for the underlying error.",
+            command_name,
+        )
+        sys.exit(2)
+    return archive
+
+
+def _guard_or_exit(paths, tool: str) -> None:
+    """Refuse system/home/app-data scan roots — same rails as the organizer."""
+    from path_guard import guard_sources  # noqa: PLC0415
+    try:
+        guard_sources(paths, tool)
+    except ValueError as exc:
+        log.error("%s", exc)
+        print(f"[ERROR] {exc}", flush=True)
+        sys.exit(2)
 
 
 # ─── Report helpers ───────────────────────────────────────────────────────────
@@ -233,8 +274,9 @@ def cmd_dead_files(args: argparse.Namespace) -> None:
         print(f"FABLEGEAR_SCAN_TICK: {scanned}", flush=True)
 
     log.info("Dead-file scan: roots=%s", [str(r) for r in roots])
+    archive = _require_archive("dead-files")
     try:
-        result = scan_dead_files(roots, db_paths=db_paths, progress_cb=_progress, archive=_archive())
+        result = scan_dead_files(roots, db_paths=db_paths, progress_cb=_progress, archive=archive)
 
         print(f"Scanned {result.total_scanned:,} audio files across {len(roots)} root(s).", flush=True)
         if result.db_paths_used:
@@ -392,9 +434,10 @@ def cmd_relocate(args: argparse.Namespace) -> None:
     # against FolderPath values in the DB. If it's a typo, relocate_directory
     # will match zero rows and log a warning.
     log.info("Relocating: %s → %s", old_root, new_root)
+    archive = _require_archive("relocate")
     try:
         with write_db(LOCAL_DB) as db:
-            results = relocate_directory(old_root, new_root, db, archive=_archive())
+            results = relocate_directory(old_root, new_root, db, archive=archive)
     except Exception:
         log.exception("Relocation failed")
         sys.exit(1)
@@ -427,9 +470,50 @@ def cmd_relocate(args: argparse.Namespace) -> None:
     _emit_report("\n".join(lines), "Relocate", f"relocate_{timestamp}.txt")
 
 
+def _duplicates_checkpoint(roots, args):
+    """Build the duplicate-scan Checkpoint for resume/reset support.
+
+    Returns a Checkpoint object (or None if the module is unavailable).
+    --checkpoint-action reset clears any prior state; the default (resume)
+    lets scan_duplicates pick up exactly where an interrupted run stopped.
+    """
+    try:
+        from checkpoint import Checkpoint  # noqa: PLC0415
+    except ImportError:
+        return None
+    try:
+        config = {
+            "match_mode": getattr(args, "match_mode", "exact"),
+            "fuzzy_threshold": f"{getattr(args, 'fuzzy_threshold', 0.85):.2f}",
+        }
+        ckpt = Checkpoint("duplicates", [str(r) for r in roots], config)
+        action = getattr(args, "checkpoint_action", None) or "resume"
+        if action == "reset":
+            ckpt.reset()
+            log.info("Checkpoint reset — starting the scan from the beginning.")
+        elif ckpt.exists():
+            info = ckpt.info()
+            log.info(
+                "Found checkpoint from %s (%s files done) — resuming. "
+                "Pass --checkpoint-action reset to start over.",
+                info.get("saved_at", "?"), info.get("completed", "?"),
+            )
+        return ckpt
+    except Exception as exc:
+        log.warning("Checkpoint unavailable (%s) — running without resume support.", exc)
+        return None
+
+
 def cmd_duplicates(args: argparse.Namespace) -> None:
-    """Scan one or more PATHs for acoustically identical files and write a CSV report."""
-    from duplicate_detector import scan_duplicates, write_csv_report, write_trash_rescue_report
+    """Scan one or more PATHs for duplicate files and write a CSV report.
+
+    Two tiers: scan_mode='quick' does instant byte-identical matching from the
+    cached DB hashes; scan_mode='deep' (default) runs acoustic fingerprinting.
+    Both return a ScanResult, so the report / prune / resolve pipeline is shared.
+    """
+    from duplicate_detector import (
+        scan_duplicates, scan_duplicates_hash, write_csv_report, write_trash_rescue_report,
+    )
 
     paths = args.path if isinstance(args.path, list) else [args.path]
     roots = []
@@ -465,22 +549,35 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
     ).with_suffix(".txt")
 
     workers = max(1, args.workers)
+    scan_mode = getattr(args, "scan_mode", "deep")
     root_label = ", ".join(str(r) for r in roots)
-    log.info("Scanning for duplicates under: %s (workers=%d, match=%s)", root_label, workers, args.match_mode)
-    log.info("This may take a while for large libraries — progress logged every %d files", 100)
-    if len(roots) > 1:
+    if scan_mode == "quick":
+        log.info("Quick scan under: %s — byte-identical match from cached hashes (no fpcalc).", root_label)
+    else:
+        log.info("Scanning for duplicates under: %s (workers=%d, match=%s)", root_label, workers, args.match_mode)
+        log.info("This may take a while for large libraries — progress logged every %d files", 100)
+
+    # ── Checkpoint: only the deep (fpcalc) scan can be interrupted/resumed;
+    # the quick hash scan is instant, so it never touches the checkpoint.
+    ckpt = None if scan_mode == "quick" else _duplicates_checkpoint(roots, args)
+    if scan_mode != "quick" and len(roots) > 1:
         log.info(
             "Selected folders are scanned together as one comparison set so duplicates across different source folders are not missed."
         )
 
+    archive = _require_archive("duplicates")
     try:
-        result = scan_duplicates(
-            root,
-            max_workers=workers,
-            match_mode=args.match_mode,
-            fuzzy_threshold=args.fuzzy_threshold,
-            archive=_archive(),
-        )
+        if scan_mode == "quick":
+            result = scan_duplicates_hash(root, archive=archive)
+        else:
+            result = scan_duplicates(
+                root,
+                max_workers=workers,
+                match_mode=args.match_mode,
+                fuzzy_threshold=args.fuzzy_threshold,
+                checkpoint=ckpt,
+                archive=archive,
+            )
     except Exception:
         log.exception("Duplicate scan failed")
         sys.exit(1)
@@ -533,11 +630,56 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
             print(f"FABLEGEAR_REPORT_PATH: {output}", flush=True)
 
 
+def _persist_process_results(all_results, archive) -> int:
+    """
+    Persist tagger analysis (BPM / key) into fg_content and append a
+    tag_tracks row to fg_processing_log.
+
+    This is the producer half of the tagger → deduper Archive edge: what the
+    tagger learns is durable, so downstream tools read it instead of
+    recomputing. Returns the number of fg_content rows written.
+    """
+    if archive is None:
+        return 0
+    entries = []
+    for r in all_results:
+        if r.bpm_detected is None and r.key_detected is None:
+            continue
+        try:
+            size = r.path.stat().st_size
+        except OSError:
+            size = 0
+        entries.append((str(r.path), r.bpm_detected, r.key_detected, size))
+    try:
+        written = archive.bulk_set_analysis(entries)
+        archive.log_operation(
+            "tag_tracks",
+            status="ok",
+            metadata={
+                "files_processed": len(all_results),
+                "analysis_persisted": written,
+                "bpm_written": sum(1 for r in all_results if r.bpm_written),
+                "key_written": sum(1 for r in all_results if r.key_written),
+                "normalized": sum(1 for r in all_results if r.normalised),
+                "enrich_written": sum(1 for r in all_results if r.enrich_written),
+                "errors": sum(1 for r in all_results if not r.ok),
+            },
+        )
+        if written:
+            log.info("Archive updated: BPM/key for %d file(s) persisted to fg_content", written)
+        return written
+    except Exception as exc:
+        log.warning("Failed to persist tagger analysis to archive: %s", exc)
+        return 0
+
+
 def _run_shared_report(args, all_results, root_sections, _quarantine_dir) -> None:
     """
     Build and emit the Tag Tracks / Normalize completion report.
     Called from both the directory-scan and --paths-file retry branches of cmd_process.
     """
+
+    _persist_process_results(all_results, _archive())
 
     detect_bpm = not args.no_bpm
     detect_key = not args.no_key
@@ -754,6 +896,7 @@ def cmd_prune(args: argparse.Namespace) -> None:
         return
 
     log.info("Pruning %d duplicate file(s) from %s", len(remove_paths), db_path)
+    archive = _require_archive("prune")
     try:
         with write_db(db_path) as db:
             summary = prune_files(
@@ -762,7 +905,7 @@ def cmd_prune(args: argparse.Namespace) -> None:
                 log=lambda m: print(m, flush=True),
                 permanent=args.permanent,
                 keeper_map=keeper_map,
-                archive=_archive(),
+                archive=archive,
             )
     except Exception:
         log.exception("Prune failed")
@@ -879,6 +1022,7 @@ def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
         "Scanning %d Rekordbox-referenced files (missing=%d non-audio=%d, workers=%d, match=%s)",
         len(scan_files), missing_on_disk, non_audio_paths, workers, match_mode,
     )
+    archive = _require_archive("rekordbox-dedupe")
     try:
         result = scan_duplicates(
             root=scan_files[0].parent,
@@ -886,7 +1030,7 @@ def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
             max_workers=workers,
             match_mode=match_mode,
             fuzzy_threshold=fuzzy_threshold,
-            archive=_archive(),
+            archive=archive,
         )
     except Exception:
         log.exception("Rekordbox duplicate scan failed")
@@ -978,7 +1122,7 @@ def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
                 log=lambda m: print(m, flush=True),
                 permanent=args.permanent,
                 keeper_map=keeper_map,
-                archive=_archive(),
+                archive=archive,
             )
     except Exception:
         log.exception("Rekordbox dedupe prune failed")
@@ -1129,6 +1273,8 @@ def cmd_process(args: argparse.Namespace) -> None:
             log.error("PATH is not a directory: %s", root)
             sys.exit(1)
 
+    _guard_or_exit(roots, "the track tagger")
+
     detect_bpm = not args.no_bpm
     detect_key = not args.no_key
 
@@ -1226,11 +1372,16 @@ def cmd_process(args: argparse.Namespace) -> None:
                 detect_key=detect_key,
                 normalise=normalise,
                 force=args.force,
+                force_bpm=getattr(args, "force_bpm", False),
+                force_key=getattr(args, "force_key", False),
                 max_workers=max(1, args.workers),
                 quarantine_dir=_quarantine_dir,
                 enrich_tags=args.enrich_tags,
             )
             all_results.extend(results)
+            # Persist this root's analysis immediately — a multi-drive run
+            # interrupted on drive 3 must keep drives 1-2 in the archive.
+            _persist_process_results(results, _archive())
             root_total = len(results)
             root_bpm_written = sum(1 for r in results if r.bpm_written)
             root_key_written = sum(1 for r in results if r.key_written)
@@ -1406,6 +1557,8 @@ def cmd_convert(args: argparse.Namespace) -> None:
             log.error("PATH is not a directory: %s", root)
             sys.exit(1)
 
+    _guard_or_exit(roots, "the converter")
+
     target_format = args.format.lower().lstrip(".")
     if target_format not in ("mp3", "wav", "aif", "aiff", "flac"):
         log.error("Unsupported format: %s", args.format)
@@ -1432,9 +1585,18 @@ def cmd_convert(args: argparse.Namespace) -> None:
         return
 
     done = 0
-    success_count = 0
-    error_count = 0
+    converted_count = 0   # files actually converted   → footer "edited"
+    skipped_count = 0     # nothing to do (already the target, or target exists) → footer "clean"
+    error_count = 0       # genuine failures — corrupt or DRM-protected inputs
     root_sections: list[tuple[Path, str]] = []
+
+    def _classify(ok: bool, msg: str) -> str:
+        """Bucket a per-file result: 'converted' (file changed), 'skipped'
+        (already the target format, or an MP3 already exists — nothing to do and
+        nothing lost), or 'error' (a real decode/convert failure)."""
+        if ok:
+            return "skipped" if msg.startswith("Already") else "converted"
+        return "skipped" if msg.lower().endswith("already exists") else "error"
 
     def _emit_progress() -> None:
         print(
@@ -1442,21 +1604,49 @@ def cmd_convert(args: argparse.Namespace) -> None:
                 "done":      done,
                 "total":     total,
                 "remaining": total - done,
-                "converted": success_count,
+                "edited":    converted_count,   # live-counts converted files in the footer
+                "clean":     skipped_count,     # live-counts skipped files in the footer
                 "errors":    error_count,
+                "converted": converted_count,   # kept for the report / back-compat
+                "skipped":   skipped_count,
             }),
             flush=True,
         )
 
     def _convert_one(track) -> tuple[bool, str, str]:
         ok, msg = _convert_file(track.path, target_format)
+        _journal_convert(track.path, ok, msg)
         return ok, msg, track.path.name
+
+    _fg_archive = _archive()
+    _target_ext = ".aiff" if target_format == "aiff" else f".{target_format}"
+
+    def _journal_convert(src_path: Path, ok: bool, msg: str) -> None:
+        """Journal each conversion the moment it lands — the original file is
+        replaced, so an interrupted run must still know what was converted."""
+        if _fg_archive is None or not ok or msg.startswith("Already"):
+            return
+        dest = src_path.with_suffix(_target_ext)
+        try:
+            rec = _fg_archive.get_content_by_path(str(src_path))
+            if rec and rec.id is not None:
+                # Rekordbox-style relocate + refresh: keep the row (tags/cues/
+                # playlists/id) but repoint it at the new file and refresh
+                # file_size/file_hash + clear the now-stale acoustic fingerprint.
+                _fg_archive.relink_converted(rec.id, str(dest))
+            _fg_archive.log_operation(
+                "convert", str(dest), status="ok",
+                metadata={"from": str(src_path), "format": target_format},
+            )
+        except Exception as exc:
+            log.warning("Archive update failed for convert %s: %s", src_path, exc)
 
     _emit_progress()
 
     for root_index, (root, tracks) in enumerate(tracks_by_root, start=1):
         _log_root_step("Convert", root, root_index, len(tracks_by_root))
-        root_success = 0
+        root_converted = 0
+        root_skipped = 0
         root_errors = 0
         root_total = len(tracks)
 
@@ -1469,10 +1659,15 @@ def cmd_convert(args: argparse.Namespace) -> None:
                     except Exception as exc:
                         ok, msg, name = False, str(exc), futures[future].path.name
                     done += 1
-                    if ok:
-                        success_count += 1
-                        root_success += 1
+                    kind = _classify(ok, msg)
+                    if kind == "converted":
+                        converted_count += 1
+                        root_converted += 1
                         log.info("✓ %s: %s", name, msg)
+                    elif kind == "skipped":
+                        skipped_count += 1
+                        root_skipped += 1
+                        log.info("• %s: %s", name, msg)
                     else:
                         error_count += 1
                         root_errors += 1
@@ -1482,35 +1677,63 @@ def cmd_convert(args: argparse.Namespace) -> None:
             for track_index, track in enumerate(tracks, start=1):
                 log.info("[%d/%d] Converting %s", track_index, root_total, track.path.name)
                 ok, msg = _convert_file(track.path, target_format)
+                _journal_convert(track.path, ok, msg)
                 done += 1
-                if ok:
-                    success_count += 1
-                    root_success += 1
+                kind = _classify(ok, msg)
+                if kind == "converted":
+                    converted_count += 1
+                    root_converted += 1
                     log.info("✓ %s: %s", track.path.name, msg)
+                elif kind == "skipped":
+                    skipped_count += 1
+                    root_skipped += 1
+                    log.info("• %s: %s", track.path.name, msg)
                 else:
                     error_count += 1
                     root_errors += 1
                     log.error("✗ %s: %s", track.path.name, msg)
                 _emit_progress()
 
-        root_lines = [f"{root_success} of {root_total} files were converted to {target_format.upper()}."]
+        root_lines = [f"{root_converted} of {root_total} files converted to {target_format.upper()}."]
+        if root_skipped:
+            root_lines.append(f"{root_skipped} skipped (already {target_format.upper()} or already present).")
         if root_errors:
-            root_lines.append(f"{root_errors} files had errors — check the log above.")
+            root_lines.append(f"{root_errors} could not be converted (corrupt or DRM-protected input).")
         else:
             root_lines.append("No errors.")
         root_sections.append((root, "\n".join(root_lines)))
 
+    if _fg_archive is not None and converted_count:
+        try:
+            _fg_archive.log_operation(
+                "convert_batch",
+                metadata={
+                    "roots": [str(r) for r in roots],
+                    "format": target_format,
+                    "converted": converted_count,
+                    "skipped": skipped_count,
+                    "errors": error_count,
+                },
+            )
+        except Exception as exc:
+            log.warning("Archive batch log failed for convert: %s", exc)
+
     fmt_upper = target_format.upper()
-    lines = ["Done converting.", "", f"{success_count} of {total} files were converted to {fmt_upper}."]
+    lines = ["Done converting.", "", f"{converted_count} of {total} files converted to {fmt_upper}."]
+    if skipped_count:
+        lines.append(f"{skipped_count} skipped — already {fmt_upper}, or an {fmt_upper} already exists (nothing lost).")
     if error_count:
-        lines.append(f"{error_count} files had errors — check the log above.")
+        lines.append(
+            f"{error_count} could not be converted — corrupt files or DRM-protected inputs "
+            "(e.g. iTunes .m4p, protected .wma). These are bad inputs, not a FableGear failure."
+        )
     else:
         lines.append("No errors.")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     _emit_report(_append_root_breakdown("\n".join(lines), root_sections), "Convert", f"convert_{timestamp}.txt")
 
     if error_count > 0:
-        log.warning("%d files had errors — check log above", error_count)
+        log.warning("%d files could not be converted (corrupt or DRM-protected)", error_count)
 
 
 def cmd_organize(args: argparse.Namespace) -> None:
@@ -1547,6 +1770,10 @@ def cmd_organize(args: argparse.Namespace) -> None:
     if dry_run:
         log.info("DRY RUN — no files will be touched. Pass --no-dry-run to execute.")
 
+    # Live runs must not proceed un-journaled — see _require_archive. Dry runs
+    # touch nothing, so a missing archive is just a soft warning there.
+    archive = _archive() if dry_run else _require_archive("organize")
+
     # Past-participle forms used in both dry-run plans and live reports.
     # Using full past-tense words avoids "{verb}ed" suffixing producing "copyed".
     action_past = "copied" if mode == "integrate" else "moved"
@@ -1560,14 +1787,20 @@ def cmd_organize(args: argparse.Namespace) -> None:
     root_sections: list[tuple[Path, str]] = []
     for index, source in enumerate(sources, start=1):
         _log_root_step("Organize", source, index, len(sources))
-        root_results = organize_library(
-            [source], target,
-            mode=mode,
-            dry_run=dry_run,
-            max_workers=max_workers,
-            mix_threshold_sec=threshold,
-            archive=_archive(),
-        )
+        try:
+            root_results = organize_library(
+                [source], target,
+                mode=mode,
+                dry_run=dry_run,
+                max_workers=max_workers,
+                mix_threshold_sec=threshold,
+                archive=archive,
+            )
+        except ValueError as exc:
+            # Source guardrail tripped (system root / home folder / app data).
+            log.error("%s", exc)
+            print(f"[ERROR] {exc}", flush=True)
+            sys.exit(2)
         results.extend(root_results)
 
         root_moved = sum(1 for r in root_results if r.action in ("moved", "dry_run", "conflict_renamed"))
@@ -1674,6 +1907,10 @@ def cmd_novelty(args: argparse.Namespace) -> None:
     if dry_run:
         log.info("DRY RUN — no files will be copied. Pass --no-dry-run to execute.")
 
+    # Live runs must not proceed un-journaled — see _require_archive. Dry runs
+    # touch nothing, so a missing archive is just a soft warning there.
+    archive = _archive() if dry_run else _require_archive("novelty")
+
     log.info(
         "Novel scan  sources=%s  dest=%s  dry_run=%s  workers=%d  match_mode=%s",
         [str(s) for s in sources], dest, dry_run, max_workers, match_mode,
@@ -1694,7 +1931,7 @@ def cmd_novelty(args: argparse.Namespace) -> None:
             dry_run=dry_run,
             max_workers=max_workers,
             match_mode=match_mode,
-            archive=_archive(),
+            archive=archive,
         )
         total_src += root_result.total_src
         dest_index_size = max(dest_index_size, root_result.dest_index_size)
@@ -1790,7 +2027,7 @@ def cmd_rename(args: argparse.Namespace) -> None:
         if dry_run:
             for index, root in enumerate(roots, start=1):
                 _log_root_step("Rename", root, index, len(roots))
-                root_results = rename_directory(root, db=None, dry_run=True, max_workers=max_workers)
+                root_results = rename_directory(root, db=None, dry_run=True, max_workers=max_workers, archive=_archive())
                 results.extend(root_results)
                 root_renamed = sum(1 for r in root_results if r.action == "renamed")
                 root_skipped = sum(1 for r in root_results if r.action == "no_change")
@@ -1810,10 +2047,11 @@ def cmd_rename(args: argparse.Namespace) -> None:
                     root_lines.append(f"{root_errors} had errors — check the log above.")
                 root_sections.append((root, "\n".join(root_lines)))
         else:
+            archive = _require_archive("rename")
             with write_db(LOCAL_DB) as db:
                 for index, root in enumerate(roots, start=1):
                     _log_root_step("Rename", root, index, len(roots))
-                    root_results = rename_directory(root, db=db, dry_run=False, max_workers=max_workers, archive=_archive())
+                    root_results = rename_directory(root, db=db, dry_run=False, max_workers=max_workers, archive=archive)
                     results.extend(root_results)
                     root_renamed = sum(1 for r in root_results if r.action == "renamed")
                     root_skipped = sum(1 for r in root_results if r.action == "no_change")
@@ -2030,6 +2268,22 @@ Examples:
         dest="fuzzy_threshold",
         help="Similarity threshold for fuzzy fingerprint matching (0.0–1.0, default: 0.85)",
     )
+    p_dupes.add_argument(
+        "--checkpoint-action",
+        choices=["resume", "reset"],
+        default="resume",
+        dest="checkpoint_action",
+        help="resume (default): continue an interrupted scan from its checkpoint. "
+             "reset: discard the checkpoint and fingerprint from the beginning.",
+    )
+    p_dupes.add_argument(
+        "--scan-mode",
+        choices=["quick", "deep"],
+        default="deep",
+        dest="scan_mode",
+        help="quick = instant byte-identical match from cached DB hashes (no fpcalc); "
+             "deep (default) = acoustic Chromaprint fingerprinting (catches re-encodes / different formats).",
+    )
     p_dupes.set_defaults(func=cmd_duplicates)
 
     # ── rekordbox-dedupe ──
@@ -2118,6 +2372,18 @@ Examples:
         "--force",
         action="store_true",
         help="Overwrite existing BPM/key tags",
+    )
+    p_process.add_argument(
+        "--force-bpm",
+        action="store_true",
+        dest="force_bpm",
+        help="Re-detect and overwrite BPM even if a BPM tag already exists",
+    )
+    p_process.add_argument(
+        "--force-key",
+        action="store_true",
+        dest="force_key",
+        help="Re-detect and overwrite key even if a key tag already exists",
     )
     p_process.add_argument(
         "--no-bpm",
@@ -2366,10 +2632,15 @@ Examples:
     return parser
 
 
+def build_parser() -> argparse.ArgumentParser:
+    """Public parser factory for testing and programmatic access."""
+    return _build_parser()
+
+
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = _build_parser()
+    parser = build_parser()
     args = parser.parse_args()
     _setup_logging(args.verbose)
 

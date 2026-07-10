@@ -213,9 +213,13 @@ from brew_updater import (                          # noqa: E402
 )
 _start_brew_checker()
 
+from snapshot_scheduler import start_background_scheduler as _start_snapshot_scheduler  # noqa: E402
+_start_snapshot_scheduler()
+
 from update_checker import (                        # noqa: E402
     start_background_checker as _start_update_checker,
     get_status as _update_get_status,
+    check_now as _update_check_now,
 )
 _start_update_checker()
 
@@ -343,14 +347,23 @@ _SPLASH_HTML = """\
 def index():
     from flask import redirect as _redirect  # noqa: PLC0415
     from user_config import config_exists   # noqa: PLC0415
+    # First-run gate. A failure here must never silently skip the wizard:
+    # if we can't prove setup is complete, show onboarding (it lets a
+    # configured user continue straight through to the app).
     try:
-        if not config_exists():
-            return _redirect("/onboarding")
-        _st = _load_setup_state(repair=True)
-        if not _st.get("setup_complete"):
-            return _redirect("/onboarding")
+        has_config = config_exists()
     except Exception:
-        pass
+        app.logger.exception("index gate: config_exists() failed — routing to onboarding")
+        return _redirect("/onboarding")
+    if not has_config:
+        return _redirect("/onboarding")
+    try:
+        _st = _load_setup_state(repair=True)
+    except Exception:
+        app.logger.exception("index gate: setup state unreadable — routing to onboarding")
+        return _redirect("/onboarding")
+    if not _st.get("setup_complete"):
+        return _redirect("/onboarding")
     return render_template("index.html")
 
 
@@ -446,7 +459,8 @@ def api_config():
     try:
         from config import (  # noqa: PLC0415
             DJMT_DB, LOCAL_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
-            BACKUP_DIR, ARCHIVE_ENABLED, _archive_mode, _custom_archive,
+            BACKUP_DIR, ARCHIVE_ENABLED, SNAPSHOT_CADENCE, SNAPSHOT_INCLUDE_MASTER_DB,
+            _archive_mode, _custom_archive,
         )
         from user_config import load_user_config as _luc  # noqa: PLC0415
         _ucfg = _luc()
@@ -462,7 +476,10 @@ def api_config():
             "archive_mode":     _archive_mode,
             "custom_archive":   _custom_archive,
             "archive_enabled":  ARCHIVE_ENABLED,
+            "snapshot_cadence": SNAPSHOT_CADENCE,
+            "snapshot_include_master_db": SNAPSHOT_INCLUDE_MASTER_DB,
             "excluded_dirs":    _ucfg.get("excluded_dirs", []),
+            "acoustid_api_key_configured": bool(_ucfg.get("acoustid_api_key", "").strip()),
             "mode":             current_mode,
             "configured":       True,
         })
@@ -478,6 +495,8 @@ def api_config():
             "archive_mode":    "auto",
             "custom_archive":  "",
             "archive_enabled": True,
+            "snapshot_cadence": "monthly",
+            "snapshot_include_master_db": False,
             "mode":            current_mode,
             "configured":      False,
         })
@@ -508,7 +527,13 @@ def api_setup_archive():
 def api_settings():
     """Save archive mode and custom path to user config."""
     try:
-        from user_config import archive_root_for_music_root, load_user_config, CONFIG_PATH  # noqa: PLC0415
+        from user_config import (  # noqa: PLC0415
+            archive_root_for_music_root,
+            load_user_config,
+            CONFIG_PATH,
+            normalize_snapshot_cadence,
+            _coerce_bool,
+        )
         import json as _json
         data = request.get_json(force=True) or {}
         cfg = load_user_config()
@@ -531,8 +556,19 @@ def api_settings():
             cfg["backup_dir"] = str(cfg.get("backup_dir", "")).strip() or str(Path.home() / ".fablegear" / "backups")
         if "excluded_dirs" in data:
             cfg["excluded_dirs"] = [d for d in data["excluded_dirs"] if isinstance(d, str) and d.strip()]
+        if "acoustid_api_key" in data:
+            # AcoustID key for MusicBrainz enrichment (music data only). Trim
+            # whitespace; empty string disables lookup.
+            cfg["acoustid_api_key"] = str(data.get("acoustid_api_key", "")).strip()
         if "mode" in data and data["mode"] in ("rural", "suburban"):
             cfg["mode"] = data["mode"]
+        if "snapshot_cadence" in data:
+            cfg["snapshot_cadence"] = normalize_snapshot_cadence(data.get("snapshot_cadence"))
+        if "snapshot_include_master_db" in data:
+            cfg["snapshot_include_master_db"] = _coerce_bool(
+                data.get("snapshot_include_master_db"),
+                cfg.get("snapshot_include_master_db", False),
+            )
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             _json.dump(cfg, f, indent=2)
         return jsonify({"ok": True, "note": "Restart FableGear for changes to take effect."})
@@ -544,7 +580,18 @@ def api_settings():
 
 @app.route("/api/update/status")
 def api_update_status():
-    """Return the cached GitHub release check result (never blocks)."""
+    """Return the GitHub release check result.
+
+    Default: the cached status (never blocks) — used by the automatic startup
+    check. With ?refresh=1: run a live check first (blocks a few seconds) —
+    used by the manual "Check for Updates" button so the answer is current and
+    failures are reportable rather than silently stale.
+    """
+    if request.args.get("refresh") == "1":
+        try:
+            return jsonify(_update_check_now())
+        except Exception as exc:
+            return jsonify({"error": str(exc), "update_available": False}), 502
     return jsonify(_update_get_status())
 
 
@@ -846,7 +893,7 @@ def api_fs_list():
         return jsonify({"error": "Forbidden"}), 403
     AUDIO_EXTS = {
         ".aiff", ".aif", ".aifc", ".wav", ".flac", ".mp3",
-        ".m4a", ".m4p", ".mp4", ".m4v", ".alac", ".ogg", ".opus",
+        ".m4a", ".m4p", ".alac", ".ogg", ".opus",
     }
     if _SYSTEM == "Windows":
         default_root = "C:\\"
@@ -986,6 +1033,7 @@ _SETUP_STATE_DEFAULTS = {
     "db_read": None,
     "db_write": None,
     "drive_scan": False,
+    "mcp_opted_in": False,
 }
 
 
@@ -996,6 +1044,7 @@ def _normalize_setup_state(raw: dict | None) -> dict:
 
     state["setup_complete"] = bool(raw.get("setup_complete", False))
     state["drive_scan"] = bool(raw.get("drive_scan", False))
+    state["mcp_opted_in"] = bool(raw.get("mcp_opted_in", False))
 
     for key in ("db_read", "db_write"):
         value = raw.get(key)
@@ -1198,7 +1247,10 @@ def onboarding():
             if state.get("setup_complete") and not request.args.get("reconfigure"):
                 return _redirect("/")
     except Exception:
-        pass
+        # Fails open onto the wizard (the safe default), but silently — log
+        # it so a real setup-state bug is visible instead of just "onboarding
+        # showed up again for no obvious reason."
+        app.logger.exception("onboarding gate: setup state check failed — showing wizard")
     return render_template("onboarding.html")
 
 
@@ -1339,6 +1391,59 @@ def api_onboarding_scan_library():
     return jsonify(scan_for_rekordbox_assets())
 
 
+# ── Onboarding: seed the FableGear database from chosen sources ──────────────
+
+_OB_IMPORT = {"running": False, "phase": "idle", "done": 0, "total": 0,
+              "result": None, "error": None}
+
+
+@app.route("/api/onboarding/import-sources", methods=["POST"])
+def api_onboarding_import_sources():
+    """Import the user's chosen music sources into the FableGear database.
+
+    Body: {"paths": ["/Volumes/DJ/Music", ...]} — explicit, user-selected
+    directories only. Runs in a background thread; poll
+    /api/onboarding/import-sources/status for progress.
+    """
+    body = request.get_json(silent=True) or {}
+    paths = [str(p).strip() for p in body.get("paths", []) if str(p).strip()]
+    if not paths:
+        return jsonify({"error": "paths list is required"}), 400
+    roots = [Path(p) for p in paths]
+    bad = [str(r) for r in roots if not r.is_dir()]
+    if bad:
+        return jsonify({"error": f"not a directory: {', '.join(bad)}"}), 400
+    if _OB_IMPORT["running"]:
+        return jsonify({"error": "an import is already running"}), 409
+
+    def _run():
+        _OB_IMPORT.update(running=True, phase="scanning", done=0, total=0,
+                          result=None, error=None)
+        try:
+            from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
+            from fablegear_database.importer import FileImporter  # noqa: PLC0415
+
+            def _progress(done, total):
+                _OB_IMPORT.update(phase="importing", done=done, total=total)
+
+            db = FableGearDatabase()
+            _OB_IMPORT["result"] = FileImporter(db).import_files(
+                roots, progress_callback=_progress
+            )
+        except Exception as exc:  # noqa: BLE001 — surfaced to the wizard UI
+            _OB_IMPORT["error"] = str(exc)
+        finally:
+            _OB_IMPORT.update(running=False, phase="done")
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"started": True, "paths": paths})
+
+
+@app.route("/api/onboarding/import-sources/status")
+def api_onboarding_import_sources_status():
+    return jsonify(_OB_IMPORT)
+
+
 @app.route("/api/onboarding/check-fda")
 def api_onboarding_check_fda():
     """Check if the local Rekordbox DB is readable (Full Disk Access indicator)."""
@@ -1373,7 +1478,13 @@ def api_onboarding_open_fda_prefs():
 @app.route("/api/onboarding/save-config", methods=["POST"])
 def api_onboarding_save_config():
     """Save confirmed paths to config.json and mark setup complete."""
-    from user_config import DEFAULTS, archive_root_for_music_root, save_user_config  # noqa: PLC0415
+    from user_config import (  # noqa: PLC0415
+        DEFAULTS,
+        archive_root_for_music_root,
+        save_user_config,
+        normalize_snapshot_cadence,
+        _coerce_bool,
+    )
 
     data = request.get_json(silent=True) or {}
     required = {"local_db", "device_db", "music_root"}
@@ -1403,6 +1514,8 @@ def api_onboarding_save_config():
         "backup_dir": backup_dir,
         "archive_mode": archive_mode,
         "custom_archive_dir": custom_archive_dir if archive_mode == "custom" else "",
+        "snapshot_cadence": normalize_snapshot_cadence(data.get("snapshot_cadence")),
+        "snapshot_include_master_db": _coerce_bool(data.get("snapshot_include_master_db"), False),
     }
     for key, default in DEFAULTS.items():
         cfg.setdefault(key, default)
@@ -1419,6 +1532,8 @@ def api_onboarding_save_config():
         # Consent to scan connected drives/volumes for music-specific formats,
         # granted (or declined) during onboarding — the only place that asks.
         "drive_scan": bool(data.get("drive_scan", False)),
+        # AI/MCP integration is opt-in during onboarding (or later via Settings).
+        "mcp_opted_in": bool(data.get("mcp_opted_in", False)),
     }
     _FABLEGEAR_STATE.parent.mkdir(parents=True, exist_ok=True)
     _FABLEGEAR_STATE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
@@ -1589,9 +1704,11 @@ def disable_cache_on_static_files(response):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # FABLEGEAR_PORT lets a dev checkout run beside an installed copy on 5001.
+    _port = int(os.environ.get("FABLEGEAR_PORT", "5001"))
     print()
     print("  ┌──────────────────────────────────┐")
-    print("  │  FableGear · http://localhost:5001  │")
+    print(f"  │  FableGear · http://localhost:{_port}  │")
     print("  └──────────────────────────────────┘")
     print()
-    app.run(host="127.0.0.1", port=5001, debug=False)
+    app.run(host="127.0.0.1", port=_port, debug=False)

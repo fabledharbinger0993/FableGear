@@ -40,6 +40,7 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from time import monotonic
 
 try:
     import fcntl  # POSIX file locking
@@ -54,7 +55,11 @@ try:
 except Exception:  # pragma: no cover - defensive fallback
     MultipleResultsFound = Exception
 
-from config import BATCH_SIZE
+from config import (
+    BATCH_SIZE,
+    PROGRESS_ITEM_INTERVAL as _PROGRESS_ITEM_INTERVAL,
+    PROGRESS_MIN_SECONDS as _PROGRESS_MIN_SECONDS,
+)
 from key_mapper import clear_cache as clear_key_cache, resolve_key_id
 from scanner import TrackInfo, scan_directory
 
@@ -306,7 +311,9 @@ def _import_track(track: TrackInfo, db: Rekordbox6Database) -> TrackImportResult
             kwargs["ArtistID"] = artist_id
 
     if track.bpm is not None:
-        kwargs["BPM"] = int(round(track.bpm * 100))  # DB stores BPM × 100
+        # Rekordbox stores BPM as int(round(bpm * 100)) for precision without floats.
+        # FableGear DB stores raw float. Any cross-DB code must transform.
+        kwargs["BPM"] = int(round(track.bpm * 100))
 
     if track.key:
         key_id = resolve_key_id(track.key, db)
@@ -427,20 +434,38 @@ def import_directory(
     # progress plus what we commit now). Used to save progress after each batch.
     committed_set: set[str] = set(done_set)
 
-    # Running counters for live scan bar progress
+    # Materialize the scan up front so the scan bar gets an honest `total`.
+    # This is the same single metadata-extraction pass the streaming loop
+    # would have done anyway (scan_directory is only ever consumed once per
+    # import_directory() call) — it's just eagerly completed instead of
+    # streamed, exactly like audio_processor.py's process_directory() already
+    # does for the same libraries. Emit progress ticks every 200 files to keep
+    # the scan phase from looking frozen on large libraries.
+    tracks: list[TrackInfo] = []
+    for t in scan_directory(root):
+        tracks.append(t)
+        if len(tracks) % 200 == 0:
+            print("FABLEGEAR_PROGRESS: " + json.dumps({"scanned": len(tracks)}), flush=True)
+    total = len(tracks)
+
     _p_count = 0
+    _last_progress_emit = monotonic()
 
     def _emit_import_progress() -> None:
+        done = report.total_attempted  # imported + skipped + resumed + failed
         print(
             "FABLEGEAR_PROGRESS: " + json.dumps({
-                "clean":  report.skipped + report.resumed,
-                "edited": report.imported,
-                "errors": report.failed,
+                "done":      done,
+                "total":     total,
+                "remaining": total - done,
+                "clean":     report.skipped + report.resumed,
+                "edited":    report.imported,
+                "errors":    report.failed,
             }),
             flush=True,
         )
 
-    for track in scan_directory(root):
+    for track in tracks:
         if not track.is_valid:
             r = TrackImportResult(path=track.path, error="invalid or unreadable file")
             report.results.append(r)
@@ -473,8 +498,13 @@ def import_directory(
             report.failed += 1
 
         _p_count += 1
-        if _p_count % 20 == 0:
+        now = monotonic()
+        if (
+            _p_count % _PROGRESS_ITEM_INTERVAL == 0
+            and (now - _last_progress_emit) >= _PROGRESS_MIN_SECONDS
+        ):
             _emit_import_progress()
+            _last_progress_emit = now
 
         if batch_count >= BATCH_SIZE:
             try:
@@ -517,6 +547,7 @@ def import_directory(
     if resume:
         _clear_progress(root)
 
+    _emit_import_progress()  # final emit — ensures UI reflects 100%
     return report
 
 

@@ -89,7 +89,6 @@ except RuntimeError as _e:
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 REPO_DIR = Path(__file__).parent
-_CLI = REPO_DIR / "cli.py"
 
 # ── Job dispatcher init ────────────────────────────────────────────────────────
 _checkpoints_dir: Optional[Path] = None
@@ -182,42 +181,6 @@ def _dep_gate(tool: str, scope: str, force: bool = False) -> Optional[str]:
         f"for scope='{scope or '<global>'}'. Run '{prereq}' first, or pass "
         f"force=True to bypass this check."
     )
-
-
-_CLI_SUBCOMMANDS = frozenset({
-    "usb-export", "audit", "import", "link", "relocate", "dupes",
-    "rb-dupes", "prune", "process", "convert", "organize", "novelty",
-    "rename", "dead-files", "setup",
-})
-
-def _run_cli(*args: str, timeout: int = 600) -> str:
-    """
-    Invoke cli.py with the given arguments.
-    Returns combined stdout+stderr as a single string.
-    All of cli.py's safety guards (Rekordbox check, DB backup, etc.) apply.
-    """
-    if not args or args[0] not in _CLI_SUBCOMMANDS:
-        return f"Unknown CLI subcommand: {args[0] if args else '(none)'}"
-    cmd = [sys.executable, str(_CLI), *args]
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=str(REPO_DIR),
-        )
-        output = (result.stdout + result.stderr).strip()
-        if result.returncode != 0:
-            return f"Command failed (exit {result.returncode}).\n\n{output}"
-        return output or "Completed successfully."
-    except subprocess.TimeoutExpired:
-        return (
-            f"Operation timed out after {timeout}s. "
-            "Large libraries may need more time — try again with a smaller folder."
-        )
-    except Exception as exc:
-        return f"Failed to launch FableGear CLI: {exc}"
 
 
 # ── MCP server definition ──────────────────────────────────────────────────────
@@ -421,6 +384,7 @@ def find_duplicates(
     match_mode: str = "exact",
     workers: int = 1,
     force: bool = False,
+    quick_mode: bool = False,
 ) -> str:
     """
     Scan the library for acoustically identical files using Chromaprint
@@ -438,6 +402,9 @@ def find_duplicates(
         workers:     Parallel fingerprinting workers. Default 1.
                      Increase to 2–4 on fast SSDs; keep at 1 on external drives.
         force:       Bypass the audit_library dependency gate. Default False.
+        quick_mode:  When True, run an INSTANT byte-identical scan from the
+                     cached database hashes (no fpcalc). Much faster; finds exact
+                     copies only. Default False (acoustic fingerprint scan).
     """
     if err := _cfg_gate():
         return err
@@ -457,6 +424,8 @@ def find_duplicates(
         "--workers",
         str(workers),
     ]
+    if quick_mode:
+        cli_args += ["--scan-mode", "quick"]
     return job_dispatcher.dispatch(
         tool="find_duplicates",
         cli_args=cli_args,
