@@ -66,7 +66,7 @@ DEFAULTS: dict = {
     "snapshot_cadence":    "monthly",
     "snapshot_include_master_db": False,
     "excluded_dirs":       [],   # extra folder names to skip when scanning music root
-    "acoustid_api_key":    "",   # AcoustID API key for fingerprint lookup
+    "acoustid_api_key":    "wAbRWVEfls",   # AcoustID API key for fingerprint lookup
     "mode": "suburban",  # 'rural' (no AI) or 'suburban' (AI enabled)
 }
 
