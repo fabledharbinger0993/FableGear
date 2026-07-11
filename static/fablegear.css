@@ -1425,6 +1425,7 @@ body.log-open #scan-bar { bottom: var(--log-h); }
   display: flex; flex-direction: column;
   transform: translateY(100%);
   transition: transform .25s cubic-bezier(.4,0,.2,1);
+  -webkit-app-region: no-drag;
 }
 #log-panel.open { transform: translateY(0); }
 .log-bar {
@@ -1434,6 +1435,7 @@ body.log-open #scan-bar { bottom: var(--log-h); }
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   gap: 10px;
+  -webkit-app-region: no-drag;
 }
 .log-bar-title { font-size: .78rem; color: var(--text-muted); flex: 1; }
 .log-bar-title strong { color: var(--text); }
@@ -1458,6 +1460,8 @@ body.log-open #scan-bar { bottom: var(--log-h); }
   padding: 12px 18px;
   font-family: var(--mono); font-size: .8rem;
   line-height: 1.6;
+  -webkit-app-region: no-drag;
+  overscroll-behavior: contain;
 }
 #log-output::-webkit-scrollbar { width: 4px; }
 #log-output::-webkit-scrollbar-track { background: transparent; }
@@ -4106,6 +4110,7 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   accent-color: var(--accent);
   cursor: pointer;
   -webkit-app-region: no-drag;
+  touch-action: pan-y;
 }
 
 /* ── Enrichment options ────────────────────────────────────────────────── */
@@ -6072,7 +6077,8 @@ body.fg-space-chop #log-panel {
   z-index: 55;
   border-top: 1px solid rgba(var(--accent-rgb), .25);
   border-right: 1px solid rgba(var(--accent-rgb), .18);
-  pointer-events: none;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
 }
 
 body:has(#fb-panel.fb-open).fg-space-chop #log-panel {
@@ -6080,6 +6086,7 @@ body:has(#fb-panel.fb-open).fg-space-chop #log-panel {
 }
 
 body.fg-space-chop #log-panel .log-bar { background: rgba(var(--accent-rgb), .06); }
+body.fg-space-chop #log-output { -webkit-app-region: no-drag; }
 body.fg-space-chop .log-close-btn,
 body.fg-space-chop #log-spinner { display: none !important; }
 body.fg-space-chop #log-cmd-label::before { content: '▎ live terminal - '; color: var(--accent); }
@@ -6777,12 +6784,14 @@ body.fg-space-chop #log-panel {
   z-index: 55;
   border-top: 1px solid rgba(var(--accent-rgb), .25);
   border-right: 1px solid rgba(var(--accent-rgb), .18);
-  pointer-events: none;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
 }
 body:has(#fb-panel.fb-open).fg-space-chop #log-panel {
   left: calc(var(--left-panel-w) + var(--sidebar-w));
 }
 body.fg-space-chop #log-panel .log-bar { background: rgba(var(--accent-rgb), .06); }
+body.fg-space-chop #log-output { -webkit-app-region: no-drag; }
 body.fg-space-chop .log-close-btn,
 body.fg-space-chop #log-spinner { display: none !important; }
 body.fg-space-chop #log-cmd-label::before { content: '▎ live terminal — '; color: var(--accent); }

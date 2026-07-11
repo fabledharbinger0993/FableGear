@@ -46,25 +46,33 @@ document.addEventListener('DOMContentLoaded', () => {
   // Keep the docked Chop Shop modal clear of pinned safety alerts.
   _initChopBannerWatch();
 
-  // Prevent WKWebView frameless-window drag from swallowing range inputs,
-  // waveform scrub targets, and scrollable list areas.
-  // -webkit-app-region: no-drag is set in CSS but WKWebView doesn't reliably
-  // honour it on <input type="range"> thumb/track hits, canvas elements, or
-  // scrollbar thumbs inside overflow containers. Stop propagation on the
-  // interactive roots in bubble phase so events still reach component handlers
-  // (e.g. CUE button mousedown) before being blocked from reaching any
-  // window-drag listener on document.
-  [
+  // Prevent WKWebView frameless-window drag from swallowing sliders, terminal
+  // scrollback, waveform scrub targets, and scrollable list areas.
+  // `-webkit-app-region: no-drag` is necessary but not sufficient here: the
+  // native frameless drag behavior can still hijack slider/thumb hits and
+  // scrollbar interaction inside overflow containers. Use delegated listeners
+  // so dynamic UI (tool modal content, scan log, etc.) is covered too.
+  const framelessInteractiveSelector = [
     'input[type="range"]',
+    '.fuzzy-threshold-row',
     '.deck-wave-wrap',
     '.deck-panel',
     '.le-track-list',
     '.le-split-col-list',
     '.le-sidebar',
     '#library-editor-overlay',
-  ].forEach(sel => {
-    document.querySelectorAll(sel).forEach(el =>
-      el.addEventListener('mousedown', e => e.stopPropagation())
-    );
+    '#tool-float-modal-body',
+    '#log-panel',
+    '#log-output',
+  ].join(', ');
+  const stopFramelessDragHijack = (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(framelessInteractiveSelector)) {
+      event.stopPropagation();
+    }
+  };
+  ['pointerdown', 'mousedown', 'touchstart', 'wheel'].forEach(type => {
+    document.addEventListener(type, stopFramelessDragHijack);
   });
 });

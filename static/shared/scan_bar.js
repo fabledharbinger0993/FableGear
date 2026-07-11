@@ -154,6 +154,7 @@ const LOG_MAX_LINES = 800;
 let _logScrollPending = false;
 function appendLog(text, cls = '') {
   const out  = document.getElementById('log-output');
+  const shouldStickToBottom = (out.scrollHeight - out.clientHeight - out.scrollTop) <= 24;
   const line = document.createElement('div');
   line.className = 'log-line ' + cls;
   line.textContent = text;
@@ -165,7 +166,7 @@ function appendLog(text, cls = '') {
     out.removeChild(out.firstChild);
   }
   // Debounce scroll via rAF — avoids forced reflow on every line
-  if (!_logScrollPending) {
+  if (shouldStickToBottom && !_logScrollPending) {
     _logScrollPending = true;
     requestAnimationFrame(() => {
       out.scrollTop = out.scrollHeight;
