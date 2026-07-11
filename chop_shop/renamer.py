@@ -86,6 +86,11 @@ _NO_NAME_MANIFEST = "_quarantine_manifest.json"
 FILENAME_SEPARATOR = " - "
 _LEGACY_FILENAME_SEPARATORS = (FILENAME_SEPARATOR, ": ")
 
+# APFS/HFS+/ext4/NTFS all reject a single path component beyond 255 bytes.
+# Tag metadata (artist/title) is free text and can run far longer than that —
+# this is the ceiling _generate_filename() enforces on the combined name.
+_MAX_FILENAME_BYTES = 255
+
 
 def _is_key_token(token: str) -> bool:
     return bool(re.fullmatch(r"\d{1,2}[ABab]", token.strip()))
@@ -723,29 +728,64 @@ def _extract_artist_title(
     return artist or None, title or None, copy_suffix
 
 
+def _truncate_utf8_safe(text: str, max_bytes: int) -> str:
+    """Truncate text to at most max_bytes when UTF-8 encoded, without
+    splitting a multi-byte character in half."""
+    if max_bytes <= 0:
+        return ""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    truncated = encoded[:max_bytes]
+    while truncated and (truncated[-1] & 0xC0) == 0x80:  # mid-codepoint continuation byte
+        truncated = truncated[:-1]
+    return truncated.decode("utf-8", errors="ignore")
+
+
 def _sanitize_filename(text: str, max_len: int = 200) -> str:
     """
     Clean a string for use in a filename.
     Removes filesystem-unsafe characters, collapses spaces, strips dots.
+    max_len is a byte budget (UTF-8), not a character count.
     """
     text = _UNSAFE_CHARS.sub(" ", text)
     text = _MULTI_SPACE.sub(" ", text).strip().strip(".")
-    return text[:max_len] if text else "Unknown"
+    text = _truncate_utf8_safe(text, max_len).strip().strip(".")
+    return text if text else "Unknown"
 
 
 def _generate_filename(artist: str | None, title: str | None, ext: str, copy_suffix: str | None = None) -> str:
     """
     Generate a clean filename with artist, title, and optional copy suffix.
     Format: "Artist - Title.ext" or "Artist - Title (2).ext"
-    
+
     Artist and title are both included in filename for clear visual identification.
     Copy suffix (e.g., "(2)", "(copy)") is appended before the extension if present.
     Full metadata remains in ID3 tags for database searchability.
+
+    Tag metadata can be arbitrarily long (some releases stuff catalog numbers,
+    remix credits, and session notes into the title). The combined name is
+    kept under the filesystem's 255-byte component limit — otherwise the
+    rename silently fails on exactly the messiest files this tool exists to
+    clean up. Title gets the larger share of the budget since it's what a DJ
+    actually scans for; artist is never starved below a readable floor.
     """
     artist = _sanitize_filename(artist or "Unknown")
     title = _sanitize_filename(title or "Unknown")
     title = _strip_leading_artist_from_title(artist, title)
     suffix_str = f" {copy_suffix}" if copy_suffix else ""
+
+    fixed_overhead = len(FILENAME_SEPARATOR.encode("utf-8")) + len(suffix_str.encode("utf-8")) + len(ext.encode("utf-8"))
+    budget = max(_MAX_FILENAME_BYTES - fixed_overhead, 20)
+
+    artist_bytes = len(artist.encode("utf-8"))
+    title_bytes = len(title.encode("utf-8"))
+    if artist_bytes + title_bytes > budget:
+        artist_budget = max(min(artist_bytes, int(budget * 0.35)), 20)
+        title_budget = max(budget - artist_budget, 20)
+        artist = _sanitize_filename(artist, max_len=artist_budget)
+        title = _sanitize_filename(title, max_len=title_budget)
+
     return f"{artist}{FILENAME_SEPARATOR}{title}{suffix_str}{ext}"
 
 

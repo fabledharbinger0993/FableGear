@@ -72,6 +72,63 @@ def test_generate_filename_uses_hyphen_separator(monkeypatch):
     assert renamer._generate_filename("Artist", "Title", ".mp3") == "Artist - Title.mp3"
 
 
+# Distinct words (no repeats) so _normalize_artist_text's dedup pass — which
+# collapses a string that's the same phrase repeated — never fires and
+# shortens these back down before the length fix even gets exercised.
+_UNIQUE_WORDS = [
+    "Midnight", "Session", "Harbor", "Echoes", "Static", "Velvet", "Horizon", "Lucid",
+    "Cascade", "Ember", "Solstice", "Nomad", "Aurora", "Fracture", "Wander", "Hollow",
+    "Crimson", "Zenith", "Mirage", "Cipher", "Drift", "Lantern", "Tremor", "Glass",
+    "Vapor", "Ridge", "Pulse", "Amber", "Chrome", "Sable", "Meridian", "Voyage",
+    "Thicket", "Quartz", "Lumen", "Delta", "Ashen", "Onyx", "Willow", "Basin",
+]
+
+
+def test_generate_filename_caps_combined_length_under_filesystem_limit(monkeypatch):
+    renamer = _load_renamer_module(monkeypatch)
+    # Realistic worst case: a label stuffs catalog numbers, remix credits,
+    # and session notes into the title tag. Both fields alone exceed the
+    # 255-byte filesystem component limit once combined.
+    artist = " ".join(_UNIQUE_WORDS[:20])
+    title = " ".join(_UNIQUE_WORDS[20:] + _UNIQUE_WORDS[:20])
+
+    name = renamer._generate_filename(artist, title, ".mp3")
+
+    assert len(name.encode("utf-8")) <= 255
+    assert name.endswith(".mp3")
+    assert " - " in name
+
+
+def test_generate_filename_handles_multibyte_text_without_corrupting_chars(monkeypatch):
+    renamer = _load_renamer_module(monkeypatch)
+    artist = "アーティスト " * 60  # multi-byte UTF-8 text, well over the byte budget
+    title = "トラックタイトル " * 60
+
+    name = renamer._generate_filename(artist, title, ".mp3")
+
+    assert len(name.encode("utf-8")) <= 255
+    # Truncation must not land mid-codepoint — a corrupted tail would raise here.
+    name.encode("utf-8").decode("utf-8")
+
+
+def test_rename_one_shortens_pathologically_long_metadata(monkeypatch, tmp_path):
+    renamer = _load_renamer_module(monkeypatch)
+    path = tmp_path / "original.mp3"
+    path.write_bytes(b"")
+    long_artist = " ".join(_UNIQUE_WORDS[:20])
+    long_title = " ".join(_UNIQUE_WORDS[20:] + _UNIQUE_WORDS[:20])
+    monkeypatch.setattr(
+        renamer, "extract_metadata",
+        lambda p: SimpleNamespace(artist=long_artist, title=long_title),
+    )
+
+    result = renamer._rename_one(path, dry_run=False)
+
+    assert result.action == "renamed"
+    assert len(result.new_path.name.encode("utf-8")) <= 255
+    assert result.new_path.exists()
+
+
 def test_extract_artist_title_reads_legacy_colon_separator(monkeypatch):
     renamer = _load_renamer_module(monkeypatch)
     artist, title, copy_suffix = renamer._extract_artist_title(

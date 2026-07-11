@@ -51,3 +51,33 @@ def guard_sources(sources, tool: str) -> None:
         reason = forbidden_source_reason(Path(s))
         if reason:
             raise ValueError(f"Refusing to run {tool} on {s}: {reason}")
+
+
+_BROWSE_DENY_EXACT = (
+    Path("/"), Path("/System"), Path("/private"), Path("/Library"), Path("/Applications"),
+)
+
+
+def forbidden_browse_reason(path: Path) -> str | None:
+    """Return why *path* should not be listed by the read-only file-browser
+    panel, or None if it's fine to browse.
+
+    Deliberately more permissive than forbidden_source_reason()/guard_sources():
+    browsing is read-only navigation to *find* a folder to point a tool at —
+    not an operation on one — so any drive and any subfolder (including the
+    user's home folder and everything under it) is fair game. Narrowing this
+    to a fixed allowlist (e.g. "/Volumes or $HOME only") is the bug this
+    function replaced — a folder living anywhere else was rejected outright
+    even though it held perfectly good music. Only OS-internal trees that
+    have no business being surfaced to a local folder picker are excluded.
+    """
+    try:
+        p = path.expanduser().resolve(strict=False)
+    except OSError:
+        return "path cannot be resolved"
+    home = Path.home().resolve(strict=False)
+    if p in _BROWSE_DENY_EXACT:
+        return "this is an operating-system area, not a music folder"
+    if p == home / "Library" or (home / "Library") in p.parents:
+        return "~/Library holds application data, not music"
+    return None

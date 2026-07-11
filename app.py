@@ -815,14 +815,17 @@ def _drive_name(mountpoint: str) -> str:
 
 
 def _is_browseable_path(p: Path) -> bool:
-    """Security check: only allow paths the user legitimately owns."""
-    s = str(p)
-    home = str(Path.home())
-    if _SYSTEM == "Darwin":
-        return s.startswith("/Volumes/") or s.startswith(home)
-    if _SYSTEM == "Windows":
-        return len(s) >= 3 and s[1] == ":" and s[2] in ("/", "\\")
-    return s.startswith("/media/") or s.startswith("/mnt/") or s.startswith(home)
+    """Security check for the read-only file-browser panel.
+
+    Any real, existing folder is browseable — a drive or subfolder shouldn't
+    have to live under /Volumes or the user's home directory to be pointed at
+    a tool. Only OS-internal trees are excluded; see forbidden_browse_reason().
+    """
+    try:
+        from path_guard import forbidden_browse_reason  # noqa: PLC0415
+    except ImportError:  # imported via the chop_shop package
+        from chop_shop.path_guard import forbidden_browse_reason  # noqa: PLC0415
+    return forbidden_browse_reason(p) is None
 
 
 def _mounted_volumes() -> list:

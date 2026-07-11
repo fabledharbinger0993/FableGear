@@ -15,17 +15,6 @@ import uuid
 
 _SYSTEM = platform.system()
 
-def is_safe_path(path: str, allowed_roots: list[str]) -> bool:
-    """Validate that the path is contained within at least one allowed root."""
-    try:
-        resolved_path = Path(path).resolve()
-        for root in allowed_roots:
-            if resolved_path.is_relative_to(Path(root).resolve()):
-                return True
-        return False
-    except Exception:
-        return False
-
 def _is_user_mount(mountpoint: str) -> bool:
     if _SYSTEM == "Darwin":
         return mountpoint.startswith("/Volumes/") or mountpoint.startswith("/Volumes")
@@ -522,9 +511,15 @@ def api_library_fs_browse():
     path_str = request.args.get("path", "")
     recursive = request.args.get("recursive", "0").lower() in ("1", "true", "yes")
 
-    # 3. Security Check (Must happen after _MR is defined)
-    if path_str and not is_safe_path(path_str, [str(_MR), "/Volumes", "/media"]):
-        return jsonify({"error": "Access denied"}), 403
+    # 3. Security check — any real folder is browseable (not just the
+    # configured library root or /Volumes); see forbidden_browse_reason().
+    if path_str:
+        try:
+            from path_guard import forbidden_browse_reason  # noqa: PLC0415
+        except ImportError:  # imported via the chop_shop package
+            from chop_shop.path_guard import forbidden_browse_reason  # noqa: PLC0415
+        if forbidden_browse_reason(Path(path_str)) is not None:
+            return jsonify({"error": "Access denied"}), 403
 
     # 4. Resolve path
     try:
