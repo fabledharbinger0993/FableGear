@@ -31,28 +31,51 @@ Everything runs on your Mac. There is no cloud service, no login, and no data le
 FableGear has two main workspaces. **Record Room** handles everything tied to your Rekordbox database -- browsing tracks, managing playlists, fixing broken paths. **Chop Shop** works on your actual audio files -- tagging, deduping, normalizing loudness, renaming, converting formats.
 
 ```mermaid
-graph TD
-    FG[FableGear] --> RR[Record Room]
-    FG --> CS[Chop Shop]
-    FG --> PW[Pipeline Wizard]
-    FG --> HM[Health Monitor]
-    FG --> GO[FableGo Mobile]
+flowchart TD
+    FG["FableGear"]
+    RR["Record Room"]
+    CS["Chop Shop"]
+    PW["Pipeline Wizard"]
+    HM["Health Monitor"]
+    GO["FableGo Mobile"]
 
-    RR --> RR1[Library Browser + Player]
-    RR --> RR2[Library Audit]
-    RR --> RR3[Import Tracks]
-    RR --> RR4[Fix Broken Paths]
-    RR --> RR5[Link Playlists]
-    RR --> RR6[Playlist Management]
-    RR --> RR7[Pioneer USB Export]
+    FG --> RR
+    FG --> CS
+    FG --> PW
+    FG --> HM
+    FG --> GO
 
-    CS --> CS1[Tag Tracks]
-    CS --> CS2[Find Duplicates]
-    CS --> CS3[Rename Files]
-    CS --> CS4[Organize Library]
-    CS --> CS5[Normalize Loudness]
-    CS --> CS6[Convert Format]
-    CS --> CS7[Novelty Scanner]
+    RR1["Library Browser + Player"]
+    RR2["Library Audit"]
+    RR3["Import Tracks"]
+    RR4["Fix Broken Paths"]
+    RR5["Link Playlists"]
+    RR6["Playlist Management"]
+    RR7["Pioneer USB Export"]
+
+    RR --> RR1
+    RR --> RR2
+    RR --> RR3
+    RR --> RR4
+    RR --> RR5
+    RR --> RR6
+    RR --> RR7
+
+    CS1["Tag Tracks"]
+    CS2["Find Duplicates"]
+    CS3["Rename Files"]
+    CS4["Organize Library"]
+    CS5["Normalize Loudness"]
+    CS6["Convert Format"]
+    CS7["Novelty Scanner"]
+
+    CS --> CS1
+    CS --> CS2
+    CS --> CS3
+    CS --> CS4
+    CS --> CS5
+    CS --> CS6
+    CS --> CS7
 ```
 
 ---
