@@ -136,6 +136,19 @@ if __name__ == '__main__':
         cli.main()
         sys.exit(0)
 
+    # ── Single-instance guard ─────────────────────────────────────────────
+    # OS-level exclusive lock; released automatically on process exit/crash.
+    # Placed AFTER the frozen-CLI dispatch above so bundled CLI subprocesses
+    # (which re-enter this binary) are never blocked by the guard.
+    from single_instance import acquire as _acquire_single_instance, lock_path as _si_lock_path
+    if not _acquire_single_instance():
+        print(
+            'FableGear is already running — switch to the existing window. '
+            f'(instance lock: {_si_lock_path()})',
+            file=sys.stderr,
+        )
+        sys.exit(0)
+
     started_server_here = False
     if not _server_running():
         started_server_here = True
