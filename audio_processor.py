@@ -40,25 +40,9 @@ from mutagen import File as MutagenFile
 from mutagen.id3 import TBPM, TKEY
 
 from config import AUDIO_EXTENSIONS, BPM_MAX, BPM_MIN, LUFS_TOLERANCE, TARGET_LUFS
+from health_acoustid import full_health_check
 
 log = logging.getLogger(__name__)
-
-
-def _fpcalc_available() -> bool:
-    """Return True if fpcalc is on PATH and responds to -version.
-    Fingerprinting features degrade gracefully when this returns False
-    (Windows users without a manual fpcalc install).
-    """
-    found = shutil.which("fpcalc")
-    if not found:
-        return False
-    try:
-        result = subprocess.run(
-            [found, "-version"], capture_output=True, text=True, timeout=5
-        )
-        return result.returncode == 0
-    except Exception:
-        return False
 
 
 # Resolve ffmpeg once at import time — on macOS with Homebrew the server process
@@ -478,13 +462,10 @@ def _enrich_from_acoustid(path: Path, *, force: bool = False) -> dict | None:
     Note: when enrich_tags=True is passed to process_directory(), expect
     ~1s additional time per file due to AcoustID rate limits (3 req/s).
     """
-    if not _fpcalc_available():
+    if not full_health_check(raise_on_fail=False):
         return None
-    try:
-        from config import ACOUSTID_API_KEY   # noqa: PLC0415
-    except ImportError:
-        return None
-    if not ACOUSTID_API_KEY:
+    from config import ACOUSTID_API_KEY  # noqa: PLC0415
+    if not str(ACOUSTID_API_KEY).strip():
         return None
 
     try:
