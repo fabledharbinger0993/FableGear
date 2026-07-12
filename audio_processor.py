@@ -473,10 +473,10 @@ def _enrich_from_acoustid(path: Path, *, force: bool = False) -> dict | None:
         from config import ACOUSTID_API_KEY  # noqa: PLC0415
 
         duration, fingerprint = acoustid.fingerprint_file(str(path))
-        if isinstance(fingerprint, bytes):
-            fingerprint = fingerprint.decode("utf-8", errors="replace")
         if not fingerprint:
             return None
+        if isinstance(fingerprint, bytes):
+            fingerprint = fingerprint.decode("utf-8", errors="replace")
         response = acoustid.lookup(
             ACOUSTID_API_KEY, fingerprint, duration,
             meta=["recordings", "releasegroups", "compress"],
