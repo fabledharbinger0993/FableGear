@@ -10,14 +10,14 @@ import pytest
 
 
 def test_find_fpcalc_honors_env_override():
-    def _which(command: str) -> str | None:
+    def mock_which(command: str) -> str | None:
         if command == "/custom/bin/fpcalc":
             return command
         return None
 
     with (
         patch.dict(os.environ, {"FPCALC": "/custom/bin/fpcalc"}, clear=False),
-        patch("health_acoustid.shutil.which", side_effect=_which),
+        patch("health_acoustid.shutil.which", side_effect=mock_which),
     ):
         assert ha._find_fpcalc() == "/custom/bin/fpcalc"
 
