@@ -465,6 +465,7 @@ def _enrich_from_acoustid(path: Path, *, force: bool = False) -> dict | None:
     health = collect_health()
     fpcalc_path = str(health["fpcalc_path"])
     if not bool(health["ok"]) or not fpcalc_path:
+        log.debug("AcoustID enrichment skipped (preflight failed): %s", health)
         return None
     previous_fpcalc = os.environ.get("FPCALC")
     try:
