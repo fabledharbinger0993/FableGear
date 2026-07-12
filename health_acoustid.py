@@ -56,6 +56,8 @@ def _acoustid_key_configured() -> bool:
         from config import ACOUSTID_API_KEY  # noqa: PLC0415
     except Exception:
         return False
+    if ACOUSTID_API_KEY is None:
+        return False
     return bool(str(ACOUSTID_API_KEY).strip())
 
 
