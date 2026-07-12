@@ -40,7 +40,7 @@ from mutagen import File as MutagenFile
 from mutagen.id3 import TBPM, TKEY
 
 from config import AUDIO_EXTENSIONS, BPM_MAX, BPM_MIN, LUFS_TOLERANCE, TARGET_LUFS
-from health_acoustid import full_health_check
+from health_acoustid import ensure_fpcalc_env, full_health_check
 
 log = logging.getLogger(__name__)
 
@@ -464,7 +464,8 @@ def _enrich_from_acoustid(path: Path, *, force: bool = False) -> dict | None:
     """
     if not full_health_check(raise_on_fail=False):
         return None
-    from config import ACOUSTID_API_KEY  # noqa: PLC0415
+    if not ensure_fpcalc_env():
+        return None
 
     try:
         import acoustid  # noqa: PLC0415
@@ -479,6 +480,7 @@ def _enrich_from_acoustid(path: Path, *, force: bool = False) -> dict | None:
 
     try:
         import acoustid  # noqa: PLC0415
+        from config import ACOUSTID_API_KEY  # noqa: PLC0415
         response = acoustid.lookup(
             ACOUSTID_API_KEY, fingerprint, duration,
             meta=["recordings", "releasegroups", "compress"],

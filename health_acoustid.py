@@ -29,7 +29,6 @@ def _fpcalc_available() -> bool:
     fpcalc = _find_fpcalc()
     if not fpcalc:
         return False
-    os.environ["FPCALC"] = fpcalc
     try:
         result = subprocess.run(
             [fpcalc, "-version"],
@@ -40,6 +39,19 @@ def _fpcalc_available() -> bool:
         return result.returncode == 0
     except Exception:
         return False
+
+
+def ensure_fpcalc_env() -> bool:
+    """
+    Point pyacoustid at a discovered fpcalc binary.
+
+    Returns False when fpcalc cannot be found.
+    """
+    fpcalc = _find_fpcalc()
+    if not fpcalc:
+        return False
+    os.environ["FPCALC"] = fpcalc
+    return True
 
 
 def _acoustid_module_available() -> bool:
