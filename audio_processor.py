@@ -465,8 +465,6 @@ def _enrich_from_acoustid(path: Path, *, force: bool = False) -> dict | None:
     if not full_health_check(raise_on_fail=False):
         return None
     from config import ACOUSTID_API_KEY  # noqa: PLC0415
-    if not str(ACOUSTID_API_KEY).strip():
-        return None
 
     try:
         import acoustid  # noqa: PLC0415
