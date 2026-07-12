@@ -463,20 +463,20 @@ def _enrich_from_acoustid(path: Path, *, force: bool = False) -> dict | None:
     ~1s additional time per file due to AcoustID rate limits (3 req/s).
     """
     health = collect_health()
-    if not bool(health["ok"]):
-        return None
     fpcalc_path = str(health["fpcalc_path"])
+    if not bool(health["ok"]) or not fpcalc_path:
+        return None
     previous_fpcalc = os.environ.get("FPCALC")
-    os.environ["FPCALC"] = fpcalc_path
     try:
+        os.environ["FPCALC"] = fpcalc_path
         import acoustid  # noqa: PLC0415
         from config import ACOUSTID_API_KEY  # noqa: PLC0415
 
         duration, fingerprint = acoustid.fingerprint_file(str(path))
-        if not fingerprint:
-            return None
         if isinstance(fingerprint, bytes):
             fingerprint = fingerprint.decode("utf-8", errors="replace")
+        if not fingerprint:
+            return None
         response = acoustid.lookup(
             ACOUSTID_API_KEY, fingerprint, duration,
             meta=["recordings", "releasegroups", "compress"],
