@@ -13,7 +13,15 @@ from pathlib import Path
 
 
 def _find_fpcalc() -> str | None:
-    """Locate fpcalc from PATH, then common Homebrew locations."""
+    """Locate fpcalc from $FPCALC / PATH, then common Homebrew locations."""
+    import os  # noqa: PLC0415
+
+    env_fpcalc = os.environ.get("FPCALC", "").strip()
+    if env_fpcalc:
+        found = shutil.which(env_fpcalc)
+        if found:
+            return found
+
     found = shutil.which("fpcalc")
     if found:
         return found
