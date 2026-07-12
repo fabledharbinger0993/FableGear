@@ -77,7 +77,7 @@ def full_health_check(*, raise_on_fail: bool = False) -> bool:
     """
     health = collect_health()
     checks = (
-        ("acoustid_api_key is not configured", bool(health["key_ok"])),
+        ("AcoustID API key is not configured", bool(health["key_ok"])),
         ("pyacoustid is not installed/importable", bool(health["module_ok"])),
         ("fpcalc is not available", bool(health["fpcalc_ok"])),
     )

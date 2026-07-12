@@ -465,22 +465,18 @@ def _enrich_from_acoustid(path: Path, *, force: bool = False) -> dict | None:
     health = collect_health()
     if not bool(health["ok"]):
         return None
-    os.environ["FPCALC"] = str(health["fpcalc_path"])
-
+    fpcalc_path = str(health["fpcalc_path"])
+    previous_fpcalc = os.environ.get("FPCALC")
+    os.environ["FPCALC"] = fpcalc_path
     try:
         import acoustid  # noqa: PLC0415
+        from config import ACOUSTID_API_KEY  # noqa: PLC0415
+
         duration, fingerprint = acoustid.fingerprint_file(str(path))
         if not fingerprint:
             return None
         if isinstance(fingerprint, bytes):
             fingerprint = fingerprint.decode("utf-8", errors="replace")
-    except Exception as e:
-        log.debug("AcoustID fingerprint failed for %s: %s", path.name, e)
-        return None
-
-    try:
-        import acoustid  # noqa: PLC0415
-        from config import ACOUSTID_API_KEY  # noqa: PLC0415
         response = acoustid.lookup(
             ACOUSTID_API_KEY, fingerprint, duration,
             meta=["recordings", "releasegroups", "compress"],
@@ -502,8 +498,13 @@ def _enrich_from_acoustid(path: Path, *, force: bool = False) -> dict | None:
                  path.name, best_meta.get("artist", "?"), best_meta.get("title", "?"), best_score)
         return best_meta
     except Exception as e:
-        log.warning("AcoustID lookup failed for %s: %s", path.name, e)
+        log.warning("AcoustID enrichment failed for %s: %s", path.name, e)
         return None
+    finally:
+        if previous_fpcalc is None:
+            os.environ.pop("FPCALC", None)
+        else:
+            os.environ["FPCALC"] = previous_fpcalc
 
 
 def _write_enriched_tags(path: Path, meta: dict, *, force: bool = False) -> list[str]:
