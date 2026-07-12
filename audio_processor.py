@@ -40,25 +40,9 @@ from mutagen import File as MutagenFile
 from mutagen.id3 import TBPM, TKEY
 
 from config import AUDIO_EXTENSIONS, BPM_MAX, BPM_MIN, LUFS_TOLERANCE, TARGET_LUFS
+from health_acoustid import collect_health
 
 log = logging.getLogger(__name__)
-
-
-def _fpcalc_available() -> bool:
-    """Return True if fpcalc is on PATH and responds to -version.
-    Fingerprinting features degrade gracefully when this returns False
-    (Windows users without a manual fpcalc install).
-    """
-    found = shutil.which("fpcalc")
-    if not found:
-        return False
-    try:
-        result = subprocess.run(
-            [found, "-version"], capture_output=True, text=True, timeout=5
-        )
-        return result.returncode == 0
-    except Exception:
-        return False
 
 
 # Resolve ffmpeg once at import time — on macOS with Homebrew the server process
@@ -478,28 +462,22 @@ def _enrich_from_acoustid(path: Path, *, force: bool = False) -> dict | None:
     Note: when enrich_tags=True is passed to process_directory(), expect
     ~1s additional time per file due to AcoustID rate limits (3 req/s).
     """
-    if not _fpcalc_available():
+    health = collect_health()
+    fpcalc_path = str(health["fpcalc_path"])
+    if not bool(health["ok"]) or not fpcalc_path:
+        log.debug("AcoustID enrichment skipped (preflight failed): %s", health)
         return None
+    previous_fpcalc = os.environ.get("FPCALC")
     try:
-        from config import ACOUSTID_API_KEY   # noqa: PLC0415
-    except ImportError:
-        return None
-    if not ACOUSTID_API_KEY:
-        return None
-
-    try:
+        os.environ["FPCALC"] = fpcalc_path
         import acoustid  # noqa: PLC0415
+        from config import ACOUSTID_API_KEY  # noqa: PLC0415
+
         duration, fingerprint = acoustid.fingerprint_file(str(path))
         if not fingerprint:
             return None
         if isinstance(fingerprint, bytes):
             fingerprint = fingerprint.decode("utf-8", errors="replace")
-    except Exception as e:
-        log.debug("AcoustID fingerprint failed for %s: %s", path.name, e)
-        return None
-
-    try:
-        import acoustid  # noqa: PLC0415
         response = acoustid.lookup(
             ACOUSTID_API_KEY, fingerprint, duration,
             meta=["recordings", "releasegroups", "compress"],
@@ -521,8 +499,13 @@ def _enrich_from_acoustid(path: Path, *, force: bool = False) -> dict | None:
                  path.name, best_meta.get("artist", "?"), best_meta.get("title", "?"), best_score)
         return best_meta
     except Exception as e:
-        log.warning("AcoustID lookup failed for %s: %s", path.name, e)
+        log.warning("AcoustID enrichment failed for %s: %s", path.name, e)
         return None
+    finally:
+        if previous_fpcalc is None:
+            os.environ.pop("FPCALC", None)
+        else:
+            os.environ["FPCALC"] = previous_fpcalc
 
 
 def _write_enriched_tags(path: Path, meta: dict, *, force: bool = False) -> list[str]:
