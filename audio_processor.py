@@ -40,7 +40,7 @@ from mutagen import File as MutagenFile
 from mutagen.id3 import TBPM, TKEY
 
 from config import AUDIO_EXTENSIONS, BPM_MAX, BPM_MIN, LUFS_TOLERANCE, TARGET_LUFS
-from health_acoustid import ensure_fpcalc_env, full_health_check
+from health_acoustid import collect_health
 
 log = logging.getLogger(__name__)
 
@@ -462,10 +462,10 @@ def _enrich_from_acoustid(path: Path, *, force: bool = False) -> dict | None:
     Note: when enrich_tags=True is passed to process_directory(), expect
     ~1s additional time per file due to AcoustID rate limits (3 req/s).
     """
-    if not full_health_check(raise_on_fail=False):
+    health = collect_health()
+    if not bool(health["ok"]):
         return None
-    if not ensure_fpcalc_env():
-        return None
+    os.environ["FPCALC"] = str(health["fpcalc_path"])
 
     try:
         import acoustid  # noqa: PLC0415
