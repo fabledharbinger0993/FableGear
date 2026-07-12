@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import health_acoustid as ha
+import pytest
 
 
 def test_find_fpcalc_honors_env_override():
@@ -43,11 +44,9 @@ def test_full_health_check_raises_with_fail_reasons():
         patch("health_acoustid._acoustid_module_available", return_value=False),
         patch("health_acoustid._fpcalc_available", return_value=False),
     ):
-        try:
+        with pytest.raises(RuntimeError) as excinfo:
             ha.full_health_check(raise_on_fail=True)
-            raise AssertionError("Expected RuntimeError")
-        except RuntimeError as exc:
-            message = str(exc)
+    message = str(excinfo.value)
     assert "AcoustID API key is not configured" in message
     assert "pyacoustid is not installed/importable" in message
     assert "fpcalc is not available" in message
