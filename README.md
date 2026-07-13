@@ -88,6 +88,7 @@ These tools read from and write to your Rekordbox database.
 |---|---|
 | **Library Browser + Player** | Browse your tracks with BPM, key, duration, and file path. Play tracks with waveform display. Split-view browsing of your filesystem alongside database entries. |
 | **Library Audit** | Scans your Rekordbox database against your actual drives. Finds broken paths, orphaned entries, missing files, and tracks with no BPM or key tags. |
+| **Consolidate Duplicates** | Finds DjmdContent records that are duplicates *in the database* -- same artist, title, and duration, but disputing file paths -- and merges them. Re-wires every playlist onto the surviving record first, then removes the redundant one. Never reads, moves, or deletes an audio file. See [Physical vs. database duplicates](#physical-vs-database-duplicates) below. |
 | **Import Tracks** | Adds new audio files to Rekordbox. Supports dry-run previews and creates a backup before any writes. |
 | **Fix Broken Paths** | Bulk-updates file paths in the database when a drive remounts with a different name or files have been moved. |
 | **Link Playlists** | Maps your folder structure to Rekordbox playlist names after imports or reorganizations. |
@@ -109,6 +110,19 @@ These tools work on your physical audio files, not the Rekordbox database.
 | **Normalize Loudness** | Measures loudness (EBU R128) and re-encodes tracks that fall outside your target level. Preview and backup included. |
 | **Convert Format** | Re-encodes a folder of audio files into a target format (e.g., FLAC to AIFF, WAV to MP3). |
 | **Novelty Scanner** | Scans another drive for tracks that are not already in your main library, based on acoustic fingerprints. Useful for finding new music across external drives or a friend's collection. |
+
+---
+
+## Physical vs. database duplicates
+
+Most DJ software treats "duplicate" as one thing: two files on disk that sound the same. That's true as far as it goes, but Rekordbox's actual source of truth is its database, not your filesystem -- and the two can disagree. A track survives a drive migration with its old path still on record, gets re-imported from a new location, and now you have two `DjmdContent` rows for the same song. Neither Rekordbox's built-in duplicate finder nor most third-party tools distinguish this case from a real duplicate file, and deleting the wrong record silently drops the track from every playlist it was in -- with no warning.
+
+FableGear treats these as two distinct problems, in two distinct tools:
+
+- **Find and Prune Duplicates** (Chop Shop) is *physical library* dedup. The filesystem is the source of truth. It fingerprints the actual audio to find files that sound the same, regardless of tags or filenames, and removing one moves a real file to a recoverable Trash folder.
+- **Consolidate Duplicates** (Record Room) is *database library* dedup. The Rekordbox database is the source of truth. It groups `DjmdContent` records by artist, title, and duration and flags groups that disagree on file path -- including records whose file no longer resolves anywhere. It never fingerprints, reads, moves, or deletes a single audio file; it only decides which record survives.
+
+Both tools share the same non-breaking rule: **a record is never removed until every playlist that referenced it has been re-wired to the record that's staying.** If FableGear can't tell which copy should win -- both paths resolve, or both are broken, with no other distinguishing signal -- it leaves the group for you to resolve by hand rather than guessing.
 
 ---
 

@@ -176,69 +176,6 @@ def _playlist_tree_payload(db):
     return _finalize(roots)
 
 
-def _library_canonical_path_conflicts(db):
-    """Return (tracks_scanned, conflict_groups) for canonical-path integrity checks."""
-
-    def _norm(value):
-        return " ".join(str(value or "").strip().lower().split())
-
-    tracks = db.get_content().all()
-    grouped = {}
-    for track in tracks:
-        title = _norm(getattr(track, "Title", ""))
-        artist_name = ""
-        try:
-            artist_name = _norm(track.Artist.Name if track.Artist else "")
-        except Exception:
-            artist_name = ""
-
-        duration = int(getattr(track, "Length", 0) or 0)
-        path = str(getattr(track, "FolderPath", "") or "").strip()
-
-        if not title or not path:
-            continue
-
-        signature = (artist_name, title, duration)
-        grouped.setdefault(signature, []).append(track)
-
-    conflicts = []
-    for signature, rows in grouped.items():
-        distinct_paths = {
-            str(getattr(row, "FolderPath", "") or "").strip()
-            for row in rows
-            if str(getattr(row, "FolderPath", "") or "").strip()
-        }
-        if len(distinct_paths) <= 1:
-            continue
-
-        items = []
-        for row in rows:
-            row_path = str(getattr(row, "FolderPath", "") or "").strip()
-            if not row_path:
-                continue
-            playlist_refs = db.get_playlist_songs(ContentID=row.ID).all()
-            items.append({
-                "content_id": str(row.ID),
-                "path": row_path,
-                "exists_on_disk": os.path.isfile(row_path),
-                "playlist_ref_count": len(playlist_refs),
-            })
-
-        artist_name, title, duration = signature
-        conflicts.append({
-            "signature": {
-                "artist": artist_name,
-                "title": title,
-                "duration": duration,
-            },
-            "path_count": len(distinct_paths),
-            "entries": items,
-        })
-
-    conflicts.sort(key=lambda g: (g["path_count"], len(g["entries"])), reverse=True)
-    return len(tracks), conflicts
-
-
 # ── Filesystem track helper ───────────────────────────────────────────────────
 
 _FS_AUDIO_EXTS = frozenset({
@@ -851,9 +788,17 @@ def api_library_db_import():
 
 @bp.route("/api/library/integrity/canonical-paths/plan")
 def api_library_integrity_canonical_paths_plan():
-    """Build a read-only consolidation plan for canonical path cleanup."""
+    """Build a read-only consolidation plan for canonical path cleanup.
+
+    This is the "Database Library" duplicate view: it groups DjmdContent
+    records by artist + title + duration and flags groups that disagree on
+    FolderPath, regardless of whether any of those paths still resolve on
+    disk. It never fingerprints or reads an audio file — see
+    database_dedup.py for the full physical-vs-database distinction.
+    """
     from db_connection import read_db  # noqa: PLC0415
     from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from database_dedup import build_plan  # noqa: PLC0415
 
     try:
         try:
@@ -863,47 +808,73 @@ def api_library_integrity_canonical_paths_plan():
         max_groups = max(1, min(500, max_groups))
 
         with read_db(_DB) as db:
-            tracks_scanned, conflicts = _library_canonical_path_conflicts(db)
-
-        plans = []
-        for group in conflicts[:max_groups]:
-            entries = group.get("entries") or []
-            if len(entries) < 2:
-                continue
-
-            keeper = max(
-                entries,
-                key=lambda e: (
-                    1 if e.get("exists_on_disk") else 0,
-                    int(e.get("playlist_ref_count", 0) or 0),
-                    -len(str(e.get("path") or "")),
-                    str(e.get("path") or "").lower(),
-                ),
-            )
-            remove_candidates = [
-                e for e in entries if str(e.get("content_id")) != str(keeper.get("content_id"))
-            ]
-            estimated_rethread = sum(
-                int(e.get("playlist_ref_count", 0) or 0) for e in remove_candidates
-            )
-
-            plans.append({
-                "signature": group.get("signature") or {},
-                "keeper": keeper,
-                "remove_candidates": remove_candidates,
-                "estimated_playlist_slots_to_rethread": estimated_rethread,
-            })
+            plan = build_plan(db, max_groups=max_groups)
 
         return jsonify({
             "ok": True,
             "read_only": True,
-            "total_tracks_scanned": tracks_scanned,
-            "total_conflict_groups": len(conflicts),
-            "planned_groups": len(plans),
-            "plans": plans,
+            "total_tracks_scanned": plan["total_tracks_scanned"],
+            "total_conflict_groups": plan["total_conflict_groups"],
+            "planned_groups": plan["planned_groups"],
+            "plans": plan["plans"],
         })
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/library/integrity/canonical-paths/execute", methods=["POST"])
+def api_library_integrity_canonical_paths_execute():
+    """
+    Consolidate canonical-path duplicates: re-wire every playlist membership
+    that pointed at a losing DjmdContent record onto the surviving record,
+    then delete the losing records. No audio file is ever moved or deleted —
+    only redundant database rows.
+
+    Body (all optional):
+      {"max_groups": 50, "signatures": [{"artist": ..., "title": ..., "duration": ...}, ...]}
+
+    "signatures" restricts execution to the listed groups (matched by
+    artist + title + duration) — pass the "signature" objects returned by
+    the /plan endpoint to consolidate only what the user reviewed. Omit it
+    to consolidate every non-ambiguous group found. Ambiguous groups (two+
+    records tied on both disk-existence and playlist reference count) are
+    always left for manual resolution.
+
+    Requires Rekordbox to be closed and creates a timestamped database
+    backup before writing (enforced by db_connection.write_db()).
+    """
+    from db_connection import write_db  # noqa: PLC0415
+    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from database_dedup import build_plan, execute_plan  # noqa: PLC0415
+
+    data = request.get_json(silent=True) or {}
+    signatures = data.get("signatures")
+    if signatures is not None and not isinstance(signatures, list):
+        return jsonify({"error": "signatures must be a list"}), 400
+
+    try:
+        max_groups = int(data.get("max_groups", 500))
+    except (TypeError, ValueError):
+        max_groups = 500
+    max_groups = max(1, min(2000, max_groups))
+
+    log_lines: list[str] = []
+
+    try:
+        with write_db(_DB) as db:
+            plan = build_plan(db, max_groups=max_groups)
+            summary = execute_plan(
+                db, plan, signatures=signatures, log_fn=log_lines.append,
+            )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    return jsonify({
+        "ok": True,
+        "total_conflict_groups": plan["total_conflict_groups"],
+        "log": log_lines,
+        **summary,
+    })
 
 
 @bp.route("/api/library/tracks/<track_id>/stream")
