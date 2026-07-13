@@ -176,12 +176,17 @@ def _walk_tags(data: bytes, start: int) -> List[AnlzTagInfo]:
 
 
 def _decode_ppth(data: bytes, tag: AnlzTagInfo) -> Optional[str]:
-    """PPTH body: ``len_path:u32be`` then UTF-16BE path bytes."""
-    body = data[tag.offset + tag.len_header: tag.offset + tag.len_tag]
-    if len(body) < 4:
-        return None
-    (len_path,) = struct.unpack_from(">I", body, 0)
-    path_bytes = body[4:4 + len_path]
+    """PPTH: ``len_path:u32be`` lives in the header-extension region
+    (offset+12..offset+len_header, same slot PWV6/PWV7 use for their count
+    fields) — NOT as a prefix inside the body. The body itself is exactly
+    the UTF-16BE path bytes, no embedded length. Confirmed against real
+    ANLZ0000.2EX/.EXT samples: len_header=16 (12 generic + 4-byte len_path),
+    and len_path always equals len_tag - len_header exactly. An earlier
+    version of this function read the length from the wrong offset (the
+    first 4 body bytes, i.e. the first two path characters) and silently
+    truncated every decoded path by two characters.
+    """
+    path_bytes = data[tag.offset + tag.len_header: tag.offset + tag.len_tag]
     try:
         return path_bytes.decode("utf-16-be").rstrip("\x00")
     except UnicodeDecodeError as exc:

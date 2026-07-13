@@ -34,9 +34,13 @@ def _tag(fourcc: bytes, body: bytes, len_header: int = 12) -> bytes:
 
 
 def _ppth_tag(path: str) -> bytes:
+    # len_path lives in the header-extension region (offset+12..+16), and
+    # the body is exactly the UTF-16BE path bytes with no embedded length —
+    # confirmed against real ANLZ0000.2EX/.EXT samples. len_header=16 here
+    # (12 generic + 4-byte len_path field).
     path_bytes = (path + "\x00").encode("utf-16-be")
-    body = struct.pack(">I", len(path_bytes)) + path_bytes
-    return _tag(b"PPTH", body)
+    header_ext = struct.pack(">I", len(path_bytes))
+    return _tag(b"PPTH", header_ext + path_bytes, len_header=16)
 
 
 def _pqtz_tag(beats: list) -> bytes:
