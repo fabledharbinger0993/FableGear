@@ -22,11 +22,12 @@ Rules
 - For artist folder naming, TPE2 (album artist) is preferred over
   TPE1 (track artist) to avoid "Artist feat. X" folder proliferation.
 - Files without an album tag sit directly in the artist folder.
-- If a destination file already exists with the same size → skip (duplicate).
-- If it exists with a different size → rename with _1, _2, … suffix.
+- If a destination file already exists with the same SHA256 content hash → skip (duplicate).
+- If it exists with a different hash (different content) → rename with _1, _2, … suffix.
 - After all moves, empty directories are pruned bottom-up from source.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -64,6 +65,18 @@ class MoveResult:
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def _sha256_file(path: Path) -> str | None:
+    """Return the SHA256 hex digest of *path*, or None on any I/O error."""
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return None
+
 
 def _sanitize_folder(name: str, max_len: int = 100) -> str:
     """Strip filesystem-unsafe characters and return a clean folder name."""
@@ -265,16 +278,19 @@ def _resolve_dest(src: Path, dest: Path) -> tuple[Path | None, str]:
 
     action is one of:
       "moved"            — destination is free
-      "skipped"          — same-size file exists (likely duplicate)
-      "conflict_renamed" — different file exists; numbered suffix applied
+      "skipped"          — SHA256-identical file exists (confirmed duplicate)
+      "conflict_renamed" — different content exists; numbered suffix applied
       "error"            — could not find a free slot (extremely unlikely)
     """
     if not dest.exists():
         return dest, "moved"
 
-    # Same size → treat as duplicate, skip
+    # Content-hash comparison — size alone is not a reliable identity check.
+    # Two audio files at the same bitrate/duration can share a byte count while
+    # containing completely different audio data.  Only a full SHA256 match
+    # confirms the file is already there.
     try:
-        if dest.stat().st_size == src.stat().st_size:
+        if _sha256_file(dest) == _sha256_file(src):
             return None, "skipped"
     except OSError:
         pass
@@ -368,6 +384,17 @@ def organize_library(
 
     done = moved = skipped = conflicts = errors = 0
 
+    # Per-run trash directory for SHA256-confirmed duplicates removed in
+    # assimilate mode.  Created lazily only if a duplicate is actually found,
+    # so a clean run never creates an empty trash folder.
+    _stamp = time.strftime("%Y%m%d_%H%M%S")
+    _dupe_trash_dir = Path.home() / ".Trash" / f"FableGear_OrgDupes_{_stamp}"
+    if not dry_run and mode == "assimilate":
+        # Eagerly create the directory once so all threads share the same
+        # folder and partial-run recovery is simple (one folder per run).
+        _dupe_trash_dir.mkdir(parents=True, exist_ok=True)
+        log.info("Organizer duplicate-trash folder: %s", _dupe_trash_dir)
+
     def _emit() -> None:
         print(
             "FABLEGEAR_PROGRESS: " + json.dumps({
@@ -407,15 +434,24 @@ def organize_library(
         if final is None:
             if action == "skipped":
                 if mode == "assimilate":
-                    # Identical copy confirmed at canonical destination.
-                    # Remove the source so the source tree can be pruned cleanly.
+                    # SHA256-confirmed duplicate at canonical destination.
+                    # Move (not delete) the source into a timestamped trash
+                    # folder so it remains recoverable, and the source tree
+                    # can still be pruned cleanly afterwards.
                     try:
-                        track.path.unlink()
+                        trash_name = track.path.name
+                        trash_target = _dupe_trash_dir / trash_name
+                        if trash_target.exists():
+                            trash_target = _dupe_trash_dir / (
+                                f"{track.path.stem}__{int(time.time())}{track.path.suffix}"
+                            )
+                        shutil.move(str(track.path), str(trash_target))
                         return MoveResult(src=track.path, dest=dest,
-                                          action="skipped", reason="duplicate removed from source")
+                                          action="skipped",
+                                          reason=f"duplicate trashed: {trash_target}")
                     except Exception as e:
                         return MoveResult(src=track.path, dest=dest,
-                                          action="error", reason=f"unlink failed: {e}")
+                                          action="error", reason=f"trash-move failed: {e}")
                 else:
                     # integrate mode — source is never touched
                     return MoveResult(src=track.path, dest=dest,
@@ -460,6 +496,19 @@ def organize_library(
                 )
             except Exception as exc:
                 log.warning("Archive update failed for organize %s: %s", r.src, exc)
+        # Journal duplicate-trashed events too — the trash folder path is
+        # in r.reason ("duplicate trashed: <path>"), so record it explicitly.
+        elif archive is not None and not dry_run and r.action == "skipped" \
+                and r.reason.startswith("duplicate trashed:"):
+            trash_path = r.reason.split("duplicate trashed:", 1)[1].strip()
+            try:
+                archive.log_operation(
+                    "organize", trash_path, status="ok",
+                    metadata={"from": str(r.src), "action": "dupe_trashed",
+                              "mode": mode, "canonical_dest": str(r.dest)},
+                )
+            except Exception as exc:
+                log.warning("Archive update failed for dupe-trash %s: %s", r.src, exc)
 
     _emit()
 

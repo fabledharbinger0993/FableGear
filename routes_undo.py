@@ -253,11 +253,14 @@ def undo_trash_restore():
 #                       and the original slot is free).
 #   novelty_copy      — file was COPIED to file_path (source untouched):
 #                       remove the copy into a recovery folder in the Archive.
+#   relocate          — Rekordbox DB FolderPath was updated old→new:
+#                       update it back new→old when the original file path
+#                       still exists on disk (the typical "wrong root" fix).
 # prune is deliberately absent — pruned files restore via the Trash tab.
 # convert is listed read-only: the original was re-encoded and cannot be
 # recreated by moving files around.
 
-_REVERTIBLE = {"organize", "rename", "novelty_copy"}
+_REVERTIBLE = {"organize", "rename", "novelty_copy", "relocate"}
 _SESSION_GAP_SEC = 15 * 60
 
 
@@ -295,7 +298,7 @@ def undo_operations():
                 """
                 SELECT id, operation_type, file_path, completed_at, metadata
                 FROM fg_processing_log
-                WHERE operation_type IN ('organize', 'rename', 'novelty_copy', 'convert')
+                WHERE operation_type IN ('organize', 'rename', 'novelty_copy', 'convert', 'relocate')
                 ORDER BY id DESC LIMIT ?
                 """,
                 (limit,),
@@ -374,6 +377,19 @@ def _build_revert_plan(op_type: str, first_id: int, last_id: int) -> dict:
                 item["action"] = "skip"
                 item["ok"] = False
                 item["reason"] = "copy no longer exists"
+        elif op_type == "relocate":
+            # Relocate-undo: update the Rekordbox DB FolderPath back from
+            # current (new) to original (old).  Only meaningful when the
+            # original file actually exists at the old path — that's the
+            # common "wrong new_root" scenario the undo is designed for.
+            if not dest or not src:
+                item["action"] = "skip"; item["ok"] = False
+                item["reason"] = "journal row is missing a path"
+            elif not src.exists():
+                item["action"] = "skip"; item["ok"] = False
+                item["reason"] = "original path no longer exists on disk"
+            else:
+                item["action"] = "db_revert"; item["ok"] = True
         else:
             if not dest or not src:
                 item["action"] = "skip"; item["ok"] = False
@@ -434,39 +450,90 @@ def undo_operations_revert():
     recovery_dir = None
     reverted = 0
     errors: list[str] = []
-    for item in plan["items"]:
-        if not item.get("ok"):
-            continue
-        current = Path(item["current"])
+
+    # For relocate reverts we need a Rekordbox write session.  Open it once
+    # for the whole batch so all DB updates land in one transaction.
+    rb_db_ctx = None
+    rb_db = None
+    rb_all_content = None
+    if op_type == "relocate" and any(i.get("ok") for i in plan["items"]):
+        from db_connection import rekordbox_is_running, write_db  # noqa: PLC0415
+        if rekordbox_is_running():
+            return jsonify({"error": "Rekordbox is running — close it before reverting a relocate"}), 409
         try:
-            if item["action"] == "move_back":
-                target = Path(item["returns_to"])
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(current), str(target))
-                new_path = target
-            else:  # remove_copy — never destroy: park it in the Archive
-                if recovery_dir is None:
-                    from config import ARCHIVE_ROOT  # noqa: PLC0415
-                    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-                    recovery_dir = Path(str(ARCHIVE_ROOT)) / "Undone Copies" / stamp
-                    recovery_dir.mkdir(parents=True, exist_ok=True)
-                new_path = recovery_dir / current.name
-                if new_path.exists():
-                    new_path = recovery_dir / f"{current.stem}__{item['id']}{current.suffix}"
-                shutil.move(str(current), str(new_path))
-            reverted += 1
+            rb_db_ctx = write_db()
+            rb_db = rb_db_ctx.__enter__()
+            rb_all_content = rb_db.get_content().all()
+        except Exception as exc:
+            return jsonify({"error": f"Could not open Rekordbox DB: {exc}"}), 500
+
+    try:
+        for item in plan["items"]:
+            if not item.get("ok"):
+                continue
+            current = Path(item["current"])
             try:
-                rec = db.get_content_by_path(str(current))
-                if rec and rec.id is not None:
-                    db.relink_content(rec.id, str(new_path))
-                db.log_operation(
-                    f"undo_{op_type}", str(new_path), status="ok",
-                    metadata={"from": str(current), "journal_id": item["id"]},
-                )
+                if item["action"] == "move_back":
+                    target = Path(item["returns_to"])
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(current), str(target))
+                    new_path = target
+                elif item["action"] == "db_revert":
+                    # Relocate undo: update the Rekordbox DB FolderPath back from
+                    # current (new) to original (old).  The file stays on disk —
+                    # only the DB pointer changes.
+                    old_path = Path(item["returns_to"])
+                    current_str = str(current)
+                    content_row = next(
+                        (c for c in rb_all_content if c.FolderPath == current_str),
+                        None,
+                    )
+                    if content_row is None:
+                        errors.append(
+                            f"{current.name}: no DB row found with FolderPath={current_str}"
+                        )
+                        continue
+                    rb_db.update_content_path(content_row, old_path, check_path=True)
+                    new_path = old_path
+                else:  # remove_copy — never destroy: park it in the Archive
+                    if recovery_dir is None:
+                        from config import ARCHIVE_ROOT  # noqa: PLC0415
+                        stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+                        recovery_dir = Path(str(ARCHIVE_ROOT)) / "Undone Copies" / stamp
+                        recovery_dir.mkdir(parents=True, exist_ok=True)
+                    new_path = recovery_dir / current.name
+                    if new_path.exists():
+                        new_path = recovery_dir / f"{current.stem}__{item['id']}{current.suffix}"
+                    shutil.move(str(current), str(new_path))
+                reverted += 1
+                try:
+                    if op_type != "relocate":
+                        rec = db.get_content_by_path(str(current))
+                        if rec and rec.id is not None:
+                            db.relink_content(rec.id, str(new_path))
+                    db.log_operation(
+                        f"undo_{op_type}", str(new_path), status="ok",
+                        metadata={"from": str(current), "journal_id": item["id"]},
+                    )
+                except Exception as exc:
+                    log.warning("Archive update failed for undo of %s: %s", current, exc)
+            except OSError as exc:
+                errors.append(f"{current.name}: {exc}")
             except Exception as exc:
-                log.warning("Archive update failed for undo of %s: %s", current, exc)
-        except OSError as exc:
-            errors.append(f"{current.name}: {exc}")
+                errors.append(f"{current.name}: {exc}")
+
+        if rb_db is not None:
+            try:
+                rb_db.commit()
+            except Exception as exc:
+                errors.append(f"Rekordbox commit failed: {exc}")
+                rb_db.rollback()
+    finally:
+        if rb_db_ctx is not None:
+            try:
+                rb_db_ctx.__exit__(None, None, None)
+            except Exception:
+                pass
 
     return jsonify({
         "ok": True,

@@ -5,9 +5,13 @@ Provides a database-centric architecture for FableGear that separates
 library control (Record Room) from file editing (Chop Shop), enabling:
 - Fast duplicate detection via database queries
 - Instant library browsing and search
-- Database-level checkpoints and undos
 - Pioneer hardware compatibility
 - Clean separation of concerns
+
+Note: TransactionHistory and DatabaseUndoManager (from .undo) are
+exported here for future use but are not yet called by any production
+code path.  Live DB safety is provided by db_connection.open_db and
+the fg_processing_log journal.
 """
 
 from .database import FableGearDatabase, ContentRecord

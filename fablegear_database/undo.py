@@ -1,9 +1,16 @@
 """
-fablegear_database.undo — Database-level undo functionality.
+fablegear_database.undo — Database-level transaction history.
 
 Provides transaction history and rollback capabilities for database
-operations, enabling users to undo changes made during Record Room
-operations.
+operations.  The classes here are well-tested infrastructure but are
+NOT currently called by any production tool, route, or CLI command —
+they are tested in tests/test_snapshot_storage.py and exported from
+fablegear_database/__init__.py for future use.
+
+If you are reading this module expecting it to protect ongoing DB
+operations: it does not.  Live DB safety is provided by
+db_connection.open_db(write=True) (full-snapshot backup before every
+write session) and the fg_processing_log journal (routes_undo.py).
 """
 
 import logging
