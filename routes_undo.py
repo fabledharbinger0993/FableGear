@@ -383,25 +383,32 @@ def _build_revert_plan(op_type: str, first_id: int, last_id: int) -> dict:
             # original file actually exists at the old path — that's the
             # common "wrong new_root" scenario the undo is designed for.
             if not dest or not src:
-                item["action"] = "skip"; item["ok"] = False
+                item["action"] = "skip"
+                item["ok"] = False
                 item["reason"] = "journal row is missing a path"
             elif not src.exists():
-                item["action"] = "skip"; item["ok"] = False
+                item["action"] = "skip"
+                item["ok"] = False
                 item["reason"] = "original path no longer exists on disk"
             else:
-                item["action"] = "db_revert"; item["ok"] = True
+                item["action"] = "db_revert"
+                item["ok"] = True
         else:
             if not dest or not src:
-                item["action"] = "skip"; item["ok"] = False
+                item["action"] = "skip"
+                item["ok"] = False
                 item["reason"] = "journal row is missing a path"
             elif not dest.exists():
-                item["action"] = "skip"; item["ok"] = False
+                item["action"] = "skip"
+                item["ok"] = False
                 item["reason"] = "file is no longer at the organized location"
             elif src.exists():
-                item["action"] = "skip"; item["ok"] = False
+                item["action"] = "skip"
+                item["ok"] = False
                 item["reason"] = "original location is occupied"
             else:
-                item["action"] = "move_back"; item["ok"] = True
+                item["action"] = "move_back"
+                item["ok"] = True
         plan["items"].append(item)
         plan["revertible" if item["ok"] else "blocked"] += 1
     return plan
@@ -455,7 +462,7 @@ def undo_operations_revert():
     # for the whole batch so all DB updates land in one transaction.
     rb_db_ctx = None
     rb_db = None
-    rb_all_content = None
+    rb_folder_index: dict[str, object] = {}  # FolderPath → content row (O(1) lookup)
     if op_type == "relocate" and any(i.get("ok") for i in plan["items"]):
         from db_connection import rekordbox_is_running, write_db  # noqa: PLC0415
         if rekordbox_is_running():
@@ -463,9 +470,14 @@ def undo_operations_revert():
         try:
             rb_db_ctx = write_db()
             rb_db = rb_db_ctx.__enter__()
-            rb_all_content = rb_db.get_content().all()
+            rb_folder_index = {
+                c.FolderPath: c
+                for c in rb_db.get_content().all()
+                if c.FolderPath
+            }
         except Exception as exc:
-            return jsonify({"error": f"Could not open Rekordbox DB: {exc}"}), 500
+            log.error("Could not open Rekordbox DB for relocate revert: %s", exc)
+            return jsonify({"error": "Could not open Rekordbox DB — check server logs"}), 500
 
     try:
         for item in plan["items"]:
@@ -481,17 +493,14 @@ def undo_operations_revert():
                 elif item["action"] == "db_revert":
                     # Relocate undo: update the Rekordbox DB FolderPath back from
                     # current (new) to original (old).  The file stays on disk —
-                    # only the DB pointer changes.
+                    # only the DB pointer changes.  Both paths come from the
+                    # FableGear archive journal (written by the tool, never from
+                    # raw user input).
                     old_path = Path(item["returns_to"])
                     current_str = str(current)
-                    content_row = next(
-                        (c for c in rb_all_content if c.FolderPath == current_str),
-                        None,
-                    )
+                    content_row = rb_folder_index.get(current_str)
                     if content_row is None:
-                        errors.append(
-                            f"{current.name}: no DB row found with FolderPath={current_str}"
-                        )
+                        errors.append(f"{current.name}: no DB row found at this path")
                         continue
                     rb_db.update_content_path(content_row, old_path, check_path=True)
                     new_path = old_path
@@ -518,9 +527,11 @@ def undo_operations_revert():
                 except Exception as exc:
                     log.warning("Archive update failed for undo of %s: %s", current, exc)
             except OSError as exc:
-                errors.append(f"{current.name}: {exc}")
+                log.warning("OSError during undo of %s: %s", current, exc)
+                errors.append(f"{current.name}: filesystem error — check server logs")
             except Exception as exc:
-                errors.append(f"{current.name}: {exc}")
+                log.warning("Unexpected error during undo of %s: %s", current, exc)
+                errors.append(f"{current.name}: unexpected error — check server logs")
 
         if rb_db is not None:
             try:

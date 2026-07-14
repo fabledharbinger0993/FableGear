@@ -62,6 +62,7 @@ class MoveResult:
     dest:   Path | None
     action: str    # "moved" | "conflict_renamed" | "skipped" | "error" | "dry_run"
     reason: str = ""
+    trash_path: Path | None = None  # set when action=="skipped" and file was trashed
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -448,7 +449,8 @@ def organize_library(
                         shutil.move(str(track.path), str(trash_target))
                         return MoveResult(src=track.path, dest=dest,
                                           action="skipped",
-                                          reason=f"duplicate trashed: {trash_target}")
+                                          reason="duplicate trashed",
+                                          trash_path=trash_target)
                     except Exception as e:
                         return MoveResult(src=track.path, dest=dest,
                                           action="error", reason=f"trash-move failed: {e}")
@@ -496,14 +498,13 @@ def organize_library(
                 )
             except Exception as exc:
                 log.warning("Archive update failed for organize %s: %s", r.src, exc)
-        # Journal duplicate-trashed events too — the trash folder path is
-        # in r.reason ("duplicate trashed: <path>"), so record it explicitly.
+        # Journal duplicate-trashed events too — trash_path is set on the
+        # result so we don't need to parse the reason string.
         elif archive is not None and not dry_run and r.action == "skipped" \
-                and r.reason.startswith("duplicate trashed:"):
-            trash_path = r.reason.split("duplicate trashed:", 1)[1].strip()
+                and r.trash_path is not None:
             try:
                 archive.log_operation(
-                    "organize", trash_path, status="ok",
+                    "organize", str(r.trash_path), status="ok",
                     metadata={"from": str(r.src), "action": "dupe_trashed",
                               "mode": mode, "canonical_dest": str(r.dest)},
                 )
