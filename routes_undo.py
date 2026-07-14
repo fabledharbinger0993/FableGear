@@ -446,6 +446,7 @@ def _safe_absolute_path(path_str: str) -> Path | None:
 
 
 
+@bp.route("/api/undo/operations/revert", methods=["POST"])
 def undo_operations_revert():
     """Execute a revert plan. Recomputes the plan server-side so the state
     checked is the state acted on, and journals every reversal."""
@@ -476,7 +477,7 @@ def undo_operations_revert():
     # for the whole batch so all DB updates land in one transaction.
     rb_db_ctx = None
     rb_db = None
-    rb_folder_index: dict[str, Any] = {}  # FolderPath → content row (O(1) lookup)
+    rb_folder_index: "dict[str, Any]" = {}  # FolderPath → content row; O(n) build, O(1) lookup
     if op_type == "relocate" and any(i.get("ok") for i in plan["items"]):
         from db_connection import rekordbox_is_running, write_db  # noqa: PLC0415
         if rekordbox_is_running():
@@ -502,8 +503,12 @@ def undo_operations_revert():
             # that isn't an absolute, normalised path.
             current = _safe_absolute_path(item.get("current") or "")
             if current is None:
-                errors.append(f"skipped: journal path is not absolute ({item.get('current')!r})")
+                errors.append("skipped: journal entry has a non-absolute path")
                 continue
+            # _build_revert_plan verified the file at this path exists; resolve()
+            # walks through symlinks to get the canonical on-disk path.
+            if current.exists():
+                current = current.resolve()
             try:
                 if item["action"] == "move_back":
                     target = _safe_absolute_path(item.get("returns_to") or "")

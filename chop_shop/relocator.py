@@ -440,8 +440,8 @@ def relocate_directory(
                 if hasattr(archive, "bulk_relink_content"):
                     archive.bulk_relink_content(pending_relinks, chunk_size=_ARCHIVE_CHUNK_SIZE)
                 else:
-                    for rec_id, new_path_str in pending_relinks:
-                        archive.relink_content(rec_id, new_path_str)
+                    for rec_id, new_path in pending_relinks:
+                        archive.relink_content(rec_id, new_path)
             if pending_logs:
                 if hasattr(archive, "bulk_log_operations"):
                     archive.bulk_log_operations(pending_logs, chunk_size=_ARCHIVE_CHUNK_SIZE)

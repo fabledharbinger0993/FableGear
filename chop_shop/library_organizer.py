@@ -290,8 +290,12 @@ def _resolve_dest(src: Path, dest: Path) -> tuple[Path | None, str]:
     # Two audio files at the same bitrate/duration can share a byte count while
     # containing completely different audio data.  Only a full SHA256 match
     # confirms the file is already there.
+    # Fast pre-filter: different sizes → definitely not a duplicate.
     try:
-        if _sha256_file(dest) == _sha256_file(src):
+        if dest.stat().st_size != src.stat().st_size:
+            # Sizes differ — skip directly to conflict-rename.
+            pass
+        elif _sha256_file(dest) == _sha256_file(src):
             return None, "skipped"
     except OSError:
         pass
