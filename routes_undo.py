@@ -13,7 +13,7 @@ import sqlite3
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from flask import Blueprint, jsonify, request
 
@@ -462,7 +462,7 @@ def undo_operations_revert():
     # for the whole batch so all DB updates land in one transaction.
     rb_db_ctx = None
     rb_db = None
-    rb_folder_index: dict[str, object] = {}  # FolderPath → content row (O(1) lookup)
+    rb_folder_index: dict[str, Any] = {}  # FolderPath → content row (O(1) lookup)
     if op_type == "relocate" and any(i.get("ok") for i in plan["items"]):
         from db_connection import rekordbox_is_running, write_db  # noqa: PLC0415
         if rekordbox_is_running():
@@ -483,10 +483,21 @@ def undo_operations_revert():
         for item in plan["items"]:
             if not item.get("ok"):
                 continue
-            current = Path(item["current"])
+            current_str = item["current"] or ""
+            returns_to_str = item.get("returns_to") or ""
+            # Paths come from the FableGear archive journal (written server-side,
+            # never from raw HTTP input), but we still enforce absolute paths to
+            # prevent any path-traversal edge cases in the journal data.
+            if not current_str or not Path(current_str).is_absolute():
+                errors.append(f"skipped: journal path is not absolute ({current_str!r})")
+                continue
+            current = Path(current_str)
             try:
                 if item["action"] == "move_back":
-                    target = Path(item["returns_to"])
+                    if not returns_to_str or not Path(returns_to_str).is_absolute():
+                        errors.append(f"{current.name}: target path is not absolute — skipping")
+                        continue
+                    target = Path(returns_to_str)
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(current), str(target))
                     new_path = target
@@ -496,8 +507,10 @@ def undo_operations_revert():
                     # only the DB pointer changes.  Both paths come from the
                     # FableGear archive journal (written by the tool, never from
                     # raw user input).
-                    old_path = Path(item["returns_to"])
-                    current_str = str(current)
+                    if not returns_to_str or not Path(returns_to_str).is_absolute():
+                        errors.append(f"{current.name}: original path is not absolute — skipping")
+                        continue
+                    old_path = Path(returns_to_str)
                     content_row = rb_folder_index.get(current_str)
                     if content_row is None:
                         errors.append(f"{current.name}: no DB row found at this path")
@@ -537,7 +550,8 @@ def undo_operations_revert():
             try:
                 rb_db.commit()
             except Exception as exc:
-                errors.append(f"Rekordbox commit failed: {exc}")
+                log.error("Rekordbox commit failed during relocate revert: %s", exc)
+                errors.append("Rekordbox commit failed — check server logs")
                 rb_db.rollback()
     finally:
         if rb_db_ctx is not None:

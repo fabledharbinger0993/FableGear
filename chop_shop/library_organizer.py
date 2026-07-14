@@ -444,7 +444,7 @@ def organize_library(
                         trash_target = _dupe_trash_dir / trash_name
                         if trash_target.exists():
                             trash_target = _dupe_trash_dir / (
-                                f"{track.path.stem}__{int(time.time())}{track.path.suffix}"
+                                f"{track.path.stem}__{time.time_ns()}{track.path.suffix}"
                             )
                         shutil.move(str(track.path), str(trash_target))
                         return MoveResult(src=track.path, dest=dest,
