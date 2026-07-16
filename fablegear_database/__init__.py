@@ -20,6 +20,7 @@ from .importer import FileImporter
 from .exporter import PioneerExporter, PioneerHandshake
 from .sync import DatabaseSync
 from .undo import TransactionHistory, DatabaseUndoManager
+from .rekordbox_sync import RekordboxSyncAdapter
 
 __all__ = [
     "FableGearDatabase",
@@ -32,4 +33,5 @@ __all__ = [
     "DatabaseSync",
     "TransactionHistory",
     "DatabaseUndoManager",
+    "RekordboxSyncAdapter",
 ]

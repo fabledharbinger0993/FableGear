@@ -18,6 +18,7 @@ async function leOpenExportModal() {
   document.getElementById('le-export-backdrop').classList.remove('hidden');
   document.getElementById('le-export-modal').classList.remove('hidden');
   document.getElementById('le-export-progress').classList.add('hidden');
+  document.getElementById('le-export-audit-action')?.classList.add('hidden');
   document.getElementById('le-export-errors').classList.add('hidden');
   document.getElementById('le-export-submit').disabled = true;
   _leExportDrivePath = null;
@@ -142,8 +143,14 @@ function _leExportPoll(jobId) {
         clearInterval(_leExportPollTimer);
         _leExportPollTimer = null;
         if (job.errors && job.errors.length) _leExportShowErrors(job.errors);
-        if (job.status === 'complete') showToast(`Export complete — ${done} track${done === 1 ? '' : 's'} on drive.`, 'success');
-        if (job.status === 'complete_with_errors') showToast(`Export finished with warnings — ${done} track${done === 1 ? '' : 's'} processed.`, 'warning');
+        if (job.status === 'complete') {
+          showToast(`Export complete — ${done} track${done === 1 ? '' : 's'} on drive.`, 'success');
+          document.getElementById('le-export-audit-action')?.classList.remove('hidden');
+        }
+        if (job.status === 'complete_with_errors') {
+          showToast(`Export finished with warnings — ${done} track${done === 1 ? '' : 's'} processed.`, 'warning');
+          document.getElementById('le-export-audit-action')?.classList.remove('hidden');
+        }
         document.getElementById('le-export-submit').disabled = false;
       }
     } catch (_) { /* keep polling */ }
@@ -231,4 +238,14 @@ document.addEventListener('DOMContentLoaded', () => {
     })
     .catch(() => {});
 });
+
+
+function leRunExportAudit() {
+  if (!_leExportDrivePath) {
+    showToast('No target drive selected for verification.', 'warning');
+    return;
+  }
+  leCloseExportModal();
+  runCommand(`/api/run/export-audit?mount=${encodeURIComponent(_leExportDrivePath)}`, 'Pioneer USB Export Audit', null, true);
+}
 

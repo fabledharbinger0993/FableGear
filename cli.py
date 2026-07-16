@@ -359,7 +359,13 @@ def cmd_export_audit(args: argparse.Namespace) -> None:
         mark = "✓" if report.pdb_report.valid_header else "✗"
         print(f"  PDB: {mark} {report.pdb_report.detail}", flush=True)
         if report.pdb_report.partial:
-            print("    note: track<->ANLZ row mapping not available this phase (see devicesql_reader.py)", flush=True)
+            print("    note: track row extraction failed for this file (see devicesql_reader.py)", flush=True)
+        elif report.pdb_report.valid_header:
+            print(
+                f"    tracks recovered: {len(report.pdb_report.tracks)} "
+                "(format-spec-verified, not hardware-verified — see devicesql_reader.py HONESTY LIMIT)",
+                flush=True,
+            )
 
     cm = report.library_cross_match
     if cm.anlz_tracks_with_path:
@@ -424,7 +430,7 @@ def cmd_dead_files(args: argparse.Namespace) -> None:
 
 def cmd_import(args: argparse.Namespace) -> None:
     """Import audio files under one or more source paths into the database."""
-    from importer import import_directory
+    from importer_database import import_multi_drive_database_first
     from db_connection import read_db, write_db
 
     roots: list[Path] = [Path(args.path)]
@@ -438,31 +444,23 @@ def cmd_import(args: argparse.Namespace) -> None:
             log.error("PATH is not a directory: %s", root)
             sys.exit(1)
 
-    aggregate = None
-    root_sections: list[tuple[Path, str]] = []
-
-    def _merge(report):
-        nonlocal aggregate
-        if aggregate is None:
-            aggregate = report
-            return
-        aggregate.imported += report.imported
-        aggregate.skipped += report.skipped
-        aggregate.resumed += report.resumed
-        aggregate.failed += report.failed
-        aggregate.results.extend(report.results)
-
     if args.dry_run:
-        log.info("DRY RUN — no writes will occur")
+        log.info("DRY RUN — no writes will occur (delegating to database-first preview)")
+        # We can run it with export_to_rekordbox=False to preview
         try:
-            with read_db(LOCAL_DB) as db:
-                for index, root in enumerate(roots, start=1):
-                    _log_root_step("Import preview", root, index, len(roots))
-                    report = import_directory(root, db, dry_run=True)
-                    _merge(report)
-                    root_sections.append((root, report.summary()))
-            summary_text = aggregate.summary() if aggregate else "No import sources were processed."
-            summary_text = _append_root_breakdown(summary_text, root_sections)
+            report = import_multi_drive_database_first(
+                roots,
+                export_to_rekordbox=False,
+                force_refresh=False,
+            )
+            summary_text = (
+                f"Database-First Import Preview (Dry Run):\n"
+                f"  Total files scanned: {report.total_files}\n"
+                f"  New files:           {report.new_files}\n"
+                f"  Updated files:       {report.updated_files}\n"
+                f"  Skipped files:       {report.skipped_files}\n"
+                f"  Error files:         {report.error_files}\n"
+            )
             print(summary_text)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             report_path = _write_report("Import", f"preview_import_{timestamp}.txt", summary_text)
@@ -472,19 +470,31 @@ def cmd_import(args: argparse.Namespace) -> None:
             log.exception("Dry-run import failed")
             sys.exit(1)
     else:
-        log.info("Importing from %d source folder(s)", len(roots))
+        log.info("Importing from %d source folder(s) (database-first)", len(roots))
         try:
-            with write_db(LOCAL_DB) as db:
-                for index, root in enumerate(roots, start=1):
-                    _log_root_step("Import", root, index, len(roots))
-                    report = import_directory(root, db, dry_run=False, resume=args.resume)
-                    _merge(report)
-                    root_sections.append((root, report.summary()))
-            summary_text = aggregate.summary() if aggregate else "No import sources were processed."
-            summary_text = _append_root_breakdown(summary_text, root_sections)
+            # Progress callback that prints progress to match SSE generator expects
+            def progress_callback(current, total, drive_idx=0, drive_total=1):
+                # Emit progress ticks to keep scan bar moving
+                print(f"FABLEGEAR_PROGRESS: {json.dumps({'done': current, 'total': total})}", flush=True)
+
+            report = import_multi_drive_database_first(
+                roots,
+                export_to_rekordbox=True,
+                progress_callback=progress_callback,
+                force_refresh=False,
+            )
+            summary_text = (
+                f"Database-First Import Report:\n"
+                f"  Total files scanned: {report.total_files}\n"
+                f"  New files:           {report.new_files}\n"
+                f"  Updated files:       {report.updated_files}\n"
+                f"  Skipped files:       {report.skipped_files}\n"
+                f"  Error files:         {report.error_files}\n"
+                f"  Synced to Rekordbox: {report.rekordbox_exported}\n"
+            )
+            if report.errors:
+                summary_text += "\nErrors:\n" + "\n".join(f"  {err}" for err in report.errors[:50])
             print(summary_text)
-            if aggregate and aggregate.failed > 0:
-                log.warning("%d tracks failed to import — see log above", aggregate.failed)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             report_path = _write_report("Import", f"import_{timestamp}.txt", summary_text)
             if report_path:
@@ -1080,6 +1090,42 @@ def _resolve_active_db_path(cli_db_path: str | None = None) -> Path:
         log.error("No Rekordbox database path available")
         sys.exit(1)
     return LOCAL_DB
+
+
+def cmd_rekordbox_sync(args: argparse.Namespace) -> None:
+    """Run bidirectional synchronization between FableGear and Rekordbox databases."""
+    from config import LOCAL_DB
+    from fablegear_database import FableGearDatabase, RekordboxSyncAdapter
+    
+    db_path = _resolve_active_db_path(getattr(args, "db_path", None))
+    dry_run = getattr(args, "dry_run", True)
+    
+    log.info("Starting bidirectional Rekordbox synchronization using DB: %s", db_path)
+    if dry_run:
+        log.info("Dry-run mode active. No database writes will be executed.")
+        
+    try:
+        fg_db = FableGearDatabase()
+        adapter = RekordboxSyncAdapter(fg_db)
+        stats = adapter.sync_bidirectional(db_path, dry_run=dry_run)
+        
+        log.info("Synchronization complete. Results:")
+        log.info("  Tracks imported to Rekordbox: %d", stats["tracks_imported_to_rekordbox"])
+        log.info("  Tracks imported to FableGear:  %d", stats["tracks_imported_to_fablegear"])
+        log.info("  Tracks updated in Rekordbox:  %d", stats["tracks_updated_in_rekordbox"])
+        log.info("  Tracks updated in FableGear:   %d", stats["tracks_updated_in_fablegear"])
+        log.info("  Cues/loops synchronized:       %d", stats["cues_synchronized"])
+        log.info("  Cues/loops deleted:            %d", stats["cues_deleted"])
+        
+        if stats["errors"]:
+            log.error("Sync encountered errors:")
+            for err in stats["errors"]:
+                log.error("  %s", err)
+            sys.exit(1)
+            
+    except Exception as e:
+        log.exception("Fatal error during database synchronization: %s", e)
+        sys.exit(1)
 
 
 def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
@@ -2502,6 +2548,24 @@ Examples:
         help="Permanently delete instead of moving to recoverable Trash",
     )
     p_rb_dupes.set_defaults(func=cmd_rekordbox_dedupe, dry_run=True, permanent=False)
+
+    # ── rekordbox-sync ──
+    p_rb_sync = sub.add_parser(
+        "rekordbox-sync",
+        help="Run bidirectional synchronization between FableGear and Rekordbox databases",
+    )
+    p_rb_sync.add_argument(
+        "--db-path",
+        metavar="PATH",
+        help="Explicit Rekordbox DB path (default: LOCAL_DB)",
+    )
+    p_rb_sync.add_argument(
+        "--no-dry-run",
+        dest="dry_run",
+        action="store_false",
+        help="Actually apply synchronization changes to the databases",
+    )
+    p_rb_sync.set_defaults(func=cmd_rekordbox_sync, dry_run=True)
 
     # ── prune ──
     p_prune = sub.add_parser(

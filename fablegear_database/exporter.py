@@ -12,12 +12,26 @@ import logging
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
+
+from pyrekordbox import AnlzFile
+from pyrekordbox.anlz import structs
+from pyrekordbox.anlz.tags import PPTHAnlzTag, PQTZAnlzTag, PCOBAnlzTag, PCO2AnlzTag
+from construct import Container
 
 from .database import FableGearDatabase, ContentRecord
 
 log = logging.getLogger(__name__)
+
+# Patch pyrekordbox Construct models at runtime to fix duplicate key name errors
+try:
+    if hasattr(structs, "AnlzCuePoint") and structs.AnlzCuePoint.subcons[0].name == "type":
+        structs.AnlzCuePoint.subcons[0].name = "tag_type"
+    if hasattr(structs, "AnlzCuePoint2") and structs.AnlzCuePoint2.subcons[0].name == "type":
+        structs.AnlzCuePoint2.subcons[0].name = "tag_type"
+except Exception as e:
+    log.warning("Could not patch pyrekordbox construct Struct definitions: %s", e)
 
 
 class PioneerExporter:
@@ -221,6 +235,275 @@ class PioneerExporter:
             record.key,
             record.duration,
         ))
+
+    def export_track_anlz(self, content_id: int, target_root: Path, relative_audio_path: str, device_content_id: Optional[int] = None) -> bool:
+        """
+        Generate and save Pioneer compatible ANLZ (.DAT and .EXT) files for a track.
+        
+        Args:
+            content_id: Track database ID
+            target_root: Target directory of the export (e.g. USB mount point)
+            relative_audio_path: The relative path of the track on the device
+            device_content_id: Optional track ID on the destination device (for ANLZ folder naming)
+            
+        Returns:
+            True if files were successfully created
+        """
+        try:
+            # 1. Fetch content record with relations
+            tracks = self.database.get_content_with_relations([content_id])
+            if not tracks:
+                log.error("Track with ID %d not found in database", content_id)
+                return False
+            track = tracks[0]
+
+            # 2. Derive export paths
+            # Subdirectory path: PIONEER/USBANLZ/P{prefix}/{hex_id}/
+            path_id = device_content_id if device_content_id is not None else content_id
+            sub_dir1 = f"P{path_id // 2048:03d}"
+            sub_dir2 = f"{path_id:08X}"
+            anlz_dir = target_root / "PIONEER" / "USBANLZ" / sub_dir1 / sub_dir2
+            anlz_dir.mkdir(parents=True, exist_ok=True)
+
+            dat_path = anlz_dir / "ANLZ0000.DAT"
+            ext_path = anlz_dir / "ANLZ0000.EXT"
+
+            # 3. Generate ANLZ0000.DAT
+            dat_file = AnlzFile()
+            dat_file.file_header = Container(
+                type="PMAI",
+                len_header=28,
+                len_file=28,
+                u1=1, u2=0, u3=0, u4=0
+            )
+
+            # A. PPTH Tag
+            pth_data = structs.AnlzTag.build({
+                'type': 'PPTH',
+                'len_header': 16,
+                'len_tag': 18,
+                'content': {'len_path': 2, 'path': ''}
+            })
+            pth_tag = PPTHAnlzTag(pth_data)
+            pth_tag.set(relative_audio_path)
+            dat_file.tags.append(pth_tag)
+
+            # B. PQTZ Beat Grid Tag
+            if track.beatgrid:
+                entries = []
+                for b in track.beatgrid:
+                    entries.append({
+                        'beat': b.beat_number,
+                        'tempo': int(round(b.bpm * 100)),
+                        'time': int(b.time_msec)
+                    })
+                qtz_data = structs.AnlzTag.build({
+                    'type': 'PQTZ',
+                    'len_header': 24,
+                    'len_tag': 24 + 8 * len(entries),
+                    'content': {
+                        'entry_count': len(entries),
+                        'entries': entries
+                    }
+                })
+                qtz_tag = PQTZAnlzTag(qtz_data)
+                dat_file.tags.append(qtz_tag)
+
+            # C. PCOB Tags (Memory cues & Hot cues separate)
+            memory_cues = [c for c in track.cues if c.kind in (0, 3)] # Memory or Active Loop
+            hot_cues = [c for c in track.cues if c.kind in (1, 2)] # Hot Cue or Loop
+            
+            if memory_cues:
+                mc_entries = []
+                for cue in memory_cues:
+                    kind_type = 'loop' if cue.kind == 3 else 'single'
+                    mc_entries.append({
+                        'len_header': 12,
+                        'len_entry': 56,
+                        'hot_cue': 0,
+                        'status': 'enabled',
+                        'order_first': 0xffff,
+                        'order_last': 0xffff,
+                        'type': kind_type,
+                        'time': cue.in_msec,
+                        'loop_time': cue.out_msec if cue.out_msec is not None else 0xFFFFFFFF
+                    })
+                mc_data = structs.AnlzTag.build({
+                    'type': 'PCOB',
+                    'len_header': 24,
+                    'len_tag': 24 + 56 * len(mc_entries),
+                    'content': {
+                        'cue_type': 'memory',
+                        'unk': 0,
+                        'count': len(mc_entries),
+                        'memory_count': len(mc_entries),
+                        'entries': mc_entries
+                    }
+                })
+                dat_file.tags.append(PCOBAnlzTag(mc_data))
+
+            if hot_cues:
+                hc_entries = []
+                for cue in hot_cues:
+                    kind_type = 'loop' if cue.kind == 2 else 'single'
+                    slot = cue.slot if cue.slot is not None else 0
+                    hc_entries.append({
+                        'len_header': 12,
+                        'len_entry': 56,
+                        'hot_cue': slot + 1,
+                        'status': 'enabled',
+                        'order_first': 0xffff,
+                        'order_last': 0xffff,
+                        'type': kind_type,
+                        'time': cue.in_msec,
+                        'loop_time': cue.out_msec if cue.out_msec is not None else 0xFFFFFFFF
+                    })
+                hc_data = structs.AnlzTag.build({
+                    'type': 'PCOB',
+                    'len_header': 24,
+                    'len_tag': 24 + 56 * len(hc_entries),
+                    'content': {
+                        'cue_type': 'hotcue',
+                        'unk': 0,
+                        'count': len(hc_entries),
+                        'memory_count': -1,
+                        'entries': hc_entries
+                    }
+                })
+                dat_file.tags.append(PCOBAnlzTag(hc_data))
+
+            dat_file.update_len()
+            dat_file.save(dat_path)
+
+            # 4. Generate ANLZ0000.EXT
+            ext_file = AnlzFile()
+            ext_file.file_header = Container(
+                type="PMAI",
+                len_header=28,
+                len_file=28,
+                u1=1, u2=0, u3=0, u4=0
+            )
+
+            # A. PPTH Tag
+            pth_data_ext = structs.AnlzTag.build({
+                'type': 'PPTH',
+                'len_header': 16,
+                'len_tag': 18,
+                'content': {'len_path': 2, 'path': ''}
+            })
+            pth_tag_ext = PPTHAnlzTag(pth_data_ext)
+            pth_tag_ext.set(relative_audio_path)
+            ext_file.tags.append(pth_tag_ext)
+
+            # B. PCO2 Tags (Memory cues & Hot cues separate)
+            if memory_cues:
+                mc2_entries = []
+                for cue in memory_cues:
+                    kind_type = 2 if cue.kind == 3 else 1 # 2=loop, 1=point
+                    comment = cue.comment or ""
+                    comment_bytes = comment.encode("utf-16-be")
+                    len_comment = len(comment_bytes)
+                    len_entry = 96 + len_comment # 96 is a safe baseline entry size
+                    
+                    r, g, b = 0, 0, 0
+                    color_code = 0
+                    if cue.color:
+                        color_code = 0x40
+                        try:
+                            c = cue.color.lstrip("#")
+                            r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+                        except Exception:
+                            pass
+
+                    mc2_entries.append({
+                        'len_header': 12,
+                        'len_entry': len_entry,
+                        'hot_cue': 0,
+                        'type': kind_type,
+                        'time': cue.in_msec,
+                        'loop_time': cue.out_msec if cue.out_msec is not None else 0xFFFFFFFF,
+                        'color_id': 0,
+                        'loop_enumerator': 0,
+                        'loop_denominator': 0,
+                        'len_comment': len_comment,
+                        'comment': comment,
+                        'color_code': color_code,
+                        'color_red': r,
+                        'color_green': g,
+                        'color_blue': b
+                    })
+                mc2_data = structs.AnlzTag.build({
+                    'type': 'PCO2',
+                    'len_header': 20,
+                    'len_tag': 20 + sum(e['len_entry'] for e in mc2_entries),
+                    'content': {
+                        'type': 'memory',
+                        'count': len(mc2_entries),
+                        'unknown': 0,
+                        'entries': mc2_entries
+                    }
+                })
+                ext_file.tags.append(PCO2AnlzTag(mc2_data))
+
+            if hot_cues:
+                hc2_entries = []
+                for cue in hot_cues:
+                    kind_type = 2 if cue.kind == 2 else 1
+                    slot = cue.slot if cue.slot is not None else 0
+                    comment = cue.comment or ""
+                    comment_bytes = comment.encode("utf-16-be")
+                    len_comment = len(comment_bytes)
+                    len_entry = 96 + len_comment
+                    
+                    r, g, b = 0, 0, 0
+                    color_code = 0
+                    if cue.color:
+                        color_code = 0x40
+                        try:
+                            c = cue.color.lstrip("#")
+                            r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+                        except Exception:
+                            pass
+
+                    hc2_entries.append({
+                        'len_header': 12,
+                        'len_entry': len_entry,
+                        'hot_cue': slot + 1,
+                        'type': kind_type,
+                        'time': cue.in_msec,
+                        'loop_time': cue.out_msec if cue.out_msec is not None else 0xFFFFFFFF,
+                        'color_id': 0,
+                        'loop_enumerator': 0,
+                        'loop_denominator': 0,
+                        'len_comment': len_comment,
+                        'comment': comment,
+                        'color_code': color_code,
+                        'color_red': r,
+                        'color_green': g,
+                        'color_blue': b
+                    })
+                hc2_data = structs.AnlzTag.build({
+                    'type': 'PCO2',
+                    'len_header': 20,
+                    'len_tag': 20 + sum(e['len_entry'] for e in hc2_entries),
+                    'content': {
+                        'type': 'hotcue',
+                        'count': len(hc2_entries),
+                        'unknown': 0,
+                        'entries': hc2_entries
+                    }
+                })
+                ext_file.tags.append(PCO2AnlzTag(hc2_data))
+
+            ext_file.update_len()
+            ext_file.save(ext_path)
+
+            log.info("Successfully generated ANLZ files for content %d at %s", content_id, anlz_dir)
+            return True
+
+        except Exception as exc:
+            log.error("Failed to generate Pioneer ANLZ files for content %d: %s", content_id, exc)
+            return False
 
 
 class PioneerHandshake:

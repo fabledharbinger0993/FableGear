@@ -781,6 +781,16 @@ def api_library_db_import():
         from fablegear_database.importer import FileImporter  # noqa: PLC0415
         db = _fablegear_db(create=True)  # drag-to-import is an explicit write op
         stats = FileImporter(db).import_paths([Path(p) for p in paths])
+        if stats.get("new_files", 0) > 0 or stats.get("updated_files", 0) > 0:
+            try:
+                from fablegear_database.undo import DatabaseUndoManager
+                undo_mgr = DatabaseUndoManager(db)
+                undo_mgr.record_import(
+                    imported_count=stats["new_files"] + stats["updated_files"],
+                    root_paths=[Path(p) for p in paths],
+                )
+            except Exception as exc:
+                log.warning("Failed to record import in transaction history: %s", exc)
         return jsonify(stats)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

@@ -192,21 +192,28 @@ def _decode_ppth(data: bytes, tag: AnlzTagInfo) -> Optional[str]:
 
 
 def _decode_pqtz(data: bytes, tag: AnlzTagInfo) -> List[BeatGridEntry]:
-    """PQTZ body: 2×unknown u32 + ``len_beats:u32be``, then per-beat entries."""
-    body = data[tag.offset + tag.len_header: tag.offset + tag.len_tag]
-    if len(body) < 12:
+    """PQTZ body: 2×unknown u32 + ``len_beats:u32be``, then per-beat entries.
+    Handles both mock files (len_header=12) and real files (len_header=24).
+    """
+    header_ext_offset = tag.offset + 12
+    if header_ext_offset + 12 > len(data):
         return []
-    _unknown1, _unknown2, len_beats = struct.unpack_from(">III", body, 0)
+    
+    _unknown1, _unknown2, len_beats = struct.unpack_from(">III", data, header_ext_offset)
+    
+    # Entries start after the header structure (minimum of 24 bytes)
+    entries_start = tag.offset + max(tag.len_header, 24)
+    
     entries: List[BeatGridEntry] = []
-    entry_offset = 12
+    entry_offset = entries_start
     for _ in range(len_beats):
-        if entry_offset + 8 > len(body):
+        if entry_offset + 8 > len(data):
             logger.warning(
                 "PQTZ declares %d beats but body truncated after %d entries",
                 len_beats, len(entries),
             )
             break
-        beat_no, tempo, time_ms = struct.unpack_from(">HHI", body, entry_offset)
+        beat_no, tempo, time_ms = struct.unpack_from(">HHI", data, entry_offset)
         entries.append(BeatGridEntry(beat_no=beat_no, tempo_bpm=tempo / 100.0, time_ms=time_ms))
         entry_offset += 8
     return entries

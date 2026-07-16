@@ -106,6 +106,17 @@ def import_directory_database_first(
         report.error_files = import_stats["error_files"]
         report.errors = import_stats["errors"]
         
+        if report.new_files > 0 or report.updated_files > 0:
+            try:
+                from fablegear_database.undo import DatabaseUndoManager
+                undo_mgr = DatabaseUndoManager(db)
+                undo_mgr.record_import(
+                    imported_count=report.new_files + report.updated_files,
+                    root_paths=[root],
+                )
+            except Exception as exc:
+                log.warning("Failed to record import in transaction history: %s", exc)
+
         log.info(
             "Import complete: %d new, %d updated, %d skipped, %d errors",
             report.new_files,
@@ -210,8 +221,8 @@ def sync_fablegear_to_rekordbox(
     """
     Sync FableGear database to Rekordbox database.
     
-    This function exports all FableGear database content to the
-    Rekordbox database, ensuring both databases are in sync.
+    Loads new/updated tracks from FableGear database and writes them
+    directly into the Rekordbox SQLite database using pyrekordbox.
     
     Args:
         db: FableGear database instance (default: create new)
@@ -228,20 +239,58 @@ def sync_fablegear_to_rekordbox(
     }
     
     try:
-        exporter = PioneerExporter(db)
-        rekordbox_db_path = Path.home() / ".fablegear" / "rekordbox_export.db"
+        from db_connection import write_db
+        from config import LOCAL_DB
+        from scanner import TrackInfo
+        from importer import _import_track, clear_caches
         
-        # Export to Rekordbox-compatible database
-        success = exporter.export_to_rekordbox_db(rekordbox_db_path)
+        clear_caches()
         
-        if success:
-            # Get database statistics
-            db_stats = db.get_statistics()
-            stats["total_exported"] = db_stats["total_tracks"]
-            log.info("Synced %d tracks to Rekordbox", stats["total_exported"])
-        else:
-            stats["errors"].append("Failed to export to Rekordbox database")
+        with write_db(LOCAL_DB) as rdb:
+            # Load existing FolderPaths in Rekordbox to avoid redundant imports
+            existing_paths = {row.FolderPath for row in rdb.get_content().all()}
             
+            offset = 0
+            limit = 1000
+            while True:
+                records = db.get_all_content(limit=limit, offset=offset)
+                if not records:
+                    break
+                
+                for record in records:
+                    if record.file_path in existing_paths:
+                        continue
+                    
+                    track_info = TrackInfo(
+                        path=Path(record.file_path),
+                        title=record.title,
+                        artist=record.artist,
+                        album=record.album,
+                        genre=record.genre,
+                        year=record.year,
+                        track_number=record.track_number,
+                        bpm=record.bpm,
+                        key=record.key,
+                        duration_seconds=record.duration,
+                        bitrate=record.bit_rate,
+                        sample_rate=record.sample_rate,
+                        file_size=record.file_size,
+                        file_type=record.format,
+                    )
+                    
+                    try:
+                        res = _import_track(track_info, rdb)
+                        if res.success:
+                            stats["total_exported"] += 1
+                        elif res.skipped:
+                            pass
+                        else:
+                            stats["errors"].append(f"{record.file_path}: {res.error}")
+                    except Exception as e:
+                        stats["errors"].append(f"{record.file_path}: {e}")
+                
+                offset += limit
+                
     except Exception as exc:
         stats["errors"].append(f"Sync failed: {exc}")
         log.error("FableGear to Rekordbox sync failed: %s", exc)
