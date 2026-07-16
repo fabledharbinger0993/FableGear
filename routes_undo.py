@@ -26,6 +26,16 @@ def _config():
     return BACKUP_DIR, SAVEPOINTS_DIR
 
 
+def _is_within(child: Path, parent: Path) -> bool:
+    """True if child resolves to a path inside parent. Blocks path traversal
+    (../) from request-supplied path fragments reaching outside an allowed root."""
+    try:
+        child.resolve(strict=False).relative_to(parent.resolve(strict=False))
+        return True
+    except (ValueError, OSError):
+        return False
+
+
 # ── Timeline (job history) ───────────────────────────────────────────────────
 
 @bp.route("/api/undo/timeline")
@@ -98,7 +108,15 @@ def undo_restore_savepoint():
         return jsonify({"error": "Missing 'path'"}), 400
 
     sp = Path(savepoint_path)
-    if not sp.exists() or not sp.name.startswith("master.backup_"):
+    # Validate the basename shape AND that the file actually lives inside a
+    # known backup/savepoint directory — a request must not be able to copy an
+    # arbitrary file named "master.backup_*" from anywhere over the live DB.
+    backup_dir, savepoints_dir = _config()
+    if (
+        not sp.name.startswith("master.backup_")
+        or not sp.exists()
+        or not (_is_within(sp, backup_dir) or _is_within(sp, savepoints_dir))
+    ):
         return jsonify({"error": "Invalid savepoint"}), 400
 
     if rekordbox_is_running():
@@ -207,10 +225,16 @@ def undo_trash_restore():
     folder_name = body.get("folder", "").strip()
     dest = body.get("destination", "").strip()
 
+    # Strip any path components a request may have smuggled in — the folder is
+    # a single name directly under ~/.Trash, never a traversable path. (The
+    # sibling read endpoint undo_trash_files already does this; the restore
+    # endpoint, which MOVES files, must too.)
+    folder_name = os.path.basename(folder_name)
     if not folder_name.startswith("FableGear_Pruned_"):
         return jsonify({"error": "Invalid folder"}), 400
-    trash_dir = Path.home() / ".Trash" / folder_name
-    if not trash_dir.is_dir():
+    trash_root = Path.home() / ".Trash"
+    trash_dir = trash_root / folder_name
+    if not _is_within(trash_dir, trash_root) or not trash_dir.is_dir():
         return jsonify({"error": "Folder not found"}), 404
 
     if not dest:
