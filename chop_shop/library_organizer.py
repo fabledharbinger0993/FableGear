@@ -389,9 +389,9 @@ def organize_library(
 
     done = moved = skipped = conflicts = errors = 0
 
-    # Per-run trash directory for SHA256-confirmed duplicates removed in
-    # assimilate mode.  Created lazily only if a duplicate is actually found,
-    # so a clean run never creates an empty trash folder.
+# Per-run trash directory for SHA256-confirmed duplicates removed in
+# assimilate mode. Created once per run (assimilate + not dry_run) so all
+# workers share the same folder and recovery is one folder per run.
     _stamp = time.strftime("%Y%m%d_%H%M%S")
     _dupe_trash_dir = Path.home() / ".Trash" / f"FableGear_OrgDupes_{_stamp}"
     if not dry_run and mode == "assimilate":
