@@ -37,11 +37,7 @@ Used by routes_player.py:
   POST /api/library/integrity/canonical-paths/execute   (writes, via write_db())
 """
 
-import logging
 import os
-
-log = logging.getLogger(__name__)
-
 
 def _norm(value) -> str:
     return " ".join(str(value or "").strip().lower().split())
