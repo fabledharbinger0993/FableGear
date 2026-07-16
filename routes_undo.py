@@ -492,6 +492,11 @@ def undo_operations_revert():
             }
         except Exception as exc:
             log.error("Could not open Rekordbox DB for relocate revert: %s", exc)
+            if rb_db_ctx is not None:
+                try:
+                    rb_db_ctx.__exit__(None, None, None)
+                except Exception:
+                    pass
             return jsonify({"error": "Could not open Rekordbox DB — check server logs"}), 500
 
     try:
