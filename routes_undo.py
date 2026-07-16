@@ -611,3 +611,40 @@ def undo_operations_revert():
         "errors": errors,
         "recovery_dir": str(recovery_dir) if recovery_dir else None,
     })
+
+
+# ── Database Transactions Undo ───────────────────────────────────────────────
+
+@bp.route("/api/undo/database/history")
+def undo_database_history():
+    try:
+        from fablegear_database.undo import DatabaseUndoManager
+        fg_db = _fg_archive_db()
+        undo_mgr = DatabaseUndoManager(fg_db)
+        recent = undo_mgr.history.get_recent_transactions(limit=50)
+        # return reversed list so the most recent is first
+        return jsonify([t.to_dict() for t in reversed(recent)])
+    except Exception as exc:
+        log.exception("Failed to fetch database transaction history")
+        return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/undo/database/revert", methods=["POST"])
+def undo_database_revert():
+    body = request.get_json(silent=True) or {}
+    transaction_id = body.get("transaction_id")
+    if not transaction_id:
+        return jsonify({"error": "Missing 'transaction_id'"}), 400
+        
+    try:
+        from fablegear_database.undo import DatabaseUndoManager
+        fg_db = _fg_archive_db()
+        undo_mgr = DatabaseUndoManager(fg_db)
+        success = undo_mgr.history.undo_transaction(transaction_id)
+        if success:
+            return jsonify({"ok": True})
+        else:
+            return jsonify({"error": "Revert failed or transaction not found"}), 400
+    except Exception as exc:
+        log.exception("Failed to revert database transaction")
+        return jsonify({"error": str(exc)}), 500
