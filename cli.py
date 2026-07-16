@@ -1128,6 +1128,59 @@ def cmd_rekordbox_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_export_onelibrary(args: argparse.Namespace) -> None:
+    """Write a Pioneer OneLibrary exportLibrary.db from FableGear's database.
+
+    Read-only against FableGear's own database; never touches Rekordbox or
+    any existing Pioneer file. Refuses to overwrite an existing target.
+    """
+    from fablegear_database import FableGearDatabase
+    from fablegear_database.onelibrary_writer import OneLibraryWriter
+
+    target = Path(args.target)
+    log.info("Writing OneLibrary export to: %s", target)
+
+    fg_db = FableGearDatabase()
+    try:
+        result = OneLibraryWriter(fg_db).write(
+            target,
+            include_playlists=not getattr(args, "no_playlists", False),
+            device_name=getattr(args, "device_name", "") or "",
+        )
+    except FileExistsError as exc:
+        log.error(str(exc))
+        sys.exit(1)
+    except Exception:
+        log.exception("OneLibrary export failed")
+        sys.exit(1)
+
+    log.info("Export complete:")
+    log.info("  Tracks written  : %d", result.tracks_written)
+    log.info("  Tracks skipped  : %d", result.tracks_skipped)
+    log.info("  Cues written    : %d", result.cues_written)
+    log.info("  Playlists       : %d", result.playlists_written)
+    log.info("  Playlist entries: %d", result.playlist_entries_written)
+    if result.errors:
+        log.warning("  Errors (%d):", len(result.errors))
+        for err in result.errors[:20]:
+            log.warning("    %s", err)
+        if len(result.errors) > 20:
+            log.warning("    ... and %d more", len(result.errors) - 20)
+    log.warning(
+        "NOTE: this database has not been validated on physical Pioneer hardware. "
+        "Test on a sacrificial USB stick — never a gig stick — and keep a "
+        "Rekordbox-made control stick until trust is earned."
+    )
+    if not getattr(args, "no_anlz_note", False):
+        log.info(
+            "To generate matching ANLZ analysis files, call "
+            "PioneerExporter.export_track_anlz(content_id=<FableGear id>, "
+            "device_content_id=<OneLibrary id>, ...) using the id pairs in "
+            "this run's content_id_map — the two must agree or tracks will "
+            "point at ANLZ folders that were never written."
+        )
+
+
 def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
     """Scan only Rekordbox library tracks for duplicates, then optionally prune + rethread playlists."""
     from config import AUDIO_EXTENSIONS
@@ -2566,6 +2619,29 @@ Examples:
         help="Actually apply synchronization changes to the databases",
     )
     p_rb_sync.set_defaults(func=cmd_rekordbox_sync, dry_run=True)
+
+    # ── export-onelibrary ──
+    p_onelib = sub.add_parser(
+        "export-onelibrary",
+        help="Write a Pioneer OneLibrary exportLibrary.db from FableGear's database "
+             "(CDJ-3000/OMNIS-DUO/XDJ-AZ/OPUS-QUAD format; hardware-unvalidated)",
+    )
+    p_onelib.add_argument(
+        "target",
+        metavar="TARGET",
+        help="Destination path for exportLibrary.db (must not already exist)",
+    )
+    p_onelib.add_argument(
+        "--no-playlists",
+        action="store_true",
+        help="Skip exporting playlists/folders",
+    )
+    p_onelib.add_argument(
+        "--device-name",
+        default="",
+        help="Device name to record in the property table",
+    )
+    p_onelib.set_defaults(func=cmd_export_onelibrary)
 
     # ── prune ──
     p_prune = sub.add_parser(
