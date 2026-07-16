@@ -51,9 +51,9 @@ def _norm(value) -> str:
 
 def scan_conflicts(db) -> tuple[int, list[dict]]:
     """
-    Group every DjmdContent record by (artist, title, duration) and return
-    the groups that resolve to more than one distinct FolderPath.
-
+    Group DjmdContent records with non-empty Title and FolderPath by
+    (artist, title, duration) and return the groups that resolve to more than
+    one distinct FolderPath.
     Read-only — no writes are ever made here.
 
     Returns (tracks_scanned, conflict_groups). Each group:
