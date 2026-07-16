@@ -849,8 +849,19 @@ def api_library_integrity_canonical_paths_execute():
 
     data = request.get_json(silent=True) or {}
     signatures = data.get("signatures")
-    if signatures is not None and not isinstance(signatures, list):
-        return jsonify({"error": "signatures must be a list"}), 400
+    if signatures is not None:
+        if not isinstance(signatures, list):
+            return jsonify({"error": "signatures must be a list"}), 400
+        cleaned: list[dict] = []
+        for sig in signatures:
+            if not isinstance(sig, dict):
+                return jsonify({"error": "each signature must be an object"}), 400
+            try:
+                duration = int(sig.get("duration", 0) or 0)
+            except (TypeError, ValueError):
+                return jsonify({"error": "signature.duration must be an integer"}), 400
+            cleaned.append({"artist": sig.get("artist"), "title": sig.get("title"), "duration": duration})
+        signatures = cleaned
 
     try:
         max_groups = int(data.get("max_groups", 500))
