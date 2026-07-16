@@ -531,9 +531,6 @@ def relocate_directory(
             last_progress_emit = now
 
         if batch_count >= BATCH_SIZE:
-            # Flush any pending archive writes before committing the DB batch
-            # so the two stores stay in sync even across a crash boundary.
-            _flush_archive_chunk()
             try:
                 db.commit()
                 log.info("Committed batch of %d relocations", batch_count)
@@ -542,6 +539,9 @@ def relocate_directory(
                 log.exception("Batch commit failed — rolling back")
                 db.rollback()
                 raise
+            # Flush archive only after a successful DB commit so a rolled-back
+            # commit cannot produce phantom successful relocation entries.
+            _flush_archive_chunk()
 
     # Final commit for remaining tail
     if batch_count > 0:
