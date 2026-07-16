@@ -505,10 +505,8 @@ def undo_operations_revert():
             if current is None:
                 errors.append("skipped: journal entry has a non-absolute path")
                 continue
-            # _build_revert_plan verified the file at this path exists; resolve()
-            # walks through symlinks to get the canonical on-disk path.
-            if current.exists():
-                current = current.resolve()
+            # Keep the journal path as-is; resolving symlinks can change the string
+            # and break exact-path lookups in both the Rekordbox DB and the Archive.
             try:
                 if item["action"] == "move_back":
                     target = _safe_absolute_path(item.get("returns_to") or "")
