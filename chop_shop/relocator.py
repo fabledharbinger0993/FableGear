@@ -521,10 +521,10 @@ def relocate_directory(
 
     # Final commit for remaining tail
     if batch_count > 0:
-        _flush_archive_chunk()
         try:
             db.commit()
             log.info("Final commit: %d relocations", batch_count)
+            _flush_archive_chunk()
         except Exception:
             log.exception("Final commit failed — rolling back")
             db.rollback()
