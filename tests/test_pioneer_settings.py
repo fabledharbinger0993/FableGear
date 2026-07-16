@@ -87,6 +87,24 @@ def test_pyrekordbox_path_reports_parse_failure_honestly(tmp_path):
     assert "pyrekordbox failed to parse" in report.detail
 
 
+def test_pyrekordbox_unavailable_reports_explicitly_not_fallback(tmp_path, monkeypatch):
+    # A recognized filename when pyrekordbox itself can't be imported must
+    # report that explicitly (valid=None) rather than silently falling
+    # through to the hand-parsed header path — that fallback is reserved for
+    # filenames pyrekordbox doesn't recognize at all. Forcing the import to
+    # fail via sys.modules avoids needing to actually uninstall pyrekordbox.
+    monkeypatch.setitem(sys.modules, "pyrekordbox.mysettings", None)
+    path = tmp_path / "MYSETTING.DAT"
+    path.write_bytes(b"\x00" * 40)
+
+    report = read_settings_file(path)
+
+    assert report.present
+    assert report.parsed_via == "pyrekordbox"
+    assert report.valid is None
+    assert "pyrekordbox not available" in report.detail
+
+
 def test_read_settings_file_missing():
     report = read_settings_file("/nonexistent/MYSETTING.DAT")
     assert not report.present

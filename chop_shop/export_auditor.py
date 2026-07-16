@@ -135,29 +135,50 @@ def _find_encryption_artifacts(root: Path, usb_inspection: UsbInspectionReport) 
     findings: List[EncryptionFinding] = []
 
     if usb_inspection.onelibrary.present:
+        size = None
+        if usb_inspection.onelibrary.path:
+            try:
+                size = Path(usb_inspection.onelibrary.path).stat().st_size
+            except OSError as exc:
+                logger.warning("Could not stat %s: %s", usb_inspection.onelibrary.path, exc)
         findings.append(EncryptionFinding(
             name="exportLibrary.db",
             present=True,
             path=usb_inspection.onelibrary.path,
-            size=Path(usb_inspection.onelibrary.path).stat().st_size if usb_inspection.onelibrary.path else None,
-            note=(
-                "SQLCipher-suspected (not plain SQLite) — decryption NOT attempted."
-                if usb_inspection.onelibrary.valid is None
-                else "readable SQLite — not encrypted."
-            ),
+            size=size,
+            note=_onelibrary_note(usb_inspection.onelibrary.valid),
         ))
 
+    # PIONEER/ is where these token files actually live on a real export —
+    # scoping the glob there (falling back to the mount root only if PIONEER/
+    # doesn't exist) avoids an unbounded recursive walk of the whole USB
+    # stick. Only the first match is ever used, so stop at it instead of
+    # materializing every hit.
+    search_root = root / "PIONEER" if (root / "PIONEER").is_dir() else root
     for name in _OPAQUE_TOKEN_FILES:
-        hits = list(root.glob(f"**/{name}"))
-        if hits:
+        hit = next(search_root.glob(f"**/{name}"), None)
+        if hit is not None:
+            try:
+                size = hit.stat().st_size
+            except OSError as exc:
+                logger.warning("Could not stat %s: %s", hit, exc)
+                size = None
             findings.append(EncryptionFinding(
-                name=name, present=True, path=str(hits[0]), size=hits[0].stat().st_size,
+                name=name, present=True, path=str(hit), size=size,
                 note="opaque base64/binary token blob of unknown role — contents NOT read.",
             ))
         else:
             findings.append(EncryptionFinding(name=name, present=False, note="not found"))
 
     return findings
+
+
+def _onelibrary_note(valid: Optional[bool]) -> str:
+    if valid is None:
+        return "SQLCipher-suspected (not plain SQLite) — decryption NOT attempted."
+    if valid is False:
+        return "present but failed validation for a reason other than encryption (see usb_inspector detail)."
+    return "readable SQLite — not encrypted."
 
 
 def _cross_match_library(anlz_sets: List[AnlzSetReport], archive) -> LibraryCrossMatch:
@@ -212,7 +233,11 @@ def _persist(report: ExportAuditReport, archive) -> None:
         {
             "operation_type": "settings_read",
             "file_path": sf.path,
-            "status": "ok" if sf.valid else "error",
+            # valid=None (present but unverifiable/unreadable) is distinct
+            # from valid=False (verified invalid) — collapsing both into
+            # "error" would lose the same distinction the CLI's "⚠" mark
+            # makes, so it gets its own "unknown" status here.
+            "status": "ok" if sf.valid else ("unknown" if sf.valid is None else "error"),
             "metadata": {"parsed_via": sf.parsed_via, "brand": sf.brand, "detail": sf.detail},
         }
         for sf in report.settings_files
@@ -250,7 +275,8 @@ def _persist(report: ExportAuditReport, archive) -> None:
                 "matched_in_archive": report.library_cross_match.matched_in_archive,
             },
             "encryption_findings": [
-                {"name": f.name, "present": f.present, "size": f.size} for f in report.encryption_findings
+                {"name": f.name, "present": f.present, "size": f.size, "path": f.path, "note": f.note}
+                for f in report.encryption_findings
             ],
         },
     )

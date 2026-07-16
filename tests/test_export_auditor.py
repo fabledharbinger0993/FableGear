@@ -79,6 +79,10 @@ def synthetic_export(tmp_path):
     pdb_dir.mkdir(parents=True)
     (pdb_dir / "export.pdb").write_bytes(_build_pdb_header() + b"\x00" * 4096)
 
+    # Opaque token blobs — presence/size only, contents never read.
+    for name in ("ak.dat", "nn.dat", "gcred.dat"):
+        (root / "PIONEER" / name).write_bytes(b"\x01" * 16)
+
     return root
 
 
@@ -140,6 +144,18 @@ def test_audit_export_persists_rows_visible_after_reopen(synthetic_export, archi
     assert metadata["anlz_with_beat_grid"] == 1
     assert metadata["pdb_present"] is True
     assert metadata["pdb_valid_header"] is True
+
+
+def test_audit_export_reports_opaque_token_findings(synthetic_export, archive):
+    report = audit_export(synthetic_export, archive=archive)
+
+    findings_by_name = {f.name: f for f in report.encryption_findings}
+    for token_name in ("ak.dat", "nn.dat", "gcred.dat"):
+        finding = findings_by_name[token_name]
+        assert finding.present is True
+        assert finding.size == 16
+        assert finding.path is not None
+        assert "NOT read" in finding.note
 
 
 def test_audit_export_without_archive_still_returns_report(synthetic_export):

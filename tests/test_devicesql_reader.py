@@ -9,6 +9,7 @@ scope for this phase and is asserted to stay an empty stub rather than
 guessed at.
 """
 
+import builtins
 import sys
 from pathlib import Path
 
@@ -89,3 +90,25 @@ def test_read_pdb_missing_file():
     report = read_pdb("/nonexistent/export.pdb")
     assert not report.exists
     assert report.detail == "file not found"
+
+
+def test_read_pdb_unreadable_file(tmp_path, monkeypatch):
+    # Covers the OSError branch on open() — e.g. a permission error — without
+    # relying on actual filesystem permissions (unreliable when running as
+    # root, as this sandbox does).
+    path = tmp_path / "export.pdb"
+    path.write_bytes(b"\x00" * 20)
+
+    real_open = builtins.open
+
+    def _raise_for_target(file, *args, **kwargs):
+        if str(file) == str(path):
+            raise OSError("permission denied (simulated)")
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", _raise_for_target)
+
+    report = read_pdb(path)
+    assert report.exists
+    assert not report.readable
+    assert "unreadable" in report.detail

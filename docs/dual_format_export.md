@@ -68,7 +68,7 @@ What's still open, and deliberately NOT faked:
   rather than inventing field offsets.
 - **No real hardware binaries are committed.** `docs/format_samples/`
   contains only the `DJMTGO_inspection.md` report (redacted), not the
-  underlying `.DAT`/`.EXT`/`.2EX`/`.pdb`/`.DAT`-settings files themselves.
+  underlying `.DAT`/`.EXT`/`.2EX`/`.pdb` settings files themselves.
   Every parser's unit tests run against synthetic, spec-derived byte
   buffers (clearly labeled as such in each test file) — they verify the
   parsing *logic*, not fidelity to real hardware output. The moment a

@@ -60,16 +60,6 @@ ANLZ_MAGIC = b"PMAI"
 _FULL_DECODE_TAGS = {"PPTH", "PQTZ", "PWV6", "PWV7", "PWVC"}
 
 
-class NotAnAnlzFileError(Exception):
-    """Raised only by callers that need a hard failure instead of the
-    default soft-fail-with-notes behavior of parse_anlz_file()."""
-
-    def __init__(self, path: Path, detail: str) -> None:
-        self.path = path
-        self.detail = detail
-        super().__init__(f"{path}: {detail}")
-
-
 @dataclass
 class BeatGridEntry:
     """One entry from a PQTZ beat grid."""
@@ -140,6 +130,11 @@ class AnlzSetReport:
 
     @property
     def beat_count(self) -> int:
+        # .2EX is intentionally excluded: the real ANLZ0000.2EX samples this
+        # module was verified against (see docs/dual_format_export.md) carry
+        # only PPTH/PWV7/PWV6/PWVC — never PQTZ. .EXT carries PQT2 (2nd-gen
+        # grid, presence/size only) rather than PQTZ. If a real .2EX sample
+        # is ever found to carry PQTZ, add it to this loop.
         for report in (self.dat, self.ext):
             if report is not None and report.beat_grid:
                 return len(report.beat_grid)
@@ -154,8 +149,10 @@ def _walk_tags(data: bytes, start: int) -> List[AnlzTagInfo]:
     Each tag is ``magic(4) + len_header:u32be + len_tag:u32be + body``, where
     ``len_tag`` is the total size of the tag (header included) — the next tag
     begins at ``offset + len_tag``. A tag whose declared ``len_tag`` would run
-    past the end of the buffer, or is smaller than the 12-byte generic
-    prefix, stops the walk rather than reading garbage.
+    past the end of the buffer, or whose ``len_header``/``len_tag`` are out of
+    the plausible range (``12 <= len_header <= len_tag``), stops the walk
+    rather than reading garbage or letting a downstream decoder slice with a
+    negative/out-of-range length.
     """
     tags: List[AnlzTagInfo] = []
     offset = start
@@ -163,11 +160,11 @@ def _walk_tags(data: bytes, start: int) -> List[AnlzTagInfo]:
     while offset + 12 <= n:
         fourcc = data[offset:offset + 4].decode("ascii", errors="replace")
         len_header, len_tag = struct.unpack_from(">II", data, offset + 4)
-        if len_tag < 12 or offset + len_tag > n:
+        if len_tag < 12 or offset + len_tag > n or len_header < 12 or len_header > len_tag:
             logger.warning(
-                "Tag chain stopped at offset %d: %r declares len_tag=%d "
+                "Tag chain stopped at offset %d: %r declares len_header=%d len_tag=%d "
                 "(buffer has %d bytes remaining)",
-                offset, fourcc, len_tag, n - offset,
+                offset, fourcc, len_header, len_tag, n - offset,
             )
             break
         tags.append(AnlzTagInfo(fourcc=fourcc, offset=offset, len_header=len_header, len_tag=len_tag))
@@ -276,6 +273,9 @@ def parse_anlz_file(path: PathLike) -> AnlzFileReport:
     report.len_file = len_file
     if len_header < 12 or len_header > len(data):
         report.notes.append(f"implausible header length {len_header}")
+        return report
+    if len_file < len_header or len_file > len(data):
+        report.notes.append(f"implausible file length {len_file} (actual {len(data)})")
         return report
 
     tags = _walk_tags(data, len_header)

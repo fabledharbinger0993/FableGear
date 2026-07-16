@@ -82,8 +82,16 @@ def _read_via_pyrekordbox(path: Path) -> Optional[SettingsFileReport]:
     try:
         from pyrekordbox.mysettings import read_mysetting_file
     except ImportError as exc:
-        report.notes.append(f"pyrekordbox not available: {exc}")
-        return None
+        # A recognized filename with no pyrekordbox available must NOT
+        # silently fall through to the hand-parsed header check — that
+        # fallback is only for filenames pyrekordbox doesn't recognize at
+        # all, and reporting valid=True from it here would misrepresent a
+        # library-unavailable condition as a successful parse.
+        report.readable = True
+        report.valid = None
+        report.parsed_via = "pyrekordbox"
+        report.detail = f"pyrekordbox not available: {exc}"
+        return report
 
     try:
         parsed = read_mysetting_file(path)
