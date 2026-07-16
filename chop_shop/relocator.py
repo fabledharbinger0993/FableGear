@@ -492,8 +492,8 @@ def relocate_directory(
                     ("relocate", new_path, "ok", None,
                      {"from": old_path, "strategy": result.strategy})
                 )
-                if len(pending_logs) >= _ARCHIVE_CHUNK_SIZE:
-                    _flush_archive_chunk()
+                # Defer flushing until after the corresponding Rekordbox DB batch commit,
+                # so the archive never records "ok" for changes that might roll back.
             except Exception as exc:
                 log.warning("Archive update failed for relocate %s: %s", old_path, exc)
 
