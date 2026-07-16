@@ -252,6 +252,129 @@ def cmd_usb_inspect(args: argparse.Namespace) -> None:
     print(f"  Verdict: {verdict}", flush=True)
 
 
+def cmd_anlz_read(args: argparse.Namespace) -> None:
+    """Read-only deep parse of a track's ANLZ set (.DAT/.EXT/.2EX)."""
+    from anlz_reader import read_anlz_set
+
+    set_report = read_anlz_set(args.path)
+
+    print(f"ANLZ set: {set_report.anlz_dir}", flush=True)
+    for note in set_report.notes:
+        print(f"  note: {note}", flush=True)
+    for label, file_report in (("DAT", set_report.dat), ("EXT", set_report.ext), ("2EX", set_report.two_ex)):
+        if file_report is None:
+            continue
+        tags = ", ".join(file_report.tags_present) or "(none)"
+        print(f"  .{label}: {len(file_report.tags_present)} tags — {tags}", flush=True)
+        if file_report.ppth_path:
+            print(f"    path: {file_report.ppth_path}", flush=True)
+        if file_report.beat_grid:
+            first = file_report.beat_grid[0]
+            print(
+                f"    beat grid: {len(file_report.beat_grid)} beats, "
+                f"first {first.tempo_bpm:.2f} BPM @ {first.time_ms}ms",
+                flush=True,
+            )
+        for name, wf in file_report.waveform_tags.items():
+            print(f"    {name}: len_entry_bytes={wf.len_entry_bytes} len_entries={wf.len_entries} bytes={wf.entry_bytes_total}", flush=True)
+        for note in file_report.notes:
+            print(f"    note: {note}", flush=True)
+    if set_report.track_path:
+        print(f"  Embedded track path: {set_report.track_path}", flush=True)
+    print(f"  Beat count: {set_report.beat_count}", flush=True)
+
+
+def cmd_pioneer_settings(args: argparse.Namespace) -> None:
+    """Read-only parse of Pioneer/rekordbox player & mixer settings files."""
+    from pioneer_settings import read_settings_file, read_settings_tree
+
+    path = Path(args.path)
+    reports = [read_settings_file(path)] if path.is_file() else read_settings_tree(path)
+
+    if not reports:
+        print(f"No known settings files found under {path}", flush=True)
+        return
+
+    for r in reports:
+        mark = "✓" if r.valid else ("⚠" if r.valid is None else "✗")
+        print(f"{mark} {r.filename}: {r.detail}", flush=True)
+        if r.settings:
+            print(f"    {len(r.settings)} settings parsed via {r.parsed_via}", flush=True)
+        for note in r.notes:
+            print(f"    note: {note}", flush=True)
+
+
+def cmd_pdb_read(args: argparse.Namespace) -> None:
+    """Read-only header validation of a DeviceSQL export.pdb / exportExt.pdb."""
+    from devicesql_reader import read_pdb
+
+    report = read_pdb(args.path)
+    mark = "✓" if report.valid_header else "✗"
+    print(f"{mark} {report.path}: {report.detail}", flush=True)
+    for note in report.notes:
+        print(f"  note: {note}", flush=True)
+
+
+def cmd_export_audit(args: argparse.Namespace) -> None:
+    """Read-only Phase B deep audit of a mounted Pioneer export tree.
+
+    Calls anlz_reader / pioneer_settings / devicesql_reader / usb_inspector
+    internally (real function calls, not shelling out) and persists the
+    consolidated findings through the FableGear archive.
+    """
+    from export_auditor import audit_export
+    from usb_inspector import NotAMountError
+
+    archive = _require_archive("export-audit")
+    try:
+        report = audit_export(args.mount, archive=archive)
+    except NotAMountError as exc:
+        print(f"✗ {exc}", flush=True)
+        sys.exit(1)
+
+    print(f"Export audit: {report.mount}", flush=True)
+    if report.usb_inspection:
+        insp = report.usb_inspection
+        verdict = ("DUAL-FORMAT — boots on both fleets" if insp.dual_format
+                   else "CDJ-3000 only" if insp.cdj3000_ready
+                   else "OneLibrary only" if insp.onelibrary_ready
+                   else "no readable device database")
+        print(f"  Verdict: {verdict}", flush=True)
+
+    a = report.anlz_summary
+    print(
+        f"  ANLZ: {a.tracks_scanned} tracks scanned, {a.with_beat_grid} with beat grid "
+        f"({a.total_beats} beats total), {a.with_waveform} with waveform, "
+        f"{a.dat_missing} missing .DAT",
+        flush=True,
+    )
+
+    if report.settings_files:
+        print(f"  Settings: {len(report.settings_files)} file(s) found", flush=True)
+        for sf in report.settings_files:
+            mark = "✓" if sf.valid else "✗"
+            print(f"    {mark} {sf.filename}", flush=True)
+
+    if report.pdb_report:
+        mark = "✓" if report.pdb_report.valid_header else "✗"
+        print(f"  PDB: {mark} {report.pdb_report.detail}", flush=True)
+        if report.pdb_report.partial:
+            print("    note: track<->ANLZ row mapping not available this phase (see devicesql_reader.py)", flush=True)
+
+    cm = report.library_cross_match
+    if cm.anlz_tracks_with_path:
+        print(f"  Library cross-match: {cm.matched_in_archive}/{cm.anlz_tracks_with_path} ANLZ tracks matched in archive", flush=True)
+
+    for finding in report.encryption_findings:
+        if finding.present:
+            print(f"  ⚠ {finding.name}: present ({finding.size} bytes) — {finding.note}", flush=True)
+
+    for note in report.notes:
+        print(f"  note: {note}", flush=True)
+
+    print(f"  Archive logged: {report.archive_logged}", flush=True)
+
+
 def cmd_dead_files(args: argparse.Namespace) -> None:
     """Find audio files on disk not referenced in any Rekordbox database."""
     from dead_file_scanner import scan_dead_files
@@ -433,11 +556,18 @@ def cmd_relocate(args: argparse.Namespace) -> None:
     # old_root doesn't need to exist on disk — it's a string prefix matched
     # against FolderPath values in the DB. If it's a typo, relocate_directory
     # will match zero rows and log a warning.
-    log.info("Relocating: %s → %s", old_root, new_root)
+    only_missing = not getattr(args, "include_existing", False)
+    log.info(
+        "Relocating: %s → %s (%s)",
+        old_root, new_root,
+        "broken paths only" if only_missing else "ALL rows under old_root",
+    )
     archive = _require_archive("relocate")
     try:
         with write_db(LOCAL_DB) as db:
-            results = relocate_directory(old_root, new_root, db, archive=archive)
+            results = relocate_directory(
+                old_root, new_root, db, archive=archive, only_missing=only_missing,
+            )
     except Exception:
         log.exception("Relocation failed")
         sys.exit(1)
@@ -2161,6 +2291,34 @@ Examples:
     p_usb.add_argument("mount", help="Mount point of the drive, e.g. /Volumes/GIGSTICK")
     p_usb.set_defaults(func=cmd_usb_inspect)
 
+    p_anlz = sub.add_parser(
+        "anlz-read",
+        help="Read-only deep parse of one track's ANLZ set (.DAT/.EXT/.2EX)",
+    )
+    p_anlz.add_argument("path", help="Per-track ANLZ directory (contains ANLZ0000.DAT)")
+    p_anlz.set_defaults(func=cmd_anlz_read)
+
+    p_settings = sub.add_parser(
+        "pioneer-settings",
+        help="Read-only parse of Pioneer/rekordbox player & mixer settings files",
+    )
+    p_settings.add_argument("path", help="A settings file, or a PIONEER/ directory to scan")
+    p_settings.set_defaults(func=cmd_pioneer_settings)
+
+    p_pdb = sub.add_parser(
+        "pdb-read",
+        help="Read-only header validation of a DeviceSQL export.pdb / exportExt.pdb",
+    )
+    p_pdb.add_argument("path", help="Path to export.pdb or exportExt.pdb")
+    p_pdb.set_defaults(func=cmd_pdb_read)
+
+    p_export_audit = sub.add_parser(
+        "export-audit",
+        help="Read-only Phase B deep audit of a mounted Pioneer export tree (writes to the FableGear archive)",
+    )
+    p_export_audit.add_argument("mount", help="Mount point of the drive, e.g. /Volumes/GIGSTICK")
+    p_export_audit.set_defaults(func=cmd_export_audit)
+
     p_audit = sub.add_parser("audit", help="Read-only library health check")
     p_audit.add_argument(
         "--root",
@@ -2226,6 +2384,12 @@ Examples:
         help="Previous path prefix stored in the DB (does not need to exist on disk)",
     )
     p_relocate.add_argument("new_root", metavar="NEW_ROOT", help="New path where files now live")
+    p_relocate.add_argument(
+        "--include-existing",
+        action="store_true",
+        help="Also repoint rows whose file still exists at the old path "
+             "(mid-migration only; by default healthy tracks are never touched)",
+    )
     p_relocate.set_defaults(func=cmd_relocate)
 
     # ── duplicates ──

@@ -41,8 +41,43 @@ counts ANLZ tracks, renders a fleet-compatibility verdict.
 stick from each device family and commit the (sanitized) reports to
 `docs/format_samples/`. Real-hardware ground truth anchors every later phase.
 
-## Phase B — Deep read (achievable, weeks)
+## Phase B — Deep read (IN PROGRESS — partial, honestly scoped)
 
+`chop_shop/anlz_reader.py` + `chop_shop/pioneer_settings.py` +
+`chop_shop/devicesql_reader.py` + `chop_shop/export_auditor.py`, wired at
+`cli.py anlz-read / pioneer-settings / pdb-read / export-audit`. Read-only,
+persists through `FableGearDatabase.log_operation` / `bulk_log_operations`.
+
+What's demonstrated (byte layout confirmed against
+`docs/format_samples/DJMTGO_inspection.md`'s real numbers, not guessed):
+ANLZ `PPTH` (embedded path) and `PQTZ` (full beat grid) decode; `PWV6` /
+`PWV7` / `PWVC` (3-band waveform) header fields decode (pixel data itself is
+intentionally not interpreted); the DeviceSQL PDB's 16-byte header
+(`page_size`, `num_tables`, `next_unused_page`); Pioneer settings files via
+pyrekordbox's real parser for the four known filenames.
+
+What's still open, and deliberately NOT faked:
+- **PDB row/page walk is unimplemented.** The track↔ANLZ-folder mapping —
+  the whole point of reading `export.pdb` — needs the page/row-group/string
+  table format beyond the header, which has no byte-verified spec in this
+  repo and no committed `export.pdb` fixture to check one against. See
+  `devicesql_reader.py`'s module docstring SCOPE LIMIT.
+- **PCOB/PCO2/PSSI (cues, song structure) are presence+size only.** No
+  byte-level layout for these is verified against a fixture in this repo,
+  so `anlz_reader.py` records their presence and tag size and stops there
+  rather than inventing field offsets.
+- **No real hardware binaries are committed.** `docs/format_samples/`
+  contains only the `DJMTGO_inspection.md` report (redacted), not the
+  underlying `.DAT`/`.EXT`/`.2EX`/`.pdb` settings files themselves.
+  Every parser's unit tests run against synthetic, spec-derived byte
+  buffers (clearly labeled as such in each test file) — they verify the
+  parsing *logic*, not fidelity to real hardware output. The moment a
+  sanitized real export is committed under `docs/format_samples/`, add a
+  real-fixture integration test and use it to unblock the PDB row walker.
+- OneLibrary (`exportLibrary.db`) schema dump is still not started — see
+  original scope below.
+
+Original Phase B scope (unstarted parts retained for reference):
 1. OneLibrary schema dump: `sqlite3 exportLibrary.db .schema` from a real
    export; map tables to master.db concepts (content, playlists, cues).
    *SQLite makes this mostly archaeology, not cryptanalysis.*

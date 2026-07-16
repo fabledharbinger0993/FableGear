@@ -429,6 +429,13 @@ def _convert_file(path: Path, target_format: str) -> tuple[bool, str]:
         shutil.move(str(path), str(bak))
         original_moved = True
         shutil.move(str(tmp_path), str(new_path))
+        # ⚠ PERMANENT OPERATION — once .bak is deleted the pre-conversion file
+        # is unrecoverable.  This is an intentional, documented tradeoff: the
+        # purpose of conversion is to change the format, and re-encoding from
+        # the output would degrade quality further.  The .bak is kept just long
+        # enough to guarantee the output is non-empty; if the caller ever needs
+        # "true undo" for conversions, it must archive .bak before this line
+        # rather than deleting it (see routes_undo.py comment on 'convert').
         bak.unlink()
         return True, f"Converted to {target_format}"
 

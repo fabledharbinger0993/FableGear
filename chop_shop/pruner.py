@@ -33,6 +33,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from sqlalchemy import text
+
 _log = logging.getLogger(__name__)
 
 # ── Trash rescue gate ────────────────────────────────────────────────────────
@@ -330,45 +332,306 @@ def load_report(csv_path: Path, db=None) -> list[DupeGroup]:
 
 # ── Public: prune files ───────────────────────────────────────────────────────
 
-def _rethread_playlists(remove_content, keeper_path: str, db, emit) -> int:
+
+# ── Metadata backfill ─────────────────────────────────────────────────────────
+# Field-level DjmdContent columns eligible for gap-filling from a duplicate
+# before it's deleted. Deliberately excludes file-identity / operational
+# columns (ID, FolderPath, FileType, DeviceID, rb_file_id, etc.) — only
+# descriptive track data that a DJ would notice missing.
+_BACKFILL_FIELDS = [
+    "ArtistID", "AlbumID", "GenreID", "BPM", "Commnt", "Rating",
+    "KeyID", "LabelID", "ComposerID", "RemixerID", "ReleaseYear", "ISRC",
+]
+
+
+def _backfill_metadata(remove_content, keeper_content, emit) -> int:
     """
-    Before a duplicate content row is deleted, re-point any DjmdSongPlaylist
-    entries that reference it to the keeper track instead.
+    Copy descriptive track-data fields from a duplicate onto the keeper,
+    but only into fields where the keeper is empty/null. The keeper's own
+    non-empty values always win — this never overwrites populated data.
 
-    For each playlist that contains the duplicate:
-      - If the keeper is NOT already in that playlist → update ContentID in place.
-      - If the keeper IS already in that playlist → delete the duplicate's entry
-        (the keeper already represents the track there; adding another would
-        create a redundant entry).
+    Returns the number of fields filled.
+    """
+    filled = 0
+    for field_name in _BACKFILL_FIELDS:
+        keeper_value = getattr(keeper_content, field_name, None)
+        if keeper_value not in (None, ""):
+            continue
+        dup_value = getattr(remove_content, field_name, None)
+        if dup_value in (None, ""):
+            continue
+        setattr(keeper_content, field_name, dup_value)
+        filled += 1
+    if filled:
+        emit(f"      ↪  {filled} metadata field(s) backfilled onto keeper")
+    return filled
 
-    Returns the number of playlist slots re-threaded (updated, not dropped).
+
+# ── Association re-threading ────────────────────────────────────────────────
+# Before a duplicate content row is hard-deleted, every other table that
+# references its ContentID must be re-pointed to the keeper or it becomes a
+# silent orphan (pyrekordbox declares no cascade on these relationships, and
+# Rekordbox itself never surfaces orphaned rows again). Three shapes of table:
+#
+#   "group"  — a join table with its own list/group id (playlist, my-tag,
+#              history, sampler, related-tracks, hot-cue-banklist): if the
+#              keeper is already a member of that same group, drop the
+#              duplicate's slot; otherwise re-point ContentID in place.
+#   "simple" — one attribute row per track with no group concept (mixer
+#              param, active censor, tag list): copy over only if the keeper
+#              has no row of its own; otherwise the keeper's existing row
+#              wins and the duplicate's is dropped.
+#   cues     — special-cased below; hot cues are slotted by Kind, memory
+#              cues are positional and simply accumulate.
+
+_GROUP_TABLES = [
+    # (getter name on db, group id field, label)
+    ("get_playlist_songs",         "PlaylistID",        "playlist"),
+    ("get_history_songs",          "HistoryID",          "history"),
+    ("get_my_tag_songs",           "MyTagID",            "my tag"),
+    ("get_sampler_songs",          "SamplerID",          "sampler"),
+    ("get_related_tracks_songs",   "RelatedTracksID",    "related tracks"),
+    ("get_hot_cue_banklist_songs", "HotCueBanklistID",   "hot cue banklist"),
+]
+
+_SIMPLE_TABLES = [
+    # (getter name on db, label)
+    ("get_mixer_param",   "mixer params"),
+    ("get_active_censor", "active censors"),
+    ("get_tag_list_songs","tag list entries"),
+]
+
+
+def _rethread_group_table(db, getter_name: str, group_field: str, remove_id: str, keeper_id: str) -> tuple[int, int]:
+    """
+    Generic re-threader for join-style tables (group id + ContentID + TrackNo).
+    Same rule as playlists: drop the duplicate's slot if the keeper is already
+    a member of that same group, otherwise re-point ContentID to the keeper.
+
+    Returns (rethreaded, dropped).
+    """
+    getter = getattr(db, getter_name)
+    rows = getter(ContentID=remove_id).all()
+    if not rows:
+        return 0, 0
+    rethreaded = 0
+    dropped = 0
+    for row in rows:
+        group_id = getattr(row, group_field)
+        already_there = getter(ContentID=keeper_id, **{group_field: group_id}).all()
+        if already_there:
+            db.session.delete(row)
+            dropped += 1
+        else:
+            row.ContentID = keeper_id
+            rethreaded += 1
+    return rethreaded, dropped
+
+
+def _copy_or_drop_simple(db, getter_name: str, remove_id: str, keeper_id: str) -> tuple[int, int]:
+    """
+    Generic handler for groupless singleton-style tables. If the keeper has
+    no row of its own, the duplicate's row(s) are re-pointed over; otherwise
+    the keeper's existing row wins and the duplicate's is dropped.
+
+    Returns (copied, dropped).
+    """
+    getter = getattr(db, getter_name)
+    dup_rows = getter(ContentID=remove_id).all()
+    if not dup_rows:
+        return 0, 0
+    keeper_rows = getter(ContentID=keeper_id).all()
+    if keeper_rows:
+        for row in dup_rows:
+            db.session.delete(row)
+        return 0, len(dup_rows)
+    for row in dup_rows:
+        row.ContentID = keeper_id
+    return len(dup_rows), 0
+
+
+def _rethread_cues(db, remove_id: str, keeper_id: str) -> tuple[int, int]:
+    """
+    Hot cues are slotted by djmdCue.Kind (0 = memory cue; a nonzero Kind is
+    the hot cue pad number, e.g. 1=A, 2=B, ... — a CDJ has one physical pad
+    per Kind value, so two cues sharing a Kind genuinely conflict).
+    Memory cues have no slot concept and just accumulate along the timeline;
+    they're deduped by exact position (InMsec) to avoid literal duplicates.
+
+    Conflict rule (same slot occupied on both sides): keeper's cue wins,
+    duplicate's is dropped — the same gap-filling-only philosophy used for
+    track metadata, extended to cues.
+
+    Returns (copied, dropped).
+    """
+    dup_cues = db.get_cue(ContentID=remove_id).all()
+    if not dup_cues:
+        return 0, 0
+    keeper_cues = db.get_cue(ContentID=keeper_id).all()
+    keeper_hot_kinds = {c.Kind for c in keeper_cues if c.Kind}
+    keeper_memory_positions = {c.InMsec for c in keeper_cues if not c.Kind}
+
+    copied = 0
+    dropped = 0
+    for cue in dup_cues:
+        if cue.Kind:  # hot cue — Kind is the slot
+            if cue.Kind in keeper_hot_kinds:
+                db.session.delete(cue)
+                dropped += 1
+            else:
+                cue.ContentID = keeper_id
+                keeper_hot_kinds.add(cue.Kind)
+                copied += 1
+        else:  # memory cue — positional, not slotted
+            if cue.InMsec in keeper_memory_positions:
+                db.session.delete(cue)
+                dropped += 1
+            else:
+                cue.ContentID = keeper_id
+                keeper_memory_positions.add(cue.InMsec)
+                copied += 1
+    return copied, dropped
+
+
+def _rethread_cloud_export_playlists(db, remove_id: str, keeper_id: str) -> tuple[int, int]:
+    """
+    djmdCloudExportSongPlaylist has no pyrekordbox ORM model (as of 0.4.4),
+    so this is handled with parameterized raw SQL instead of the ORM. Same
+    group-membership rule as _rethread_group_table, keyed on
+    CloudExportPlaylistID.
+    """
+    rows = db.session.execute(
+        text("SELECT ID, CloudExportPlaylistID FROM djmdCloudExportSongPlaylist WHERE ContentID = :cid"),
+        {"cid": remove_id},
+    ).fetchall()
+    if not rows:
+        return 0, 0
+    rethreaded = 0
+    dropped = 0
+    for row_id, playlist_id in rows:
+        already_there = db.session.execute(
+            text(
+                "SELECT 1 FROM djmdCloudExportSongPlaylist "
+                "WHERE ContentID = :kid AND CloudExportPlaylistID = :pid"
+            ),
+            {"kid": keeper_id, "pid": playlist_id},
+        ).fetchone()
+        if already_there:
+            db.session.execute(
+                text("DELETE FROM djmdCloudExportSongPlaylist WHERE ID = :id"), {"id": row_id}
+            )
+            dropped += 1
+        else:
+            db.session.execute(
+                text("UPDATE djmdCloudExportSongPlaylist SET ContentID = :kid WHERE ID = :id"),
+                {"kid": keeper_id, "id": row_id},
+            )
+            rethreaded += 1
+    return rethreaded, dropped
+
+
+def _rethread_recommend_likes(db, remove_id: str, keeper_id: str) -> tuple[int, int]:
+    """
+    djmdRecommendLike has no pyrekordbox ORM model (as of 0.4.4), so this is
+    handled with parameterized raw SQL. Unlike the other FK tables it's a
+    pairwise relation (ContentID1, ContentID2), not a track → group link, so
+    it needs its own logic: re-point whichever column referenced the
+    duplicate, unless that would create a self-pair (keeper recommended to
+    itself) or duplicate an existing pair in either column order — both
+    cases drop the row instead.
+    """
+    rethreaded = 0
+    dropped = 0
+    for col_self, col_other in (("ContentID1", "ContentID2"), ("ContentID2", "ContentID1")):
+        rows = db.session.execute(
+            text(f"SELECT ID, {col_other} FROM djmdRecommendLike WHERE {col_self} = :rid"),
+            {"rid": remove_id},
+        ).fetchall()
+        for row_id, other_id in rows:
+            if other_id == keeper_id:
+                db.session.execute(text("DELETE FROM djmdRecommendLike WHERE ID = :id"), {"id": row_id})
+                dropped += 1
+                continue
+            existing_pair = db.session.execute(
+                text(
+                    "SELECT 1 FROM djmdRecommendLike WHERE "
+                    "(ContentID1 = :a AND ContentID2 = :b) OR (ContentID1 = :b AND ContentID2 = :a)"
+                ),
+                {"a": keeper_id, "b": other_id},
+            ).fetchone()
+            if existing_pair:
+                db.session.execute(text("DELETE FROM djmdRecommendLike WHERE ID = :id"), {"id": row_id})
+                dropped += 1
+            else:
+                db.session.execute(
+                    text(f"UPDATE djmdRecommendLike SET {col_self} = :kid WHERE ID = :id"),
+                    {"kid": keeper_id, "id": row_id},
+                )
+                rethreaded += 1
+    return rethreaded, dropped
+
+
+def _rethread_associations(remove_content, keeper_path: str, db, emit) -> dict:
+    """
+    Before a duplicate content row is deleted: backfill any descriptive
+    metadata the keeper is missing, then re-thread every other
+    ContentID-referencing table (playlists, cues, mixer params, my tags,
+    history, sampler, related tracks, hot cue banklists, active censors, tag
+    list, cloud export playlists, recommend-likes) so nothing becomes a
+    silent orphan.
+
+    Returns a dict of counts, including "playlists_rethreaded" (kept as its
+    own key for backward compatibility with existing callers) and
+    "associations_rethreaded" (total across every other table).
     """
     keeper_rows = db.get_content(FolderPath=keeper_path).all()
     if not keeper_rows:
-        emit(f"      ⚠  Keeper not in DB ({Path(keeper_path).name}) — playlist entries left intact")
-        return 0
+        emit(f"      ⚠  Keeper not in DB ({Path(keeper_path).name}) — associations left intact")
+        return {"playlists_rethreaded": 0, "associations_rethreaded": 0, "metadata_backfilled": 0}
 
     keeper_content = keeper_rows[0]
-    song_rows = db.get_playlist_songs(ContentID=remove_content.ID).all()
-    if not song_rows:
-        return 0
+    remove_id = remove_content.ID
+    keeper_id = keeper_content.ID
 
-    rethreaded = 0
-    for song_row in song_rows:
-        playlist_id = song_row.PlaylistID
-        # Check whether keeper is already in this playlist
-        already_there = db.get_playlist_songs(
-            ContentID=keeper_content.ID, PlaylistID=playlist_id
-        ).all()
-        if already_there:
-            # Keeper already present — just drop the duplicate's slot
-            db.session.delete(song_row)
-        else:
-            # Re-point the slot to the keeper
-            song_row.ContentID = keeper_content.ID
-            rethreaded += 1
+    metadata_backfilled = _backfill_metadata(remove_content, keeper_content, emit)
 
-    return rethreaded
+    playlists_rethreaded = 0
+    associations_rethreaded = 0
+
+    for getter_name, group_field, label in _GROUP_TABLES:
+        rethreaded, dropped = _rethread_group_table(db, getter_name, group_field, remove_id, keeper_id)
+        if getter_name == "get_playlist_songs":
+            playlists_rethreaded += rethreaded
+        elif rethreaded or dropped:
+            associations_rethreaded += rethreaded
+            emit(f"      ↪  {label}: {rethreaded} re-threaded, {dropped} dropped (keeper already present)")
+
+    for getter_name, label in _SIMPLE_TABLES:
+        copied, dropped = _copy_or_drop_simple(db, getter_name, remove_id, keeper_id)
+        if copied or dropped:
+            associations_rethreaded += copied
+            emit(f"      ↪  {label}: {copied} copied, {dropped} dropped (keeper already has one)")
+
+    cue_copied, cue_dropped = _rethread_cues(db, remove_id, keeper_id)
+    if cue_copied or cue_dropped:
+        associations_rethreaded += cue_copied
+        emit(f"      ↪  cues: {cue_copied} copied, {cue_dropped} dropped (slot conflict, keeper wins)")
+
+    cloud_rethreaded, cloud_dropped = _rethread_cloud_export_playlists(db, remove_id, keeper_id)
+    if cloud_rethreaded or cloud_dropped:
+        associations_rethreaded += cloud_rethreaded
+        emit(f"      ↪  cloud export playlists: {cloud_rethreaded} re-threaded, {cloud_dropped} dropped")
+
+    like_rethreaded, like_dropped = _rethread_recommend_likes(db, remove_id, keeper_id)
+    if like_rethreaded or like_dropped:
+        associations_rethreaded += like_rethreaded
+        emit(f"      ↪  recommend-likes: {like_rethreaded} re-threaded, {like_dropped} dropped")
+
+    return {
+        "playlists_rethreaded": playlists_rethreaded,
+        "associations_rethreaded": associations_rethreaded,
+        "metadata_backfilled": metadata_backfilled,
+    }
 
 
 def prune_files(
@@ -385,19 +648,25 @@ def prune_files(
     recovery folder inside ~/Trash/.
 
     keeper_map (optional): {remove_path → keeper_path}
-      When provided, any DjmdSongPlaylist entries pointing at a duplicate are
-      re-threaded to point at the keeper *before* the duplicate row is deleted.
-      This preserves playlist membership — the track stays in every playlist
-      it was in, now backed by the file that is being kept.
+      When provided, every other table that references the duplicate's
+      ContentID (playlists, cues, mixer params, my tags, history, sampler,
+      related tracks, hot cue banklists, active censors, tag list, cloud
+      export playlists, recommend-likes) is re-threaded to point at the
+      keeper *before* the duplicate row is deleted, and any descriptive
+      metadata (BPM, key, genre, artist, album, comment, rating, etc.) the
+      keeper is missing is backfilled from the duplicate first. The keeper's
+      own non-empty values always win — nothing populated is ever overwritten.
 
     Order of operations:
       1. Create recovery folder in Trash.
-      2. Re-thread playlist references for each duplicate that has a keeper.
+      2. Backfill metadata and re-thread associations for each duplicate
+         that has a keeper.
       3. Remove DB entries (with the backup already created by write_db).
       4. Move files to recovery folder.
 
     Returns a summary dict:
-      { db_removed, files_moved, skipped, errors, trash_dir, playlists_rethreaded }
+      { db_removed, files_moved, skipped, errors, trash_dir,
+        playlists_rethreaded, associations_rethreaded, metadata_backfilled }
     """
 
     def emit(msg: str) -> None:
@@ -426,10 +695,12 @@ def prune_files(
     files_moved = 0
     skipped    = 0
     playlists_rethreaded = 0
+    associations_rethreaded = 0
+    metadata_backfilled = 0
     errors: list[str] = []
     protected_paths: set[str] = set()
 
-    # ── Step 1: Remove from database (with playlist re-threading) ─────────
+    # ── Step 1: Remove from database (with association re-threading) ──────
     emit("  Removing from RekordBox database…")
     for path in file_paths:
         if _cancel_requested():
@@ -440,27 +711,32 @@ def prune_files(
                 errors.append(f"Rollback failed after cancel request: {exc}")
             emit("  Prune cancelled before commit. No files were moved.")
             return {
-                "db_removed":           0,
-                "files_moved":          0,
-                "skipped":              0,
-                "errors":               errors,
-                "trash_dir":            str(trash_dir) if trash_dir is not None else None,
-                "playlists_rethreaded": 0,
-                "cancelled":            True,
+                "db_removed":              0,
+                "files_moved":             0,
+                "skipped":                 0,
+                "errors":                  errors,
+                "trash_dir":               str(trash_dir) if trash_dir is not None else None,
+                "playlists_rethreaded":    0,
+                "associations_rethreaded": 0,
+                "metadata_backfilled":     0,
+                "cancelled":               True,
             }
         try:
             rows = db.get_content(FolderPath=path).all()
             if rows:
                 deleted_for_path = 0
                 for row in rows:
-                    # Re-thread playlist slots before deleting the content row
+                    # Re-thread associations (playlists, cues, tags, etc.) before
+                    # deleting the content row
                     keeper_path = (keeper_map or {}).get(path)
                     song_rows = db.get_playlist_songs(ContentID=row.ID).all()
                     if keeper_path:
-                        n = _rethread_playlists(row, keeper_path, db, emit)
-                        if n:
-                            playlists_rethreaded += n
-                            emit(f"      ↪  {n} playlist slot(s) re-threaded to keeper")
+                        result = _rethread_associations(row, keeper_path, db, emit)
+                        playlists_rethreaded += result["playlists_rethreaded"]
+                        associations_rethreaded += result["associations_rethreaded"]
+                        metadata_backfilled += result["metadata_backfilled"]
+                        if result["playlists_rethreaded"]:
+                            emit(f"      ↪  {result['playlists_rethreaded']} playlist slot(s) re-threaded to keeper")
                     elif song_rows:
                         protected_paths.add(path)
                         skipped += 1
@@ -491,13 +767,15 @@ def prune_files(
         errors.append(msg)
         emit(f"  ✗ {msg}")
         return {
-            "db_removed":           0,
-            "files_moved":          0,
-            "skipped":              skipped,
-            "errors":               errors,
-            "trash_dir":            str(trash_dir) if trash_dir is not None else None,
-            "playlists_rethreaded": playlists_rethreaded,
-            "cancelled":            False,
+            "db_removed":              0,
+            "files_moved":             0,
+            "skipped":                 skipped,
+            "errors":                  errors,
+            "trash_dir":               str(trash_dir) if trash_dir is not None else None,
+            "playlists_rethreaded":    playlists_rethreaded,
+            "associations_rethreaded": associations_rethreaded,
+            "metadata_backfilled":     metadata_backfilled,
+            "cancelled":               False,
         }
 
     emit("")
@@ -562,6 +840,10 @@ def prune_files(
     emit(f"  Database entries removed        : {db_removed}")
     if playlists_rethreaded:
         emit(f"  Playlist slots re-threaded     : {playlists_rethreaded}")
+    if associations_rethreaded:
+        emit(f"  Other associations re-threaded : {associations_rethreaded}")
+    if metadata_backfilled:
+        emit(f"  Metadata fields backfilled     : {metadata_backfilled}")
     emit(f"  Files {'permanently deleted' if permanent else 'moved to recovery'} : {files_moved}")
     if skipped:
         emit(f"  Skipped (not on disk)    : {skipped}")
@@ -580,15 +862,19 @@ def prune_files(
                 "files_moved": files_moved,
                 "permanent": permanent,
                 "playlists_rethreaded": playlists_rethreaded,
+                "associations_rethreaded": associations_rethreaded,
+                "metadata_backfilled": metadata_backfilled,
             },
         )
 
     return {
-        "db_removed":           db_removed,
-        "files_moved":          files_moved,
-        "skipped":              skipped,
-        "errors":               errors,
-        "trash_dir":            str(trash_dir) if trash_dir is not None else None,
-        "playlists_rethreaded": playlists_rethreaded,
-        "cancelled":            False,
+        "db_removed":              db_removed,
+        "files_moved":             files_moved,
+        "skipped":                 skipped,
+        "errors":                  errors,
+        "trash_dir":               str(trash_dir) if trash_dir is not None else None,
+        "playlists_rethreaded":    playlists_rethreaded,
+        "associations_rethreaded": associations_rethreaded,
+        "metadata_backfilled":     metadata_backfilled,
+        "cancelled":               False,
     }
