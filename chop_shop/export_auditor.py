@@ -321,7 +321,7 @@ def audit_export(mount_root: PathLike, archive=None) -> ExportAuditReport:
         report.pdb_report = read_pdb(pdb_path)
         if report.pdb_report.partial:
             report.notes.append(
-                "PDB track<->ANLZ mapping unavailable this phase — see devicesql_reader.py SCOPE LIMIT."
+                "PDB track row extraction failed for this file — see devicesql_reader.py HONESTY LIMIT."
             )
 
     report.encryption_findings = _find_encryption_artifacts(root, usb_inspection)

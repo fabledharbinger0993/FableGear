@@ -1,12 +1,13 @@
 """
-Unit tests for chop_shop/devicesql_reader.py.
+Unit tests for chop_shop/devicesql_reader.py's file-header parsing.
 
-No export.pdb binary is committed to this repo (see module docstring SCOPE
-LIMIT), so these tests build a SYNTHETIC 16-byte header using the real
-numbers documented in docs/format_samples/DJMTGO_inspection.md (page size
-4096, 20 tables) — not a captured hardware file. Row-level parsing is out of
-scope for this phase and is asserted to stay an empty stub rather than
-guessed at.
+No export.pdb binary is committed to this repo (see module docstring
+HONESTY LIMIT), so these tests build a SYNTHETIC 16-byte header using the
+real numbers documented in docs/format_samples/DJMTGO_inspection.md (page
+size 4096, 20 tables) — not a captured hardware file. Row-level parsing
+(tracks table page/row walk, string decoding) is covered separately in
+tests/test_devicesql_pdb_rowwalk.py against fixtures built from Deep
+Symmetry's published DeviceSQL format spec.
 """
 
 import builtins
@@ -43,9 +44,14 @@ def test_read_pdb_valid_header_matches_djmtgo_ground_truth(tmp_path):
     assert report.page_size == 4096
     assert report.num_tables == 20
     assert report.next_unused_page == 47
+    # This fixture's "table pointer array" is zero padding, not real table
+    # data — the tracks table pointer degenerates to first_page=last_page=0,
+    # which the row walker handles as a harmless empty table (0 rows found,
+    # walk completes without error). See tests/test_devicesql_pdb_rowwalk.py
+    # for real row-walking coverage against a properly constructed fixture.
     assert report.tracks == []
-    assert report.partial is True
-    assert any("NOT extracted" in n for n in report.notes)
+    assert report.partial is False
+    assert any("Extracted 0 track row" in n for n in report.notes)
 
 
 def test_read_pdb_rejects_nonzero_lead_bytes(tmp_path):

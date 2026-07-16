@@ -102,7 +102,12 @@ def test_audit_export_report_shape(synthetic_export, archive):
     assert report.settings_files[0].valid is False  # garbage bytes, honestly reported
     assert report.pdb_report is not None
     assert report.pdb_report.valid_header is True
-    assert report.pdb_report.partial is True
+    # synthetic_export's export.pdb is header-only (no real table pointer
+    # data), so the tracks table walk degenerates to an empty-but-successful
+    # walk — 0 rows found, not a failure. See tests/test_devicesql_pdb_rowwalk.py
+    # for coverage of an actual populated tracks table.
+    assert report.pdb_report.tracks == []
+    assert report.pdb_report.partial is False
     assert report.archive_logged is True
 
 
