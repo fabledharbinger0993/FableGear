@@ -181,13 +181,13 @@ class DupeEntry:
 
     @property
     def quality_score(self) -> tuple:
-        """Higher = better. Used to sort within a group."""
-        return (
-            self.format_tier,
-            self.file_size_mb,
-            RARP_SCORE.get(self.rank, 0),
-            self.tag_completeness,  # higher = more complete tags
-        )
+        """Higher = better. Used to sort within a group.
+
+        Delegates to dedupe_sort_key so the pruner ranks by the exact same
+        rule the duplicate detector used to write the reviewed report — what a
+        human approves as the keeper is what actually survives.
+        """
+        return dedupe_sort_key(Path(self.file_path), self.rank)
 
 
 @dataclass
@@ -259,6 +259,34 @@ def _count_tags(path: Path) -> int:
         return score
     except Exception:
         return 0
+
+
+# ── Canonical keeper ranking (single source of truth) ─────────────────────────
+
+def dedupe_sort_key(path: Path, rank: str) -> tuple:
+    """
+    The canonical "which copy to keep" ordering for a duplicate group.
+    Higher sorts first; the highest is the keeper.
+
+    This is the ONE definition shared by the duplicate detector (which writes
+    the KEEP recommendation into the report a human reviews) and the pruner
+    (which executes the deletion). Both rank by this exact key so the keeper a
+    human sees in the CSV is precisely the keeper that survives — see
+    duplicate_detector._build/_rank sites, which import this.
+
+    Order of precedence: format quality tier, then file size, then RARP rank
+    (PN > MIK > RAW), then tag completeness.
+    """
+    try:
+        size_mb = path.stat().st_size / (1024 * 1024)
+    except OSError:
+        size_mb = 0.0
+    return (
+        FORMAT_TIER.get(path.suffix.lower(), 0),
+        size_mb,
+        RARP_SCORE.get(rank, 0),
+        _count_tags(path),
+    )
 
 
 # ── Public: load report ───────────────────────────────────────────────────────
