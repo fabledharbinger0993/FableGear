@@ -866,6 +866,7 @@ def api_library_integrity_canonical_paths_execute():
             summary = execute_plan(
                 db, plan, signatures=signatures, log_fn=log_lines.append,
             )
+            db.commit()
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
