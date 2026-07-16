@@ -348,9 +348,11 @@ def relocate_directory(
     new_root: Path,
     db: Rekordbox6Database,
     archive=None,
+    only_missing: bool = True,
 ) -> list[RelocationResult]:
     """
-    Batch-update FolderPath for all DjmdContent rows under old_root.
+    Batch-update FolderPath for DjmdContent rows under old_root whose files
+    are broken (missing on disk).
 
     Parameters
     ----------
@@ -364,6 +366,13 @@ def relocate_directory(
     db : Rekordbox6Database
         Open write session (write_db()). Backup and process check are
         enforced by write_db() before this function is called.
+    only_missing : bool
+        When True (default), only rows whose FolderPath no longer resolves
+        to a file on disk are candidates — tracks whose files are present
+        and healthy are never touched. Pass False only for a deliberate
+        mid-migration repoint where both copies exist and every row under
+        old_root really should move (the hash strategy is most reliable in
+        that scenario, since the original is still available to hash).
 
     Returns
     -------
@@ -383,6 +392,21 @@ def relocate_directory(
     except Exception as e:
         log.error("Failed to fetch content rows: %s", e)
         return []
+
+    if only_missing:
+        matched = len(affected)
+        affected = [c for c in affected if not Path(c.FolderPath).exists()]
+        log.info(
+            "Scoped to broken paths: %d of %d rows under %s are missing on disk "
+            "(%d healthy rows left untouched)",
+            len(affected), matched, old_root, matched - len(affected),
+        )
+        if matched and not affected:
+            log.info(
+                "All %d rows under %s resolve to files on disk — nothing to fix.",
+                matched, old_root,
+            )
+            return []
 
     if not affected:
         log.warning(

@@ -433,11 +433,18 @@ def cmd_relocate(args: argparse.Namespace) -> None:
     # old_root doesn't need to exist on disk — it's a string prefix matched
     # against FolderPath values in the DB. If it's a typo, relocate_directory
     # will match zero rows and log a warning.
-    log.info("Relocating: %s → %s", old_root, new_root)
+    only_missing = not getattr(args, "include_existing", False)
+    log.info(
+        "Relocating: %s → %s (%s)",
+        old_root, new_root,
+        "broken paths only" if only_missing else "ALL rows under old_root",
+    )
     archive = _require_archive("relocate")
     try:
         with write_db(LOCAL_DB) as db:
-            results = relocate_directory(old_root, new_root, db, archive=archive)
+            results = relocate_directory(
+                old_root, new_root, db, archive=archive, only_missing=only_missing,
+            )
     except Exception:
         log.exception("Relocation failed")
         sys.exit(1)
@@ -2226,6 +2233,12 @@ Examples:
         help="Previous path prefix stored in the DB (does not need to exist on disk)",
     )
     p_relocate.add_argument("new_root", metavar="NEW_ROOT", help="New path where files now live")
+    p_relocate.add_argument(
+        "--include-existing",
+        action="store_true",
+        help="Also repoint rows whose file still exists at the old path "
+             "(mid-migration only; by default healthy tracks are never touched)",
+    )
     p_relocate.set_defaults(func=cmd_relocate)
 
     # ── duplicates ──
