@@ -477,7 +477,7 @@ def undo_operations_revert():
     # for the whole batch so all DB updates land in one transaction.
     rb_db_ctx = None
     rb_db = None
-    rb_folder_index: "dict[str, Any]" = {}  # FolderPath → content row; O(n) build, O(1) lookup
+    rb_folder_index: dict[str, Any] = {}  # FolderPath → content row; O(n) build, O(1) lookup
     if op_type == "relocate" and any(i.get("ok") for i in plan["items"]):
         from db_connection import rekordbox_is_running, write_db  # noqa: PLC0415
         if rekordbox_is_running():
