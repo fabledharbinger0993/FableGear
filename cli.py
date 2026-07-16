@@ -1129,23 +1129,29 @@ def cmd_rekordbox_sync(args: argparse.Namespace) -> None:
 
 
 def cmd_export_onelibrary(args: argparse.Namespace) -> None:
-    """Write a Pioneer OneLibrary exportLibrary.db from FableGear's database.
+    """Write a Pioneer OneLibrary exportLibrary.db from FableGear's database,
+    plus the device-identity companion files (RBFLTR.DAT, djprofile.nxs)
+    that sit alongside it on a real device tree.
 
     Read-only against FableGear's own database; never touches Rekordbox or
     any existing Pioneer file. Refuses to overwrite an existing target.
     """
     from fablegear_database import FableGearDatabase
     from fablegear_database.onelibrary_writer import OneLibraryWriter
+    from fablegear_database.device_identity import write_rbfltr, write_dj_profile
 
     target = Path(args.target)
     log.info("Writing OneLibrary export to: %s", target)
+
+    device_name = getattr(args, "device_name", "") or "FableGear"
+    dj_name = getattr(args, "dj_name", "") or "Fabled Guthrie"
 
     fg_db = FableGearDatabase()
     try:
         result = OneLibraryWriter(fg_db).write(
             target,
             include_playlists=not getattr(args, "no_playlists", False),
-            device_name=getattr(args, "device_name", "") or "",
+            device_name=device_name,
         )
     except FileExistsError as exc:
         log.error(str(exc))
@@ -1166,8 +1172,28 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
             log.warning("    %s", err)
         if len(result.errors) > 20:
             log.warning("    ... and %d more", len(result.errors) - 20)
+
+    if not getattr(args, "no_identity_files", False):
+        # target is expected to be .../PIONEER/rekordbox/exportLibrary.db —
+        # derive the PIONEER/ root two levels up to place the companions
+        # correctly. If the caller pointed target somewhere unconventional,
+        # skip rather than guess at a wrong location.
+        pioneer_root = target.parent.parent
+        if pioneer_root.name == "PIONEER":
+            write_rbfltr(pioneer_root)
+            write_dj_profile(pioneer_root, display_name=dj_name)
+            log.info("  Device identity : RBFLTR.DAT + djprofile.nxs (%s) written", dj_name)
+        else:
+            log.warning(
+                "  Skipped device-identity files — target's grandparent "
+                "directory is %r, not 'PIONEER'. Pass a target like "
+                ".../PIONEER/rekordbox/exportLibrary.db for these to be "
+                "placed automatically, or use --no-identity-files to silence "
+                "this note.", pioneer_root.name,
+            )
+
     log.warning(
-        "NOTE: this database has not been validated on physical Pioneer hardware. "
+        "NOTE: none of this has been validated on physical Pioneer hardware. "
         "Test on a sacrificial USB stick — never a gig stick — and keep a "
         "Rekordbox-made control stick until trust is earned."
     )
@@ -2639,7 +2665,17 @@ Examples:
     p_onelib.add_argument(
         "--device-name",
         default="",
-        help="Device name to record in the property table",
+        help="Device name to record in the property table (default: FableGear)",
+    )
+    p_onelib.add_argument(
+        "--dj-name",
+        default="",
+        help="DJ profile display name for djprofile.nxs (default: Fabled Guthrie)",
+    )
+    p_onelib.add_argument(
+        "--no-identity-files",
+        action="store_true",
+        help="Skip writing RBFLTR.DAT and djprofile.nxs alongside exportLibrary.db",
     )
     p_onelib.set_defaults(func=cmd_export_onelibrary)
 

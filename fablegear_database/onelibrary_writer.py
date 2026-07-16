@@ -248,7 +248,7 @@ class OneLibraryWriter:
         target_path: Path,
         content_ids: Optional[List[int]] = None,
         include_playlists: bool = True,
-        device_name: str = "",
+        device_name: str = "FableGear",
     ) -> OneLibraryWriteResult:
         target_path = Path(target_path)
         result = OneLibraryWriteResult(target_path=str(target_path))
