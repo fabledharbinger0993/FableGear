@@ -1012,7 +1012,10 @@ main .card {
   right: -10px;
   width: 90px;
   height: 90px;
-  background-image: url('/static/logo-guthrie.png'); /* Guthrie the mascot watermark */
+  /* Per-tool watermark when a card sets --card-watermark (the pipeline step
+     cards each define their own tool icon, see #step-* rules below); the
+     Guthrie mascot is the brand-wide fallback for every other card. */
+  background-image: var(--card-watermark, url('/static/logo-guthrie.png'));
   background-size: contain;
   background-repeat: no-repeat;
   background-position: bottom right;
