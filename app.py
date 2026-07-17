@@ -1242,19 +1242,25 @@ def onboarding():
     """Serve the first-run setup wizard."""
     from flask import redirect as _redirect  # noqa: PLC0415
     from user_config import config_exists   # noqa: PLC0415
+    # Whether a usable app already exists behind the wizard. Drives the
+    # wizard's Exit control: a configured user (re-running setup) can exit
+    # straight back to the app; a first-run user has no app to return to, so
+    # Exit offers to quit and resume later instead.
+    already_configured = False
     try:
         if config_exists():
             state = _load_setup_state(repair=True)
+            already_configured = bool(state.get("setup_complete"))
             # `?reconfigure=1` lets a completed user re-enter the wizard (e.g. to
             # change permissions or paths); otherwise a finished setup bounces home.
-            if state.get("setup_complete") and not request.args.get("reconfigure"):
+            if already_configured and not request.args.get("reconfigure"):
                 return _redirect("/")
     except Exception:
         # Fails open onto the wizard (the safe default), but silently — log
         # it so a real setup-state bug is visible instead of just "onboarding
         # showed up again for no obvious reason."
         app.logger.exception("onboarding gate: setup state check failed — showing wizard")
-    return render_template("onboarding.html")
+    return render_template("onboarding.html", already_configured=already_configured)
 
 
 @app.route("/api/onboarding/dep-check")
