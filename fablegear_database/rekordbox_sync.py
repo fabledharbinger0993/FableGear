@@ -9,6 +9,7 @@ from pyrekordbox.db6 import tables
 from pyrekordbox.db6.tables import DjmdContent, DjmdCue, DjmdArtist, DjmdAlbum, DjmdGenre, DjmdLabel, DjmdKey
 
 from .database import FableGearDatabase, ContentRecord, CueRecord, BeatGridRecord
+from key_mapper import resolve_key_id
 
 log = logging.getLogger(__name__)
 
@@ -182,7 +183,6 @@ class RekordboxSyncAdapter:
                         stats["details"].append(f"Merge BPM to FableGear for {path}")
 
                     # Key (ScaleName)
-                    from key_mapper import resolve_key_id
                     rdb_key = rdb_row.Key.ScaleName if rdb_row.Key else ""
                     if fg_rec.key and fg_rec.key != rdb_key:
                         rdb_row.KeyID = resolve_key_id(fg_rec.key, rdb)
@@ -253,7 +253,7 @@ class RekordboxSyncAdapter:
                     if fg_updated:
                         stats["tracks_updated_in_fablegear"] += 1
                         if not dry_run:
-                            self.fg_db.upsert_content([fg_rec])
+                            self.fg_db.bulk_upsert_content([fg_rec])
 
                     if rdb_updated:
                         stats["tracks_updated_in_rekordbox"] += 1
