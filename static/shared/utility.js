@@ -121,7 +121,7 @@ async function prefillDefaults() {
   // blank prevents accidental runs against an unconfigured path.
   // All fields restore from localStorage only (user's own previous entries).
   const rootFields = [];
-  const freeFields = ['relocate-new', 'organize-target', 'novelty-dest', 'relocate-old'];
+  const freeFields = ['relocate-new', 'organize-target', 'novelty-dest', 'novelty-copy-to', 'relocate-old'];
 
   // Restore any previously saved value for every tracked field first
   [...rootFields, ...freeFields].forEach(id => {

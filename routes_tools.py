@@ -593,6 +593,10 @@ def api_novelty():
     for extra in sources[1:]:
         cmd += ["--also-scan", extra]
 
+    copy_to = request.args.get("copy_to", "").strip()
+    if copy_to:
+        cmd += ["--copy-to", copy_to]
+
     if request.args.get("no_dry_run") == "1":
         cmd.append("--no-dry-run")
 

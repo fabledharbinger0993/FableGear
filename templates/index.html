@@ -1052,7 +1052,8 @@
           <div class="le-col le-col-dur" onclick="leSortBy('duration')">Time <span class="le-sort-arrow" data-col="duration"></span></div>
           <div class="le-col le-col-date" onclick="leSortBy('date_added')">Added <span class="le-sort-arrow" data-col="date_added"></span></div>
         </div>
-        <div class="le-track-list" id="le-track-list">
+        <div class="le-track-list" id="le-track-list"
+             ondragover="leTrackListDragOver(event)" ondragleave="leTrackListDragLeave(event)" ondrop="leTrackListDrop(event)">
           <div class="le-empty-state" id="le-empty-state">
             <div class="le-empty-music-icon">♫</div>
             <div>Loading library…</div>

@@ -59,6 +59,10 @@ app = Flask(
 @app.errorhandler(Exception)
 def _handle_unexpected_exception(exc):
     if request.path.startswith("/api/"):
+        import logging as _logging  # noqa: PLC0415
+        _logging.getLogger(__name__).exception(
+            "Unhandled exception on %s %s", request.method, request.path
+        )
         return api_error_from_exc(exc)
     raise exc
 
@@ -1449,6 +1453,7 @@ def api_onboarding_import_sources():
 
 
 @app.route("/api/onboarding/import-sources/status")
+@limiter.exempt
 def api_onboarding_import_sources_status():
     return jsonify(_OB_IMPORT)
 

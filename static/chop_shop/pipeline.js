@@ -659,6 +659,8 @@ function _resumeNovelty(ckpt) {
   _populatePills('novelty-pills', ckpt.sources);
   const d = document.getElementById('novelty-dest');
   if (d && ckpt.dest) d.value = ckpt.dest;
+  const ct = document.getElementById('novelty-copy-to');
+  if (ct && ckpt.copyTo) ct.value = ckpt.copyTo;
   const dr = document.getElementById('novelty-dry-run');
   if (dr) dr.checked = !!ckpt.dryRun;
   document.getElementById('step-novelty')?.scrollIntoView({ behavior: 'smooth', block: 'start' });

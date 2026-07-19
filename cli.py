@@ -2143,6 +2143,8 @@ def cmd_novelty(args: argparse.Namespace) -> None:
     extra   = [Path(p) for p in (getattr(args, "also_scan", None) or [])]
     sources = [primary] + extra
     dest    = Path(args.dest)
+    copy_to_arg = getattr(args, "copy_to", None)
+    copy_to = Path(copy_to_arg) if copy_to_arg else None
     dry_run = not args.no_dry_run
     match_mode = getattr(args, "match_mode", "fingerprint")
 
@@ -2156,6 +2158,12 @@ def cmd_novelty(args: argparse.Namespace) -> None:
         except OSError as e:
             log.error("Cannot create destination %s: %s", dest, e)
             sys.exit(1)
+    if copy_to is not None and not copy_to.is_dir():
+        try:
+            copy_to.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            log.error("Cannot create copy-to folder %s: %s", copy_to, e)
+            sys.exit(1)
 
     max_workers = max(1, getattr(args, "workers", 1))
 
@@ -2167,8 +2175,9 @@ def cmd_novelty(args: argparse.Namespace) -> None:
     archive = _archive() if dry_run else _require_archive("novelty")
 
     log.info(
-        "Novel scan  sources=%s  dest=%s  dry_run=%s  workers=%d  match_mode=%s",
-        [str(s) for s in sources], dest, dry_run, max_workers, match_mode,
+        "Novel scan  sources=%s  compare_against=%s  copy_to=%s  dry_run=%s  "
+        "workers=%d  match_mode=%s",
+        [str(s) for s in sources], dest, copy_to or dest, dry_run, max_workers, match_mode,
     )
 
     total_src = 0
@@ -2178,11 +2187,13 @@ def cmd_novelty(args: argparse.Namespace) -> None:
     aggregate_errors = []
     root_sections: list[tuple[Path, str]] = []
     verb = "would be copied" if dry_run else "copied"
+    copy_target_label = str(copy_to) if copy_to is not None else str(dest)
 
     for index, source in enumerate(sources, start=1):
         _log_root_step("Novelty", source, index, len(sources))
         root_result = scan_novel(
             [source], dest,
+            copy_to=copy_to,
             dry_run=dry_run,
             max_workers=max_workers,
             match_mode=match_mode,
@@ -2199,10 +2210,10 @@ def cmd_novelty(args: argparse.Namespace) -> None:
         root_errors = len(root_result.errors)
         root_lines = [
             f"{root_result.total_src} tracks scanned on source.",
-            f"Destination index: {root_result.dest_index_size} tracks.",
+            f"Compared against: {root_result.dest_index_size} tracks in {dest}.",
         ]
         if root_novel:
-            root_lines.append(f"{root_novel} novel tracks {verb} to destination.")
+            root_lines.append(f"{root_novel} novel tracks {verb} to {copy_target_label}.")
         if root_present:
             root_lines.append(f"{root_present} tracks confirmed already present — skipped.")
         if root_errors:
@@ -2229,12 +2240,12 @@ def cmd_novelty(args: argparse.Namespace) -> None:
         "Novel Track Scan complete.",
         "",
         f"{result.total_src} tracks scanned on source.",
-        f"Destination index: {result.dest_index_size} tracks.",
+        f"Compared against: {result.dest_index_size} tracks in {dest}.",
         f"Comparison mode: {match_mode}.",
         "",
     ]
     if novel:
-        lines.append(f"  {novel} novel tracks {verb} to destination.")
+        lines.append(f"  {novel} novel tracks {verb} to {copy_target_label}.")
     if present:
         lines.append(f"  {present} tracks confirmed already present — skipped.")
     if errors:
@@ -2877,7 +2888,17 @@ Examples:
     p_novelty.add_argument(
         "dest",
         metavar="DEST",
-        help="Home library root to copy novel tracks into",
+        help="Home library root to compare source tracks against",
+    )
+    p_novelty.add_argument(
+        "--copy-to",
+        metavar="PATH",
+        dest="copy_to",
+        default=None,
+        help="Where confirmed-novel tracks are copied. Defaults to DEST "
+             "(the old single-folder behavior) when omitted — pass this to "
+             "keep new finds segregated in their own folder while still "
+             "comparing against the real home library.",
     )
     p_novelty.add_argument(
         "--no-dry-run",

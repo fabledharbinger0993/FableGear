@@ -791,6 +791,17 @@ def api_library_db_import():
                 )
             except Exception as exc:
                 log.warning("Failed to record import in transaction history: %s", exc)
+        # Callers that need to chain a follow-up action (e.g. add the freshly
+        # imported track to a playlist right after a drag-drop) need the
+        # content_id — import_paths() only returns counts, so look each path
+        # back up. Cheap: one indexed query per path, and this route only ever
+        # handles a handful of drag-dropped files at a time.
+        content_ids = {}
+        for p in paths:
+            record = db.get_content_by_path(p)
+            if record is not None and record.id is not None:
+                content_ids[p] = record.id
+        stats["content_ids"] = content_ids
         return jsonify(stats)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

@@ -171,6 +171,62 @@ input[type="range"] { -webkit-app-region: no-drag; }
   0%,100% { opacity: 1; } 50% { opacity: .35; }
 }
 
+/* ── Shared progress bar — neon fill, for scans/imports/uploads/exports ────
+   Inline, non-modal: drop into any card that already shows progress text.
+   Determinate once a real total is known (glowing fill grows to a %, with a
+   traveling highlight while it's actively advancing); indeterminate before
+   that (e.g. mid pre-count) via .is-indeterminate on the track, which shows
+   a small block sweeping the full width instead of a stalled 0%. */
+.fg-progress-ticker {
+  font-size: .82rem;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.fg-progress-ticker .fg-progress-count {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.fg-progress-track {
+  position: relative;
+  height: 8px;
+  border-radius: 5px;
+  background: var(--surface-hi);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .12);
+}
+.fg-progress-fill {
+  position: relative;
+  height: 100%;
+  width: 0%;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--accent2), var(--accent));
+  box-shadow: 0 0 8px rgba(var(--accent-rgb), .75), 0 0 2px rgba(var(--accent-rgb), .9);
+  transition: width .35s ease-out;
+}
+.fg-progress-fill::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
+  background-size: 60px 100%;
+  background-repeat: no-repeat;
+  animation: fg-progress-sweep 1.4s linear infinite;
+}
+@keyframes fg-progress-sweep {
+  0%   { background-position: -80px 0; }
+  100% { background-position: calc(100% + 80px) 0; }
+}
+.fg-progress-track.is-indeterminate .fg-progress-fill {
+  width: 30% !important;
+  animation: fg-progress-indeterminate 1.1s ease-in-out infinite;
+}
+@keyframes fg-progress-indeterminate {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(340%); }
+}
+
 @property --titlebar-angle {
   syntax: '<angle>';
   initial-value: 0deg;
@@ -2417,6 +2473,21 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 }
 .summary-pill-icon { font-size: .8rem; line-height: 1; display: block; margin-bottom: 2px; }
 
+/* Live background-import pill — still running, as opposed to a static
+   completed-step summary. Cursor stays default: nothing to click yet. */
+.bg-import-pill {
+  cursor: default;
+  background: rgba(var(--accent-rgb), .12);
+  border-color: rgba(var(--accent-rgb), .4);
+  color: var(--accent);
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), .35);
+  animation: bg-import-pulse 2s ease-in-out infinite;
+}
+@keyframes bg-import-pulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(var(--accent-rgb), .35); }
+  50%      { box-shadow: 0 0 11px rgba(var(--accent-rgb), .65); }
+}
+
 /* ── Welcome modal ─────────────────────────────────────────────────────── */
 .welcome-step            { display: none; flex-direction: column; }
 .welcome-step.active     { display: flex; }
@@ -2950,7 +3021,7 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 #fb-panel {
   position: fixed;
   left: var(--left-panel-w);
-  top: 0; bottom: 0;
+  top: var(--titlebar-h); bottom: 0;
   width: var(--sidebar-w);
   background: var(--surface);
   border-right: 1px solid var(--border-hi);
@@ -4168,6 +4239,11 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   color: var(--text-dim);
   margin: 4px 0 0;
   line-height: 1.5;
+}
+.field-hint-inline {
+  font-weight: 400;
+  font-size: .78rem;
+  color: var(--text-dim);
 }
 
 /* ── Normalize preview player ──────────────────────────────────────────── */

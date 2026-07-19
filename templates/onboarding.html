@@ -802,7 +802,15 @@
 
     <div class="ob-card" id="import-progress-card" style="display:none">
       <div class="ob-card-title">Importing into FableGear.db</div>
-      <div id="import-progress" style="font-size:.85rem;color:var(--text-muted)"></div>
+      <div class="fg-progress">
+        <div class="fg-progress-ticker">
+          <span id="import-progress-label">Starting…</span>
+          <span class="fg-progress-count" id="import-progress-count"></span>
+        </div>
+        <div class="fg-progress-track is-indeterminate" id="import-progress-track">
+          <div class="fg-progress-fill" id="import-progress-fill"></div>
+        </div>
+      </div>
     </div>
 
     <div class="ob-actions" id="import-actions">
@@ -1500,8 +1508,14 @@ function importSelectedSources() {
   startBtn.disabled = true;
   startBtn.textContent = 'Importing…';
   document.getElementById('import-progress-card').style.display = '';
-  var prog = document.getElementById('import-progress');
-  prog.textContent = 'Starting…';
+  var label = document.getElementById('import-progress-label');
+  var count = document.getElementById('import-progress-count');
+  var track = document.getElementById('import-progress-track');
+  var fill  = document.getElementById('import-progress-fill');
+  label.textContent = 'Starting…';
+  count.textContent = '';
+  track.classList.add('is-indeterminate');
+  fill.style.width = '';
 
   _saveConfigNow()
     .then(function(d) {
@@ -1519,14 +1533,24 @@ function importSelectedSources() {
           .then(function(r) { return r.json(); })
           .then(function(s) {
             if (s.running) {
-              prog.textContent = s.phase === 'importing'
-                ? ('Importing ' + s.done + ' / ' + s.total + '…')
-                : (s.phase + '…');
+              if (s.phase === 'importing' && s.total > 0) {
+                track.classList.remove('is-indeterminate');
+                label.textContent = 'Importing…';
+                count.textContent = s.done.toLocaleString() + ' / ' + s.total.toLocaleString();
+                fill.style.width = Math.min(100, (s.done / s.total) * 100) + '%';
+              } else {
+                track.classList.add('is-indeterminate');
+                label.textContent = 'Scanning your library…';
+                count.textContent = '';
+              }
               return;
             }
             clearInterval(_obImportPoll);
             if (s.error) {
-              prog.textContent = '⚠ Import failed: ' + s.error;
+              track.classList.remove('is-indeterminate');
+              fill.style.width = '100%';
+              label.textContent = '⚠ Import failed';
+              count.textContent = s.error;
               startBtn.disabled = false;
               startBtn.textContent = 'Retry import →';
               return;
@@ -1535,7 +1559,10 @@ function importSelectedSources() {
             confirmedPaths._imported_summary =
               (r.new_files || 0) + ' new · ' + (r.updated_files || 0) + ' updated · '
               + (r.skipped_files || 0) + ' already known' + ((r.error_files || 0) ? ' · ' + r.error_files + ' errors' : '');
-            prog.textContent = '✓ ' + confirmedPaths._imported_summary;
+            track.classList.remove('is-indeterminate');
+            fill.style.width = '100%';
+            label.textContent = '✓ Done';
+            count.textContent = confirmedPaths._imported_summary;
             startBtn.style.display = 'none';
             setTimeout(function() { goToStep(7); }, 1200);
           })

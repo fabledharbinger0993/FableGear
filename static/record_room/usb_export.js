@@ -214,6 +214,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupSinglePathZone('relocate-new-zone',    'relocate-new');
   setupSinglePathZone('organize-target-zone', 'organize-target');
   setupSinglePathZone('novelty-dest-zone',    'novelty-dest');
+  setupSinglePathZone('novelty-copy-to-zone', 'novelty-copy-to');
   setupAllDropZones();
   normPreviewSetupObserver();
   _initToolCheckpoints();

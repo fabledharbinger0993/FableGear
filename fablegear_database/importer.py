@@ -7,8 +7,13 @@ multi-format extractor — ID3, Vorbis, MP4 atoms, damaged-MP3 recovery — used
 everywhere else), so the importer never has to reimplement tag parsing.
 
 Design notes:
-- Files are written in one bulk transaction via ``bulk_upsert_content`` rather
-  than a commit per file.
+- Files are written in batches of ``_COMMIT_BATCH_SIZE`` as the scan
+  progresses, rather than one bulk transaction after everything has been
+  discovered. A crash, rate limit, or force-quit partway through a long
+  import loses at most the current batch, not the whole run — verified
+  against real rekordbox behavior (which commits every track immediately;
+  batching here trades a little of that immediacy for far fewer fsyncs on
+  a library-sized scan).
 - Change detection (file size + mtime) lets a re-scan skip unchanged files
   without re-hashing them.
 - ``scanner`` is imported lazily / injectable so this module (and the
@@ -19,7 +24,7 @@ import hashlib
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from .database import ContentRecord, FableGearDatabase
 
@@ -28,6 +33,24 @@ log = logging.getLogger(__name__)
 # Error substrings (emitted by scanner.extract_metadata) that indicate a file
 # we could not actually read — as opposed to a merely tag-less file.
 _CORRUPT_ERROR_MARKERS = ("mutagen open failed", "stat failed", "returned None")
+
+# How many records accumulate before a bulk_upsert_content() flush. Small
+# enough that a crash mid-import loses a bounded slice of work, large enough
+# that a library-sized scan isn't paying a full fsync per file.
+_COMMIT_BATCH_SIZE = 200
+
+
+def _json_safe_text(value: object) -> str:
+    """Coerce to a string that survives Flask's ensure_ascii JSON encoding.
+
+    Filenames on non-UTF-8 volumes get decoded with surrogateescape, which
+    embeds lone surrogate codepoints in the resulting str. Those raise
+    UnicodeEncodeError deep inside json.dumps the moment this text reaches
+    a jsonify()'d response (e.g. the onboarding import-status poll), which
+    takes down that endpoint with no indication of why. Scrub before it
+    lands in stats["errors"].
+    """
+    return str(value).encode("utf-8", "replace").decode("utf-8")
 
 
 class FileImporter:
@@ -91,21 +114,27 @@ class FileImporter:
 
         scanner = self._get_scanner()
 
-        # Discover everything first so we can report an accurate total and drive
-        # progress. scan_directory already applies skip rules + metadata.
-        tracks = []
+        valid_roots: List[Path] = []
         for root in root_paths:
             root = Path(root)
             if not root.is_dir():
                 log.warning("Root path is not a directory: %s", root)
                 continue
-            tracks.extend(scanner.scan_directory(root))
+            valid_roots.append(root)
 
-        stats["total_files"] = len(tracks)
-        log.info("Found %d audio files to process", len(tracks))
+        # Cheap pre-count (no metadata extraction) so callers get a real
+        # X / total from the first progress tick, rather than only finding
+        # out the total once the whole scan has already finished.
+        total = sum(scanner.count_scannable_files(root) for root in valid_roots)
+        stats["total_files"] = total
+        log.info("Found %d audio files to process", total)
+
+        def _track_stream():
+            for root in valid_roots:
+                yield from scanner.scan_directory(root)
 
         return self._import_tracks(
-            tracks, stats,
+            _track_stream(), stats, total,
             progress_callback=progress_callback,
             force_refresh=force_refresh,
             source_label=[str(p) for p in root_paths],
@@ -139,21 +168,21 @@ class FileImporter:
             fp = Path(fp)
             if not fp.is_file():
                 stats["error_files"] += 1
-                stats["errors"].append(f"{fp}: not a file")
+                stats["errors"].append(_json_safe_text(f"{fp}: not a file"))
                 continue
             if audio_exts and fp.suffix.lower() not in audio_exts:
                 stats["error_files"] += 1
-                stats["errors"].append(f"{fp}: not an audio file")
+                stats["errors"].append(_json_safe_text(f"{fp}: not an audio file"))
                 continue
             try:
                 tracks.append(scanner.extract_metadata(fp))
             except Exception as exc:
                 stats["error_files"] += 1
-                stats["errors"].append(f"{fp}: {exc}")
+                stats["errors"].append(_json_safe_text(f"{fp}: {exc}"))
 
         stats["total_files"] = len(file_paths)
         return self._import_tracks(
-            tracks, stats,
+            tracks, stats, len(file_paths),
             progress_callback=progress_callback,
             force_refresh=force_refresh,
             source_label=[str(p) for p in file_paths],
@@ -161,19 +190,28 @@ class FileImporter:
 
     def _import_tracks(
         self,
-        tracks: List[Any],
+        tracks: Iterable[Any],
         stats: Dict[str, Any],
+        total: int,
         *,
         progress_callback: Optional[Callable[[int, int], None]] = None,
         force_refresh: bool = False,
         source_label: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Shared batch pipeline: change-detect, hash, upsert, log."""
+        """Shared pipeline: change-detect, hash, upsert in batches, log.
+
+        ``tracks`` may be a one-shot generator (import_files streams straight
+        off scan_directory) — accumulated records are flushed to the database
+        every _COMMIT_BATCH_SIZE instead of once at the very end, so a crash
+        or interruption partway through only loses the current batch.
+        """
         # One query for change detection instead of a lookup per file.
         existing = self.database.get_path_index()
 
         batch: List[ContentRecord] = []
-        for i, track in enumerate(tracks):
+        processed = 0
+        for track in tracks:
+            processed += 1
             try:
                 path = Path(track.path)
                 path_str = str(path)
@@ -197,13 +235,17 @@ class FileImporter:
                 else:
                     stats["new_files"] += 1
 
+                if len(batch) >= _COMMIT_BATCH_SIZE:
+                    self.database.bulk_upsert_content(batch)
+                    batch = []
+
             except Exception as exc:
                 stats["error_files"] += 1
-                stats["errors"].append(f"{getattr(track, 'path', '?')}: {exc}")
+                stats["errors"].append(_json_safe_text(f"{getattr(track, 'path', '?')}: {exc}"))
                 log.error("Failed to import %s: %s", getattr(track, "path", "?"), exc)
             finally:
                 if progress_callback:
-                    progress_callback(i + 1, len(tracks))
+                    progress_callback(processed, total)
 
         if batch:
             self.database.bulk_upsert_content(batch)
