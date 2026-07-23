@@ -1264,32 +1264,37 @@ class FableGearDatabase:
                 
             track_map = {t.id: t for t in tracks}
             actual_ids = list(track_map.keys())
-            placeholders_actual = ",".join("?" for _ in actual_ids)
+            
+            # Chunking to avoid SQLite host parameter limits
+            CHUNK_SIZE = 500
+            for i in range(0, len(actual_ids), CHUNK_SIZE):
+                chunk = actual_ids[i:i + CHUNK_SIZE]
+                placeholders_chunk = ",".join("?" for _ in chunk)
 
-            # 2. Fetch all cues for these tracks in one query
-            cursor.execute(f"""
-                SELECT id, content_id, kind, slot, in_msec, out_msec, color, comment, created_at, updated_at
-                FROM fg_cue
-                WHERE content_id IN ({placeholders_actual})
-                ORDER BY in_msec ASC
-            """, actual_ids)
-            cue_cols = [col[0] for col in cursor.description]
-            for row in cursor.fetchall():
-                cue = CueRecord.from_dict(dict(zip(cue_cols, row)))
-                if cue.content_id in track_map:
-                    track_map[cue.content_id].cues.append(cue)
+                # 2. Fetch cues for this chunk
+                cursor.execute(f"""
+                    SELECT id, content_id, kind, slot, in_msec, out_msec, color, comment, created_at, updated_at
+                    FROM fg_cue
+                    WHERE content_id IN ({placeholders_chunk})
+                    ORDER BY in_msec ASC
+                """, chunk)
+                cue_cols = [col[0] for col in cursor.description]
+                for row in cursor.fetchall():
+                    cue = CueRecord.from_dict(dict(zip(cue_cols, row)))
+                    if cue.content_id in track_map:
+                        track_map[cue.content_id].cues.append(cue)
 
-            # 3. Fetch all beatgrid markers in one query
-            cursor.execute(f"""
-                SELECT id, content_id, beat_number, time_msec, bpm, meter_numerator, meter_denominator, created_at, updated_at
-                FROM fg_beatgrid
-                WHERE content_id IN ({placeholders_actual})
-                ORDER BY beat_number ASC
-            """, actual_ids)
-            grid_cols = [col[0] for col in cursor.description]
-            for row in cursor.fetchall():
-                grid = BeatGridRecord.from_dict(dict(zip(grid_cols, row)))
-                if grid.content_id in track_map:
-                    track_map[grid.content_id].beatgrid.append(grid)
+                # 3. Fetch beatgrid markers for this chunk
+                cursor.execute(f"""
+                    SELECT id, content_id, beat_number, time_msec, bpm, meter_numerator, meter_denominator, created_at, updated_at
+                    FROM fg_beatgrid
+                    WHERE content_id IN ({placeholders_chunk})
+                    ORDER BY beat_number ASC
+                """, chunk)
+                grid_cols = [col[0] for col in cursor.description]
+                for row in cursor.fetchall():
+                    grid = BeatGridRecord.from_dict(dict(zip(grid_cols, row)))
+                    if grid.content_id in track_map:
+                        track_map[grid.content_id].beatgrid.append(grid)
 
             return tracks
