@@ -1533,11 +1533,18 @@ body.log-open #scan-bar { bottom: var(--log-h); }
   padding: 12px 18px;
   font-family: var(--mono); font-size: .8rem;
   line-height: 1.6;
+  /* The rest of the app is user-select:none for a native feel, and a frameless
+     WKWebView won't let text be selected unless a descendant opts back in.
+     The terminal is the one surface a user needs to copy from (error text,
+     paths, ffmpeg output), so explicitly re-enable selection here. */
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
 }
 #log-output::-webkit-scrollbar { width: 4px; }
 #log-output::-webkit-scrollbar-track { background: transparent; }
 #log-output::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px; }
-.log-line { white-space: pre-wrap; word-break: break-all; }
+.log-line { white-space: pre-wrap; word-break: break-all; -webkit-user-select: text; user-select: text; }
 .log-line.warn    { color: var(--caution); }
 .log-line.error   { color: var(--danger); }
 .log-line.success { color: var(--safe); }
@@ -3376,19 +3383,15 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
   font-size: .78rem !important;
   flex-shrink: 0;
 }
-.trb-btn-dismiss {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: .9rem;
-  padding: 4px 6px;
+.trb-btn-restart {
+  padding: 5px 12px !important;
+  font-size: .78rem !important;
   flex-shrink: 0;
-  opacity: .55;
+  color: var(--text-muted);
+  opacity: .8;
   transition: opacity .15s;
-  line-height: 1;
 }
-.trb-btn-dismiss:hover { opacity: 1; }
+.trb-btn-restart:hover { opacity: 1; }
 
 /* ── Pipeline Wizard modal ─────────────────────────────────────────────── */
 #pipeline-wizard-backdrop {
@@ -4385,12 +4388,20 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   display: flex;
   align-items: stretch;
   justify-content: stretch;
+  transition: left .25s cubic-bezier(.4,0,.2,1);
   /* WKWebView frameless: library editor is interactive, never a drag handle */
   -webkit-app-region: no-drag;
 }
 #library-editor-overlay.hidden { display: none !important; }
 /* le-visible is no-op — editor is always visible */
 #library-editor-overlay.le-visible { opacity: 1; }
+
+/* File browser drawer shares space with the library instead of covering it,
+   in any space that shows this pane (not just Chop Shop — see the
+   fg-space-chop-scoped push rules for #tool-float-modal/#log-panel/#chop-readout). */
+body:has(#fb-panel.fb-open) #library-editor-overlay {
+  left: calc(var(--left-panel-w) + var(--sidebar-w));
+}
 
 /* Icon watermark — crisp edges, nearly invisible */
 #library-editor-overlay::before {
@@ -5902,6 +5913,25 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
 }
 .drive-fix-steps li { list-style: disc; }
 
+/* ── Health issues modal ───────────────────────────────────────────────── */
+#health-modal-backdrop {
+  position: fixed; inset: 0; z-index: 10000;
+  background: rgba(0,0,0,.72);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+#health-modal-backdrop.hidden { display: none; }
+#health-modal {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-hi) 90%, black), var(--surface));
+  border: 1px solid var(--border-hi);
+  border-radius: 12px;
+  width: 100%; max-width: 560px;
+  max-height: 90vh;
+  box-shadow: 0 24px 80px rgba(0,0,0,.8);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
 /* ── Health hazard panel ─────────────────────────────────────────────────── */
 .health-panel {
   background: rgba(30, 24, 48, .6);
@@ -6882,6 +6912,17 @@ body.fg-space-chop .log-close-btn,
 body.fg-space-chop #log-spinner { display: none !important; }
 body.fg-space-chop #log-cmd-label::before { content: '▎ live terminal — '; color: var(--accent); }
 
+/* The chop-space terminal panel is pointer-events:none so its fixed-position
+   column doesn't swallow clicks meant for the workspace around it. Re-enable
+   interaction on the actual output so the live terminal can be clicked,
+   highlighted, and copied (child overrides the parent's pointer-events). */
+body.fg-space-chop #log-output {
+  pointer-events: auto;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
 /* ── Progress readout — compact strip across the bottom right ─────────────────── */
 #chop-readout { display: none; }
 body.fg-space-chop #chop-readout {
@@ -7057,6 +7098,11 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   align-items: stretch;
 }
 .deck-half-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.deck-ctrl-row {
   display: flex;
   gap: 8px;
   align-items: stretch;
@@ -7577,6 +7623,76 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+/* ── Hot cues ──────────────────────────────────────────────────────────── */
+.deck-ctrl-group-hotcue { flex: 1.3; }
+.deck-hotcue-row {
+  display: flex;
+  gap: 4px;
+}
+.deck-hotcue-pad {
+  flex: 1;
+  height: 22px;
+  border: 1px solid var(--border-hi);
+  background: var(--surface-hi);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s, box-shadow .12s;
+}
+.deck-hotcue-pad:hover { border-color: var(--text-muted); color: var(--text-muted); }
+.deck-hotcue-pad:active { transform: translateY(1px); }
+.deck-hotcue-pad.deck-hotcue-set {
+  background: rgba(var(--accent-rgb), 0.16);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.15);
+}
+#deck-half-b .deck-hotcue-pad.deck-hotcue-set {
+  background: rgba(var(--pink-rgb), 0.16);
+  border-color: var(--pink);
+  color: var(--pink);
+  box-shadow: 0 0 6px rgba(var(--pink-rgb), 0.15);
+}
+
+/* ── Loop ──────────────────────────────────────────────────────────────── */
+.deck-loop-row {
+  display: flex;
+  gap: 4px;
+}
+.deck-loop-btn {
+  flex: 1;
+  height: 22px;
+  border: 1px solid var(--border-hi);
+  background: var(--surface-hi);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: .2px;
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0 2px;
+  transition: border-color .12s, color .12s, background .12s, box-shadow .12s;
+}
+.deck-loop-btn:hover { border-color: var(--text-muted); color: var(--text-muted); }
+.deck-loop-btn:active { transform: translateY(1px); }
+.deck-loop-btn-in:hover, .deck-loop-btn-out:hover { border-color: var(--safe); color: var(--safe); }
+.deck-loop-btn-reloop.deck-loop-active {
+  background: rgba(var(--accent-rgb), 0.16);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.15);
+}
+#deck-half-b .deck-loop-btn-reloop.deck-loop-active {
+  background: rgba(var(--pink-rgb), 0.16);
+  border-color: var(--pink);
+  color: var(--pink);
+  box-shadow: 0 0 6px rgba(var(--pink-rgb), 0.15);
 }
 
 /* Push Record Room track list up when deck is visible */

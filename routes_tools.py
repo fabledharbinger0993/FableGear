@@ -261,7 +261,9 @@ def api_process():
     workers = request.args.get("workers", "").strip()
     if workers and workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
-
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
 
     if (
         smart_skip
@@ -557,6 +559,10 @@ def api_organize():
         except ValueError:
             pass
 
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
+
     library_root = _get_library_root(request, "target")
     return _sse_response(cmd, library_root=library_root, step_name="organize")
 
@@ -576,6 +582,9 @@ def api_convert():
     workers = request.args.get("workers", "1").strip()
     if workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
     library_root = paths[0]
     return _sse_response(cmd, library_root=library_root, step_name="convert")
 
@@ -609,6 +618,10 @@ def api_novelty():
     if workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
 
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
+
     library_root = _get_library_root(request, "dest")
     return _sse_response(cmd, library_root=library_root, step_name="novelty")
 
@@ -641,6 +654,10 @@ def api_rename():
     workers = request.args.get("workers", "1").strip()
     if workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
+
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
 
     library_root = paths[0]
     return _sse_response(cmd, library_root=library_root, step_name="rename")
@@ -788,6 +805,31 @@ def api_checkpoint_check():
         return jsonify(ck.info())
     except Exception as exc:
         return jsonify({"exists": False, "error": str(exc)}), 200
+
+
+@bp.route("/api/checkpoint/reset", methods=["POST"])
+def api_checkpoint_reset():
+    """
+    Discard every saved checkpoint for a tool — the server-side half of
+    "Start Fresh". Clearing only the browser's localStorage banner (what the
+    UI previously did on its own) left the actual ~/.fablegear/checkpoints
+    file in place, so the next run silently resumed from stale state anyway.
+
+    Query params:
+      tool — tool name: duplicates, process, convert, organize, novelty, rename
+    """
+    try:
+        from checkpoint import reset_all  # noqa: PLC0415
+    except ImportError:
+        return jsonify({"ok": False, "error": "checkpoint module not available"}), 200
+
+    tool = request.args.get("tool", "").strip()
+    valid_tools = {"duplicates", "process", "convert", "organize", "novelty", "rename"}
+    if tool not in valid_tools:
+        return jsonify({"error": f"tool must be one of: {', '.join(sorted(valid_tools))}"}), 400
+
+    removed = reset_all(tool)
+    return jsonify({"ok": True, "tool": tool, "removed": removed})
 
 
 # ── Duplicates ────────────────────────────────────────────────────────────────

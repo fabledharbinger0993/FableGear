@@ -330,6 +330,28 @@ def _looks_like_junk_title(text: str | None) -> bool:
     return False
 
 
+def _looks_like_junk_album(text: str | None) -> bool:
+    """True when an album/release value carries no useful information and should
+    be omitted from the filename (rather than emitting an 'Unknown' segment)."""
+    if not text:
+        return True
+    s = text.strip()
+    if not s:
+        return True
+    if _is_key_or_bpm_chunk(s):
+        return True
+    # Common placeholder album tags written by rippers, DJ software, and the
+    # UnknownAlbum/ folder scaffolding.
+    if re.fullmatch(
+        r"unknown(\s*album)?|untitled|album|various(\s*artists)?|va|"
+        r"unknownalbum|no\s*album|n/?a",
+        s,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    return False
+
+
 def _label_code(stem: str) -> str | None:
     match = re.match(r"^([A-Za-z]{2,6}\d{2,5})\b", stem.strip())
     return match.group(1).upper() if match else None
@@ -591,9 +613,12 @@ def probe_ambiguous(
             mix_annotation,
             label_artist_hints,
         )
-        proposed = _generate_filename(artist, title, file_path.suffix, copy_suffix)
+        album = getattr(metadata, "album", None)
+        proposed = _generate_filename(artist, title, file_path.suffix, copy_suffix, album=album)
         if mix_annotation:
-            proposed = _generate_filename(artist, f"{title} ({mix_annotation})", file_path.suffix, copy_suffix)
+            proposed = _generate_filename(
+                artist, f"{title} ({mix_annotation})", file_path.suffix, copy_suffix, album=album
+            )
 
         candidates.append(ProbeCandidate(
             source_path=file_path,
@@ -754,39 +779,78 @@ def _sanitize_filename(text: str, max_len: int = 200) -> str:
     return text if text else "Unknown"
 
 
-def _generate_filename(artist: str | None, title: str | None, ext: str, copy_suffix: str | None = None) -> str:
+def _generate_filename(
+    artist: str | None,
+    title: str | None,
+    ext: str,
+    copy_suffix: str | None = None,
+    album: str | None = None,
+) -> str:
     """
-    Generate a clean filename with artist, title, and optional copy suffix.
-    Format: "Artist - Title.ext" or "Artist - Title (2).ext"
+    Generate a clean filename with artist, optional album/release, title, and
+    optional copy suffix.
+    Format: "Artist - Album - Title.ext"  (album segment included only when
+    present and non-junk) or "Artist - Title.ext" / "Artist - Title (2).ext".
 
-    Artist and title are both included in filename for clear visual identification.
-    Copy suffix (e.g., "(2)", "(copy)") is appended before the extension if present.
-    Full metadata remains in ID3 tags for database searchability.
+    Artist, album, and title come from the file's tags — which by this point
+    already carry whatever the Tag Tracks / AcoustID enrichment step wrote — so
+    the name reflects the best available metadata, not just the raw filename.
+    Any mix/remix annotation is already folded into `title` by the caller (it
+    arrives as "Title (Refreq Edit)"), so it naturally lands at the end.
 
     Tag metadata can be arbitrarily long (some releases stuff catalog numbers,
     remix credits, and session notes into the title). The combined name is
     kept under the filesystem's 255-byte component limit — otherwise the
     rename silently fails on exactly the messiest files this tool exists to
     clean up. Title gets the larger share of the budget since it's what a DJ
-    actually scans for; artist is never starved below a readable floor.
+    actually scans for; artist is never starved below a readable floor; album
+    yields first when space runs short.
     """
     artist = _sanitize_filename(artist or "Unknown")
     title = _sanitize_filename(title or "Unknown")
     title = _strip_leading_artist_from_title(artist, title)
+
+    # Album is optional: omit the segment entirely when missing or junk rather
+    # than emitting an "Unknown" placeholder.
+    album_clean = None if _looks_like_junk_album(album) else _sanitize_filename(album)
+    if album_clean:
+        # Guard against "Artist - Artist - Title" when the album tag just
+        # repeats the artist, and against the album duplicating the title.
+        if _canon(album_clean) in (_canon(artist), _canon(title)):
+            album_clean = None
+
     suffix_str = f" {copy_suffix}" if copy_suffix else ""
 
-    fixed_overhead = len(FILENAME_SEPARATOR.encode("utf-8")) + len(suffix_str.encode("utf-8")) + len(ext.encode("utf-8"))
+    sep_bytes = len(FILENAME_SEPARATOR.encode("utf-8"))
+    n_seps = 2 if album_clean else 1
+    fixed_overhead = (
+        sep_bytes * n_seps
+        + len(suffix_str.encode("utf-8"))
+        + len(ext.encode("utf-8"))
+    )
     budget = max(_MAX_FILENAME_BYTES - fixed_overhead, 20)
 
     artist_bytes = len(artist.encode("utf-8"))
     title_bytes = len(title.encode("utf-8"))
-    if artist_bytes + title_bytes > budget:
-        artist_budget = max(min(artist_bytes, int(budget * 0.35)), 20)
-        title_budget = max(budget - artist_budget, 20)
+    album_bytes = len(album_clean.encode("utf-8")) if album_clean else 0
+    if artist_bytes + album_bytes + title_bytes > budget:
+        artist_budget = max(min(artist_bytes, int(budget * 0.30)), 20)
+        remaining = budget - artist_budget
+        if album_clean:
+            # Album gives up space first — it's the least load-bearing segment.
+            album_budget = max(min(album_bytes, int(remaining * 0.30)), 12)
+            title_budget = max(remaining - album_budget, 20)
+            album_clean = _sanitize_filename(album_clean, max_len=album_budget)
+        else:
+            title_budget = max(remaining, 20)
         artist = _sanitize_filename(artist, max_len=artist_budget)
         title = _sanitize_filename(title, max_len=title_budget)
 
-    return f"{artist}{FILENAME_SEPARATOR}{title}{suffix_str}{ext}"
+    parts = [artist]
+    if album_clean:
+        parts.append(album_clean)
+    parts.append(title)
+    return f"{FILENAME_SEPARATOR.join(parts)}{suffix_str}{ext}"
 
 
 def _resolve_filename_collision(dest: Path) -> Path:
@@ -974,7 +1038,8 @@ def _rename_one(
                 action="quarantined",
                 reason="Moved unresolved file to No-Name tracks for Tagging",
             )
-        new_name = _generate_filename(artist, title, ext, copy_suffix)
+        album = getattr(metadata, "album", None)
+        new_name = _generate_filename(artist, title, ext, copy_suffix, album=album)
     new_path = path.parent / new_name
     
     # If the new name matches the current name, skip
@@ -1131,6 +1196,8 @@ def rename_directory(
     max_workers: int = 1,
     rules: "_learned.LearnedRules | None" = None,
     archive=None,
+    skip_paths: "set[str] | None" = None,
+    on_result=None,
 ) -> list[RenameResult]:
     """
     Batch-rename all audio files in a directory based on their metadata.
@@ -1149,6 +1216,12 @@ def rename_directory(
     archive : FableGearDatabase, optional
         If provided, logs each rename/quarantine to the Archive's processing
         log and relinks fg_content.file_path so the Record Room stays in sync.
+    skip_paths : set[str] | None
+        Absolute paths (as str) to exclude entirely — used by the caller for
+        checkpoint resume (files already renamed in an interrupted run).
+    on_result : Callable[[RenameResult], None] | None
+        Invoked once per file right after tallying, so the caller can persist
+        a checkpoint incrementally.
 
     Returns
     -------
@@ -1160,6 +1233,8 @@ def rename_directory(
         rules = _learned.load()
 
     files = _walk_audio_files(root)
+    if skip_paths:
+        files = [f for f in files if str(f) not in skip_paths]
     total = len(files)
     results: list[RenameResult] = []
     label_artist_hints = _infer_artists_by_label(files)
@@ -1219,6 +1294,9 @@ def rename_directory(
             batch_count += 1
         elif result.action == "error":
             errors += 1
+
+        if on_result is not None:
+            on_result(result)
 
         if (i + 1) % max(1, total // 20) == 0 or i == total - 1:
             _emit()

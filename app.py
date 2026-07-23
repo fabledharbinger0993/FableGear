@@ -794,6 +794,27 @@ def api_pick_folder():
     return jsonify({"path": None})
 
 
+@app.route("/api/pick-file")
+def api_pick_file():
+    """Open the native file-chooser dialog. macOS uses osascript; other platforms
+    rely on pywebview's js_api.pick_file() called directly from the frontend.
+
+    Used as the fallback when the page isn't running inside the pywebview native
+    window (e.g. a plain browser tab), where window.pywebview is never defined.
+    """
+    if _SYSTEM == "Darwin":
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", "POSIX path of (choose file)"],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode == 0:
+                return jsonify({"path": result.stdout.strip()})
+        except Exception:
+            pass
+    return jsonify({"path": None})
+
+
 # ── Volume helpers ─────────────────────────────────────────────────────────────
 
 _AUDIO_BEARING_SKIP = frozenset({"Macintosh HD", "Recovery", "VM", "Preboot", "Update", "Data"})

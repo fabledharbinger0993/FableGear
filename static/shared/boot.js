@@ -26,16 +26,19 @@ document.addEventListener('keydown', (e) => {
 function _initChopBannerWatch() {
   const dock = document.getElementById('chop-banner-dock');
   if (!dock) return;
+  // ResizeObserver tracks the dock's actual rendered box, so it self-corrects
+  // for two things a child-attribute MutationObserver can't: (1) the 40vh
+  // max-height clipping the dock to 0 for a moment at load, before the window
+  // has a real innerHeight — that stale 0 used to stick forever since nothing
+  // re-fired once the banners stopped toggling; (2) a banner's *content*
+  // changing height (e.g. a findings list) without its own style/class
+  // attribute changing.
   const recompute = () => {
-    const anyVisible = Array.from(dock.children)
-      .some(c => getComputedStyle(c).display !== 'none');
-    document.body.classList.toggle('fg-chop-banner-open', anyVisible);
-    const h = anyVisible ? dock.offsetHeight : 0;
+    const h = dock.offsetHeight;
+    document.body.classList.toggle('fg-chop-banner-open', h > 0);
     document.documentElement.style.setProperty('--chop-banner-h', h + 'px');
   };
-  const obs = new MutationObserver(recompute);
-  Array.from(dock.children).forEach(c =>
-    obs.observe(c, { attributes: true, attributeFilter: ['style', 'class'] }));
+  new ResizeObserver(recompute).observe(dock);
   recompute();
 }
 

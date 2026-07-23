@@ -1233,36 +1233,31 @@ function populateScan(data) {
   updateArchiveRecommendation();
 }
 
-// Native pickers via pywebview
+// Native pickers via pywebview, falling back to the server-side osascript
+// dialog (/api/pick-file, /api/pick-folder) when window.pywebview isn't
+// present — e.g. the page is open in a plain browser tab rather than the
+// native app window. window.prompt() is not a reliable fallback: WKWebView
+// (and many embedded/automated browser contexts) never surface it, so the
+// button appeared to do nothing.
 function pickFile(inputId) {
   var api = window.pywebview && window.pywebview.api;
-  if (api && api.pick_file) {
-    api.pick_file(['Database files (*.db)', 'All files (*.*)'])
-      .then(function(p) { if (p) document.getElementById(inputId).value = p; });
-  } else {
-    var cur = document.getElementById(inputId).value;
-    var p = window.prompt('Enter file path:', cur);
-    if (p) document.getElementById(inputId).value = p;
-  }
+  var picked = (api && api.pick_file)
+    ? api.pick_file(['Database files (*.db)', 'All files (*.*)'])
+    : fetch('/api/pick-file').then(function(r) { return r.json(); }).then(function(d) { return d.path; });
+  picked.then(function(p) { if (p) document.getElementById(inputId).value = p; })
+    .catch(function(e) { console.warn('[pickFile] picker failed:', e); });
 }
 
 function pickFolder(inputId) {
   var api = window.pywebview && window.pywebview.api;
-  if (api && api.pick_folder) {
-    api.pick_folder()
-      .then(function(p) {
-        if (!p) return;
-        document.getElementById(inputId).value = p;
-        if (inputId === 'inp-music-root') _onMusicRootChosen(p);
-      });
-  } else {
-    var cur = document.getElementById(inputId).value;
-    var p = window.prompt('Enter folder path:', cur);
-    if (p) {
-      document.getElementById(inputId).value = p;
-      if (inputId === 'inp-music-root') _onMusicRootChosen(p);
-    }
-  }
+  var picked = (api && api.pick_folder)
+    ? api.pick_folder()
+    : fetch('/api/pick-folder').then(function(r) { return r.json(); }).then(function(d) { return d.path; });
+  picked.then(function(p) {
+    if (!p) return;
+    document.getElementById(inputId).value = p;
+    if (inputId === 'inp-music-root') _onMusicRootChosen(p);
+  }).catch(function(e) { console.warn('[pickFolder] picker failed:', e); });
 }
 
 function selectMusicRoot(path) {

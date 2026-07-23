@@ -954,6 +954,82 @@ def api_library_track_stream(track_id):
         return jsonify({"error": str(exc)}), 500
 
 
+# ── Hot cues / loops (Record Room deck performance state) ─────────────────────
+#
+# Backed by fg_cue, which already exists and is exercised by the Rekordbox
+# bidirectional sync path (fablegear_database/rekordbox_sync.py) — these routes
+# are the first thing to expose it to the deck UI itself. Only FableGear-native
+# tracks (numeric content_id) are supported: a Rekordbox-sourced track's hot
+# cues/loops live in Rekordbox's own database, not fg_cue, and writing to that
+# is out of scope here.
+#
+# kind: 0 = Memory cue, 1 = Hot cue, 2 = Loop, 3 = Active loop (mirrors fg_cue).
+# slot: 0-3 for hot cues (Record Room ships 4 pads/deck, not Rekordbox's 8 —
+# matches the "not too busy" sizing call in the performance-mode audit).
+
+def _cues_db_and_content(track_id):
+    """Resolve track_id to (db, content_id), or (None, None) if unsupported/missing."""
+    try:
+        content_id = int(track_id)
+    except (ValueError, TypeError):
+        return None, None
+    db = _fablegear_db()
+    if db is None or db.get_content_by_id(content_id) is None:
+        return None, None
+    return db, content_id
+
+
+@bp.route("/api/library/tracks/<track_id>/cues")
+def api_library_track_cues(track_id):
+    """List hot cues + loops for a FableGear-native track. Empty list for any
+    track this doesn't support (Rekordbox-sourced, or library not built)."""
+    db, content_id = _cues_db_and_content(track_id)
+    if db is None:
+        return jsonify([])
+    try:
+        return jsonify([c.to_dict() for c in db.get_cues_for_content(content_id)])
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/library/tracks/<track_id>/cues", methods=["POST"])
+def api_library_track_cues_set(track_id):
+    """
+    Set or clear one hot-cue/loop slot. Body:
+      {"kind": 1, "slot": 0, "in_msec": 5230, "out_msec": null,
+       "color": "#ff9d42", "comment": null}
+    Omit / pass null for in_msec to clear that (kind, slot) pair instead.
+    Every other cue for this track is left untouched — read-modify-write
+    around bulk_upsert_cues, which the DB layer only offers as a full replace.
+    """
+    db, content_id = _cues_db_and_content(track_id)
+    if db is None:
+        return jsonify({"error": "hot cues are only supported for FableGear-native tracks with a built library"}), 404
+
+    body = request.get_json(force=True, silent=True) or {}
+    kind = body.get("kind")
+    slot = body.get("slot")
+    if kind not in (0, 1, 2, 3):
+        return jsonify({"error": "kind must be 0 (memory), 1 (hotcue), 2 (loop), or 3 (active loop)"}), 400
+
+    from fablegear_database.database import CueRecord  # noqa: PLC0415
+    try:
+        existing = db.get_cues_for_content(content_id)
+        kept = [c for c in existing if not (c.kind == kind and c.slot == slot)]
+        if body.get("in_msec") is not None:
+            kept.append(CueRecord(
+                kind=kind, slot=slot,
+                in_msec=int(body["in_msec"]),
+                out_msec=int(body["out_msec"]) if body.get("out_msec") is not None else None,
+                color=body.get("color"),
+                comment=body.get("comment"),
+            ))
+        db.bulk_upsert_cues(content_id, kept)
+        return jsonify({"ok": True, "cues": [c.to_dict() for c in kept]})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @bp.route("/api/library/playlists", methods=["GET"])
 def api_library_playlists():
     source = (request.args.get("db") or "").lower()

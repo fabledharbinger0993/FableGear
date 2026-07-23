@@ -358,6 +358,8 @@ def scan_novel(
     match_mode:  str  = "fingerprint",
     progress_cb: "callable | None" = None,
     archive=None,
+    skip_paths: "set[str] | None" = None,
+    on_result: "callable | None" = None,
 ) -> NovelScanResult:
     """
     Scan *source* for tracks that do not exist in *destination* and copy them
@@ -389,6 +391,13 @@ def scan_novel(
     progress_cb : callable | None
         Optional callback(done, total, copied, skipped, errors) called after
         each track is processed.  Used by the Flask SSE route.
+    skip_paths : set[str] | None
+        Absolute source paths (as str) to exclude entirely — used by the
+        caller for checkpoint resume (tracks already evaluated/copied in an
+        interrupted run).
+    on_result : callable | None
+        Invoked once per track as callback(NovelTrack) right after tallying,
+        so the caller can persist a checkpoint incrementally.
     """
     from config import AUDIO_EXTENSIONS, SKIP_DIRS, SKIP_PREFIXES
 
@@ -424,6 +433,8 @@ def scan_novel(
                 if fp.suffix.lower() in AUDIO_EXTENSIONS:
                     src_tracks.append(fp)
 
+    if skip_paths:
+        src_tracks = [p for p in src_tracks if str(p) not in skip_paths]
     total = len(src_tracks)
     log.info("Source tracks to evaluate: %d", total)
 
@@ -527,6 +538,8 @@ def scan_novel(
                     errors  += 1
                     result.errors.append(futures[future])
                     log.error("Error processing %s: %s", futures[future].name, r.reason)
+                if on_result is not None:
+                    on_result(r)
                 done += 1; _emit()
     else:
         for i, src in enumerate(src_tracks):
@@ -546,6 +559,9 @@ def scan_novel(
                 errors  += 1
                 result.errors.append(src)
                 log.error("Error processing %s: %s", src.name, r.reason)
+
+            if on_result is not None:
+                on_result(r)
 
             done += 1
             log.info("[%d/%d] %-8s %s", done, total, r.action.upper(), src.name)

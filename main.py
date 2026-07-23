@@ -120,7 +120,7 @@ class _Api:
             return None
         types = tuple(file_types) if file_types else ('All files (*.*)',)
         result = self._window.create_file_dialog(
-            webview.FileDialog.OPEN_DIALOG,
+            webview.FileDialog.OPEN,
             allow_multiple=False,
             file_types=types,
         )

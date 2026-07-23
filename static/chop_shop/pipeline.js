@@ -571,8 +571,10 @@ function _showToolResumeBanner(toolKey, cardId, resumeFn) {
       <div class="trb-title">Interrupted run — ${ageText}</div>
       <div class="trb-paths">${pathsText}</div>
     </div>
-    <button class="btn btn-neon trb-btn-resume" onclick="_resumeTool('${toolKey}')">Resume</button>
-    <button class="trb-btn-dismiss" title="Dismiss — start fresh" onclick="_dismissToolCkpt('${toolKey}', '${cardId}')">✕</button>`;
+    <button class="btn btn-neon trb-btn-resume" onclick="_resumeTool('${toolKey}')"
+            title="Continue from where this run left off — files already done are skipped">Resume</button>
+    <button class="btn trb-btn-restart" onclick="_restartToolFresh('${toolKey}', '${cardId}')"
+            title="Discard saved progress and reprocess this folder from the beginning">Start Fresh</button>`;
 
   const form = card.querySelector('.card-form');
   if (form) form.prepend(banner);
@@ -585,9 +587,25 @@ function _resumeTool(toolKey) {
   if (ckpt && _toolResumeFns[toolKey]) _toolResumeFns[toolKey](ckpt);
 }
 
-function _dismissToolCkpt(toolKey, cardId) {
+// Frontend checkpoint "toolKey" values that don't match the backend's CLI
+// subcommand/checkpoint-tool name 1:1 — Normalize is process (with BPM/key
+// detection switched off), not a separate CLI tool.
+const _CKPT_BACKEND_TOOL = { normalize: 'process' };
+
+// "Start Fresh": clears the local "interrupted run" banner AND tells the
+// server to discard the saved checkpoint for this tool. Previously this only
+// cleared the browser-side marker, so the *server* checkpoint survived and
+// the next Run silently resumed from stale state anyway — exactly what this
+// button is supposed to prevent.
+async function _restartToolFresh(toolKey, cardId) {
   _clearToolCkpt(toolKey);
   document.getElementById(cardId)?.querySelector('.tool-resume-banner')?.remove();
+  const backendTool = _CKPT_BACKEND_TOOL[toolKey] || toolKey;
+  try {
+    await fetch(`/api/checkpoint/reset?tool=${encodeURIComponent(backendTool)}`, { method: 'POST' });
+  } catch (e) {
+    console.warn('[checkpoint reset] failed:', e);
+  }
 }
 
 function _populatePills(pillsId, paths) {
@@ -667,6 +685,14 @@ function _resumeNovelty(ckpt) {
   runNovelty();
 }
 
+function _resumeRename(ckpt) {
+  _populatePills('rename-pills', ckpt.paths || (ckpt.path ? [ckpt.path] : []));
+  const dr = document.getElementById('rename-dry-run');
+  if (dr) dr.checked = !!ckpt.dryRun;
+  document.getElementById('step-rename')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  runRename();
+}
+
 // ── Init — show banners for any stale checkpoints on page load ───────────────
 function _initToolCheckpoints() {
   _showToolResumeBanner('process',    'step-process',    _resumeProcess);
@@ -675,6 +701,7 @@ function _initToolCheckpoints() {
   _showToolResumeBanner('duplicates', 'step-duplicates', _resumeDuplicates);
   _showToolResumeBanner('organize',   'step-organize',   _resumeOrganize);
   _showToolResumeBanner('novelty',    'step-novelty',    _resumeNovelty);
+  _showToolResumeBanner('rename',     'step-rename',     _resumeRename);
 }
 
 /* ── Pipeline checkpoint: survive interruptions and resume ────────────────── */
