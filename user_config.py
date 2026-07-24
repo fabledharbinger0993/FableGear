@@ -38,7 +38,7 @@ Public interface
   interactive_setup() -> dict         prompts user, validates, saves, returns cfg
 """
 
-import importlib
+import importlib.util
 import json
 import os
 import platform
@@ -278,7 +278,8 @@ def save_user_config(cfg: dict) -> None:
 
 # ─── Dependency validation ────────────────────────────────────────────────────
 #
-# Checked at startup by check_dependencies() and surfaced by `python3 cli.py check`.
+# Checked at startup by check_dependencies() and surfaced at the end of
+# `python3 cli.py setup` (there is no standalone `check` subcommand).
 # Commands that need a missing dep are expected to fail fast with a clear message
 # rather than deep-stack traceback.
 
@@ -471,7 +472,7 @@ def print_dependency_report(results: Optional[List[Dict]] = None) -> bool:
         print("  All dependencies satisfied.")
     else:
         missing = sum(1 for r in results if not r["ok"])
-        print(f"  {missing} missing. Install the above, then re-run: python3 cli.py check")
+        print(f"  {missing} missing. Install the above, then re-run: python3 cli.py setup --update")
     print()
     return all_ok
 
@@ -668,8 +669,12 @@ def interactive_setup(*, update: bool = False) -> dict:
     print("  Select FableGear mode:")
     print("    1. Suburban (AI enabled, recommended)")
     print("    2. Rural (no AI, pure toolkit)")
-    mode_choice = ""
-    while mode_choice not in ("1", "2", ""):  # default to 1
+    # Do-while: "" starts outside the accepted set so the prompt always runs
+    # at least once; Enter maps to "1". (The old guard included "" in the
+    # accepted set, so the loop never executed and every setup silently got
+    # mode="rural" without the question ever being shown.)
+    mode_choice = None
+    while mode_choice not in ("1", "2"):
         mode_choice = input("  → Enter 1 or 2 [1]: ").strip() or "1"
     cfg["mode"] = "suburban" if mode_choice == "1" else "rural"
 
