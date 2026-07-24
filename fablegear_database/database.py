@@ -1241,32 +1241,43 @@ class FableGearDatabase:
         using only 3 optimized database queries (preventing N+1 roundtrips).
         If content_ids is None, fetches all records.
         """
+        # Chunking to avoid SQLite host parameter limits — applies to every
+        # IN (...) here, including the fg_content fetch itself: an explicit
+        # content_ids list can exceed the limit just as easily as the
+        # relation lookups can.
+        CHUNK_SIZE = 500
+
         # 1. Fetch content records
         with self.connection() as conn:
             cursor = conn.cursor()
-            
+
             if content_ids is not None:
                 if not content_ids:
                     return []
-                placeholders = ",".join("?" for _ in content_ids)
-                cursor.execute(f"""
-                    SELECT * FROM fg_content
-                    WHERE id IN ({placeholders})
-                """, content_ids)
+                tracks = []
+                columns = None
+                for i in range(0, len(content_ids), CHUNK_SIZE):
+                    chunk = content_ids[i:i + CHUNK_SIZE]
+                    placeholders = ",".join("?" for _ in chunk)
+                    cursor.execute(f"""
+                        SELECT * FROM fg_content
+                        WHERE id IN ({placeholders})
+                    """, chunk)
+                    columns = [col[0] for col in cursor.description]
+                    tracks.extend(
+                        ContentRecord.from_dict(dict(zip(columns, row)))
+                        for row in cursor.fetchall()
+                    )
             else:
                 cursor.execute("SELECT * FROM fg_content")
-                
-            columns = [col[0] for col in cursor.description]
-            tracks = [ContentRecord.from_dict(dict(zip(columns, row))) for row in cursor.fetchall()]
-            
+                columns = [col[0] for col in cursor.description]
+                tracks = [ContentRecord.from_dict(dict(zip(columns, row))) for row in cursor.fetchall()]
+
             if not tracks:
                 return []
-                
+
             track_map = {t.id: t for t in tracks}
             actual_ids = list(track_map.keys())
-            
-            # Chunking to avoid SQLite host parameter limits
-            CHUNK_SIZE = 500
             for i in range(0, len(actual_ids), CHUNK_SIZE):
                 chunk = actual_ids[i:i + CHUNK_SIZE]
                 placeholders_chunk = ",".join("?" for _ in chunk)
