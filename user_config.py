@@ -17,11 +17,14 @@ Config file schema
   "snapshot_include_master_db": false,
   "target_lufs":     -8.0,
   "lufs_tolerance":  0.5,
-  "excluded_dirs":   ["ollama", "DJMT PRIMARY_PROCESSING_LOGIC"]
+  "excluded_dirs":   ["Sample Packs", "Podcasts"]
 }
 
 Required keys: local_db, device_db, music_root, backup_dir
 Optional keys: target_lufs, lufs_tolerance, excluded_dirs (filled from DEFAULTS if absent)
+
+The excluded_dirs value above is only a schema example — the shipped default
+(DEFAULTS["excluded_dirs"]) is an empty list.
 
 excluded_dirs: list of folder *names* (not paths) to skip when scanning the music
 root. Useful for non-music directories that live inside the music root, such as

@@ -189,8 +189,8 @@ SKIP_DIRS: set[str] = {
     # macOS internals
     "__MACOSX", ".Spotlight-V100", ".fseventsd", ".DocumentRevisions-V100",
     ".TemporaryItems", ".Trashes",
-    # Common non-music app data that ends up inside music drives
-    "ollama", "FableGear Archive",
+    # FableGear's own archive tree — never rescan what we wrote
+    "FableGear Archive",
     # Processing artifacts left by FableGear or other tools
     "PROCESSING_CACHE", "POST_PROCESS_ARCHIVE",
     # Source-control, language toolchains, and build outputs that may sit inside
