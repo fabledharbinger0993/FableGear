@@ -69,11 +69,11 @@ DEFAULTS: dict = {
     "snapshot_cadence":    "monthly",
     "snapshot_include_master_db": False,
     "excluded_dirs":       [],   # extra folder names to skip when scanning music root
-    # AcoustID API key for fingerprint lookup. Optional — enrichment features
-    # simply stay off until the user registers their own free key at
-    # https://acoustid.org/ (per-application keys; shipping one would put
-    # every install on a shared rate limit under someone's personal account).
-    "acoustid_api_key":    "",
+    # AcoustID application key, registered at acoustid.org to FableGear
+    # itself. AcoustID keys are per-application (not per-user) and meant to
+    # ship with the app, so fingerprint lookup works out of the box. Users
+    # can still substitute their own key in settings or the setup wizard.
+    "acoustid_api_key":    "wAbRWVEfls",
     "mode": "suburban",  # 'rural' (no AI) or 'suburban' (AI enabled)
 }
 
@@ -644,13 +644,17 @@ def interactive_setup(*, update: bool = False) -> dict:
     cfg["lufs_tolerance"] = existing.get("lufs_tolerance", DEFAULTS["lufs_tolerance"])
 
     # ── Optional: AcoustID API key ──
-    current_key = str(existing.get("acoustid_api_key", "")).strip()
-    key_hint = "configured — Enter keeps it" if current_key else "optional — Enter skips"
+    current_key = str(
+        existing.get("acoustid_api_key", DEFAULTS["acoustid_api_key"])
+    ).strip()
+    key_hint = "Enter keeps FableGear's built-in key" if current_key == DEFAULTS["acoustid_api_key"] \
+        else "configured — Enter keeps yours"
     print(
         f"\n  AcoustID API key  [{key_hint}]\n"
-        "  Enables MusicBrainz metadata enrichment (fills in missing title/\n"
-        "  artist/album from audio fingerprints). Everything else works\n"
-        "  without it. Free key: https://acoustid.org/ → 'Register an application'."
+        "  Used for MusicBrainz metadata enrichment (fills in missing title/\n"
+        "  artist/album from audio fingerprints). FableGear ships with its own\n"
+        "  registered application key — most users should just press Enter.\n"
+        "  To use your own instead: https://acoustid.org/ → 'Register an application'."
     )
     try:
         raw_key = input("  → ").strip()
