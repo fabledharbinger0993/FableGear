@@ -48,7 +48,17 @@ function openSettings() {
     const excluded = Array.isArray(cfg.excluded_dirs) ? cfg.excluded_dirs : [];
     document.getElementById('settings-excluded-dirs').value = excluded.join('\n');
     const acoustidEl = document.getElementById('settings-acoustid-key');
-    if (acoustidEl && cfg.acoustid_api_key_configured) acoustidEl.placeholder = 'Configured — enter a new key to replace it';
+    if (acoustidEl) {
+      if (cfg.acoustid_api_key_configured) acoustidEl.placeholder = 'Configured — enter a new key to replace it, or clear this field to disable';
+      // The saved key is deliberately never echoed back into the field, so an
+      // empty field is also the untouched state. Track edits so saving other
+      // settings can't silently wipe a configured key (see _settingsSave).
+      acoustidEl.dataset.dirty = '';
+      if (!acoustidEl.dataset.dirtyHooked) {
+        acoustidEl.dataset.dirtyHooked = '1';
+        acoustidEl.addEventListener('input', () => { acoustidEl.dataset.dirty = '1'; });
+      }
+    }
     _settingsUpdateUI(mode);
     // Populate paths tab
     const pathFields = {
@@ -138,18 +148,27 @@ async function saveSettings() {
   const btn = document.querySelector('.settings-save');
   btn.textContent = 'Saving…'; btn.disabled = true;
   try {
+    const payload = {
+      archive_mode: mode,
+      custom_archive_dir: custom,
+      snapshot_cadence: cadence,
+      snapshot_include_master_db: document.getElementById('settings-snapshot-master-db').checked,
+      excluded_dirs: document.getElementById('settings-excluded-dirs').value
+        .split('\n').map(s => s.trim()).filter(Boolean),
+    };
+    // Only send the AcoustID key if the user actually edited the field this
+    // session. The field is intentionally blank even when a key is saved
+    // (the secret is never echoed back), so an unconditional send would wipe
+    // the stored key every time any other setting was saved. An edited-then-
+    // emptied field still sends "" — that's the documented way to disable.
+    const acoustidEl = document.getElementById('settings-acoustid-key');
+    if (acoustidEl && acoustidEl.dataset.dirty) {
+      payload.acoustid_api_key = acoustidEl.value.trim();
+    }
     const res  = await fetch('/api/settings', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        archive_mode: mode,
-        custom_archive_dir: custom,
-        snapshot_cadence: cadence,
-        snapshot_include_master_db: document.getElementById('settings-snapshot-master-db').checked,
-        excluded_dirs: document.getElementById('settings-excluded-dirs').value
-          .split('\n').map(s => s.trim()).filter(Boolean),
-        acoustid_api_key: (document.getElementById('settings-acoustid-key')?.value || '').trim(),
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (data.ok) {

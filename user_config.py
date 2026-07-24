@@ -66,7 +66,11 @@ DEFAULTS: dict = {
     "snapshot_cadence":    "monthly",
     "snapshot_include_master_db": False,
     "excluded_dirs":       [],   # extra folder names to skip when scanning music root
-    "acoustid_api_key":    "wAbRWVEfls",   # AcoustID API key for fingerprint lookup (shipped default)
+    # AcoustID API key for fingerprint lookup. Optional — enrichment features
+    # simply stay off until the user registers their own free key at
+    # https://acoustid.org/ (per-application keys; shipping one would put
+    # every install on a shared rate limit under someone's personal account).
+    "acoustid_api_key":    "",
     "mode": "suburban",  # 'rural' (no AI) or 'suburban' (AI enabled)
 }
 
@@ -636,6 +640,21 @@ def interactive_setup(*, update: bool = False) -> dict:
 
     cfg["lufs_tolerance"] = existing.get("lufs_tolerance", DEFAULTS["lufs_tolerance"])
 
+    # ── Optional: AcoustID API key ──
+    current_key = str(existing.get("acoustid_api_key", "")).strip()
+    key_hint = "configured — Enter keeps it" if current_key else "optional — Enter skips"
+    print(
+        f"\n  AcoustID API key  [{key_hint}]\n"
+        "  Enables MusicBrainz metadata enrichment (fills in missing title/\n"
+        "  artist/album from audio fingerprints). Everything else works\n"
+        "  without it. Free key: https://acoustid.org/ → 'Register an application'."
+    )
+    try:
+        raw_key = input("  → ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nSetup cancelled.")
+        sys.exit(0)
+    cfg["acoustid_api_key"] = raw_key if raw_key else current_key
 
     # ── Mode selection ──
     print()
