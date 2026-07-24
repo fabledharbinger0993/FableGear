@@ -290,6 +290,7 @@ class RenameResult:
     action: str  # "renamed" | "skipped" | "collision_numbered" | "error" | "no_change"
     reason: str = ""
     content_id: str | None = None
+    db_rows_updated: int = 0  # rekordbox rows whose path this rename actually updated
 
 
 @dataclass
@@ -348,6 +349,32 @@ def _looks_like_junk_album(text: str | None) -> bool:
         s,
         flags=re.IGNORECASE,
     ):
+        return True
+    return False
+
+
+def _album_is_redundant(album: str, artist: str, title: str) -> bool:
+    """
+    True when the album segment adds nothing to "Artist - Album - Title" and
+    should be dropped.
+
+    Beyond the album exactly matching the artist ("Artist - Artist - Title")
+    or the title, this also catches the common single-release case where the
+    album and title share a leading run — a single sold as its own "album",
+    e.g. album "Snow Day" against title "Snow Day (Rain Day Remix)", which
+    would otherwise render the doubled "Snow Day - Snow Day (Rain Day Remix)".
+    Prefix in either direction counts (album "Snow Day EP" vs title "Snow
+    Day" is just as redundant), compared on the canonical, punctuation- and
+    case-insensitive form.
+    """
+    a, al, t = _canon(artist), _canon(album), _canon(title)
+    if not al:
+        return True
+    if al == a or al == t:
+        return True
+    # Prefix either way — but only when the other side has real content, so an
+    # empty/degenerate title canon can't make every album look redundant.
+    if t and (t.startswith(al) or al.startswith(t)):
         return True
     return False
 
@@ -813,11 +840,8 @@ def _generate_filename(
     # Album is optional: omit the segment entirely when missing or junk rather
     # than emitting an "Unknown" placeholder.
     album_clean = None if _looks_like_junk_album(album) else _sanitize_filename(album)
-    if album_clean:
-        # Guard against "Artist - Artist - Title" when the album tag just
-        # repeats the artist, and against the album duplicating the title.
-        if _canon(album_clean) in (_canon(artist), _canon(title)):
-            album_clean = None
+    if album_clean and _album_is_redundant(album_clean, artist, title):
+        album_clean = None
 
     suffix_str = f" {copy_suffix}" if copy_suffix else ""
 
@@ -1015,9 +1039,10 @@ def _rename_one(
                     action="error",
                     reason=f"Quarantine move failed: {exc}",
                 )
+            db_rows_updated = 0
             if db is not None:
                 try:
-                    _sync_db_path_or_revert(path, Path(moved["dest_path"]), db)
+                    db_rows_updated = _sync_db_path_or_revert(path, Path(moved["dest_path"]), db)
                 except Exception as exc:
                     return RenameResult(
                         original_path=path,
@@ -1037,6 +1062,7 @@ def _rename_one(
                 new_path=Path(moved["dest_path"]),
                 action="quarantined",
                 reason="Moved unresolved file to No-Name tracks for Tagging",
+                db_rows_updated=db_rows_updated,
             )
         album = getattr(metadata, "album", None)
         new_name = _generate_filename(artist, title, ext, copy_suffix, album=album)
@@ -1079,7 +1105,7 @@ def _rename_one(
             )
 
         try:
-            _sync_db_path_or_revert(path, new_path, db)
+            db_rows_updated = _sync_db_path_or_revert(path, new_path, db)
         except Exception as e:
             return RenameResult(
                 original_path=path,
@@ -1089,6 +1115,13 @@ def _rename_one(
             )
 
         _archive_rename(archive, path, new_path, action)
+
+        return RenameResult(
+            original_path=path,
+            new_path=new_path,
+            action=action,
+            db_rows_updated=db_rows_updated,
+        )
 
     return RenameResult(
         original_path=path,
@@ -1113,26 +1146,30 @@ def _archive_rename(archive, old_path: Path, new_path: Path, action: str) -> Non
         log.warning("Archive update failed for rename %s -> %s: %s", old_path, new_path, exc)
 
 
-def _update_db_path(old_path: Path, new_path: Path, db) -> None:
+def _update_db_path(old_path: Path, new_path: Path, db) -> int:
     """
     Update rekordbox DjmdContent.FolderPath for the given file.
 
     Rename operations happen in place, so the safest lookup is an exact
     FolderPath match against the previous on-disk path.
+
+    Returns the number of DB rows actually updated (0 when the file isn't in
+    the library, or the DB backend doesn't support path updates).
     """
     if not hasattr(db, 'update_content_path'):
         log.debug("Database does not support update_content_path — skipping DB update")
-        return
+        return 0
 
     try:
         rows = db.get_content(FolderPath=str(old_path)).all()
         if not rows:
             log.debug("No DB row matched renamed file: %s", old_path)
-            return
+            return 0
 
         for row in rows:
             db.update_content_path(row, new_path, check_path=True)
         log.debug("Updated DB: %s -> %s (%d row(s))", old_path.name, new_path.name, len(rows))
+        return len(rows)
     except Exception as e:
         log.warning("Database lookup/update failed for %s: %s", old_path, e)
         raise
@@ -1143,16 +1180,18 @@ def _content_ids_for_path(path: Path, db) -> list[str]:
     return [str(row.ID) for row in rows]
 
 
-def _sync_db_path_or_revert(old_path: Path, new_path: Path, db) -> None:
-    """Update Rekordbox for a moved file or revert the filesystem change on failure."""
+def _sync_db_path_or_revert(old_path: Path, new_path: Path, db) -> int:
+    """Update Rekordbox for a moved file or revert the filesystem change on
+    failure. Returns the number of DB rows actually updated (0 when db is None
+    or the file isn't in the library)."""
     if db is None:
-        return
+        return 0
 
     content_ids: list[str] = []
 
     try:
         content_ids = _content_ids_for_path(old_path, db)
-        _update_db_path(old_path, new_path, db)
+        return _update_db_path(old_path, new_path, db)
     except Exception as exc:
         try:
             db.rollback()
@@ -1252,7 +1291,9 @@ def rename_directory(
     )
     
     renamed = skipped = collisions = errors = quarantined = 0
-    batch_count = 0
+    batch_count = 0          # renames since last DB commit — controls flush cadence
+    db_rows_pending = 0      # rekordbox rows actually updated since last commit
+    db_rows_total = 0        # rekordbox rows actually updated across the whole run
 
     def _emit() -> None:
         print(
@@ -1295,6 +1336,9 @@ def rename_directory(
         elif result.action == "error":
             errors += 1
 
+        db_rows_pending += result.db_rows_updated
+        db_rows_total += result.db_rows_updated
+
         if on_result is not None:
             on_result(result)
 
@@ -1304,8 +1348,12 @@ def rename_directory(
         if not dry_run and db is not None and batch_count >= BATCH_SIZE:
             try:
                 db.commit()
-                log.info("Committed batch of %d DB path updates", batch_count)
+                log.info(
+                    "Committed batch: %d file(s) renamed, %d rekordbox row(s) updated",
+                    batch_count, db_rows_pending,
+                )
                 batch_count = 0
+                db_rows_pending = 0
             except Exception:
                 log.exception("Batch commit failed — rolling back")
                 db.rollback()
@@ -1314,19 +1362,24 @@ def rename_directory(
     if not dry_run and db is not None and batch_count > 0:
         try:
             db.commit()
-            log.info("Final commit: %d DB path updates", batch_count)
+            log.info(
+                "Final commit: %d file(s) renamed, %d rekordbox row(s) updated",
+                batch_count, db_rows_pending,
+            )
         except Exception:
             log.exception("Final commit failed — rolling back")
             db.rollback()
             raise
 
     log.info(
-        "Rename complete: %d renamed, %d skipped, %d collisions handled, %d quarantined, %d errors",
+        "Rename complete: %d renamed, %d skipped, %d collisions handled, "
+        "%d quarantined, %d errors, %d rekordbox row(s) updated",
         renamed,
         skipped,
         collisions,
         quarantined,
         errors,
+        db_rows_total,
     )
 
     if archive is not None and not dry_run and (renamed or collisions or quarantined):
@@ -1339,6 +1392,7 @@ def rename_directory(
                 "quarantined": quarantined,
                 "errors": errors,
                 "total": total,
+                "db_rows_updated": db_rows_total,
             },
         )
 
