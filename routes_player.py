@@ -11,6 +11,7 @@ import os
 import platform
 import mimetypes
 import threading
+import time
 import uuid
 
 _SYSTEM = platform.system()
@@ -258,6 +259,7 @@ _FS_AUDIO_EXTS = frozenset({
 })
 _FS_TAG_LIMIT = 500   # stop reading mutagen beyond this many tracks in one folder
 _FS_RECURSIVE_LIMIT = 5000  # hard cap for recursive scans
+_FS_DRIVE_SCAN_TIMEOUT = 15.0  # keep whole-drive novelty scans responsive
 
 
 def _fs_track_payload(path: Path) -> dict:
@@ -303,39 +305,82 @@ def _fs_track_payload(path: Path) -> dict:
     return payload
 
 
+def _real_path_str(path: Path) -> str | None:
+    try:
+        return os.path.realpath(str(path))
+    except OSError:
+        return None
+
+
+def _is_primary_os_drive(path: Path) -> bool:
+    real_path = _real_path_str(path)
+    if not real_path:
+        return False
+    if _SYSTEM == "Windows":
+        return Path(real_path).drive.upper() == "C:"
+    return real_path == os.path.realpath("/")
+
+
+def _collect_audio_files(
+    root: Path,
+    *,
+    limit: int,
+    deadline: float | None = None,
+) -> tuple[list[Path], bool]:
+    """Collect visible audio files without following whole-disk aliases forever."""
+    files: list[Path] = []
+    truncated = False
+    try:
+        for walk_root, dirs, walk_files in os.walk(root, followlinks=False):
+            if deadline is not None and time.monotonic() >= deadline:
+                truncated = True
+                break
+            dirs[:] = sorted((d for d in dirs if not d.startswith(".")), key=str.lower)
+            for name in sorted(walk_files, key=str.lower):
+                if name.startswith("."):
+                    continue
+                if Path(name).suffix.lower() not in _FS_AUDIO_EXTS:
+                    continue
+                files.append(Path(walk_root) / name)
+                if len(files) >= limit:
+                    truncated = True
+                    break
+            if truncated:
+                break
+    except (PermissionError, OSError):
+        return files, truncated
+    return files, truncated
+
+
 def _enumerate_drive_audio(
     limit: int = _FS_RECURSIVE_LIMIT,
     *,
     per_volume_limit: int | None = None,
     skip_primary_os_drive: bool = True,
 ):
-    def _is_system_drive(path: Path) -> bool:
-        if platform.system() == "Windows":
-            return path.drive.upper() == "C:"
-        return path.parts == ("/",)
-
     all_volumes = get_connected_volumes()
     if skip_primary_os_drive:
-        all_volumes = [v for v in all_volumes if not _is_system_drive(Path(v["path"]))]
+        all_volumes = [v for v in all_volumes if not _is_primary_os_drive(Path(v["path"]))]
 
     # The configured music root is always scanned, even when it lives on the
     # OS drive that skip_primary_os_drive excludes — otherwise a home-folder
     # library is invisible to the split view.
     scan_roots: list[tuple[Path, str, str]] = []  # (root, drive_name, drive_path)
-    seen_roots: set = set()
+    seen_roots: set[str] = set()
     try:
         from config import MUSIC_ROOT as _MR  # noqa: PLC0415
         mr = Path(str(_MR))
         if mr.is_dir():
             scan_roots.append((mr, mr.name or "Music", str(mr)))
-            seen_roots.add(mr.resolve())
+            resolved_music = _real_path_str(mr)
+            if resolved_music:
+                seen_roots.add(resolved_music)
     except Exception:
         pass
     for vol in all_volumes:
         root = Path(vol["path"])
-        try:
-            resolved = root.resolve()
-        except OSError:
+        resolved = _real_path_str(root)
+        if not resolved:
             continue
         if resolved in seen_roots or not root.is_dir():
             continue
@@ -346,27 +391,24 @@ def _enumerate_drive_audio(
     total_estimate = 0
     truncated = False
     limit_per_vol = per_volume_limit or limit
+    deadline = time.monotonic() + _FS_DRIVE_SCAN_TIMEOUT
 
     for root, drive_name, drive_path in scan_roots:
-        vol_count = 0
-        try:
-            walker = root.rglob("*")
-            for p in walker:
-                if vol_count >= limit_per_vol or len(entries) >= limit:
-                    truncated = True
-                    break
-                if p.name.startswith(".") or any(part.startswith(".") for part in p.parent.parts):
-                    continue  # AppleDouble ._* files, .Trashes, hidden dirs
-                try:
-                    if p.is_file() and p.suffix.lower() in _FS_AUDIO_EXTS:
-                        entries.append((p, drive_name, drive_path))
-                        vol_count += 1
-                except OSError:
-                    continue
-        except OSError:
-            continue
-
-        total_estimate += vol_count
+        remaining = limit - len(entries)
+        if remaining <= 0:
+            truncated = True
+            break
+        audio_files, root_truncated = _collect_audio_files(
+            root,
+            limit=min(limit_per_vol, remaining),
+            deadline=deadline,
+        )
+        entries.extend((path, drive_name, drive_path) for path in audio_files)
+        total_estimate += len(audio_files)
+        if root_truncated or len(entries) >= limit or time.monotonic() >= deadline:
+            truncated = True
+        if time.monotonic() >= deadline:
+            break
 
     return entries, total_estimate, truncated, all_volumes
 # ── Library track routes ──────────────────────────────────────────────────────
@@ -560,7 +602,12 @@ def api_library_fs_browse():
             ]
             vroot_str = "Drives"
         else:
-            scan_roots = sorted(volumes_root.iterdir()) if volumes_root and volumes_root.exists() else []
+            scan_roots = [
+                Path(volume["path"])
+                for volume in get_connected_volumes()
+                if Path(volume["path"]).is_dir() and not _is_primary_os_drive(Path(volume["path"]))
+            ]
+            scan_roots.sort(key=lambda root: root.name.lower())
             vroot_str = str(volumes_root)
 
         discovered = discover_music_roots([Path(v) for v in scan_roots if Path(v).is_dir()])
@@ -601,22 +648,24 @@ def api_library_fs_browse():
             truncated = total_tracks > _FS_RECURSIVE_LIMIT
             grouped_tracks: list[dict] = []
             track_paths: list[tuple[Path, str, str]] = []
+            deadline = time.monotonic() + _FS_DRIVE_SCAN_TIMEOUT
             for vol in volumes:
                 if len(track_paths) >= _FS_RECURSIVE_LIMIT:
                     break
                 vol_path = Path(vol["path"])
                 if int(vol.get("audio_estimate", 0)) <= 0:
                     continue
-                try:
-                    for item in vol_path.rglob("*"):
-                        if item.name.startswith("."):
-                            continue
-                        if item.is_file() and item.suffix.lower() in _FS_AUDIO_EXTS:
-                            track_paths.append((item, vol["name"], vol["path"]))
-                            if len(track_paths) >= _FS_RECURSIVE_LIMIT:
-                                break
-                except PermissionError:
-                    continue
+                remaining = _FS_RECURSIVE_LIMIT - len(track_paths)
+                audio_files, vol_truncated = _collect_audio_files(
+                    vol_path,
+                    limit=remaining,
+                    deadline=deadline,
+                )
+                track_paths.extend((item, vol["name"], vol["path"]) for item in audio_files)
+                if vol_truncated or time.monotonic() >= deadline:
+                    truncated = True
+                if time.monotonic() >= deadline:
+                    break
 
             tag_limit = _FS_TAG_LIMIT if not truncated else min(_FS_TAG_LIMIT, len(track_paths))
             for item, drive_name, drive_path in track_paths[:tag_limit]:
@@ -663,33 +712,18 @@ def api_library_fs_browse():
     parent = str(p.parent) if str(p) != str(p.anchor) else None
 
     if recursive:
-        # Walk the whole tree, collecting audio files up to the hard cap.
-        tracks: list[Path] = []
+        # Walk the whole tree with the same timeout/symlink guards used by the
+        # multi-drive novelty scan path so a huge folder browse cannot block the UI.
+        deadline = time.monotonic() + _FS_DRIVE_SCAN_TIMEOUT
         try:
-            for item in sorted(p.rglob("*"), key=lambda x: x.name.lower()):
-                if item.name.startswith("."):
-                    continue
-                if item.is_file() and item.suffix.lower() in _FS_AUDIO_EXTS:
-                    tracks.append(item)
-                    if len(tracks) >= _FS_RECURSIVE_LIMIT:
-                        break
+            tracks, truncated = _collect_audio_files(
+                p,
+                limit=_FS_RECURSIVE_LIMIT,
+                deadline=deadline,
+            )
         except PermissionError:
             return jsonify({"error": "Permission denied"}), 403
-
-        # Count remaining tracks for the truncation message (cheap: just keep
-        # scanning filenames without reading tags).
         total_tracks = len(tracks)
-        truncated = total_tracks >= _FS_RECURSIVE_LIMIT
-        if truncated:
-            try:
-                total_tracks = sum(
-                    1 for item in p.rglob("*")
-                    if not item.name.startswith(".")
-                    and item.is_file()
-                    and item.suffix.lower() in _FS_AUDIO_EXTS
-                )
-            except Exception:
-                total_tracks = _FS_RECURSIVE_LIMIT  # best-effort
 
         tag_limit = _FS_TAG_LIMIT if not truncated else min(_FS_TAG_LIMIT, len(tracks))
         track_payloads = [_fs_track_payload(t) for t in tracks[:tag_limit]]
