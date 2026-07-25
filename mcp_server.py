@@ -58,6 +58,7 @@ from user_config import (
 
 try:
     from mcp.server.fastmcp import FastMCP
+    from mcp.server.transport_security import TransportSecuritySettings
 except ImportError:
     print(
         "The 'mcp' package is required. Install with:\n"
@@ -945,7 +946,12 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.transport == "sse":
-        mcp.run(transport="sse", port=args.port)
+        mcp.settings.host = "0.0.0.0"
+        mcp.settings.port = args.port
+        mcp.settings.transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=False,
+        )
+        mcp.run(transport="sse")
     else:
         mcp.run(transport="stdio")
 
