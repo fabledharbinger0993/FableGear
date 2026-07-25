@@ -48,7 +48,14 @@ function openSettings() {
     const excluded = Array.isArray(cfg.excluded_dirs) ? cfg.excluded_dirs : [];
     document.getElementById('settings-excluded-dirs').value = excluded.join('\n');
     const acoustidEl = document.getElementById('settings-acoustid-key');
-    if (acoustidEl && cfg.acoustid_api_key_configured) acoustidEl.placeholder = 'Configured — enter a new key to replace it';
+    const clearAcoustidEl = document.getElementById('settings-clear-acoustid-key');
+    if (acoustidEl) {
+      acoustidEl.value = '';
+      acoustidEl.placeholder = cfg.acoustid_api_key_configured
+        ? 'Configured — enter a new key to replace it'
+        : 'Paste your AcoustID API key';
+    }
+    if (clearAcoustidEl) clearAcoustidEl.checked = false;
     _settingsUpdateUI(mode);
     // Populate paths tab
     const pathFields = {
@@ -138,18 +145,27 @@ async function saveSettings() {
   const btn = document.querySelector('.settings-save');
   btn.textContent = 'Saving…'; btn.disabled = true;
   try {
+    const acoustidEl = document.getElementById('settings-acoustid-key');
+    const acoustidNewValue = (acoustidEl?.value || '').trim();
+    const clearAcoustid = !!document.getElementById('settings-clear-acoustid-key')?.checked;
+    const payload = {
+      archive_mode: mode,
+      custom_archive_dir: custom,
+      snapshot_cadence: cadence,
+      snapshot_include_master_db: document.getElementById('settings-snapshot-master-db').checked,
+      excluded_dirs: document.getElementById('settings-excluded-dirs').value
+        .split('\n').map(s => s.trim()).filter(Boolean),
+    };
+    // Preserve existing key unless user explicitly changes or clears it.
+    if (clearAcoustid) {
+      payload.acoustid_api_key = '';
+    } else if (acoustidNewValue) {
+      payload.acoustid_api_key = acoustidNewValue;
+    }
     const res  = await fetch('/api/settings', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        archive_mode: mode,
-        custom_archive_dir: custom,
-        snapshot_cadence: cadence,
-        snapshot_include_master_db: document.getElementById('settings-snapshot-master-db').checked,
-        excluded_dirs: document.getElementById('settings-excluded-dirs').value
-          .split('\n').map(s => s.trim()).filter(Boolean),
-        acoustid_api_key: (document.getElementById('settings-acoustid-key')?.value || '').trim(),
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (data.ok) {

@@ -657,11 +657,33 @@ def _run_shared_report(args, all_results, root_sections, _quarantine_dir) -> Non
     Called from both the directory-scan and --paths-file retry branches of cmd_process.
     """
 
-    _persist_process_results(all_results, _archive())
+    archive = _archive()
+    _persist_process_results(all_results, archive)
 
-    detect_bpm = not args.no_bpm
-    detect_key = not args.no_key
-    normalise = not args.no_normalize and not getattr(args, "dry_run", False)
+    bpm_mode = _resolve_effect_mode(
+        getattr(args, "bpm_mode", None),
+        legacy_off=getattr(args, "no_bpm", False),
+        legacy_force=getattr(args, "force", False) or getattr(args, "force_bpm", False),
+    )
+    key_mode = _resolve_effect_mode(
+        getattr(args, "key_mode", None),
+        legacy_off=getattr(args, "no_key", False),
+        legacy_force=getattr(args, "force", False) or getattr(args, "force_key", False),
+    )
+    normalize_mode = _resolve_effect_mode(
+        getattr(args, "normalize_mode", None),
+        legacy_off=getattr(args, "no_normalize", False),
+        legacy_force=getattr(args, "force_normalize", False),
+    )
+    enrich_mode = _resolve_effect_mode(
+        getattr(args, "enrich_mode", None),
+        legacy_off=not getattr(args, "enrich_tags", False),
+        legacy_force=getattr(args, "force_enrich", False) or getattr(args, "force", False),
+    )
+    detect_bpm = bpm_mode != "off"
+    detect_key = key_mode != "off"
+    normalise = normalize_mode != "off" and not getattr(args, "dry_run", False)
+    enrich_tags = enrich_mode != "off"
 
     total = len(all_results)
     bpm_written = sum(1 for r in all_results if r.bpm_written)
@@ -707,7 +729,7 @@ def _run_shared_report(args, all_results, root_sections, _quarantine_dir) -> Non
     if sources_line:
         report_lines.insert(1, sources_line)
         enrich_written = sum(1 for r in all_results if getattr(r, "enrich_written", False))
-        if getattr(args, "enrich_tags", False) and enrich_written:
+        if enrich_tags and enrich_written:
             report_lines.append(f"  MusicBrainz enriched: {enrich_written} files.")
 
     # ── Error breakdown ──────────────────────────────────────────────────────
@@ -1123,6 +1145,18 @@ def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
     _emit_report("\n".join(lines), "Rekordbox Dedupe", f"rekordbox_dedupe_{timestamp}.txt")
 
 
+def _resolve_effect_mode(mode: str | None, *, legacy_off: bool = False, legacy_force: bool = False) -> str:
+    """Resolve per-effect mode with backwards-compatible legacy flags."""
+    val = (mode or "").strip().lower()
+    if val in {"off", "passive", "aggressive"}:
+        return val
+    if legacy_off:
+        return "off"
+    if legacy_force:
+        return "aggressive"
+    return "passive"
+
+
 def cmd_process(args: argparse.Namespace) -> None:
     """
     Detect BPM/key and normalise loudness for audio files under PATH.
@@ -1141,6 +1175,46 @@ def cmd_process(args: argparse.Namespace) -> None:
     import json as _json
 
     paths_file = getattr(args, "paths_file", None)
+    bpm_mode = _resolve_effect_mode(
+        getattr(args, "bpm_mode", None),
+        legacy_off=getattr(args, "no_bpm", False),
+        legacy_force=getattr(args, "force", False) or getattr(args, "force_bpm", False),
+    )
+    key_mode = _resolve_effect_mode(
+        getattr(args, "key_mode", None),
+        legacy_off=getattr(args, "no_key", False),
+        legacy_force=getattr(args, "force", False) or getattr(args, "force_key", False),
+    )
+    normalize_mode = _resolve_effect_mode(
+        getattr(args, "normalize_mode", None),
+        legacy_off=getattr(args, "no_normalize", False),
+        legacy_force=getattr(args, "force_normalize", False),
+    )
+    enrich_mode = _resolve_effect_mode(
+        getattr(args, "enrich_mode", None),
+        legacy_off=not getattr(args, "enrich_tags", False),
+        legacy_force=getattr(args, "force_enrich", False) or getattr(args, "force", False),
+    )
+    rename_mode = _resolve_effect_mode(
+        getattr(args, "rename_mode", None),
+        legacy_off=True if getattr(args, "rename_mode", None) is None else False,
+        legacy_force=False,
+    )
+
+    detect_bpm = bpm_mode != "off"
+    detect_key = key_mode != "off"
+    normalise = normalize_mode != "off" and not args.dry_run
+    force_bpm = bpm_mode == "aggressive"
+    force_key = key_mode == "aggressive"
+    force_normalize = normalize_mode == "aggressive"
+    enrich_tags = enrich_mode != "off"
+    force_enrich = enrich_mode == "aggressive"
+
+    archive = _archive()
+    if archive is None and (detect_bpm or detect_key or normalise or enrich_tags or rename_mode != "off"):
+        log.error("FableGear archive unavailable — refusing Tag Tracks run because writes would be unlogged.")
+        print("[ERROR] FableGear archive unavailable — Tag Tracks requires archive logging for all actions.", flush=True)
+        sys.exit(2)
 
     # ── Specific-file retry mode ────────────────────────────────────────────
     if paths_file:
@@ -1153,10 +1227,6 @@ def cmd_process(args: argparse.Namespace) -> None:
             log.error("--paths-file is empty: %s", pf)
             sys.exit(1)
 
-        detect_bpm = not args.no_bpm
-        detect_key = not args.no_key
-        normalise = not args.no_normalize and not args.dry_run
-
         try:
             from config import QUARANTINE_DIR as _cfg_quarantine
             _quarantine_dir = _cfg_quarantine
@@ -1164,8 +1234,8 @@ def cmd_process(args: argparse.Namespace) -> None:
             _quarantine_dir = specific_paths[0].parent / "QUARANTINE"
 
         log.info(
-            "Retry mode: processing %d specific file(s) — BPM:%s KEY:%s NORMALIZE:%s FORCE:%s",
-            len(specific_paths), detect_bpm, detect_key, normalise, args.force,
+            "Retry mode: processing %d specific file(s) — BPM_MODE:%s KEY_MODE:%s NORMALIZE_MODE:%s ENRICH_MODE:%s",
+            len(specific_paths), bpm_mode, key_mode, normalize_mode, enrich_mode,
         )
 
         all_results = []
@@ -1181,8 +1251,12 @@ def cmd_process(args: argparse.Namespace) -> None:
                 detect_bpm=detect_bpm,
                 detect_key=detect_key,
                 normalise=normalise,
-                force=True,   # always force in retry mode
-                enrich_tags=getattr(args, "enrich_tags", False),
+                force=False,
+                force_bpm=force_bpm,
+                force_key=force_key,
+                force_normalize=force_normalize,
+                enrich_tags=enrich_tags,
+                force_enrich=force_enrich,
             )
             if r.errors:
                 errors += 1
@@ -1251,9 +1325,6 @@ def cmd_process(args: argparse.Namespace) -> None:
 
     _guard_or_exit(roots, "the track tagger")
 
-    detect_bpm = not args.no_bpm
-    detect_key = not args.no_key
-
     # ── Smart-skip pre-filter ───────────────────────────────────────────────
     # When --smart-skip is set, scan each root and collect only files that
     # actually need work.  This runs inside the subprocess so it appears in
@@ -1310,11 +1381,9 @@ def cmd_process(args: argparse.Namespace) -> None:
         except Exception:
             pass
         return
-    normalise = not args.no_normalize and not args.dry_run
-
     log.info(
-        "Processing %d root(s) — BPM:%s KEY:%s NORMALIZE:%s FORCE:%s DRY_RUN:%s",
-        len(roots), detect_bpm, detect_key, normalise, args.force, args.dry_run,
+        "Processing %d root(s) — BPM_MODE:%s KEY_MODE:%s NORMALIZE_MODE:%s ENRICH_MODE:%s RENAME_MODE:%s DRY_RUN:%s",
+        len(roots), bpm_mode, key_mode, normalize_mode, enrich_mode, rename_mode, args.dry_run,
     )
 
     if args.dry_run:
@@ -1339,6 +1408,7 @@ def cmd_process(args: argparse.Namespace) -> None:
 
     all_results = []
     root_sections: list[tuple[Path, str]] = []
+    rename_summary = {"renamed": 0, "collisions": 0, "quarantined": 0, "errors": 0, "roots": 0}
     for index, root in enumerate(roots, start=1):
         _log_root_step("Process", root, index, len(roots))
         try:
@@ -1347,17 +1417,43 @@ def cmd_process(args: argparse.Namespace) -> None:
                 detect_bpm=detect_bpm,
                 detect_key=detect_key,
                 normalise=normalise,
-                force=args.force,
-                force_bpm=getattr(args, "force_bpm", False),
-                force_key=getattr(args, "force_key", False),
+                force=False,
+                force_bpm=force_bpm,
+                force_key=force_key,
+                force_normalize=force_normalize,
                 max_workers=max(1, args.workers),
                 quarantine_dir=_quarantine_dir,
-                enrich_tags=args.enrich_tags,
+                enrich_tags=enrich_tags,
+                force_enrich=force_enrich,
             )
             all_results.extend(results)
             # Persist this root's analysis immediately — a multi-drive run
             # interrupted on drive 3 must keep drives 1-2 in the archive.
-            _persist_process_results(results, _archive())
+            _persist_process_results(results, archive)
+            if rename_mode != "off" and not args.dry_run:
+                from db_connection import write_db  # noqa: PLC0415
+                from renamer import rename_directory  # noqa: PLC0415
+                rename_roots: list[Path]
+                if rename_mode == "aggressive":
+                    rename_roots = [root]
+                else:
+                    touched = {
+                        r.path.parent for r in results
+                        if (r.bpm_written or r.key_written or r.enrich_written or r.normalised) and r.path.exists()
+                    }
+                    rename_roots = sorted(touched)
+                if rename_roots:
+                    with write_db(LOCAL_DB) as db:
+                        root_rename_results = []
+                        for rr in rename_roots:
+                            root_rename_results.extend(
+                                rename_directory(rr, db=db, dry_run=False, max_workers=1, archive=archive)
+                            )
+                    rename_summary["roots"] += len(rename_roots)
+                    rename_summary["renamed"] += sum(1 for r in root_rename_results if r.action == "renamed")
+                    rename_summary["collisions"] += sum(1 for r in root_rename_results if r.action == "collision_numbered")
+                    rename_summary["quarantined"] += sum(1 for r in root_rename_results if r.action == "quarantined")
+                    rename_summary["errors"] += sum(1 for r in root_rename_results if r.action == "error")
             root_total = len(results)
             root_bpm_written = sum(1 for r in results if r.bpm_written)
             root_key_written = sum(1 for r in results if r.key_written)
@@ -1381,6 +1477,8 @@ def cmd_process(args: argparse.Namespace) -> None:
                 root_lines.append(f"{root_quarantined} corrupt files moved to QUARANTINE — see report.")
             if root_errored:
                 root_lines.append(f"{root_errored} files had errors — check the log above.")
+            if rename_mode != "off" and not args.dry_run:
+                root_lines.append(f"Filename cleanup mode: {rename_mode}.")
             root_sections.append((root, "\n".join(root_lines)))
         except Exception:
             log.exception("Processing failed for %s", root)
@@ -1421,8 +1519,14 @@ def cmd_process(args: argparse.Namespace) -> None:
             f"  Key written: {key_written} files.{f'  {skipped_key} already had one.' if skipped_key else ''}",
         ]
         enrich_written = sum(1 for r in all_results if getattr(r, 'enrich_written', False))
-        if args.enrich_tags and enrich_written:
+        if enrich_tags and enrich_written:
             report_lines.append(f"  MusicBrainz enriched: {enrich_written} files.")
+    if rename_mode != "off" and not args.dry_run:
+        report_lines.append(
+            f"  Filename cleanup ({rename_mode}): {rename_summary['renamed']} renamed, "
+            f"{rename_summary['collisions']} collisions handled, "
+            f"{rename_summary['quarantined']} quarantined, {rename_summary['errors']} errors."
+        )
 
     # ── Error breakdown — shared across all modes ────────────────────────────
     if errored:
@@ -2394,6 +2498,46 @@ Examples:
         action="store_true",
         dest="enrich_tags",
         help="Enrich metadata from AcoustID/MusicBrainz after BPM/key detection (requires ACOUSTID_API_KEY in config)",
+    )
+    p_process.add_argument(
+        "--bpm-mode",
+        choices=["off", "passive", "aggressive"],
+        default=None,
+        help="off: skip BPM, passive: fill missing BPM, aggressive: overwrite BPM",
+    )
+    p_process.add_argument(
+        "--key-mode",
+        choices=["off", "passive", "aggressive"],
+        default=None,
+        help="off: skip key, passive: fill missing key, aggressive: overwrite key",
+    )
+    p_process.add_argument(
+        "--normalize-mode",
+        choices=["off", "passive", "aggressive"],
+        default=None,
+        help="off: skip normalization, passive: normalize out-of-range files, aggressive: force normalization",
+    )
+    p_process.add_argument(
+        "--enrich-mode",
+        choices=["off", "passive", "aggressive"],
+        default=None,
+        help="off: skip enrichment, passive: fill missing title/artist/album, aggressive: overwrite those fields",
+    )
+    p_process.add_argument(
+        "--rename-mode",
+        choices=["off", "passive", "aggressive"],
+        default="off",
+        help="off: skip filename cleanup, passive: rename touched files, aggressive: rename all scanned files",
+    )
+    p_process.add_argument(
+        "--force-normalize",
+        action="store_true",
+        help="Legacy override: force loudness rewrite even when already in tolerance",
+    )
+    p_process.add_argument(
+        "--force-enrich",
+        action="store_true",
+        help="Legacy override: overwrite enriched title/artist/album values",
     )
     p_process.add_argument(
         "--paths-file",

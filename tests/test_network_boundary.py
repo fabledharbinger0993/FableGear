@@ -196,6 +196,27 @@ def test_api_settings_persists_snapshot_options(client):
     assert cfg["snapshot_include_master_db"] is True
 
 
+def test_api_settings_preserves_acoustid_when_omitted(client):
+    cfg_path = Path(os.environ["HOME"]) / ".fablegear" / "config.json"
+    cfg = json.loads(cfg_path.read_text())
+    cfg["acoustid_api_key"] = "existing-key-123"
+    cfg_path.write_text(json.dumps(cfg))
+
+    r = client.post("/api/settings", json={
+        "archive_mode": "custom",
+        "custom_archive_dir": "/Volumes/MainLibrary/Archives",
+        "snapshot_cadence": "weekly",
+        "snapshot_include_master_db": True,
+        "excluded_dirs": [],
+        # acoustid_api_key intentionally omitted: should preserve existing value.
+    })
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+    cfg_after = json.loads(cfg_path.read_text())
+    assert cfg_after["acoustid_api_key"] == "existing-key-123"
+
+
 @pytest.mark.parametrize(
     "input_cadence, expected_cadence",
     [
