@@ -27,6 +27,8 @@ from pyrekordbox import Rekordbox6Database
 from pyrekordbox.db6 import tables as rb_tables
 from sqlalchemy import create_engine, text
 
+from rekordbox_meta_support import relaxed_rekordbox_nullability
+
 import pruner
 
 
@@ -39,12 +41,10 @@ def db(tmp_path):
     # infer NOT NULL for nearly every column — a stricter constraint than the
     # real master.db actually enforces (pyrekordbox writes routinely leave
     # most descriptive fields as NULL). Relax nullability so the test schema
-    # matches real-world data shapes instead of the ORM's default inference.
-    for table in rb_tables.Base.metadata.tables.values():
-        for column in table.columns:
-            if not column.primary_key:
-                column.nullable = True
-    rb_tables.Base.metadata.create_all(engine)
+    # matches real-world data shapes; the helper restores the shared metadata
+    # afterward so the mutation can't leak into later tests.
+    with relaxed_rekordbox_nullability():
+        rb_tables.Base.metadata.create_all(engine)
     engine.dispose()
 
     # djmdCloudExportSongPlaylist and djmdRecommendLike have no ORM model in
