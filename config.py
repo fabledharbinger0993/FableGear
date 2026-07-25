@@ -20,7 +20,7 @@ if sys.version_info < (3, 11):
 # at ~/.fablegear/config.json and written there by `python3 cli.py setup`.
 #
 # These module-level names preserve the existing import interface throughout
-# the codebase — callers use LOCAL_DB, DJMT_DB, MUSIC_ROOT, BACKUP_DIR,
+# the codebase — callers use LOCAL_DB, DEVICE_DB, MUSIC_ROOT, BACKUP_DIR,
 # TARGET_LUFS, and LUFS_TOLERANCE exactly as before.
 
 
@@ -45,7 +45,7 @@ FABLEGEAR_MODE = _cfg.get("mode", "suburban")
 LOCAL_DB = Path(_cfg["local_db"])
 
 # Database on the DJ drive (exported for CDJ playback)
-DJMT_DB = Path(_cfg["device_db"])
+DEVICE_DB = Path(_cfg["device_db"])
 
 # Music library root on the DJ drive
 MUSIC_ROOT = Path(_cfg["music_root"])

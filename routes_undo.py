@@ -123,19 +123,19 @@ def undo_restore_savepoint():
         return jsonify({"error": "Rekordbox is running — close it first"}), 409
 
     try:
-        from config import DJMT_DB  # noqa: PLC0415
+        from config import DEVICE_DB  # noqa: PLC0415
     except Exception:
         return jsonify({"error": "FableGear not configured"}), 500
 
     try:
-        _backup_db(DJMT_DB)
+        _backup_db(DEVICE_DB)
     except Exception as exc:
         return jsonify({"error": f"Could not backup current DB: {exc}"}), 500
 
     try:
         # Atomic restore: copy to a temp file in the target directory, fsync,
         # then replace the DB path in one operation.
-        target_dir = Path(DJMT_DB).parent
+        target_dir = Path(DEVICE_DB).parent
         with tempfile.NamedTemporaryFile(
             prefix=".fablegear_restore_",
             suffix=".db",
@@ -147,13 +147,13 @@ def undo_restore_savepoint():
             shutil.copy2(str(sp), str(tmp_path))
             with open(tmp_path, "rb") as verify_f:
                 os.fsync(verify_f.fileno())
-            tmp_path.replace(Path(DJMT_DB))
+            tmp_path.replace(Path(DEVICE_DB))
         finally:
             tmp_path.unlink(missing_ok=True)
     except OSError as exc:
         return jsonify({"error": f"Restore failed: {exc}"}), 500
 
-    log.info("Restored savepoint %s → %s", sp.name, DJMT_DB)
+    log.info("Restored savepoint %s → %s", sp.name, DEVICE_DB)
     return jsonify({"ok": True, "restored": sp.name})
 
 

@@ -558,7 +558,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     sys.path.insert(0, ".")
 
-    from config import DJMT_DB, MUSIC_ROOT
+    from config import DEVICE_DB, MUSIC_ROOT
     from db_connection import read_db
 
     test_root = Path(sys.argv[1]) if len(sys.argv) > 1 else MUSIC_ROOT
@@ -567,7 +567,7 @@ if __name__ == "__main__":
         sys.exit(0)
 
     print("=== DRY RUN (no writes) ===")
-    with read_db(DJMT_DB) as db:
+    with read_db(DEVICE_DB) as db:
         report = import_directory(test_root, db, dry_run=True)
     print(report.summary())
 

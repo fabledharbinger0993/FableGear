@@ -80,9 +80,9 @@ def _snapshot_master_db(timestamp: str) -> str:
 
 def _snapshot_device_db() -> str:
     from db_connection import _backup_db  # noqa: PLC0415
-    from config import DJMT_DB  # noqa: PLC0415
+    from config import DEVICE_DB  # noqa: PLC0415
 
-    return str(_backup_db(DJMT_DB))
+    return str(_backup_db(DEVICE_DB))
 
 
 def _perform_snapshot() -> dict:

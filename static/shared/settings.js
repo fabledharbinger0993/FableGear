@@ -64,7 +64,7 @@ function openSettings() {
     const pathFields = {
       'settings-music-root': cfg.music_root,
       'settings-local-db': cfg.local_db || '',
-      'settings-djmt-db': cfg.djmt_db,
+      'settings-device-db': cfg.device_db,
       'settings-backup-dir': cfg.backup_dir,
       'settings-archive-root': cfg.archive_root,
       'settings-quarantine': cfg.quarantine,

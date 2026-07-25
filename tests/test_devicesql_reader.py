@@ -3,7 +3,7 @@ Unit tests for chop_shop/devicesql_reader.py's file-header parsing.
 
 No export.pdb binary is committed to this repo (see module docstring
 HONESTY LIMIT), so these tests build a SYNTHETIC 16-byte header using the
-real numbers documented in docs/format_samples/DJMTGO_inspection.md (page
+real numbers documented in docs/format_samples/usb_format_inspection.md (page
 size 4096, 20 tables) — not a captured hardware file. Row-level parsing
 (tracks table page/row walk, string decoding) is covered separately in
 tests/test_devicesql_pdb_rowwalk.py against fixtures built from Deep
@@ -33,7 +33,7 @@ def _header(page_size: int = 4096, num_tables: int = 20, next_unused_page: int =
     )
 
 
-def test_read_pdb_valid_header_matches_djmtgo_ground_truth(tmp_path):
+def test_read_pdb_valid_header_matches_usb_ground_truth(tmp_path):
     path = tmp_path / "export.pdb"
     path.write_bytes(_header() + b"\x00" * 4096)  # pad to a page for realism
 

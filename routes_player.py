@@ -298,10 +298,10 @@ def _enumerate_drive_audio(
 # ── Library track routes ──────────────────────────────────────────────────────
 
 def _resolve_db(db_param):
-    """Return the DB path for a ?db= query param.  'device' → DJMT_DB, else LOCAL_DB."""
-    from config import LOCAL_DB, DJMT_DB  # noqa: PLC0415
-    if db_param and str(db_param).lower() in ("device", "djmt"):
-        return DJMT_DB
+    """Return the DB path for a ?db= query param.  'device' → DEVICE_DB, else LOCAL_DB."""
+    from config import LOCAL_DB, DEVICE_DB  # noqa: PLC0415
+    if db_param and str(db_param).lower() in ("device",):
+        return DEVICE_DB
     return LOCAL_DB
 
 
@@ -381,7 +381,7 @@ def api_library_tracks():
     source = (request.args.get("db") or "").lower()
 
     # The Rekordbox databases remain reachable as explicit, demoted sources.
-    if source in ("local", "device", "djmt"):
+    if source in ("local", "device"):
         from db_connection import read_db  # noqa: PLC0415
         _DB = _resolve_db(source)
         try:
@@ -915,7 +915,7 @@ def api_library_track_stream(track_id):
     source = (request.args.get("db") or "").lower()
 
     # FableGear DB: numeric IDs, default source
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         try:
             db = _fablegear_db()  # read-only: None when the library isn't built yet
             rec = db.get_content_by_id(int(track_id)) if db else None
@@ -1036,7 +1036,7 @@ def api_library_playlists():
     # FableGear-native playlists are the default Record Room source (they hold
     # the user's own library). Rekordbox databases stay reachable as demoted,
     # explicit sources.
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db()  # read-only: None when the library isn't built yet
         if fg is None:
             return jsonify([])
@@ -1046,7 +1046,7 @@ def api_library_playlists():
             return jsonify({"error": str(exc)}), 500
 
     from db_connection import read_db  # noqa: PLC0415
-    _DB = _resolve_db(source)  # 'device' → DJMT_DB, everything else → LOCAL_DB
+    _DB = _resolve_db(source)  # 'device' → DEVICE_DB, everything else → LOCAL_DB
     if not _DB or not os.path.exists(_DB):
         return jsonify([])  # no Rekordbox DB yet → empty tree, never an error
 
@@ -1073,7 +1073,7 @@ def api_library_create_playlist():
     if node_type not in {"playlist", "folder"}:
         return jsonify({"error": "type must be playlist or folder"}), 400
 
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db(create=True)  # creating a playlist is an explicit write
         try:
             pid = fg.create_playlist(name, parent_id=parent_id or None, playlist_type=node_type)
@@ -1109,7 +1109,7 @@ def api_library_create_playlist():
 @bp.route("/api/library/playlists/<playlist_id>/tracks")
 def api_library_playlist_tracks(playlist_id):
     source = (request.args.get("db") or "").lower()
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db()
         if fg is None:
             return jsonify([])
@@ -1159,7 +1159,7 @@ def api_library_add_tracks_to_playlist(playlist_id):
         return jsonify({"error": "track_ids required"}), 400
 
     source = (request.args.get("db") or data.get("db") or "").lower()
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db()
         if fg is None or fg.get_playlist(playlist_id) is None:
             return jsonify({"error": "Playlist not found"}), 404
@@ -1234,7 +1234,7 @@ def api_library_rename_playlist(playlist_id):
         return jsonify({"error": "name required"}), 400
 
     source = (request.args.get("db") or data.get("db") or "").lower()
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db()
         if fg is None or fg.get_playlist(playlist_id) is None:
             return jsonify({"error": "Playlist not found"}), 404
@@ -1261,7 +1261,7 @@ def api_library_delete_playlist(playlist_id):
     from config import LOCAL_DB as _DB  # noqa: PLC0415
 
     source = (request.args.get("db") or "").lower()
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db()
         if fg is None or fg.get_playlist(playlist_id) is None:
             return jsonify({"error": "Playlist not found"}), 404
@@ -1297,7 +1297,7 @@ def api_library_remove_tracks_from_playlist(playlist_id):
         return jsonify({"error": "track_ids required"}), 400
 
     source = (request.args.get("db") or data.get("db") or "").lower()
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db()
         if fg is None or fg.get_playlist(playlist_id) is None:
             return jsonify({"error": "Playlist not found"}), 404
@@ -1353,7 +1353,7 @@ def api_library_reorder_playlist_tracks(playlist_id):
     track_ids = [str(t).strip() for t in track_ids if str(t).strip()]
 
     source = (request.args.get("db") or data.get("db") or "").lower()
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db()
         if fg is None or fg.get_playlist(playlist_id) is None:
             return jsonify({"error": "Playlist not found"}), 404

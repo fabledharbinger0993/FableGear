@@ -150,7 +150,7 @@ def _load_duplicate_cache(csv_path: Path, *, include_db: bool = True) -> dict:
     if include_db:
         try:
             from db_connection import read_db  # noqa: PLC0415
-            from config import DJMT_DB as _DB  # noqa: PLC0415
+            from config import DEVICE_DB as _DB  # noqa: PLC0415
             with read_db(_DB) as db:
                 groups = load_report(csv_path, db)
         except Exception as db_exc:
@@ -1079,11 +1079,11 @@ def api_run_prune():
 
             from pruner import prune_files  # noqa: PLC0415
             from db_connection import write_db  # noqa: PLC0415
-            from config import DJMT_DB as _DJMT_DB, LOCAL_DB as _LOCAL_DB  # noqa: PLC0415
+            from config import DEVICE_DB as _DEVICE_DB, LOCAL_DB as _LOCAL_DB  # noqa: PLC0415
 
             # Use the device DB (Pioneer drive) when it's mounted — that's where
-            # the actual library lives. Fall back to LOCAL_DB only if DJMT_DB is absent.
-            _prune_db_path = _DJMT_DB if (_DJMT_DB and _DJMT_DB.exists()) else _LOCAL_DB
+            # the actual library lives. Fall back to LOCAL_DB only if DEVICE_DB is absent.
+            _prune_db_path = _DEVICE_DB if (_DEVICE_DB and _DEVICE_DB.exists()) else _LOCAL_DB
 
             from helpers import get_archive, get_archive_error  # noqa: PLC0415
             _fg_archive = get_archive()

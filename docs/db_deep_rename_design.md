@@ -83,7 +83,7 @@ For an already-imported library, DB-deep wins on four axes:
 
 ### 5.1 Discovery
 
-Source of truth is the rekordbox DB (`DJMT_DB` when the device drive is
+Source of truth is the rekordbox DB (`DEVICE_DB` when the device drive is
 mounted, else `LOCAL_DB` — the same `_resolve_active_db_path()` the prune and
 dedupe tools already use). Iterate `DjmdContent` rows, optionally filtered to a
 `--under PATH` prefix so a DJ can rename just one drive/folder's worth.

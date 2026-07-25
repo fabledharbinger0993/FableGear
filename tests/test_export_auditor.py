@@ -67,7 +67,7 @@ def _build_pdb_header(page_size=4096, num_tables=20, next_unused_page=47) -> byt
 
 @pytest.fixture
 def synthetic_export(tmp_path):
-    root = tmp_path / "GIGSTICK"
+    root = tmp_path / "DJ_USB"
     anlz_dir = root / "PIONEER" / "USBANLZ" / "0001" / "0001"
     anlz_dir.mkdir(parents=True)
     (anlz_dir / "ANLZ0000.DAT").write_bytes(_build_anlz_bytes("/Contents/Synthetic Artist/track.mp3"))

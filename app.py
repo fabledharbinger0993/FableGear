@@ -462,7 +462,7 @@ def api_config():
     from helpers import _current_fablegear_mode, _backup_dir  # noqa: PLC0415
     try:
         from config import (  # noqa: PLC0415
-            DJMT_DB, LOCAL_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
+            DEVICE_DB, LOCAL_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
             BACKUP_DIR, ARCHIVE_ENABLED, SNAPSHOT_CADENCE, SNAPSHOT_INCLUDE_MASTER_DB,
             _archive_mode, _custom_archive,
         )
@@ -472,7 +472,7 @@ def api_config():
         return jsonify({
             "music_root":       str(MUSIC_ROOT),
             "local_db":         str(LOCAL_DB),
-            "djmt_db":          str(DJMT_DB),
+            "device_db":        str(DEVICE_DB),
             "backup_dir":       str(BACKUP_DIR),
             "archive_root":     str(ARCHIVE_ROOT),
             "quarantine":       str(QUARANTINE_DIR),
@@ -491,7 +491,7 @@ def api_config():
         current_mode = _current_fablegear_mode()
         return jsonify({
             "music_root":      "",
-            "djmt_db":         "",
+            "device_db":       "",
             "backup_dir":      str(_backup_dir()),
             "archive_root":    "",
             "quarantine":      "",

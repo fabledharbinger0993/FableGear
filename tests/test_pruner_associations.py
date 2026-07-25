@@ -8,7 +8,7 @@ deleting a duplicate's djmdContent row without re-threading these tables
 first leaves orphaned rows behind — Rekordbox will never surface them again.
 These tests exercise the fix against a real (unencrypted) pyrekordbox-schema
 SQLite database, not mocks, so a wrong ORM assumption fails loudly here
-instead of on Cameron's live 246k-track library.
+instead of on a user's live multi-hundred-thousand-track library.
 """
 
 import sys
@@ -49,7 +49,7 @@ def db(tmp_path):
 
     # djmdCloudExportSongPlaylist and djmdRecommendLike have no ORM model in
     # pyrekordbox 0.4.4, so pruner.py talks to them via raw SQL — create them
-    # by hand to match the real live-schema columns found on Cameron's library.
+    # by hand to match the real live-schema columns found on a production library.
     engine = create_engine(f"sqlite:///{db_path}")
     with engine.begin() as conn:
         conn.execute(text(

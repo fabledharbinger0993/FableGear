@@ -591,7 +591,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     sys.path.insert(0, ".")
 
-    from config import DJMT_DB, MUSIC_ROOT
+    from config import DEVICE_DB, MUSIC_ROOT
     from db_connection import read_db
 
     # ── Part 1: hash and fuzzy index build test (no DB needed) ──
@@ -611,7 +611,7 @@ if __name__ == "__main__":
 
     # ── Part 2: dry-run match test (read-only DB) ──
     print("\n=== Match strategy dry-run (read-only) ===")
-    with read_db(DJMT_DB) as db:
+    with read_db(DEVICE_DB) as db:
         all_content = db.get_content().all()
         sample = [
             c for c in all_content

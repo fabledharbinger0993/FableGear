@@ -392,7 +392,7 @@ def cmd_dead_files(args: argparse.Namespace) -> None:
             log.error("PATH is not a directory: %s", root)
             sys.exit(1)
 
-    db_paths = None  # defaults to LOCAL_DB + DJMT_DB
+    db_paths = None  # defaults to LOCAL_DB + DEVICE_DB
 
     total_found = [0]
     total_files = [0]
@@ -1013,13 +1013,13 @@ def cmd_prune(args: argparse.Namespace) -> None:
     # Operate on the device DB when the Pioneer drive is mounted, else local —
     # same selection the interactive prune endpoint uses.
     try:
-        from FableGear.config import DJMT_DB as _DJMT_DB  # noqa: PLC0415
+        from FableGear.config import DEVICE_DB as _DEVICE_DB  # noqa: PLC0415
     except ImportError:
         try:
-            from config import DJMT_DB as _DJMT_DB        # noqa: PLC0415
+            from config import DEVICE_DB as _DEVICE_DB        # noqa: PLC0415
         except Exception:
-            _DJMT_DB = None
-    db_path = _DJMT_DB if (_DJMT_DB and _DJMT_DB.exists()) else LOCAL_DB
+            _DEVICE_DB = None
+    db_path = _DEVICE_DB if (_DEVICE_DB and _DEVICE_DB.exists()) else LOCAL_DB
 
     # Load + rank the report (read-only connection flags DB-referenced files).
     try:
@@ -1104,7 +1104,7 @@ def cmd_prune(args: argparse.Namespace) -> None:
 
 
 def _resolve_active_db_path(cli_db_path: str | None = None) -> Path:
-    """Return the DB path to operate on (explicit override > DJMT > LOCAL)."""
+    """Return the DB path to operate on (explicit override > DEVICE > LOCAL)."""
     if cli_db_path:
         candidate = Path(cli_db_path).expanduser()
         if not candidate.exists():
@@ -1113,15 +1113,15 @@ def _resolve_active_db_path(cli_db_path: str | None = None) -> Path:
         return candidate
 
     try:
-        from FableGear.config import DJMT_DB as _DJMT_DB  # noqa: PLC0415
+        from FableGear.config import DEVICE_DB as _DEVICE_DB  # noqa: PLC0415
     except ImportError:
         try:
-            from config import DJMT_DB as _DJMT_DB  # noqa: PLC0415
+            from config import DEVICE_DB as _DEVICE_DB  # noqa: PLC0415
         except Exception:
-            _DJMT_DB = None
+            _DEVICE_DB = None
 
-    if _DJMT_DB and _DJMT_DB.exists():
-        return _DJMT_DB
+    if _DEVICE_DB and _DEVICE_DB.exists():
+        return _DEVICE_DB
     if LOCAL_DB is None:
         log.error("No Rekordbox database path available")
         sys.exit(1)
@@ -1180,7 +1180,7 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
     log.info("Writing OneLibrary export to: %s", target)
 
     device_name = getattr(args, "device_name", "") or "FableGear"
-    dj_name = getattr(args, "dj_name", "") or "Fabled Guthrie"
+    dj_name = getattr(args, "dj_name", "") or "FableGear"
 
     fg_db = FableGearDatabase()
     try:
@@ -2677,7 +2677,7 @@ Examples:
         "usb-inspect",
         help="Read-only check of a Pioneer export drive (DeviceSQL + OneLibrary)",
     )
-    p_usb.add_argument("mount", help="Mount point of the drive, e.g. /Volumes/GIGSTICK")
+    p_usb.add_argument("mount", help="Mount point of the drive, e.g. /Volumes/DJ_USB")
     p_usb.set_defaults(func=cmd_usb_inspect)
 
     p_anlz = sub.add_parser(
@@ -2705,7 +2705,7 @@ Examples:
         "export-audit",
         help="Read-only Phase B deep audit of a mounted Pioneer export tree (writes to the FableGear archive)",
     )
-    p_export_audit.add_argument("mount", help="Mount point of the drive, e.g. /Volumes/GIGSTICK")
+    p_export_audit.add_argument("mount", help="Mount point of the drive, e.g. /Volumes/DJ_USB")
     p_export_audit.set_defaults(func=cmd_export_audit)
 
     p_audit = sub.add_parser("audit", help="Read-only library health check")
@@ -2847,7 +2847,7 @@ Examples:
     p_rb_dupes.add_argument(
         "--db-path",
         metavar="PATH",
-        help="Explicit Rekordbox DB path (default: DJMT_DB when mounted, else LOCAL_DB)",
+        help="Explicit Rekordbox DB path (default: DEVICE_DB when mounted, else LOCAL_DB)",
     )
     p_rb_dupes.add_argument(
         "--output", "-o",
@@ -2934,7 +2934,7 @@ Examples:
     p_onelib.add_argument(
         "--dj-name",
         default="",
-        help="DJ profile display name for djprofile.nxs (default: Fabled Guthrie)",
+        help="DJ profile display name for djprofile.nxs (default: FableGear)",
     )
     p_onelib.add_argument(
         "--no-identity-files",

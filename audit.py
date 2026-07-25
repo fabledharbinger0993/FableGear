@@ -404,10 +404,10 @@ if __name__ == "__main__":
     sys.path.insert(0, ".")
 
     from db_connection import read_db
-    from config import DJMT_DB, MUSIC_ROOT
+    from config import DEVICE_DB, MUSIC_ROOT
 
     print("Opening DB (read-only)...")
-    with read_db(DJMT_DB) as db:
+    with read_db(DEVICE_DB) as db:
 
         # ── Snapshot ──
         print("\n--- Snapshot ---")
