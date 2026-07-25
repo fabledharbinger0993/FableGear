@@ -233,6 +233,76 @@ try:
 except Exception:
     pass  # Drive not mounted yet — non-fatal
 
+try:
+    # Archive-first DB home (docs/archive_first_architecture.md §3): restore
+    # the local working copy from the archive if it's missing/corrupt, or
+    # seed the archive from an existing local DB on first run. No-ops
+    # (returns action="skipped") when the drive isn't mounted — never blocks
+    # startup.
+    import logging as _logging  # noqa: PLC0415
+    from fablegear_database.archive_sync import startup_sync_check as _archive_startup_sync_check
+    _startup_sync_result = _archive_startup_sync_check()
+    if not _startup_sync_result.ok:
+        _logging.getLogger(__name__).warning(
+            "Archive DB sync check at startup: %s", _startup_sync_result.reason,
+        )
+    elif _startup_sync_result.action != "skipped":
+        _logging.getLogger(__name__).info(
+            "Archive DB sync check at startup: %s (%s)",
+            _startup_sync_result.action, _startup_sync_result.reason,
+        )
+except Exception:
+    import logging as _logging  # noqa: PLC0415
+    _logging.getLogger(__name__).exception("Archive DB startup sync check failed")
+
+
+def _sync_archive_db_on_exit() -> None:
+    """Clean-shutdown checkpoint (doc §3.2): back up the local working copy
+    to the archive on process exit. Best-effort — a missing drive or an
+    interrupted shutdown just means the periodic scheduler
+    (snapshot_scheduler) picks it up on its next cadence instead."""
+    try:
+        from fablegear_database.archive_sync import sync_db_to_archive  # noqa: PLC0415
+        sync_db_to_archive()
+    except Exception:
+        pass
+
+
+import atexit  # noqa: E402
+atexit.register(_sync_archive_db_on_exit)
+
+# atexit alone doesn't run on SIGTERM/SIGINT (Python's default handling for
+# both terminates immediately without unwinding to atexit). This app's own
+# self-update flow signals itself with SIGTERM (see api_update_apply), and a
+# packaged desktop build is routinely closed via SIGTERM/SIGINT from the OS
+# or its process supervisor — those are the *actual* common shutdown paths,
+# not a plain interpreter exit. Route both through the same sync + exit so
+# "clean shutdown" in the doc means what actually happens, not just the
+# idealized case.
+_prior_sigterm_handler = signal.getsignal(signal.SIGTERM)
+_prior_sigint_handler = signal.getsignal(signal.SIGINT)
+
+
+def _handle_shutdown_signal(signum, frame):
+    _sync_archive_db_on_exit()
+    if signum == signal.SIGTERM and callable(_prior_sigterm_handler):
+        _prior_sigterm_handler(signum, frame)
+        return
+    if signum == signal.SIGINT and callable(_prior_sigint_handler):
+        _prior_sigint_handler(signum, frame)
+        return
+    sys.exit(0)
+
+
+try:
+    signal.signal(signal.SIGTERM, _handle_shutdown_signal)
+    signal.signal(signal.SIGINT, _handle_shutdown_signal)
+except (ValueError, OSError):
+    # signal.signal() only works in the main thread of the main interpreter —
+    # non-fatal if app.py is ever imported somewhere that isn't (e.g. certain
+    # test harnesses); atexit above still covers normal interpreter exit.
+    pass
+
 
 # ── Health check cache ────────────────────────────────────────────────────────
 # Findings are refreshed at startup and whenever /api/health is called.
