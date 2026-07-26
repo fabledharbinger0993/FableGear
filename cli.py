@@ -1394,6 +1394,19 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
         else:
             log.warning("--stage-audio ignored: target is not under PIONEER/rekordbox/")
 
+    # --force: replace an existing export in place (removes the DB + its WAL/SHM
+    # sidecars) so re-exporting to the same stick doesn't require a manual rm.
+    if getattr(args, "force", False) and target.exists():
+        for suffix in ("", "-wal", "-shm"):
+            p = Path(str(target) + suffix)
+            try:
+                if p.exists():
+                    p.unlink()
+            except OSError as exc:
+                log.error("Could not remove existing %s: %s", p, exc)
+                sys.exit(1)
+        log.info("Replaced existing export at %s (--force)", target)
+
     try:
         result = OneLibraryWriter(fg_db).write(
             target,
@@ -3223,6 +3236,12 @@ Examples:
         "--no-identity-files",
         action="store_true",
         help="Skip writing RBFLTR.DAT and djprofile.nxs alongside exportLibrary.db",
+    )
+    p_onelib.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace an existing export at TARGET (removes the DB + WAL/SHM) "
+             "instead of refusing — for re-exporting to the same stick",
     )
     p_onelib.add_argument(
         "--stage-audio",
