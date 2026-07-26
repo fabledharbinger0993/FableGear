@@ -262,6 +262,10 @@ class OneLibraryWriter:
 
         tracks = self.database.get_content_with_relations(content_ids)
 
+        # Deferred import: key_mapper pulls in config, which raises until
+        # FableGear has been through setup — keep that coupling out of module load.
+        from key_mapper import notation_to_scale_name
+
         conn = sqlcipher3.connect(str(target_path))
         try:
             cur = conn.cursor()
@@ -306,7 +310,11 @@ class OneLibraryWriter:
                     genre_id = genres.get(track.genre)
                     artist_id = artists.get(track.artist)
                     label_id = labels.get(track.label)
-                    key_id = keys.get(track.key)
+                    # Rekordbox's key table stores canonical ScaleNames ("Am",
+                    # "Gm"), not Camelot/OpenKey codes. FableGear tracks may hold
+                    # any notation, so normalise to a ScaleName before allocating
+                    # the key id (falls back to the raw value if unmappable).
+                    key_id = keys.get(notation_to_scale_name(track.key) or track.key)
                     color_id = colors.get(track.color)
 
                     album_id = None

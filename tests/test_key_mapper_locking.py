@@ -135,8 +135,9 @@ class _RacingFakeDB:
 def test_get_or_create_is_idempotent():
     """
     Calling _get_or_create_key_row twice for the same scale name must
-    return the same ID and create exactly one row. "Bbm" is the canonical
-    ScaleName for Camelot 8A (see config.CAMELOT_TO_RB).
+    return the same ID and create exactly one row. "Bbm" is a canonical
+    Rekordbox ScaleName (Camelot 3A; see config.CAMELOT_TO_RB) used here
+    purely as a representative valid scale name.
     """
     db = _SequentialFakeDB()
     scale_name = "Bbm"
