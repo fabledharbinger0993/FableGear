@@ -1,0 +1,65 @@
+{
+  "manifest": "1268 files, 145,705,879 bytes",
+  "export.pdb": "DeviceSQL header OK \u2014 page size 4096, 20 tables, next_unused_page 128, 520,192 bytes",
+  "exportExt.pdb": "DeviceSQL header OK \u2014 page size 4096, 9 tables, next_unused_page 21, 73,728 bytes",
+  "anlz": {
+    "tracks": 412,
+    "tag_frequency": {
+      "dat": {
+        "PPTH": 412,
+        "PVBR": 412,
+        "PQTZ": 412,
+        "PWAV": 412,
+        "PWV2": 412,
+        "PCOB": 824
+      },
+      "ext": {
+        "PPTH": 412,
+        "PWV3": 412,
+        "PCOB": 824,
+        "PCO2": 824,
+        "PQT2": 412,
+        "PWV5": 412,
+        "PWV4": 412,
+        "PSSI": 412
+      },
+      "two_ex": {
+        "PPTH": 412,
+        "PWV7": 412,
+        "PWV6": 412,
+        "PWVC": 412
+      }
+    }
+  },
+  "settings": [
+    "MYSETTING.DAT",
+    "MYSETTING2.DAT",
+    "DEVSETTING.DAT",
+    "DJMMYSETTING.DAT"
+  ],
+  "onelibrary": {
+    "album": 150,
+    "artist": 148,
+    "category": 22,
+    "color": 8,
+    "content": 413,
+    "cue": 0,
+    "genre": 35,
+    "history": 0,
+    "history_content": 0,
+    "hotCueBankList": 0,
+    "hotCueBankList_cue": 0,
+    "image": 231,
+    "key": 24,
+    "label": 45,
+    "menuItem": 27,
+    "myTag": 52,
+    "myTag_content": 0,
+    "playlist": 11,
+    "playlist_content": 434,
+    "property": 1,
+    "recommendedLike": 0,
+    "sort": 17
+  },
+  "two_ex_samples": 5
+}
