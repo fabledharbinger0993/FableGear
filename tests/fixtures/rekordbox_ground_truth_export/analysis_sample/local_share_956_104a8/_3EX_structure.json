@@ -1,0 +1,18 @@
+{
+  "top_keys": [
+    "embedding"
+  ],
+  "embedding_fields": {
+    "d4": "float=613.4073125",
+    "d5": "matrix 41x64 float",
+    "d6": "vector[64] float",
+    "d7": "vector[2] float",
+    "d8": "float=0.8143779635429382",
+    "d9": "int=26",
+    "d2": "str='168921450'",
+    "d3": "str='d79b94b0a9208bca21b1013f8ef6b92b'",
+    "d12": "float=0.7452355432300164",
+    "d11": "float=130.0",
+    "d10": "int=9"
+  }
+}
