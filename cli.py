@@ -1206,12 +1206,33 @@ def cmd_parse(args: argparse.Namespace) -> None:
 
     do_wave = not getattr(args, "no_waveforms", False)
     force = getattr(args, "force", False)
+
+    # Resume checkpoint (order-independent, by file path) — matches convert/
+    # process, so an interrupted --all parse of a big library picks up where it
+    # stopped instead of re-analyzing everything.
+    ckpt_roots = [_P(args.path)] if getattr(args, "path", None) else [_P.home() / ".fablegear"]
+    ckpt = _get_checkpoint("parse", ckpt_roots, args, {"waveforms": do_wave})
+    done_paths: set = set()
+    if ckpt is not None:
+        saved = ckpt.load()
+        if saved:
+            done_paths = set(saved.get("done_paths", []))
+            if done_paths and not force:
+                log.info("Resuming: %d track(s) already parsed, skipping.", len(done_paths))
+
+    def _save_ckpt() -> None:
+        if ckpt is not None:
+            ckpt.save({"done_paths": sorted(done_paths), "completed": len(done_paths),
+                       "total": len(tracks)})
+
     log.info("Parsing %d track(s) for DJ-gear playback%s…",
              len(tracks), "" if do_wave else " (grids only)")
 
     ok = 0
     for i, t in enumerate(tracks, 1):
         name = t.file_name or str(t.id)
+        if not force and t.file_path in done_paths:
+            continue
         try:
             bpm, key = t.bpm, t.key
             if force or bpm is None or key is None:
@@ -1240,15 +1261,38 @@ def cmd_parse(args: argparse.Namespace) -> None:
                 db.bulk_upsert_beatgrids(t.id, grid)
 
             # Waveforms -> per-track analysis cache.
+            n_cols = 0
             if do_wave:
                 wf = wg.analyze_audio(t.file_path)
                 wg.save_waveform_cache(t.id, wg.all_waveform_tags(wf))
+                n_cols = wf.n_cols
 
+            # Document the parse in the archive's audit trail.
+            try:
+                db.log_operation("parse", file_path=t.file_path, status="ok",
+                                 metadata={"content_id": t.id, "bpm": bpm, "key": key,
+                                           "grid_beats": len(db.get_beatgrid_for_content(t.id)),
+                                           "waveform_cols": n_cols, "waveforms": do_wave})
+            except Exception:  # noqa: BLE001 — logging must never fail the parse
+                pass
+
+            done_paths.add(t.file_path)
+            if i % 10 == 0:
+                _save_ckpt()
             ok += 1
             log.info("  [%d/%d] parsed %s (bpm=%s key=%s)", i, len(tracks), name, bpm, key)
         except Exception as exc:  # noqa: BLE001 — one bad track must not abort the run
+            try:
+                db.log_operation("parse", file_path=t.file_path, status="error",
+                                 error_message=str(exc), metadata={"content_id": t.id})
+            except Exception:  # noqa: BLE001
+                pass
             log.warning("  [%d/%d] parse failed for %s: %s", i, len(tracks), name, exc)
 
+    # Clean completion — clear the checkpoint so the next run starts fresh
+    # (matches convert/process). An interrupted run leaves it saved for resume.
+    if ckpt is not None:
+        ckpt.reset()
     log.info("Parse complete: %d/%d track(s) ready for DJ gear "
              "(export with `export-onelibrary --with-anlz`).", ok, len(tracks))
 
@@ -1378,6 +1422,25 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
             log.warning("    %s", err)
         if len(result.errors) > 20:
             log.warning("    ... and %d more", len(result.errors) - 20)
+
+    # Document the export in the archive's audit trail — a gig stick should
+    # leave a record of exactly what was written, when, and to where.
+    try:
+        fg_db.log_operation(
+            "export_onelibrary", file_path=str(target), status="ok",
+            metadata={
+                "tracks_written": result.tracks_written,
+                "tracks_skipped": result.tracks_skipped,
+                "playlist": getattr(args, "playlist", None),
+                "audio_staged": result.audio_files_copied,
+                "audio_missing": result.audio_files_missing,
+                "with_anlz": bool(getattr(args, "with_anlz", False)),
+                "device_name": device_name,
+                "errors": len(result.errors),
+            },
+        )
+    except Exception:  # noqa: BLE001 — logging must never fail the export
+        pass
 
     if not getattr(args, "no_identity_files", False):
         # target is expected to be .../PIONEER/rekordbox/exportLibrary.db —
