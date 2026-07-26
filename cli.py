@@ -1165,6 +1165,49 @@ def cmd_rekordbox_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_playlist(args: argparse.Namespace) -> None:
+    """Create/list FableGear playlists. `create NAME --from-folder PATH` makes a
+    playlist and adds every imported track whose file lives under PATH."""
+    from fablegear_database import FableGearDatabase
+    from pathlib import Path as _P
+
+    db = FableGearDatabase()
+    action = args.playlist_action
+
+    if action == "list":
+        for pl in db.list_playlists():
+            kind = "folder" if pl.get("type") == "folder" else "playlist"
+            log.info("  [%s] id=%s %r", kind, pl.get("id"), pl.get("name"))
+        return
+
+    if action == "create":
+        name = args.name
+        existing = {p["name"]: p for p in db.list_playlists() if p.get("type") != "folder"}
+        if name in existing:
+            pid = existing[name]["id"]
+            log.info("Playlist %r already exists (id=%s) — reusing", name, pid)
+        else:
+            pid = db.create_playlist(name)
+            log.info("Created playlist %r (id=%s)", name, pid)
+
+        if getattr(args, "from_folder", None):
+            src = str(_P(args.from_folder).resolve())
+            tracks = [t for t in db.get_content_with_relations(None)
+                      if t.file_path and str(_P(t.file_path).resolve()).startswith(src)]
+            tracks.sort(key=lambda t: (t.file_name or "").lower())
+            if not tracks:
+                log.warning("No imported tracks found under %s — import first?", src)
+            added = 0
+            for t in tracks:
+                try:
+                    if db.add_song(pid, t.id):
+                        added += 1
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("  add %s failed: %s", t.id, exc)
+            log.info("Added %d track(s) to %r (id=%s)", added, name, pid)
+        return
+
+
 def cmd_export_onelibrary(args: argparse.Namespace) -> None:
     """Write a Pioneer OneLibrary exportLibrary.db from FableGear's database,
     plus the device-identity companion files (RBFLTR.DAT, djprofile.nxs)
@@ -1184,11 +1227,49 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
     dj_name = getattr(args, "dj_name", "") or "FableGear"
 
     fg_db = FableGearDatabase()
+
+    # Resolve which tracks + playlists to export.
+    playlist_ids = None
+    content_ids = None
+    if getattr(args, "content_ids", None):
+        content_ids = [int(x) for x in str(args.content_ids).split(",") if x.strip()]
+    if getattr(args, "playlist", None) or getattr(args, "playlist_id", None):
+        want_id = getattr(args, "playlist_id", None)
+        want_name = getattr(args, "playlist", None)
+        match = None
+        for pl in fg_db.list_playlists():
+            if pl.get("type") == "folder":
+                continue
+            if (want_id is not None and pl.get("id") == int(want_id)) or \
+               (want_name is not None and pl.get("name") == want_name):
+                match = pl
+                break
+        if match is None:
+            log.error("Playlist not found: %r", want_id if want_id is not None else want_name)
+            sys.exit(1)
+        playlist_ids = [match["id"]]
+        if content_ids is None:
+            content_ids = [s.id for s in fg_db.get_playlist_songs(match["id"])]
+        log.info("Exporting playlist %r (%d tracks)", match["name"], len(content_ids))
+
+    # Drive root for audio staging / ANLZ = the folder that holds PIONEER/.
+    stage_root = None
+    if getattr(args, "stage_audio", False):
+        pr = target.parent.parent
+        if pr.name == "PIONEER":
+            stage_root = pr.parent
+            log.info("Staging audio into %s/Contents/", stage_root)
+        else:
+            log.warning("--stage-audio ignored: target is not under PIONEER/rekordbox/")
+
     try:
         result = OneLibraryWriter(fg_db).write(
             target,
+            content_ids=content_ids,
             include_playlists=not getattr(args, "no_playlists", False),
             device_name=device_name,
+            stage_audio_to=stage_root,
+            playlist_ids=playlist_ids,
         )
     except FileExistsError as exc:
         log.error(str(exc))
@@ -1234,14 +1315,54 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
         "Test on a sacrificial USB stick — never a gig stick — and keep a "
         "Rekordbox-made control stick until trust is earned."
     )
-    if not getattr(args, "no_anlz_note", False):
+    if getattr(args, "with_anlz", False):
+        _generate_export_anlz(fg_db, target, result)
+    elif not getattr(args, "no_anlz_note", False):
         log.info(
-            "To generate matching ANLZ analysis files, call "
-            "PioneerExporter.export_track_anlz(content_id=<FableGear id>, "
-            "device_content_id=<OneLibrary id>, ...) using the id pairs in "
-            "this run's content_id_map — the two must agree or tracks will "
-            "point at ANLZ folders that were never written."
+            "No ANLZ files written (pass --with-anlz to generate beat grids + "
+            "waveforms). Without them the CDJ re-analyzes on load."
         )
+
+
+def _generate_export_anlz(fg_db, target: Path, result) -> None:
+    """Generate ANLZ (.DAT/.EXT/.2EX with grids + waveforms) for every track in
+    a just-written OneLibrary export, keyed to the same content_id its
+    analysisDataFilePath points at. Best-effort per track."""
+    from fablegear_database.exporter import PioneerExporter
+
+    pr = target.parent.parent
+    if pr.name != "PIONEER":
+        log.warning("Skipping ANLZ: target not under PIONEER/rekordbox/ (%s)", target)
+        return
+    drive_root = pr.parent
+
+    # content.path per content_id, read back from the encrypted DB we just wrote.
+    path_by_cid = {}
+    try:
+        import sqlcipher3
+        from fablegear_database.onelibrary_writer import _ONELIBRARY_KEY, _CIPHER_COMPATIBILITY
+        conn = sqlcipher3.connect(str(target))
+        cur = conn.cursor()
+        cur.execute(f"PRAGMA key = '{_ONELIBRARY_KEY}';")
+        cur.execute(f"PRAGMA cipher_compatibility = {_CIPHER_COMPATIBILITY};")
+        path_by_cid = {cid: p for cid, p in cur.execute("SELECT content_id, path FROM content")}
+        conn.close()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not read back content paths for ANLZ (%s); PPTH may be blank", exc)
+
+    exporter = PioneerExporter(fg_db)
+    ok = 0
+    total = len(result.content_id_map)
+    log.info("Generating ANLZ (grids + waveforms) for %d track(s)…", total)
+    for fg_id, content_id in result.content_id_map.items():
+        rel = path_by_cid.get(content_id, "")
+        try:
+            if exporter.export_track_anlz(content_id=fg_id, target_root=drive_root,
+                                          relative_audio_path=rel, device_content_id=content_id):
+                ok += 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning("  ANLZ for content %s failed: %s", content_id, exc)
+    log.info("  ANLZ written for %d/%d track(s)", ok, total)
 
 
 def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
@@ -1734,6 +1855,7 @@ def cmd_process(args: argparse.Namespace) -> None:
                 force=args.force,
                 force_bpm=getattr(args, "force_bpm", False),
                 force_key=getattr(args, "force_key", False),
+                fix_octaves=getattr(args, "fix_octaves", False),
                 max_workers=max(1, args.workers),
                 quarantine_dir=_quarantine_dir,
                 enrich_tags=args.enrich_tags,
@@ -2912,6 +3034,15 @@ Examples:
     p_rb_sync.set_defaults(func=cmd_rekordbox_sync, dry_run=True)
 
     # ── export-onelibrary ──
+    p_pl = sub.add_parser("playlist", help="Create or list FableGear playlists")
+    pl_sub = p_pl.add_subparsers(dest="playlist_action", required=True)
+    pl_create = pl_sub.add_parser("create", help="Create a playlist (optionally from an imported folder)")
+    pl_create.add_argument("name", help="Playlist name")
+    pl_create.add_argument("--from-folder", default=None,
+                           help="Add all imported tracks whose file is under this folder")
+    pl_sub.add_parser("list", help="List playlists")
+    p_pl.set_defaults(func=cmd_playlist)
+
     p_onelib = sub.add_parser(
         "export-onelibrary",
         help="Write a Pioneer OneLibrary exportLibrary.db from FableGear's database "
@@ -2941,6 +3072,34 @@ Examples:
         "--no-identity-files",
         action="store_true",
         help="Skip writing RBFLTR.DAT and djprofile.nxs alongside exportLibrary.db",
+    )
+    p_onelib.add_argument(
+        "--stage-audio",
+        action="store_true",
+        help="Copy each track's audio onto the drive (TARGET/../../Contents/...) "
+             "and point the library at it — required for a playable CDJ stick",
+    )
+    p_onelib.add_argument(
+        "--with-anlz",
+        action="store_true",
+        help="Generate ANLZ analysis files (beat grids + waveforms) for every "
+             "exported track. Adds ~4-6s/track. Without it the CDJ re-analyzes.",
+    )
+    p_onelib.add_argument(
+        "--playlist",
+        default=None,
+        help="Export only this playlist (by name) and its tracks, not the whole archive",
+    )
+    p_onelib.add_argument(
+        "--playlist-id",
+        type=int,
+        default=None,
+        help="Export only this playlist (by id) and its tracks",
+    )
+    p_onelib.add_argument(
+        "--content-ids",
+        default=None,
+        help="Comma-separated FableGear content ids to export (overrides playlist track set)",
     )
     p_onelib.set_defaults(func=cmd_export_onelibrary)
 
@@ -2989,6 +3148,13 @@ Examples:
         action="store_true",
         dest="force_key",
         help="Re-detect and overwrite key even if a key tag already exists",
+    )
+    p_process.add_argument(
+        "--fix-octaves",
+        action="store_true",
+        dest="fix_octaves",
+        help="Octave-correct detected BPM into 76-152 (fixes librosa half/double-"
+             "time errors, e.g. 60->120). Only 2x errors are fixable this way.",
     )
     p_process.add_argument(
         "--no-bpm",

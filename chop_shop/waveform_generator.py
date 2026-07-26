@@ -76,6 +76,34 @@ def analyze_audio(path, block_seconds: int = 60) -> WaveformData:
     and low/mid/high band energy for color. Fully vectorised per block."""
     import soundfile as sf
 
+    # soundfile/libsndfile reads wav/aiff/flac/mp3/ogg but NOT m4a/aac/wma/etc.
+    # For those, transcode to a temp WAV via librosa (audioread/ffmpeg) so every
+    # CDJ-playable format still gets a waveform instead of silently skipping.
+    _tmp = None
+    try:
+        sf.info(str(path))
+    except Exception:  # noqa: BLE001 — unreadable by libsndfile; try the ffmpeg path
+        import tempfile, librosa
+        y, sr0 = librosa.load(str(path), sr=None, mono=True)
+        fd, _tmp = tempfile.mkstemp(suffix=".wav")
+        import os as _os
+        _os.close(fd)
+        sf.write(_tmp, y, sr0)
+        path = _tmp
+    try:
+        return _analyze_readable(path, block_seconds)
+    finally:
+        if _tmp:
+            import os as _os
+            try:
+                _os.unlink(_tmp)
+            except OSError:
+                pass
+
+
+def _analyze_readable(path, block_seconds: int = 60) -> WaveformData:
+    import soundfile as sf
+
     info = sf.info(str(path))
     sr = info.samplerate
     duration = info.frames / info.samplerate
