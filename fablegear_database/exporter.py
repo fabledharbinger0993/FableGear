@@ -289,14 +289,32 @@ class PioneerExporter:
             dat_file.tags.append(pth_tag)
 
             # B. PQTZ Beat Grid Tag
+            entries = []
             if track.beatgrid:
-                entries = []
                 for b in track.beatgrid:
                     entries.append({
                         'beat': b.beat_number,
                         'tempo': int(round(b.bpm * 100)),
                         'time': int(b.time_msec)
                     })
+            elif track.bpm and track.duration:
+                # No analyzed grid: synthesize a constant-tempo grid from BPM so
+                # the CDJ has a beat grid to quantize/sync against, instead of a
+                # dangling analysisDataFilePath. Phase is assumed to start at t=0
+                # (the true downbeat isn't known without onset detection), and
+                # beat numbers cycle 1-4 per bar — good enough for a grid the DJ
+                # can nudge, and far better than none. Real per-beat analysis, if
+                # ever added, populates track.beatgrid and takes this branch's place.
+                beat_ms = 60000.0 / float(track.bpm)
+                total_beats = int(float(track.duration) * 1000.0 / beat_ms)
+                tempo_i = int(round(float(track.bpm) * 100))
+                for i in range(total_beats):
+                    entries.append({
+                        'beat': (i % 4) + 1,
+                        'tempo': tempo_i,
+                        'time': int(round(i * beat_ms)),
+                    })
+            if entries:
                 qtz_data = structs.AnlzTag.build({
                     'type': 'PQTZ',
                     'len_header': 24,

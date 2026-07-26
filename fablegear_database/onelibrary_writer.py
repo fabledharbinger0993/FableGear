@@ -189,6 +189,40 @@ def _file_type_code(fmt: Optional[str]) -> Optional[int]:
     return _FILE_TYPE_CODES.get(fmt.strip().lower().lstrip("."))
 
 
+# Characters not safe in a FAT32/exFAT path segment on a CDJ-readable drive.
+_UNSAFE_SEGMENT = str.maketrans({c: "_" for c in '\\/:*?"<>|'})
+
+
+def _safe_segment(name: Optional[str], fallback: str) -> str:
+    seg = (name or "").strip().translate(_UNSAFE_SEGMENT).strip(". ")
+    return seg[:120] or fallback
+
+
+def _stage_audio_file(track, drive_root: Path) -> Optional[str]:
+    """Copy ``track``'s audio file to ``drive_root/Contents/<Artist>/<Album>/<file>``
+    (Rekordbox's layout) and return the drive-relative path ("/Contents/...").
+    Returns None if the source file is missing. Skips the copy if an identical
+    file (same size) is already there, so re-exports are cheap."""
+    import shutil
+
+    src = Path(track.file_path)
+    if not src.is_file():
+        return None
+    artist = _safe_segment(track.artist, "UnknownArtist")
+    album = _safe_segment(track.album, "UnknownAlbum")
+    filename = src.name
+    rel = f"/Contents/{artist}/{album}/{filename}"
+    dest = drive_root / rel.lstrip("/")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not (dest.exists() and dest.stat().st_size == src.stat().st_size):
+        # copyfile (data only), NOT copy2/copystat: FAT32/exFAT reject the
+        # metadata (xattr/flags/timestamps) copystat replicates, raising
+        # [Errno 22] Invalid argument. The CDJ needs the audio bytes, not the
+        # source's macOS metadata.
+        shutil.copyfile(src, dest)
+    return rel
+
+
 @dataclass
 class OneLibraryWriteResult:
     target_path: str = ""
@@ -197,6 +231,8 @@ class OneLibraryWriteResult:
     cues_written: int = 0
     playlists_written: int = 0
     playlist_entries_written: int = 0
+    audio_files_copied: int = 0
+    audio_files_missing: int = 0
     errors: List[str] = field(default_factory=list)
     # {FableGear ContentRecord.id: OneLibrary content_id}. The written
     # content.analysisDataFilePath for each track points at
@@ -249,7 +285,22 @@ class OneLibraryWriter:
         content_ids: Optional[List[int]] = None,
         include_playlists: bool = True,
         device_name: str = "FableGear",
+        stage_audio_to: Optional[Path] = None,
+        playlist_ids: Optional[List[int]] = None,
     ) -> OneLibraryWriteResult:
+        """
+        stage_audio_to : drive root (the folder that will contain PIONEER/).
+            When given, each track's audio file is COPIED to
+            ``<root>/Contents/<Artist>/<Album>/<filename>`` (Rekordbox's own
+            layout, with UnknownArtist/UnknownAlbum fallbacks) and the
+            content.path column is set to that drive-relative path — so the
+            exported library points at files that actually exist on the drive.
+            Without it, the DB is written but references the tracks' original
+            source paths (not present on the target drive).
+        playlist_ids : when given, only these FableGear playlist ids (plus the
+            folders on their path to the root) are exported, instead of the
+            whole archive playlist tree.
+        """
         target_path = Path(target_path)
         result = OneLibraryWriteResult(target_path=str(target_path))
 
@@ -304,8 +355,6 @@ class OneLibraryWriter:
 
                     content_id = next_content_id
                     next_content_id += 1
-                    if track.id is not None:
-                        fg_id_to_content_id[track.id] = content_id
 
                     genre_id = genres.get(track.genre)
                     artist_id = artists.get(track.artist)
@@ -331,6 +380,21 @@ class OneLibraryWriter:
                     bpmx100 = int(round(track.bpm * 100)) if track.bpm else None
                     length = int(round(track.duration)) if track.duration else None
 
+                    # Path column: if staging to a drive, copy the audio there
+                    # and point at the drive-relative location; otherwise keep
+                    # the track's own relative/source path.
+                    content_path = track.relative_path or track.file_path
+                    if stage_audio_to is not None:
+                        staged = _stage_audio_file(track, Path(stage_audio_to))
+                        if staged is not None:
+                            content_path = staged
+                            result.audio_files_copied += 1
+                        else:
+                            result.audio_files_missing += 1
+                            result.errors.append(
+                                f"content_id fg:{track.id}: audio file missing, not staged: {track.file_path}"
+                            )
+
                     content_rows.append((
                         content_id, track.title, track.title, None,
                         bpmx100, length, track.track_number, track.disc_number,
@@ -338,7 +402,7 @@ class OneLibraryWriter:
                         album_id, genre_id, label_id, key_id, color_id, None,
                         track.comment, track.rating or 0, track.year, None,
                         track.modified_date, track.created_at,
-                        track.relative_path or track.file_path, track.file_name,
+                        content_path, track.file_name,
                         track.file_size, _file_type_code(track.format),
                         track.bit_rate, None, track.sample_rate, None, 0,
                         0, 0, None, None, None,
@@ -357,6 +421,11 @@ class OneLibraryWriter:
                         next_cue_id += 1
                         result.cues_written += 1
 
+                    # Register the id-map only now that the row + audio are in —
+                    # a track that raised above must not leave a dangling
+                    # playlist_content reference to a content row that was skipped.
+                    if track.id is not None:
+                        fg_id_to_content_id[track.id] = content_id
                     result.tracks_written += 1
                 except Exception as exc:  # noqa: BLE001 - one bad track must not abort the whole export
                     result.tracks_skipped += 1
@@ -382,7 +451,7 @@ class OneLibraryWriter:
             result.content_id_map = dict(fg_id_to_content_id)
 
             if include_playlists:
-                self._write_playlists(cur, fg_id_to_content_id, result)
+                self._write_playlists(cur, fg_id_to_content_id, result, playlist_ids)
 
             cur.execute(
                 "INSERT INTO property VALUES (?,?,?,?,?,?)",
@@ -403,21 +472,35 @@ class OneLibraryWriter:
         return result
 
     def _write_playlists(
-        self, cur, fg_id_to_content_id: Dict[int, int], result: OneLibraryWriteResult
+        self, cur, fg_id_to_content_id: Dict[int, int], result: OneLibraryWriteResult,
+        playlist_ids: Optional[List[int]] = None,
     ) -> None:
         """Flatten FableGear's playlist/folder tree into playlist rows,
         preserving folder hierarchy via playlist_id_parent (attribute=1
         marks a folder, matching the real schema's convention observed
-        alongside real playlist rows)."""
+        alongside real playlist rows).
+
+        When ``playlist_ids`` is given, only those leaf playlists (and the
+        folders on the path to them) are emitted — not the whole archive tree."""
         tree = self.database.list_playlists()
+        allowed = set(playlist_ids) if playlist_ids is not None else None
         playlist_rows: List[tuple] = []
         content_link_rows: List[tuple] = []
         next_playlist_id = 1
         seq = 0
 
+        def _subtree_has_allowed(node: dict) -> bool:
+            if allowed is None:
+                return True
+            if node.get("type") == "folder":
+                return any(_subtree_has_allowed(c) for c in node.get("children", []))
+            return node.get("id") in allowed
+
         def _walk(nodes: List[dict], parent_id: Optional[int]) -> None:
             nonlocal next_playlist_id, seq
             for node in nodes:
+                if not _subtree_has_allowed(node):
+                    continue  # prune playlists/folders outside the requested set
                 pid = next_playlist_id
                 next_playlist_id += 1
                 seq += 1
