@@ -291,7 +291,11 @@ class PioneerExporter:
             # B. PQTZ Beat Grid Tag
             entries = []
             if track.beatgrid:
-                for b in track.beatgrid:
+                # MUST be time-ordered: the DB returns markers ORDER BY
+                # beat_number (grouping all beat-1s, then beat-2s…), which is
+                # scrambled for a PQTZ chain that has to advance monotonically
+                # in time. Sort by time_msec here so the exported grid is valid.
+                for b in sorted(track.beatgrid, key=lambda x: x.time_msec):
                     entries.append({
                         'beat': b.beat_number,
                         'tempo': int(round(b.bpm * 100)),
@@ -541,34 +545,35 @@ class PioneerExporter:
             return False
 
     def _inject_waveforms(self, track, dat_path, ext_path, anlz_dir) -> None:
-        """Generate real waveform tags from the track's audio and inject them.
-        Best-effort — any failure (missing audio, no soundfile, decode error)
-        logs a warning and leaves the grid/cue-only ANLZ intact."""
+        """Inject waveform tags. Prefers the per-track cache written by `parse`
+        (fast, no DSP); falls back to computing from the source audio. Best-effort
+        — any failure leaves the grid/cue-only ANLZ intact."""
         import sys
         try:
-            audio = getattr(track, "file_path", None)
-            if not audio or not Path(audio).is_file():
-                log.info("No source audio for content; skipping waveforms: %r", audio)
-                return
             cs = Path(__file__).resolve().parent.parent / "chop_shop"
             if str(cs) not in sys.path:
                 sys.path.insert(0, str(cs))
             import waveform_generator as wg
 
-            wf = wg.analyze_audio(audio)
-            mono = wg.build_mono_tags(wf)
-            color = wg.build_color_tags(wf)
-            band = wg.build_3band_tags(wf)
+            tags = wg.load_waveform_cache(track.id) if getattr(track, "id", None) else None
+            src = "cache"
+            if tags is None:
+                audio = getattr(track, "file_path", None)
+                if not audio or not Path(audio).is_file():
+                    log.info("No cached waveforms and no source audio; skipping: %r", audio)
+                    return
+                tags = wg.all_waveform_tags(wg.analyze_audio(audio))
+                src = "computed"
 
-            wg.inject_tags(dat_path, [mono["PWAV"], mono["PWV2"]])
-            wg.inject_tags(ext_path, [mono["PWV3"], color["PWV5"], color["PWV4"]])
+            wg.inject_tags(dat_path, [tags[k] for k in ("PWAV", "PWV2") if k in tags])
+            wg.inject_tags(ext_path, [tags[k] for k in ("PWV3", "PWV5", "PWV4") if k in tags])
             ppth = wg._extract_tag(Path(ext_path).read_bytes(), "PPTH")
-            if ppth:
-                wg.build_2ex(Path(anlz_dir) / "ANLZ0000.2EX", ppth,
-                             [band["PWV7"], band["PWV6"], band["PWVC"]])
-            log.info("Injected waveforms (%d cols) for %s", wf.n_cols, Path(audio).name)
+            band = [tags[k] for k in ("PWV7", "PWV6", "PWVC") if k in tags]
+            if ppth and band:
+                wg.build_2ex(Path(anlz_dir) / "ANLZ0000.2EX", ppth, band)
+            log.info("Injected waveforms (%s) for content %s", src, track.id)
         except Exception as exc:  # noqa: BLE001 — waveforms are an enhancement, never fatal
-            log.warning("Waveform generation skipped (%s): %s", type(exc).__name__, exc)
+            log.warning("Waveform injection skipped (%s): %s", type(exc).__name__, exc)
 
 
 class PioneerHandshake:

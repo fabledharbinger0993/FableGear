@@ -1165,6 +1165,94 @@ def cmd_rekordbox_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_parse(args: argparse.Namespace) -> None:
+    """Parse — the Track Parsing tool.
+
+    Prepares tracks so DJ gear (CDJ/XDJ/OPUS) can display and play them with
+    full attributes: it identifies the BPM and musical key, builds the beat grid
+    (tempo + downbeat phase), and generates the waveform analysis a player shows
+    — the monochrome, colour, and 3-band scrolling waveforms + overviews. Results
+    are stored in the library (beat grid in the DB, waveforms in a per-track
+    analysis cache), so `export-onelibrary --with-anlz` is pure assembly and
+    never re-analyzes.
+
+    Uses BPM/key already in the library; only detects them when missing (or
+    --force), applying octave correction. Detection writes file tags, so close
+    Rekordbox first if you expect any track to need detection.
+    """
+    from fablegear_database import FableGearDatabase
+    from fablegear_database.database import BeatGridRecord
+    from pathlib import Path as _P
+    import sys as _sys
+
+    cs = _P(__file__).resolve().parent / "chop_shop"
+    if str(cs) not in _sys.path:
+        _sys.path.insert(0, str(cs))
+    import waveform_generator as wg
+
+    db = FableGearDatabase()
+    all_tracks = db.get_content_with_relations(None)
+    if getattr(args, "path", None) and not getattr(args, "all", False):
+        src = str(_P(args.path).resolve())
+        tracks = [t for t in all_tracks
+                  if t.file_path and str(_P(t.file_path).resolve()).startswith(src)]
+    else:
+        tracks = all_tracks
+    tracks = [t for t in tracks if t.file_path and _P(t.file_path).is_file()]
+    tracks.sort(key=lambda t: t.id or 0)
+    if not tracks:
+        log.error("No tracks to parse (import them first).")
+        sys.exit(1)
+
+    do_wave = not getattr(args, "no_waveforms", False)
+    force = getattr(args, "force", False)
+    log.info("Parsing %d track(s) for DJ-gear playback%s…",
+             len(tracks), "" if do_wave else " (grids only)")
+
+    ok = 0
+    for i, t in enumerate(tracks, 1):
+        name = t.file_name or str(t.id)
+        try:
+            bpm, key = t.bpm, t.key
+            if force or bpm is None or key is None:
+                from audio_processor import process_file
+                res = process_file(_P(t.file_path), detect_bpm=True, detect_key=True,
+                                   normalise=False, force=force, fix_octaves=True)
+                bpm = res.bpm_detected if res.bpm_detected is not None else bpm
+                key = res.key_detected if res.key_detected is not None else key
+                upd = {}
+                if bpm is not None:
+                    upd["bpm"] = bpm
+                if key is not None:
+                    upd["key"] = key
+                if upd:
+                    db.update_content(t.id, upd)
+
+            # Beat grid: constant tempo from BPM, phase from downbeat estimate.
+            if bpm and t.duration:
+                offset = wg.estimate_first_beat_ms(t.file_path, bpm)
+                beat_ms = 60000.0 / float(bpm)
+                total = int((float(t.duration) * 1000.0 - offset) / beat_ms)
+                grid = [BeatGridRecord(content_id=t.id, beat_number=(j % 4) + 1,
+                                       time_msec=int(round(offset + j * beat_ms)),
+                                       bpm=float(bpm))
+                        for j in range(max(0, total))]
+                db.bulk_upsert_beatgrids(t.id, grid)
+
+            # Waveforms -> per-track analysis cache.
+            if do_wave:
+                wf = wg.analyze_audio(t.file_path)
+                wg.save_waveform_cache(t.id, wg.all_waveform_tags(wf))
+
+            ok += 1
+            log.info("  [%d/%d] parsed %s (bpm=%s key=%s)", i, len(tracks), name, bpm, key)
+        except Exception as exc:  # noqa: BLE001 — one bad track must not abort the run
+            log.warning("  [%d/%d] parse failed for %s: %s", i, len(tracks), name, exc)
+
+    log.info("Parse complete: %d/%d track(s) ready for DJ gear "
+             "(export with `export-onelibrary --with-anlz`).", ok, len(tracks))
+
+
 def cmd_playlist(args: argparse.Namespace) -> None:
     """Create/list FableGear playlists. `create NAME --from-folder PATH` makes a
     playlist and adds every imported track whose file lives under PATH."""
@@ -3127,6 +3215,20 @@ Examples:
     p_prune.set_defaults(func=cmd_prune, dry_run=True, permanent=False)
 
     # ── process ──
+    p_parse = sub.add_parser(
+        "parse",
+        help="Track Parsing tool — prepare tracks for DJ gear: BPM, key, beat "
+             "grid, and waveforms (mono/colour/3-band). Makes export pure assembly.",
+    )
+    p_parse.add_argument("path", metavar="PATH", nargs="?", default=None,
+                         help="Folder of imported tracks to parse (omit with --all for the whole library)")
+    p_parse.add_argument("--all", action="store_true", help="Parse every track in the library")
+    p_parse.add_argument("--force", action="store_true",
+                         help="Re-detect BPM/key and regenerate even if already present")
+    p_parse.add_argument("--no-waveforms", action="store_true",
+                         help="Build beat grids only, skip waveform generation (faster)")
+    p_parse.set_defaults(func=cmd_parse)
+
     p_process = sub.add_parser(
         "process",
         help="Detect BPM/key and normalise loudness",

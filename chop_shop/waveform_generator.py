@@ -289,6 +289,49 @@ def build_2ex(two_ex_path, ppth_blob: bytes, tag_blobs) -> None:
     _P(two_ex_path).write_bytes(header + body)
 
 
+def all_waveform_tags(wf: WaveformData) -> dict:
+    """Every waveform tag for a track, keyed by fourcc: mono (PWAV/PWV2/PWV3),
+    colour (PWV5/PWV4), 3-band (PWV7/PWV6/PWVC)."""
+    tags = {}
+    tags.update(build_mono_tags(wf))
+    tags.update(build_color_tags(wf))
+    tags.update(build_3band_tags(wf))
+    return tags
+
+
+# ── Per-track analysis cache (populated by `parse`, read at export) ─────────
+# Waveform tag blobs are path-independent (they carry no PPTH), so caching them
+# per track lets `parse` do the expensive DSP once and makes export pure
+# assembly. Beat grids live in the DB (fg_beatgrid), not here.
+_TAG_ORDER = ("PWAV", "PWV2", "PWV3", "PWV5", "PWV4", "PWV7", "PWV6", "PWVC")
+
+
+def cache_dir(content_id: int, root=None):
+    from pathlib import Path as _P
+    base = _P(root) if root else _P.home() / ".fablegear" / "analysis"
+    return base / str(int(content_id))
+
+
+def save_waveform_cache(content_id: int, tags: dict, root=None) -> None:
+    d = cache_dir(content_id, root)
+    d.mkdir(parents=True, exist_ok=True)
+    for name, blob in tags.items():
+        (d / f"{name}.tag").write_bytes(blob)
+
+
+def load_waveform_cache(content_id: int, root=None):
+    """Return {fourcc: blob} for a parsed track, or None if not cached."""
+    d = cache_dir(content_id, root)
+    if not d.is_dir():
+        return None
+    out = {}
+    for name in _TAG_ORDER:
+        p = d / f"{name}.tag"
+        if p.is_file():
+            out[name] = p.read_bytes()
+    return out or None
+
+
 def estimate_first_beat_ms(path, bpm: float, probe_seconds: float = 40.0) -> float:
     """Estimate the phase offset of beat 1 (ms) so a synthesized constant grid
     lands on real downbeats instead of t=0. Runs librosa beat tracking (with the
