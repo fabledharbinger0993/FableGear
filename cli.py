@@ -1165,6 +1165,90 @@ def cmd_rekordbox_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_recover_playlists(args: argparse.Namespace) -> None:
+    """Recover playlists ("crates") from exported media and rebuild them in the
+    FableGear archive. Dry-run by default (report only). With --write, rebuilds
+    every crate that has enough resolved tracks under one timestamped
+    "Recovered <ts>" folder — non-destructive (only creates new playlists),
+    checkpointed, audit-logged, and removable in one action (delete the folder).
+    """
+    import playlist_recovery as R
+    from fablegear_database import FableGearDatabase
+    from datetime import datetime
+
+    sources = list(getattr(args, "source", None) or [])
+    if not sources:
+        log.error("Pass at least one --source (a drive/folder to scan, or a direct "
+                  "exportLibrary.db / export.pdb path).")
+        sys.exit(1)
+
+    db = FableGearDatabase()
+    log.info("Scanning %d source location(s) for exported crates…", len(sources))
+    report = R.recover(sources, database=db, strategy=getattr(args, "strategy", "richest"))
+
+    min_resolved = int(getattr(args, "min_resolved", 1))
+    keep = [c for c in report.crates
+            if sum(1 for t in c.tracks if t.content_id) >= min_resolved]
+    log.info("Found %d export source(s).", len(report.sources))
+    log.info("Recovered %d unique crate(s), %d track placement(s); %d/%d resolved (%d%%).",
+             len(report.crates), report.resolution.total_tracks,
+             report.resolution.resolved, report.resolution.total_tracks,
+             100 * report.resolution.resolved // max(1, report.resolution.total_tracks))
+    log.info("%d crate(s) meet --min-resolved=%d and will be rebuilt.", len(keep), min_resolved)
+
+    # Report body
+    lines = [f"# FableGear playlist recovery — {'WRITE' if getattr(args,'write',False) else 'DRY RUN'}",
+             f"sources: {len(report.sources)} | crates: {len(report.crates)} | "
+             f"resolved: {report.resolution.resolved}/{report.resolution.total_tracks}", ""]
+    for c in keep:
+        res = sum(1 for t in c.tracks if t.content_id)
+        lines.append(f"[{res:>4}/{len(c.tracks):>4} resolved]  {c.name}")
+    if getattr(args, "report", None):
+        Path(args.report).write_text("\n".join(lines))
+        log.info("Wrote report to %s", args.report)
+    else:
+        for ln in lines[3:23]:
+            log.info("  %s", ln)
+        if len(keep) > 20:
+            log.info("  … and %d more (use --report FILE for the full list)", len(keep) - 20)
+
+    if not getattr(args, "write", False):
+        log.info("Dry run — nothing written. Re-run with --write to rebuild these into the archive.")
+        return
+
+    # ── Guarded write: everything under one removable folder ──
+    folder_name = f"Recovered {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    folder_id = db.create_playlist(folder_name, playlist_type="folder")
+    created = [folder_id]
+    crates_written = links_written = 0
+    for c in keep:
+        try:
+            pid = db.create_playlist(c.name, parent_id=folder_id)
+            created.append(pid)
+            crates_written += 1
+            for t in c.tracks:
+                if t.content_id is None:
+                    continue
+                try:
+                    if db.add_song(pid, t.content_id):
+                        links_written += 1
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception as exc:  # noqa: BLE001 — one bad crate must not abort
+            log.warning("  crate %r failed: %s", c.name, exc)
+    try:
+        db.log_operation("recover_playlists", file_path=folder_name, status="ok",
+                         metadata={"folder_id": folder_id, "crates": crates_written,
+                                   "links": links_written, "sources": len(report.sources),
+                                   "created_playlist_ids": created})
+    except Exception:  # noqa: BLE001
+        pass
+    log.info("Rebuilt %d crate(s) / %d track link(s) under folder %r (id=%s).",
+             crates_written, links_written, folder_name, folder_id)
+    log.info("To undo: delete the %r folder (or its playlist ids %s…).",
+             folder_name, created[:3])
+
+
 def cmd_parse(args: argparse.Namespace) -> None:
     """Parse — the Track Parsing tool.
 
@@ -3198,6 +3282,22 @@ Examples:
     p_rb_sync.set_defaults(func=cmd_rekordbox_sync, dry_run=True)
 
     # ── export-onelibrary ──
+    p_rec = sub.add_parser(
+        "recover-playlists",
+        help="Recover playlists/crates from exported media (exportLibrary.db / "
+             "export.pdb) and rebuild them in the archive. Dry-run unless --write.",
+    )
+    p_rec.add_argument("--source", action="append", required=True,
+                       help="Drive/folder to scan, or a direct export file (repeatable)")
+    p_rec.add_argument("--write", action="store_true",
+                       help="Rebuild the recovered crates into the archive (default: dry-run)")
+    p_rec.add_argument("--strategy", choices=["richest"], default="richest",
+                       help="Union strategy when a crate appears on multiple sticks")
+    p_rec.add_argument("--min-resolved", type=int, default=1, dest="min_resolved",
+                       help="Only rebuild crates with at least this many resolved tracks")
+    p_rec.add_argument("--report", default=None, help="Write the full crate list to this file")
+    p_rec.set_defaults(func=cmd_recover_playlists)
+
     p_pl = sub.add_parser("playlist", help="Create or list FableGear playlists")
     pl_sub = p_pl.add_subparsers(dest="playlist_action", required=True)
     pl_create = pl_sub.add_parser("create", help="Create a playlist (optionally from an imported folder)")
