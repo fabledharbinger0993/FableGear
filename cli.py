@@ -1177,9 +1177,14 @@ def cmd_recover_playlists(args: argparse.Namespace) -> None:
     from datetime import datetime
 
     sources = list(getattr(args, "source", None) or [])
+    if getattr(args, "source_list", None):
+        for line in Path(args.source_list).read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                sources.append(line)
     if not sources:
-        log.error("Pass at least one --source (a drive/folder to scan, or a direct "
-                  "exportLibrary.db / export.pdb path).")
+        log.error("Pass at least one --source / --source-list (a drive/folder to scan, "
+                  "or a direct exportLibrary.db / export.pdb path).")
         sys.exit(1)
 
     db = FableGearDatabase()
@@ -3287,8 +3292,10 @@ Examples:
         help="Recover playlists/crates from exported media (exportLibrary.db / "
              "export.pdb) and rebuild them in the archive. Dry-run unless --write.",
     )
-    p_rec.add_argument("--source", action="append", required=True,
+    p_rec.add_argument("--source", action="append", default=[],
                        help="Drive/folder to scan, or a direct export file (repeatable)")
+    p_rec.add_argument("--source-list", default=None, dest="source_list",
+                       help="File with one source path per line")
     p_rec.add_argument("--write", action="store_true",
                        help="Rebuild the recovered crates into the archive (default: dry-run)")
     p_rec.add_argument("--strategy", choices=["richest"], default="richest",
