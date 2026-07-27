@@ -86,6 +86,7 @@ Public interface:
 """
 
 import logging
+import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO, Iterator, List, Optional, Union
@@ -496,6 +497,190 @@ def _read_tracks_table(fh: BinaryIO, page_size: int, pointers: List[_TablePointe
             if track is not None:
                 rows.append(track)
     return rows
+
+
+# ─── Playlist recovery (tables 7 + 8) ──────────────────────────────────────
+# Source: Deep Symmetry DJL Ecosystem Analysis, "Playlist Tree" and "Playlist
+# Entries". A playlist_tree row is five u32le fields then an inline DeviceSQL
+# string name; a playlist_entries row is three u32le: entry_index, track_id,
+# playlist_id. Read-only — this recovers the crate structure a stick froze at
+# export time, which survives independent of the library's live database.
+
+_PLTREE_NAME_OFFSET = 20  # after parent_id, unknown, sort_order, id, raw_is_folder
+
+
+@dataclass
+class PlaylistNode:
+    id: int
+    parent_id: int
+    name: Optional[str]
+    is_folder: bool
+
+
+@dataclass
+class PlaylistTrackRef:
+    entry_index: int
+    track_id: int
+    title: Optional[str] = None
+    path: Optional[str] = None
+
+
+@dataclass
+class RecoveredPlaylist:
+    id: int
+    name: str
+    folder_path: str            # "Parent/Child/Name"
+    tracks: List[PlaylistTrackRef] = field(default_factory=list)
+
+
+@dataclass
+class PdbPlaylistsReport:
+    path: str = ""
+    valid: bool = False
+    node_count: int = 0
+    folder_count: int = 0
+    playlist_count: int = 0
+    entry_count: int = 0
+    resolved_tracks: int = 0    # entries whose track_id resolved to a title/path
+    playlists: List[RecoveredPlaylist] = field(default_factory=list)
+    detail: str = ""
+    notes: List[str] = field(default_factory=list)
+
+
+def _parse_playlist_tree_row(page_buf: bytes, row_start: int) -> Optional[PlaylistNode]:
+    if row_start < 0 or row_start + _PLTREE_NAME_OFFSET > len(page_buf):
+        return None
+    parent_id, _unknown, _sort, node_id, raw_folder = struct.unpack_from(
+        "<IIIII", page_buf, row_start
+    )
+    name = _decode_pdb_string(page_buf, row_start + _PLTREE_NAME_OFFSET)
+    return PlaylistNode(id=node_id, parent_id=parent_id, name=name, is_folder=bool(raw_folder))
+
+
+def _parse_playlist_entry_row(page_buf: bytes, row_start: int):
+    if row_start < 0 or row_start + 12 > len(page_buf):
+        return None
+    entry_index, track_id, playlist_id = struct.unpack_from("<III", page_buf, row_start)
+    return (playlist_id, entry_index, track_id)
+
+
+def _read_table_rows(fh: BinaryIO, page_size: int, pointers: List[_TablePointer],
+                     table_type: int, parser):
+    """Walk one table's present rows through ``parser`` (same full-scan path as
+    the tracks table: next_page chain, skip index pages, honor presence bits)."""
+    ptr = next((p for p in pointers if p.table_type == table_type), None)
+    if ptr is None:
+        return []
+    rows = []
+    for page_buf in _walk_table_pages(fh, page_size, ptr.first_page, ptr.last_page):
+        header = _parse_page_header(page_buf)
+        for ofs, present in _row_slots(page_buf, page_size, header.num_row_offsets):
+            if not present:
+                continue
+            row = parser(page_buf, _DATA_PAGE_HEADER_SIZE + ofs)
+            if row is not None:
+                rows.append(row)
+    return rows
+
+
+def read_playlists(path: PathLike) -> PdbPlaylistsReport:
+    """Recover the playlist tree + membership from an ``export.pdb``. Read-only.
+
+    Returns every non-folder playlist with its folder path and ordered tracks,
+    each track resolved to a title/path where the stick's own tracks table
+    still carries it. Duplicate playlist_tree/entry rows (stale slots surviving
+    edit history — same phenomenon documented for the tracks table) are
+    deduplicated: playlists by id (last-seen wins), memberships by
+    (playlist_id, track_id).
+    """
+    p = Path(path)
+    report = PdbPlaylistsReport(path=str(p))
+    if not p.is_file():
+        report.detail = "file not found"
+        return report
+    try:
+        with open(p, "rb") as fh:
+            header = fh.read(16)
+    except OSError as exc:
+        report.detail = f"unreadable: {exc}"
+        return report
+    if len(header) < 16 or header[0:4] != b"\x00\x00\x00\x00":
+        report.detail = "not a DeviceSQL export.pdb"
+        return report
+    page_size = int.from_bytes(header[4:8], "little")
+    num_tables = int.from_bytes(header[8:12], "little")
+    if page_size not in PDB_PAGE_SIZES or not 0 < num_tables <= PDB_MAX_TABLES:
+        report.detail = "implausible header"
+        return report
+
+    try:
+        with open(p, "rb") as fh:
+            pointers = _read_table_pointers(fh, num_tables)
+            nodes = _read_table_rows(fh, page_size, pointers,
+                                     TABLE_TYPE_PLAYLIST_TREE, _parse_playlist_tree_row)
+            entry_rows = _read_table_rows(fh, page_size, pointers,
+                                          TABLE_TYPE_PLAYLIST_ENTRIES, _parse_playlist_entry_row)
+            tracks = _read_tracks_table(fh, page_size, pointers)
+    except Exception as exc:  # noqa: BLE001 — recovery must degrade, never crash
+        report.detail = f"parse failed: {exc}"
+        report.notes.append(str(exc))
+        return report
+
+    # Dedupe playlist nodes by id (last-seen), memberships by (playlist, track).
+    node_by_id = {}
+    for n in nodes:
+        node_by_id[n.id] = n
+    seen_entry = {}
+    for playlist_id, entry_index, track_id in entry_rows:
+        seen_entry[(playlist_id, track_id)] = entry_index
+    membership = {}
+    for (playlist_id, track_id), entry_index in seen_entry.items():
+        membership.setdefault(playlist_id, []).append((entry_index, track_id))
+
+    track_by_id = {t.track_id: t for t in tracks if t.track_id is not None}
+
+    def folder_path(node: PlaylistNode) -> str:
+        parts, cur, seen = [], node, set()
+        while cur is not None and cur.id not in seen:
+            seen.add(cur.id)
+            parts.append(cur.name or "?")
+            cur = node_by_id.get(cur.parent_id)
+        return "/".join(reversed(parts))
+
+    resolved = 0
+    playlists: List[RecoveredPlaylist] = []
+    folder_count = 0
+    for node in node_by_id.values():
+        if node.is_folder:
+            folder_count += 1
+            continue
+        refs = []
+        for entry_index, track_id in sorted(membership.get(node.id, [])):
+            t = track_by_id.get(track_id)
+            if t is not None:
+                resolved += 1
+            refs.append(PlaylistTrackRef(
+                entry_index=entry_index, track_id=track_id,
+                title=(t.title if t else None),
+                path=(t.drive_relative_path if t else None),
+            ))
+        playlists.append(RecoveredPlaylist(
+            id=node.id, name=node.name or "", folder_path=folder_path(node), tracks=refs,
+        ))
+
+    report.valid = True
+    report.node_count = len(node_by_id)
+    report.folder_count = folder_count
+    report.playlist_count = len(playlists)
+    report.entry_count = len(seen_entry)
+    report.resolved_tracks = resolved
+    report.playlists = sorted(playlists, key=lambda pl: pl.folder_path.lower())
+    report.detail = (
+        f"{len(playlists)} playlist(s), {folder_count} folder(s), "
+        f"{len(seen_entry)} membership(s), {resolved} track(s) resolved on this stick"
+    )
+    logger.info("Recovered playlists from %s: %s", p.name, report.detail)
+    return report
 
 
 def read_pdb(path: PathLike) -> PdbReport:
