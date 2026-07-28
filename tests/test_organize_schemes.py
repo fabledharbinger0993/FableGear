@@ -137,3 +137,59 @@ def test_secondary_missing_level_collapses():
 def test_long_mix_shortcuts_to_mix_folder_regardless_of_scheme():
     out = _dest("label", duration_seconds=3600.0)
     assert out.startswith(f"{L.MIX_FOLDER}/")
+
+
+# ── --by playlist (copy mirror) ─────────────────────────────────────────────
+
+def test_parse_scheme_accepts_playlist_standalone():
+    assert L.parse_scheme("playlist") == ("playlist",)
+
+
+def test_parse_scheme_rejects_playlist_combined():
+    with pytest.raises(ValueError):
+        L.parse_scheme("playlist/artist")
+
+
+class _FakeArchive:
+    def __init__(self, playlists, songs):
+        self._playlists = playlists
+        self._songs = songs  # {playlist_id: [file_path, ...]}
+
+    def list_playlists(self):
+        return self._playlists
+
+    def get_playlist_songs(self, pid):
+        return [SimpleNamespace(file_path=p) for p in self._songs.get(pid, [])]
+
+
+def test_playlist_mirror_copies_one_to_many_and_scopes_to_sources(tmp_path):
+    src = tmp_path / "lib"; src.mkdir()
+    out = tmp_path / "elsewhere"; out.mkdir()
+    tgt = tmp_path / "out"; tgt.mkdir()
+    a = src / "a.mp3"; a.write_bytes(b"aaaa")
+    b = src / "b.mp3"; b.write_bytes(b"bbbb")
+    c = out / "c.mp3"; c.write_bytes(b"cccc")  # outside SRC → excluded
+
+    archive = _FakeArchive(
+        playlists=[
+            {"id": 1, "name": "House", "type": "playlist"},
+            {"id": 2, "name": "Deep/Vibes", "type": "playlist"},  # slash sanitized
+            {"id": 9, "name": "Folder", "type": "folder"},        # folders skipped
+        ],
+        songs={1: [str(a), str(b)], 2: [str(a), str(c)]},
+    )
+
+    L.organize_library([src], tgt, archive=archive, dry_run=False, scheme="playlist")
+    made = sorted(str(p.relative_to(tgt)) for p in tgt.rglob("*.mp3"))
+
+    assert made == ["Deep Vibes/a.mp3", "House/a.mp3", "House/b.mp3"]
+    # a.mp3 lands in two crates (one-to-many copy); c.mp3 (outside SRC) is absent.
+    assert a.is_file() and b.is_file()  # sources intact — copy, not move
+
+
+def test_playlist_mirror_requires_archive(tmp_path):
+    src = tmp_path / "lib"; src.mkdir()
+    (src / "x.mp3").write_bytes(b"x")
+    with pytest.raises(ValueError):
+        L.organize_library([src], tmp_path / "out", archive=None,
+                            dry_run=True, scheme="playlist")

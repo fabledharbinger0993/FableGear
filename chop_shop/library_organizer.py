@@ -62,8 +62,11 @@ except ImportError:  # pragma: no cover
     from chop_shop.tag_cleaning import clean_value, clean_artist  # noqa: E402
 
 # Grouping keys the Organize tool can build a folder hierarchy from, and the
-# default (backward-compatible) Artist / Album layout.
-SCHEME_KEYS   = ("label", "artist", "album", "title", "genre", "year", "filetype")
+# default (backward-compatible) Artist / Album layout. "playlist" is special:
+# it mirrors the archive's playlist tree (one-to-many, copy-based) rather than
+# deriving a folder from the file's own tags, so it can't be nested with others.
+_TAG_SCHEME_KEYS = ("label", "artist", "album", "title", "genre", "year", "filetype")
+SCHEME_KEYS   = _TAG_SCHEME_KEYS + ("playlist",)
 DEFAULT_SCHEME = ("artist", "album")
 
 
@@ -72,7 +75,8 @@ def parse_scheme(spec) -> tuple[str, ...]:
 
     Accepts a slash-nested string (``"label/artist"``), a list, or ``None``
     (→ the default Artist/Album layout). Raises ``ValueError`` on any key not in
-    ``SCHEME_KEYS`` so a typo fails loudly instead of silently mis-filing.
+    ``SCHEME_KEYS``, or if ``playlist`` is combined with another key (it is a
+    standalone mirror mode), so a mistake fails loudly instead of mis-filing.
     """
     if not spec:
         return DEFAULT_SCHEME
@@ -85,6 +89,11 @@ def parse_scheme(spec) -> tuple[str, ...]:
         raise ValueError(
             f"Unknown organize key(s): {', '.join(bad)}. "
             f"Choose from: {', '.join(SCHEME_KEYS)} (slash-nested, e.g. label/artist)."
+        )
+    if "playlist" in keys and len(keys) > 1:
+        raise ValueError(
+            "'playlist' is a standalone mirror scheme and can't be combined with "
+            "other keys — use --by playlist on its own."
         )
     return tuple(keys)
 
@@ -393,6 +402,73 @@ except ImportError:  # imported as chop_shop.library_organizer
     from chop_shop.path_guard import forbidden_source_reason as _forbidden_source_reason  # noqa: E402
 
 
+def mirror_playlists_to_folders(
+    sources: "list[Path]",
+    target: Path,
+    archive,
+    *,
+    dry_run: bool = True,
+    on_result=None,
+    skip_paths: "set[str] | None" = None,
+) -> list[MoveResult]:
+    """Mirror the archive's playlist tree onto disk: copy each track into
+    ``target/<playlist name>/`` for **every** playlist it belongs to.
+
+    This is fundamentally different from the tag-based schemes: a track can be
+    in many playlists, so it is *copied* (a track in three crates yields three
+    copies), never moved — the source library is left intact. Only tracks whose
+    file currently lives under one of *sources* are included, so the SRC
+    argument still scopes the operation.
+    """
+    src_roots = [Path(s).resolve() for s in sources]
+
+    def _under_sources(p: "str | Path") -> bool:
+        try:
+            rp = Path(p).resolve()
+        except Exception:  # noqa: BLE001
+            return False
+        return any(rp == r or r in rp.parents for r in src_roots)
+
+    results: list[MoveResult] = []
+    playlists = [pl for pl in archive.list_playlists() if pl.get("type") != "folder"]
+    log.info("Mirroring %d playlist(s) into %s (copy — sources are left intact)",
+             len(playlists), target)
+
+    for pl in playlists:
+        name = pl.get("name") or f"playlist_{pl.get('id')}"
+        dest_dir = target / _sanitize_folder(name)
+        for song in archive.get_playlist_songs(pl["id"]):
+            src = getattr(song, "file_path", None)
+            if not src or not _under_sources(src):
+                continue
+            srcp = Path(src)
+            if skip_paths and str(srcp) in skip_paths:
+                continue
+            dest = dest_dir / _sanitize_filename(srcp.name)
+            if not srcp.is_file():
+                r = MoveResult(src=srcp, dest=dest, action="error",
+                               reason="source file missing")
+            elif dry_run:
+                rel = dest.relative_to(target) if dest.is_relative_to(target) else dest
+                r = MoveResult(src=srcp, dest=dest, action="dry_run", reason=str(rel))
+            else:
+                try:
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    final, action = _resolve_dest(srcp, dest)
+                    if final is None:
+                        r = MoveResult(src=srcp, dest=dest, action="skipped",
+                                       reason="already at destination")
+                    else:
+                        shutil.copy2(str(srcp), str(final))  # always copy: one-to-many
+                        r = MoveResult(src=srcp, dest=final, action=action)
+                except Exception as e:  # noqa: BLE001
+                    r = MoveResult(src=srcp, dest=dest, action="error", reason=str(e))
+            results.append(r)
+            if on_result:
+                on_result(r)
+    return results
+
+
 def organize_library(
     sources: "Path | list[Path]",
     target: Path,
@@ -458,6 +534,19 @@ def organize_library(
         err = _forbidden_source_reason(Path(s))
         if err:
             raise ValueError(f"Refusing to organize from {s}: {err}")
+
+    # Playlist mirror is a separate, copy-based path (one-to-many): route to it
+    # before the file scan, which the tag-based schemes rely on.
+    if scheme_keys == ("playlist",):
+        if archive is None:
+            raise ValueError(
+                "--by playlist needs the FableGear archive (playlists live in the "
+                "library, not in the files). Run it against your imported library."
+            )
+        return mirror_playlists_to_folders(
+            source_list, target, archive,
+            dry_run=dry_run, on_result=on_result, skip_paths=skip_paths,
+        )
 
     tracks: list = []
     for s in source_list:
