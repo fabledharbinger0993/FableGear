@@ -11,20 +11,10 @@ import os
 import platform
 import mimetypes
 import threading
+import time
 import uuid
 
 _SYSTEM = platform.system()
-
-def is_safe_path(path: str, allowed_roots: list[str]) -> bool:
-    """Validate that the path is contained within at least one allowed root."""
-    try:
-        resolved_path = Path(path).resolve()
-        for root in allowed_roots:
-            if resolved_path.is_relative_to(Path(root).resolve()):
-                return True
-        return False
-    except Exception:
-        return False
 
 def _is_user_mount(mountpoint: str) -> bool:
     if _SYSTEM == "Darwin":
@@ -187,69 +177,6 @@ def _playlist_tree_payload(db):
     return _finalize(roots)
 
 
-def _library_canonical_path_conflicts(db):
-    """Return (tracks_scanned, conflict_groups) for canonical-path integrity checks."""
-
-    def _norm(value):
-        return " ".join(str(value or "").strip().lower().split())
-
-    tracks = db.get_content().all()
-    grouped = {}
-    for track in tracks:
-        title = _norm(getattr(track, "Title", ""))
-        artist_name = ""
-        try:
-            artist_name = _norm(track.Artist.Name if track.Artist else "")
-        except Exception:
-            artist_name = ""
-
-        duration = int(getattr(track, "Length", 0) or 0)
-        path = str(getattr(track, "FolderPath", "") or "").strip()
-
-        if not title or not path:
-            continue
-
-        signature = (artist_name, title, duration)
-        grouped.setdefault(signature, []).append(track)
-
-    conflicts = []
-    for signature, rows in grouped.items():
-        distinct_paths = {
-            str(getattr(row, "FolderPath", "") or "").strip()
-            for row in rows
-            if str(getattr(row, "FolderPath", "") or "").strip()
-        }
-        if len(distinct_paths) <= 1:
-            continue
-
-        items = []
-        for row in rows:
-            row_path = str(getattr(row, "FolderPath", "") or "").strip()
-            if not row_path:
-                continue
-            playlist_refs = db.get_playlist_songs(ContentID=row.ID).all()
-            items.append({
-                "content_id": str(row.ID),
-                "path": row_path,
-                "exists_on_disk": os.path.isfile(row_path),
-                "playlist_ref_count": len(playlist_refs),
-            })
-
-        artist_name, title, duration = signature
-        conflicts.append({
-            "signature": {
-                "artist": artist_name,
-                "title": title,
-                "duration": duration,
-            },
-            "path_count": len(distinct_paths),
-            "entries": items,
-        })
-
-    conflicts.sort(key=lambda g: (g["path_count"], len(g["entries"])), reverse=True)
-    return len(tracks), conflicts
-
-
 # ── Filesystem track helper ───────────────────────────────────────────────────
 
 _FS_AUDIO_EXTS = frozenset({
@@ -258,6 +185,7 @@ _FS_AUDIO_EXTS = frozenset({
 })
 _FS_TAG_LIMIT = 500   # stop reading mutagen beyond this many tracks in one folder
 _FS_RECURSIVE_LIMIT = 5000  # hard cap for recursive scans
+_FS_DRIVE_SCAN_TIMEOUT = 15.0  # keep whole-drive novelty scans responsive
 
 
 def _fs_track_payload(path: Path) -> dict:
@@ -303,56 +231,119 @@ def _fs_track_payload(path: Path) -> dict:
     return payload
 
 
+def _real_path_str(path: Path) -> str | None:
+    try:
+        return os.path.realpath(str(path))
+    except OSError:
+        return None
+
+
+def _is_primary_os_drive(path: Path) -> bool:
+    real_path = _real_path_str(path)
+    if not real_path:
+        return False
+    if _SYSTEM == "Windows":
+        return Path(real_path).drive.upper() == "C:"
+    return real_path == os.path.realpath("/")
+
+
+def _collect_audio_files(
+    root: Path,
+    *,
+    limit: int,
+    deadline: float | None = None,
+) -> tuple[list[Path], bool]:
+    """Collect visible audio files without following whole-disk aliases forever."""
+    files: list[Path] = []
+    truncated = False
+    try:
+        for walk_root, dirs, walk_files in os.walk(root, followlinks=False):
+            if deadline is not None and time.monotonic() >= deadline:
+                truncated = True
+                break
+            dirs[:] = sorted((d for d in dirs if not d.startswith(".")), key=str.lower)
+            for name in sorted(walk_files, key=str.lower):
+                if name.startswith("."):
+                    continue
+                if Path(name).suffix.lower() not in _FS_AUDIO_EXTS:
+                    continue
+                files.append(Path(walk_root) / name)
+                if len(files) >= limit:
+                    truncated = True
+                    break
+            if truncated:
+                break
+    except (PermissionError, OSError):
+        return files, truncated
+    return files, truncated
+
+
 def _enumerate_drive_audio(
     limit: int = _FS_RECURSIVE_LIMIT,
     *,
     per_volume_limit: int | None = None,
     skip_primary_os_drive: bool = True,
 ):
-    from user_config import discover_music_roots
-
-    def _is_system_drive(path: Path) -> bool:
-        if platform.system() == "Windows":
-            return path.drive.upper() == "C:"
-        return path.parts == ("/",)
-
     all_volumes = get_connected_volumes()
     if skip_primary_os_drive:
-        all_volumes = [v for v in all_volumes if not _is_system_drive(Path(v["path"]))]
+        all_volumes = [v for v in all_volumes if not _is_primary_os_drive(Path(v["path"]))]
 
-    volume_roots = discover_music_roots(all_volumes)
+    # The configured music root is always scanned, even when it lives on the
+    # OS drive that skip_primary_os_drive excludes — otherwise a home-folder
+    # library is invisible to the split view.
+    scan_roots: list[tuple[Path, str, str]] = []  # (root, drive_name, drive_path)
+    seen_roots: set[str] = set()
+    try:
+        from config import MUSIC_ROOT as _MR  # noqa: PLC0415
+        mr = Path(str(_MR))
+        if mr.is_dir():
+            scan_roots.append((mr, mr.name or "Music", str(mr)))
+            resolved_music = _real_path_str(mr)
+            if resolved_music:
+                seen_roots.add(resolved_music)
+    except Exception:
+        pass
+    for vol in all_volumes:
+        root = Path(vol["path"])
+        resolved = _real_path_str(root)
+        if not resolved:
+            continue
+        if resolved in seen_roots or not root.is_dir():
+            continue
+        seen_roots.add(resolved)
+        scan_roots.append((root, vol["name"], vol["path"]))
+
     entries = []
     total_estimate = 0
     truncated = False
     limit_per_vol = per_volume_limit or limit
+    deadline = time.monotonic() + _FS_DRIVE_SCAN_TIMEOUT
 
-    for vol in all_volumes:
-        roots = volume_roots.get(vol["path"], [Path(vol["path"])])
-        vol_count = 0
-        
-        for root in roots:
-            if vol_count >= limit_per_vol: break
-            
-            # Focused scan: only walk the configured music roots
-            for p in root.rglob("*"):
-                if vol_count >= limit_per_vol or len(entries) >= limit:
-                    truncated = True
-                    break
-                
-                if p.is_file() and p.suffix.lower() in _FS_AUDIO_EXTS:
-                    entries.append((p, vol["name"], vol["path"]))
-                    vol_count += 1
-        
-        total_estimate += vol_count
+    for root, drive_name, drive_path in scan_roots:
+        remaining = limit - len(entries)
+        if remaining <= 0:
+            truncated = True
+            break
+        audio_files, root_truncated = _collect_audio_files(
+            root,
+            limit=min(limit_per_vol, remaining),
+            deadline=deadline,
+        )
+        entries.extend((path, drive_name, drive_path) for path in audio_files)
+        total_estimate += len(audio_files)
+        if root_truncated or len(entries) >= limit or time.monotonic() >= deadline:
+            truncated = True
+        if time.monotonic() >= deadline:
+            break
 
     return entries, total_estimate, truncated, all_volumes
 # ── Library track routes ──────────────────────────────────────────────────────
 
 def _resolve_db(db_param):
-    """Return the DB path for a ?db= query param.  'device' → DJMT_DB, else LOCAL_DB."""
-    from config import LOCAL_DB, DJMT_DB  # noqa: PLC0415
-    if db_param and str(db_param).lower() in ("device", "djmt"):
-        return DJMT_DB
+    """Return the DB path for a ?db= query param.  'device' → DEVICE_DB, else LOCAL_DB."""
+    from config import LOCAL_DB, DEVICE_DB  # noqa: PLC0415
+    if db_param and str(db_param).lower() in ("device",):
+        return DEVICE_DB
     return LOCAL_DB
 
 
@@ -361,12 +352,22 @@ _FG_SYNC = {"running": False, "phase": "idle", "done": 0, "total": 0,
             "result": None, "error": None}
 
 
-def _fablegear_db():
-    """Open (once) the FableGear database — the primary Record Room source."""
+def _fablegear_db(create: bool = False):
+    """Open (once) the FableGear database — the primary Record Room source.
+
+    Read paths call this with the default ``create=False``: if the library
+    has not been built yet the function returns ``None`` rather than creating
+    the file, so merely *viewing* the Record Room never materialises a
+    database. Only explicit write paths (import / sync / onboarding) pass
+    ``create=True``. Callers must handle a ``None`` return.
+    """
     global _FABLEGEAR_DB
-    if _FABLEGEAR_DB is None:
-        from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
-        _FABLEGEAR_DB = FableGearDatabase()
+    if _FABLEGEAR_DB is not None:
+        return _FABLEGEAR_DB
+    from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
+    if not create and not FableGearDatabase.default_db_path().exists():
+        return None
+    _FABLEGEAR_DB = FableGearDatabase(create=create)
     return _FABLEGEAR_DB
 
 
@@ -395,12 +396,34 @@ def _fablegear_track_payload(rec):
     }
 
 
+def _resolve_local_content(db, track_id):
+    """Resolve a track id to a Rekordbox-local ``DjmdContent``.
+
+    The Record Room's default source is the FableGear database, which uses a
+    different id space than the Rekordbox local DB where playlists live. When an
+    id isn't a Rekordbox id, fall back to the FableGear track's file path and
+    match the local track by ``FolderPath`` (exact match only — never a fuzzy
+    guess, so we never add the wrong track)."""
+    track = db.get_content(ID=track_id)
+    if track is not None:
+        return track
+    try:
+        fg = _fablegear_db()
+        rec = fg.get_content_by_id(int(track_id)) if fg else None
+    except (ValueError, TypeError):
+        rec = None
+    path = (getattr(rec, "file_path", "") or "").strip() if rec else ""
+    if not path:
+        return None
+    return db.get_content(FolderPath=path).first()
+
+
 @bp.route("/api/library/tracks")
 def api_library_tracks():
     source = (request.args.get("db") or "").lower()
 
     # The Rekordbox databases remain reachable as explicit, demoted sources.
-    if source in ("local", "device", "djmt"):
+    if source in ("local", "device"):
         from db_connection import read_db  # noqa: PLC0415
         _DB = _resolve_db(source)
         try:
@@ -413,7 +436,11 @@ def api_library_tracks():
     # Default / primary: FableGear's own database (source "", "undefined",
     # "fablegear"). This is the database-first Record Room library.
     try:
-        db = _fablegear_db()
+        db = _fablegear_db()  # read-only: None when the library isn't built yet
+        if db is None:
+            resp = jsonify([])
+            resp.headers["X-FableGear-Library"] = "missing"
+            return resp
         rows = db.get_all_content(limit=100000, order_by="artist")
         return jsonify([_fablegear_track_payload(r) for r in rows])
     except Exception as exc:
@@ -433,7 +460,7 @@ def api_library_db_sync():
             from config import MUSIC_ROOT  # noqa: PLC0415
             from fablegear_database.importer import FileImporter  # noqa: PLC0415
             from fablegear_database.sync import DatabaseSync  # noqa: PLC0415
-            db = _fablegear_db()
+            db = _fablegear_db(create=True)  # sync is an explicit write/seed op
             sync = DatabaseSync(db, importer=FileImporter(db))
             _FG_SYNC.update(phase="reconciling")
             _FG_SYNC["result"] = sync.reconcile([Path(str(MUSIC_ROOT))])
@@ -463,9 +490,15 @@ def api_library_fs_browse():
     path_str = request.args.get("path", "")
     recursive = request.args.get("recursive", "0").lower() in ("1", "true", "yes")
 
-    # 3. Security Check (Must happen after _MR is defined)
-    if path_str and not is_safe_path(path_str, [str(_MR), "/Volumes", "/media"]):
-        return jsonify({"error": "Access denied"}), 403
+    # 3. Security check — any real folder is browseable (not just the
+    # configured library root or /Volumes); see forbidden_browse_reason().
+    if path_str:
+        try:
+            from path_guard import forbidden_browse_reason  # noqa: PLC0415
+        except ImportError:  # imported via the chop_shop package
+            from chop_shop.path_guard import forbidden_browse_reason  # noqa: PLC0415
+        if forbidden_browse_reason(Path(path_str)) is not None:
+            return jsonify({"error": "Access denied"}), 403
 
     # 4. Resolve path
     try:
@@ -501,7 +534,12 @@ def api_library_fs_browse():
             ]
             vroot_str = "Drives"
         else:
-            scan_roots = sorted(volumes_root.iterdir()) if volumes_root and volumes_root.exists() else []
+            scan_roots = [
+                Path(volume["path"])
+                for volume in get_connected_volumes()
+                if Path(volume["path"]).is_dir() and not _is_primary_os_drive(Path(volume["path"]))
+            ]
+            scan_roots.sort(key=lambda root: root.name.lower())
             vroot_str = str(volumes_root)
 
         discovered = discover_music_roots([Path(v) for v in scan_roots if Path(v).is_dir()])
@@ -542,22 +580,24 @@ def api_library_fs_browse():
             truncated = total_tracks > _FS_RECURSIVE_LIMIT
             grouped_tracks: list[dict] = []
             track_paths: list[tuple[Path, str, str]] = []
+            deadline = time.monotonic() + _FS_DRIVE_SCAN_TIMEOUT
             for vol in volumes:
                 if len(track_paths) >= _FS_RECURSIVE_LIMIT:
                     break
                 vol_path = Path(vol["path"])
                 if int(vol.get("audio_estimate", 0)) <= 0:
                     continue
-                try:
-                    for item in vol_path.rglob("*"):
-                        if item.name.startswith("."):
-                            continue
-                        if item.is_file() and item.suffix.lower() in _FS_AUDIO_EXTS:
-                            track_paths.append((item, vol["name"], vol["path"]))
-                            if len(track_paths) >= _FS_RECURSIVE_LIMIT:
-                                break
-                except PermissionError:
-                    continue
+                remaining = _FS_RECURSIVE_LIMIT - len(track_paths)
+                audio_files, vol_truncated = _collect_audio_files(
+                    vol_path,
+                    limit=remaining,
+                    deadline=deadline,
+                )
+                track_paths.extend((item, vol["name"], vol["path"]) for item in audio_files)
+                if vol_truncated or time.monotonic() >= deadline:
+                    truncated = True
+                if time.monotonic() >= deadline:
+                    break
 
             tag_limit = _FS_TAG_LIMIT if not truncated else min(_FS_TAG_LIMIT, len(track_paths))
             for item, drive_name, drive_path in track_paths[:tag_limit]:
@@ -604,33 +644,18 @@ def api_library_fs_browse():
     parent = str(p.parent) if str(p) != str(p.anchor) else None
 
     if recursive:
-        # Walk the whole tree, collecting audio files up to the hard cap.
-        tracks: list[Path] = []
+        # Walk the whole tree with the same timeout/symlink guards used by the
+        # multi-drive novelty scan path so a huge folder browse cannot block the UI.
+        deadline = time.monotonic() + _FS_DRIVE_SCAN_TIMEOUT
         try:
-            for item in sorted(p.rglob("*"), key=lambda x: x.name.lower()):
-                if item.name.startswith("."):
-                    continue
-                if item.is_file() and item.suffix.lower() in _FS_AUDIO_EXTS:
-                    tracks.append(item)
-                    if len(tracks) >= _FS_RECURSIVE_LIMIT:
-                        break
+            tracks, truncated = _collect_audio_files(
+                p,
+                limit=_FS_RECURSIVE_LIMIT,
+                deadline=deadline,
+            )
         except PermissionError:
             return jsonify({"error": "Permission denied"}), 403
-
-        # Count remaining tracks for the truncation message (cheap: just keep
-        # scanning filenames without reading tags).
         total_tracks = len(tracks)
-        truncated = total_tracks >= _FS_RECURSIVE_LIMIT
-        if truncated:
-            try:
-                total_tracks = sum(
-                    1 for item in p.rglob("*")
-                    if not item.name.startswith(".")
-                    and item.is_file()
-                    and item.suffix.lower() in _FS_AUDIO_EXTS
-                )
-            except Exception:
-                total_tracks = _FS_RECURSIVE_LIMIT  # best-effort
 
         tag_limit = _FS_TAG_LIMIT if not truncated else min(_FS_TAG_LIMIT, len(tracks))
         track_payloads = [_fs_track_payload(t) for t in tracks[:tag_limit]]
@@ -685,74 +710,150 @@ def api_library_fs_browse():
 
 @bp.route("/api/library/split-data")
 def api_library_split_data():
-    """Integrated three-library view:
-    • all_music  — every audio file pooled across all connected drives (filesystem,
-                   independent of rekordbox), grouped by drive
-    • rekordbox  — every track in the rekordbox library database
-    • unimported — filesystem audio files (from the all_music scan) whose path is
-                   NOT present in the rekordbox database (i.e. not yet imported)
+    """Integrated three-library view (FableGear | Rekordbox | Novelty):
+    • fablegear — every track in the FableGear database (the Record Room source)
+    • rekordbox — every track in the rekordbox library database
+    • novelty   — filesystem audio (pooled across all connected drives) missing
+                  from at least one database, flagged with membership booleans:
+                  in_fablegear=False → "blue", in_rekordbox=False → "yellow",
+                  in neither → "green".
 
-    The filesystem scan is shared between all_music and unimported, so the third
-    column is exactly "what's on disk minus what rekordbox knows about".
+    One shared filesystem scan feeds the novelty column, so it is exactly
+    "what's on disk minus what each database already knows about".
     """
     from db_connection import read_db  # noqa: PLC0415
     from config import LOCAL_DB as _DB, MUSIC_ROOT as _MR  # noqa: PLC0415
 
     music_root = str(_MR)
 
+    # ── Column 1: FableGear database ─────────────────────────────────────────
+    fablegear_tracks: list = []
+    fg_error = None
+    fg_path_set: set = set()
+    fg_name_set: set = set()
+    try:
+        fgdb = _fablegear_db()  # read-only: None when the library isn't built yet
+        fg_rows = fgdb.get_all_content(limit=100000, order_by="artist") if fgdb else []
+        fablegear_tracks = [_fablegear_track_payload(r) for r in fg_rows]
+        for r in fg_rows:
+            fp = (r.file_path or "").strip()
+            if fp:
+                fg_path_set.add(fp)
+                fg_name_set.add(Path(fp).name.lower())
+    except Exception as exc:
+        fg_error = str(exc)
+
     # ── Column 2: Rekordbox library (all DB tracks) ──────────────────────────
+    rekordbox_tracks: list = []
+    rb_error = None
+    db_path_set: set = set()
+    db_name_set: set = set()
     try:
         with read_db(_DB) as db:
             rekordbox_tracks = [_library_track_payload(t) for t in db.get_content().all()]
+        for track in rekordbox_tracks:
+            fp = (track.get("file_path") or "").strip()
+            if fp:
+                db_path_set.add(fp)
+                db_name_set.add(Path(fp).name.lower())
     except Exception as exc:
-        return jsonify({"error": f"rekordbox DB unavailable: {exc}"}), 500
+        rb_error = str(exc)
 
-    db_path_set: set = set()
-    db_name_set: set = set()
-    for track in rekordbox_tracks:
-        fp = (track.get("file_path") or "").strip()
-        if fp:
-            db_path_set.add(fp)
-            db_name_set.add(Path(fp).name.lower())
+    if fg_error and rb_error:
+        return jsonify({"error": f"both databases unavailable — FableGear: {fg_error} · rekordbox: {rb_error}"}), 500
 
-    # ── Columns 1 & 3: filesystem scan pooled across every connected drive ───
+    # ── Column 3: novelty — on disk, missing from at least one database ──────
     entries, fs_total, truncated, volumes = _enumerate_drive_audio()
     tag_limit = _FS_TAG_LIMIT if not truncated else min(_FS_TAG_LIMIT, len(entries))
 
-    all_music: list = []
-    unimported: list = []
+    novelty: list = []
     for item, drive_name, drive_path in entries[:tag_limit]:
+        path_str = str(item)
+        name_lc = item.name.lower()
+        in_rb = path_str in db_path_set or name_lc in db_name_set
+        in_fg = path_str in fg_path_set or name_lc in fg_name_set
+        if in_rb and in_fg:
+            continue
         payload = _fs_track_payload(item)
-        payload["drive_name"] = drive_name
-        payload["drive_path"] = drive_path
-        all_music.append(payload)
-        # Not in rekordbox if neither the exact path nor the filename is known.
-        if str(item) not in db_path_set and item.name.lower() not in db_name_set:
-            unimported.append({
-                "path":       str(item),
-                "filename":   item.name,
-                "title":      payload.get("title") or item.stem,
-                "drive_name": drive_name,
-            })
+        novelty.append({
+            "path":          path_str,
+            "filename":      item.name,
+            "title":         payload.get("title") or item.stem,
+            "drive_name":    drive_name,
+            "in_fablegear":  in_fg,
+            "in_rekordbox":  in_rb,
+        })
 
     return jsonify({
-        "music_root":        music_root,
-        "all_music":         all_music,
-        "all_music_count":   fs_total,
-        "rekordbox":         rekordbox_tracks,
-        "rekordbox_count":   len(rekordbox_tracks),
-        "unimported":        unimported,
-        "unimported_count":  len(unimported),
-        "truncated":         truncated,
-        "volumes":           volumes,
+        "music_root":       music_root,
+        "fablegear":        fablegear_tracks,
+        "fablegear_count":  len(fablegear_tracks),
+        "fablegear_error":  fg_error,
+        "rekordbox":        rekordbox_tracks,
+        "rekordbox_count":  len(rekordbox_tracks),
+        "rekordbox_error":  rb_error,
+        "novelty":          novelty,
+        "novelty_count":    len(novelty),
+        "fs_scanned":       fs_total,
+        "truncated":        truncated,
+        "volumes":          volumes,
     })
+
+
+@bp.route("/api/library/db/import", methods=["POST"])
+def api_library_db_import():
+    """Import specific files into the FableGear database (drag-to-import).
+
+    Body: {"paths": ["/abs/file.mp3", ...]}
+    """
+    body = request.get_json(force=True, silent=True) or {}
+    paths = [str(p).strip() for p in body.get("paths", []) if str(p).strip()]
+    if not paths:
+        return jsonify({"error": "paths list is required"}), 400
+
+    try:
+        from fablegear_database.importer import FileImporter  # noqa: PLC0415
+        db = _fablegear_db(create=True)  # drag-to-import is an explicit write op
+        stats = FileImporter(db).import_paths([Path(p) for p in paths])
+        if stats.get("new_files", 0) > 0 or stats.get("updated_files", 0) > 0:
+            try:
+                from fablegear_database.undo import DatabaseUndoManager
+                undo_mgr = DatabaseUndoManager(db)
+                undo_mgr.record_import(
+                    imported_count=stats["new_files"] + stats["updated_files"],
+                    root_paths=[Path(p) for p in paths],
+                )
+            except Exception as exc:
+                log.warning("Failed to record import in transaction history: %s", exc)
+        # Callers that need to chain a follow-up action (e.g. add the freshly
+        # imported track to a playlist right after a drag-drop) need the
+        # content_id — import_paths() only returns counts, so look each path
+        # back up. Cheap: one indexed query per path, and this route only ever
+        # handles a handful of drag-dropped files at a time.
+        content_ids = {}
+        for p in paths:
+            record = db.get_content_by_path(p)
+            if record is not None and record.id is not None:
+                content_ids[p] = record.id
+        stats["content_ids"] = content_ids
+        return jsonify(stats)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @bp.route("/api/library/integrity/canonical-paths/plan")
 def api_library_integrity_canonical_paths_plan():
-    """Build a read-only consolidation plan for canonical path cleanup."""
+    """Build a read-only consolidation plan for canonical path cleanup.
+
+    This is the "Database Library" duplicate view: it groups DjmdContent
+    records by artist + title + duration and flags groups that disagree on
+    FolderPath, regardless of whether any of those paths still resolve on
+    disk. It never fingerprints or reads an audio file — see
+    database_dedup.py for the full physical-vs-database distinction.
+    """
     from db_connection import read_db  # noqa: PLC0415
     from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from database_dedup import build_plan  # noqa: PLC0415
 
     try:
         try:
@@ -762,47 +863,85 @@ def api_library_integrity_canonical_paths_plan():
         max_groups = max(1, min(500, max_groups))
 
         with read_db(_DB) as db:
-            tracks_scanned, conflicts = _library_canonical_path_conflicts(db)
-
-        plans = []
-        for group in conflicts[:max_groups]:
-            entries = group.get("entries") or []
-            if len(entries) < 2:
-                continue
-
-            keeper = max(
-                entries,
-                key=lambda e: (
-                    1 if e.get("exists_on_disk") else 0,
-                    int(e.get("playlist_ref_count", 0) or 0),
-                    -len(str(e.get("path") or "")),
-                    str(e.get("path") or "").lower(),
-                ),
-            )
-            remove_candidates = [
-                e for e in entries if str(e.get("content_id")) != str(keeper.get("content_id"))
-            ]
-            estimated_rethread = sum(
-                int(e.get("playlist_ref_count", 0) or 0) for e in remove_candidates
-            )
-
-            plans.append({
-                "signature": group.get("signature") or {},
-                "keeper": keeper,
-                "remove_candidates": remove_candidates,
-                "estimated_playlist_slots_to_rethread": estimated_rethread,
-            })
+            plan = build_plan(db, max_groups=max_groups)
 
         return jsonify({
             "ok": True,
             "read_only": True,
-            "total_tracks_scanned": tracks_scanned,
-            "total_conflict_groups": len(conflicts),
-            "planned_groups": len(plans),
-            "plans": plans,
+            "total_tracks_scanned": plan["total_tracks_scanned"],
+            "total_conflict_groups": plan["total_conflict_groups"],
+            "planned_groups": plan["planned_groups"],
+            "plans": plan["plans"],
         })
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/library/integrity/canonical-paths/execute", methods=["POST"])
+def api_library_integrity_canonical_paths_execute():
+    """
+    Consolidate canonical-path duplicates: re-wire every playlist membership
+    that pointed at a losing DjmdContent record onto the surviving record,
+    then delete the losing records. No audio file is ever moved or deleted —
+    only redundant database rows.
+
+    Body (all optional):
+      {"max_groups": 50, "signatures": [{"artist": ..., "title": ..., "duration": ...}, ...]}
+
+    "signatures" restricts execution to the listed groups (matched by
+    artist + title + duration) — pass the "signature" objects returned by
+    the /plan endpoint to consolidate only what the user reviewed. Omit it
+    to consolidate every non-ambiguous group found. Ambiguous groups (two+
+    records tied on both disk-existence and playlist reference count) are
+    always left for manual resolution.
+
+    Requires Rekordbox to be closed and creates a timestamped database
+    backup before writing (enforced by db_connection.write_db()).
+    """
+    from db_connection import write_db  # noqa: PLC0415
+    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from database_dedup import build_plan, execute_plan  # noqa: PLC0415
+
+    data = request.get_json(silent=True) or {}
+    signatures = data.get("signatures")
+    if signatures is not None:
+        if not isinstance(signatures, list):
+            return jsonify({"error": "signatures must be a list"}), 400
+        cleaned: list[dict] = []
+        for sig in signatures:
+            if not isinstance(sig, dict):
+                return jsonify({"error": "each signature must be an object"}), 400
+            try:
+                duration = int(sig.get("duration", 0) or 0)
+            except (TypeError, ValueError):
+                return jsonify({"error": "signature.duration must be an integer"}), 400
+            cleaned.append({"artist": sig.get("artist"), "title": sig.get("title"), "duration": duration})
+        signatures = cleaned
+
+    try:
+        max_groups = int(data.get("max_groups", 500))
+    except (TypeError, ValueError):
+        max_groups = 500
+    max_groups = max(1, min(2000, max_groups))
+
+    log_lines: list[str] = []
+
+    try:
+        with write_db(_DB) as db:
+            plan = build_plan(db, max_groups=max_groups)
+            summary = execute_plan(
+                db, plan, signatures=signatures, log_fn=log_lines.append,
+            )
+            db.commit()
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    return jsonify({
+        "ok": True,
+        "total_conflict_groups": plan["total_conflict_groups"],
+        "log": log_lines,
+        **summary,
+    })
 
 
 @bp.route("/api/library/tracks/<track_id>/stream")
@@ -810,17 +949,18 @@ def api_library_track_stream(track_id):
     source = (request.args.get("db") or "").lower()
 
     # FableGear DB: numeric IDs, default source
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         try:
-            db = _fablegear_db()
-            rec = db.get_content_by_id(int(track_id))
-            if rec is None:
-                return jsonify({"error": f"Track {track_id!r} not found in FableGear DB"}), 404
-            file_path = (rec.file_path or "").strip()
-            if not file_path or not os.path.isfile(file_path):
-                return jsonify({"error": f"Audio file not found on disk: {file_path}"}), 404
-            mime, _ = mimetypes.guess_type(file_path)
-            return send_file(file_path, mimetype=mime or "audio/mpeg", conditional=True)
+            db = _fablegear_db()  # read-only: None when the library isn't built yet
+            rec = db.get_content_by_id(int(track_id)) if db else None
+            if rec is not None:
+                file_path = (rec.file_path or "").strip()
+                if not file_path or not os.path.isfile(file_path):
+                    return jsonify({"error": f"Audio file not found on disk: {file_path}"}), 404
+                mime, _ = mimetypes.guess_type(file_path)
+                return send_file(file_path, mimetype=mime or "audio/mpeg", conditional=True)
+            # Not a FableGear id — fall through to the Rekordbox lookup so tracks
+            # from a Rekordbox playlist still stream on the default source.
         except (ValueError, TypeError):
             pass
         except Exception as exc:
@@ -832,7 +972,7 @@ def api_library_track_stream(track_id):
 
     try:
         with read_db(_DB) as db:
-            track = db.get_content(ID=track_id).one_or_none()
+            track = db.get_content(ID=track_id)
             if track is None:
                 return jsonify({"error": f"Track {track_id!r} not found in DB"}), 404
             file_path = str(track.FolderPath or "").strip()
@@ -848,15 +988,101 @@ def api_library_track_stream(track_id):
         return jsonify({"error": str(exc)}), 500
 
 
+# ── Hot cues / loops (Record Room deck performance state) ─────────────────────
+#
+# Backed by fg_cue, which already exists and is exercised by the Rekordbox
+# bidirectional sync path (fablegear_database/rekordbox_sync.py) — these routes
+# are the first thing to expose it to the deck UI itself. Only FableGear-native
+# tracks (numeric content_id) are supported: a Rekordbox-sourced track's hot
+# cues/loops live in Rekordbox's own database, not fg_cue, and writing to that
+# is out of scope here.
+#
+# kind: 0 = Memory cue, 1 = Hot cue, 2 = Loop, 3 = Active loop (mirrors fg_cue).
+# slot: 0-3 for hot cues (Record Room ships 4 pads/deck, not Rekordbox's 8 —
+# matches the "not too busy" sizing call in the performance-mode audit).
+
+def _cues_db_and_content(track_id):
+    """Resolve track_id to (db, content_id), or (None, None) if unsupported/missing."""
+    try:
+        content_id = int(track_id)
+    except (ValueError, TypeError):
+        return None, None
+    db = _fablegear_db()
+    if db is None or db.get_content_by_id(content_id) is None:
+        return None, None
+    return db, content_id
+
+
+@bp.route("/api/library/tracks/<track_id>/cues")
+def api_library_track_cues(track_id):
+    """List hot cues + loops for a FableGear-native track. Empty list for any
+    track this doesn't support (Rekordbox-sourced, or library not built)."""
+    db, content_id = _cues_db_and_content(track_id)
+    if db is None:
+        return jsonify([])
+    try:
+        return jsonify([c.to_dict() for c in db.get_cues_for_content(content_id)])
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/library/tracks/<track_id>/cues", methods=["POST"])
+def api_library_track_cues_set(track_id):
+    """
+    Set or clear one hot-cue/loop slot. Body:
+      {"kind": 1, "slot": 0, "in_msec": 5230, "out_msec": null,
+       "color": "#ff9d42", "comment": null}
+    Omit / pass null for in_msec to clear that (kind, slot) pair instead.
+    Every other cue for this track is left untouched — read-modify-write
+    around bulk_upsert_cues, which the DB layer only offers as a full replace.
+    """
+    db, content_id = _cues_db_and_content(track_id)
+    if db is None:
+        return jsonify({"error": "hot cues are only supported for FableGear-native tracks with a built library"}), 404
+
+    body = request.get_json(force=True, silent=True) or {}
+    kind = body.get("kind")
+    slot = body.get("slot")
+    if kind not in (0, 1, 2, 3):
+        return jsonify({"error": "kind must be 0 (memory), 1 (hotcue), 2 (loop), or 3 (active loop)"}), 400
+
+    from fablegear_database.database import CueRecord  # noqa: PLC0415
+    try:
+        existing = db.get_cues_for_content(content_id)
+        kept = [c for c in existing if not (c.kind == kind and c.slot == slot)]
+        if body.get("in_msec") is not None:
+            kept.append(CueRecord(
+                kind=kind, slot=slot,
+                in_msec=int(body["in_msec"]),
+                out_msec=int(body["out_msec"]) if body.get("out_msec") is not None else None,
+                color=body.get("color"),
+                comment=body.get("comment"),
+            ))
+        db.bulk_upsert_cues(content_id, kept)
+        return jsonify({"ok": True, "cues": [c.to_dict() for c in kept]})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @bp.route("/api/library/playlists", methods=["GET"])
 def api_library_playlists():
     source = (request.args.get("db") or "").lower()
-    # FableGear DB has no playlist tree yet — return an empty tree, not an error.
-    if source not in ("local", "device", "djmt"):
-        return jsonify([])
+    # FableGear-native playlists are the default Record Room source (they hold
+    # the user's own library). Rekordbox databases stay reachable as demoted,
+    # explicit sources.
+    if source not in ("local", "device"):
+        fg = _fablegear_db()  # read-only: None when the library isn't built yet
+        if fg is None:
+            return jsonify([])
+        try:
+            return jsonify(fg.list_playlists())
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
 
     from db_connection import read_db  # noqa: PLC0415
-    _DB = _resolve_db(source)
+    _DB = _resolve_db(source)  # 'device' → DEVICE_DB, everything else → LOCAL_DB
+    if not _DB or not os.path.exists(_DB):
+        return jsonify([])  # no Rekordbox DB yet → empty tree, never an error
 
     try:
         with read_db(_DB) as db:
@@ -874,17 +1100,26 @@ def api_library_create_playlist():
     name = str(data.get("name", "")).strip()
     node_type = str(data.get("type", "playlist")).strip().lower() or "playlist"
     parent_id = str(data.get("parent_id", "")).strip()
+    source = (request.args.get("db") or data.get("db") or "").lower()
 
     if not name:
         return jsonify({"error": "name required"}), 400
     if node_type not in {"playlist", "folder"}:
         return jsonify({"error": "type must be playlist or folder"}), 400
 
+    if source not in ("local", "device"):
+        fg = _fablegear_db(create=True)  # creating a playlist is an explicit write
+        try:
+            pid = fg.create_playlist(name, parent_id=parent_id or None, playlist_type=node_type)
+            return jsonify({"ok": True, "id": str(pid), "name": name, "type": node_type}), 201
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
     try:
         with write_db(_DB) as db:
             parent = None
             if parent_id:
-                parent = db.get_playlist(ID=parent_id).one_or_none()
+                parent = db.get_playlist(ID=parent_id)
                 if parent is None:
                     return jsonify({"error": "parent playlist not found"}), 404
 
@@ -907,12 +1142,24 @@ def api_library_create_playlist():
 
 @bp.route("/api/library/playlists/<playlist_id>/tracks")
 def api_library_playlist_tracks(playlist_id):
+    source = (request.args.get("db") or "").lower()
+    if source not in ("local", "device"):
+        fg = _fablegear_db()
+        if fg is None:
+            return jsonify([])
+        try:
+            if fg.get_playlist(playlist_id) is None:
+                return jsonify({"error": "Playlist not found"}), 404
+            return jsonify([_fablegear_track_payload(r) for r in fg.get_playlist_songs(playlist_id)])
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
     from db_connection import read_db  # noqa: PLC0415
     from config import LOCAL_DB as _DB  # noqa: PLC0415
 
     try:
         with read_db(_DB) as db:
-            playlist = db.get_playlist(ID=playlist_id).one_or_none()
+            playlist = db.get_playlist(ID=playlist_id)
             if playlist is None:
                 return jsonify({"error": "Playlist not found"}), 404
             if int(getattr(playlist, "Attribute", 0) or 0) == 1:
@@ -945,9 +1192,26 @@ def api_library_add_tracks_to_playlist(playlist_id):
     if not track_ids:
         return jsonify({"error": "track_ids required"}), 400
 
+    source = (request.args.get("db") or data.get("db") or "").lower()
+    if source not in ("local", "device"):
+        fg = _fablegear_db()
+        if fg is None or fg.get_playlist(playlist_id) is None:
+            return jsonify({"error": "Playlist not found"}), 404
+        added, skipped, missing = 0, [], []
+        for tid in track_ids:
+            try:
+                if fg.add_song(playlist_id, tid):
+                    added += 1
+                else:
+                    skipped.append(tid)  # already present
+            except (LookupError, ValueError, TypeError):
+                missing.append(tid)
+                skipped.append(tid)
+        return jsonify({"ok": True, "added": added, "skipped": skipped, "missing": missing}), 201
+
     try:
         with write_db(_DB) as db:
-            playlist = db.get_playlist(ID=playlist_id).one_or_none()
+            playlist = db.get_playlist(ID=playlist_id)
             if playlist is None:
                 return jsonify({"error": "Playlist not found"}), 404
             if int(getattr(playlist, "Attribute", 0) or 0) == 1:
@@ -963,9 +1227,14 @@ def api_library_add_tracks_to_playlist(playlist_id):
 
             added = 0
             skipped = []
+            missing = []
             for track_id in track_ids:
-                track = db.get_content(ID=track_id).one_or_none()
+                track = _resolve_local_content(db, track_id)
                 if track is None:
+                    # Not in the Rekordbox library (by id or by path) — report it
+                    # distinctly so the UI can say "import it first" rather than
+                    # the misleading "already in playlist".
+                    missing.append(track_id)
                     skipped.append(track_id)
                     continue
 
@@ -981,7 +1250,7 @@ def api_library_add_tracks_to_playlist(playlist_id):
                 except Exception:
                     skipped.append(track_id)
             db.commit()
-            return jsonify({"ok": True, "added": added, "skipped": skipped}), 201
+            return jsonify({"ok": True, "added": added, "skipped": skipped, "missing": missing}), 201
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 503
     except Exception as exc:
@@ -998,9 +1267,17 @@ def api_library_rename_playlist(playlist_id):
     if not name:
         return jsonify({"error": "name required"}), 400
 
+    source = (request.args.get("db") or data.get("db") or "").lower()
+    if source not in ("local", "device"):
+        fg = _fablegear_db()
+        if fg is None or fg.get_playlist(playlist_id) is None:
+            return jsonify({"error": "Playlist not found"}), 404
+        fg.rename_playlist(playlist_id, name)
+        return jsonify({"ok": True, "id": str(playlist_id), "name": name})
+
     try:
         with write_db(_DB) as db:
-            playlist = db.get_playlist(ID=playlist_id).one_or_none()
+            playlist = db.get_playlist(ID=playlist_id)
             if playlist is None:
                 return jsonify({"error": "Playlist not found"}), 404
             db.rename_playlist(playlist, name)
@@ -1017,9 +1294,17 @@ def api_library_delete_playlist(playlist_id):
     from db_connection import write_db  # noqa: PLC0415
     from config import LOCAL_DB as _DB  # noqa: PLC0415
 
+    source = (request.args.get("db") or "").lower()
+    if source not in ("local", "device"):
+        fg = _fablegear_db()
+        if fg is None or fg.get_playlist(playlist_id) is None:
+            return jsonify({"error": "Playlist not found"}), 404
+        fg.delete_playlist(playlist_id)
+        return jsonify({"ok": True, "id": str(playlist_id), "status": "deleted"})
+
     try:
         with write_db(_DB) as db:
-            playlist = db.get_playlist(ID=playlist_id).one_or_none()
+            playlist = db.get_playlist(ID=playlist_id)
             if playlist is None:
                 return jsonify({"error": "Playlist not found"}), 404
             db.delete_playlist(playlist)
@@ -1045,9 +1330,25 @@ def api_library_remove_tracks_from_playlist(playlist_id):
     if not track_ids:
         return jsonify({"error": "track_ids required"}), 400
 
+    source = (request.args.get("db") or data.get("db") or "").lower()
+    if source not in ("local", "device"):
+        fg = _fablegear_db()
+        if fg is None or fg.get_playlist(playlist_id) is None:
+            return jsonify({"error": "Playlist not found"}), 404
+        removed, missing = 0, []
+        for tid in track_ids:
+            try:
+                n = fg.remove_song(playlist_id, tid)
+                removed += n
+                if n == 0:
+                    missing.append(tid)
+            except (ValueError, TypeError):
+                missing.append(tid)
+        return jsonify({"ok": True, "removed": removed, "missing": missing})
+
     try:
         with write_db(_DB) as db:
-            playlist = db.get_playlist(ID=playlist_id).one_or_none()
+            playlist = db.get_playlist(ID=playlist_id)
             if playlist is None:
                 return jsonify({"error": "Playlist not found"}), 404
             if int(getattr(playlist, "Attribute", 0) or 0) == 1:
@@ -1085,9 +1386,17 @@ def api_library_reorder_playlist_tracks(playlist_id):
 
     track_ids = [str(t).strip() for t in track_ids if str(t).strip()]
 
+    source = (request.args.get("db") or data.get("db") or "").lower()
+    if source not in ("local", "device"):
+        fg = _fablegear_db()
+        if fg is None or fg.get_playlist(playlist_id) is None:
+            return jsonify({"error": "Playlist not found"}), 404
+        updated = fg.reorder_playlist(playlist_id, track_ids)
+        return jsonify({"ok": True, "updated": updated})
+
     try:
         with write_db(_DB) as db:
-            playlist = db.get_playlist(ID=playlist_id).one_or_none()
+            playlist = db.get_playlist(ID=playlist_id)
             if playlist is None:
                 return jsonify({"error": "Playlist not found"}), 404
             if int(getattr(playlist, "Attribute", 0) or 0) == 1:
@@ -1136,7 +1445,7 @@ def api_library_patch_track(track_id):
 
     try:
         with write_db(_DB) as db:
-            track = db.get_content(ID=track_id).one_or_none()
+            track = db.get_content(ID=track_id)
             if track is None:
                 return jsonify({"error": "Track not found"}), 404
             track.Title = new_title

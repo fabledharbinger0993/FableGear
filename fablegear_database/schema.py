@@ -9,11 +9,14 @@ structure while being FableGear-specific. This enables:
 - Clean separation from physical file operations
 """
 
+import logging
 import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from enum import Enum
+
+log = logging.getLogger(__name__)
 
 
 class TableType(Enum):
@@ -27,6 +30,8 @@ class TableType(Enum):
     PLAYLIST = "fg_playlist"
     PLAYLIST_SONG = "fg_playlist_song"
     PLAYLIST_FOLDER = "fg_playlist_folder"
+    CUE = "fg_cue"
+    BEATGRID = "fg_beatgrid"
 
 
 class DatabaseSchema:
@@ -56,7 +61,7 @@ class DatabaseSchema:
         artist TEXT,
         album TEXT,
         title TEXT,
-        bpm REAL,
+        bpm REAL,  -- FG DB stores raw float; Rekordbox stores ×100 int — cross-DB code must transform
         key TEXT,
         genre TEXT,
         label TEXT,
@@ -80,6 +85,7 @@ class DatabaseSchema:
         fingerprint_quality INTEGER DEFAULT 0,
         is_corrupted BOOLEAN DEFAULT 0,
         processing_status TEXT DEFAULT 'unprocessed',
+        color TEXT,
         
         -- Standard timestamps
         created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
@@ -226,6 +232,45 @@ class DatabaseSchema:
     CREATE INDEX IF NOT EXISTS idx_processing_log_status ON fg_processing_log(status);
     """
     
+    # Cue and loop table
+    CUE_TABLE = """
+    CREATE TABLE IF NOT EXISTS fg_cue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        content_id INTEGER NOT NULL,
+        kind INTEGER NOT NULL, -- 0 = Memory, 1 = Hotcue, 2 = Loop, 3 = Active Loop
+        slot INTEGER,
+        in_msec INTEGER NOT NULL,
+        out_msec INTEGER,
+        color TEXT,
+        comment TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (content_id) REFERENCES fg_content(id) ON DELETE CASCADE
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_cue_content_id ON fg_cue(content_id);
+    CREATE INDEX IF NOT EXISTS idx_cue_content_in ON fg_cue(content_id, in_msec);
+    """
+    
+    # Beatgrid table (variable tempo support)
+    BEATGRID_TABLE = """
+    CREATE TABLE IF NOT EXISTS fg_beatgrid (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        content_id INTEGER NOT NULL,
+        beat_number INTEGER NOT NULL,
+        time_msec INTEGER NOT NULL,
+        bpm REAL NOT NULL,
+        meter_numerator INTEGER DEFAULT 4,
+        meter_denominator INTEGER DEFAULT 4,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (content_id) REFERENCES fg_content(id) ON DELETE CASCADE
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_beatgrid_content_id ON fg_beatgrid(content_id);
+    CREATE INDEX IF NOT EXISTS idx_beatgrid_content_time ON fg_beatgrid(content_id, time_msec);
+    """
+    
     @staticmethod
     def create_schema(db_path: Path) -> bool:
         """
@@ -258,6 +303,8 @@ class DatabaseSchema:
             cursor.executescript(DatabaseSchema.PLAYLIST_SONG_TABLE)
             cursor.executescript(DatabaseSchema.METADATA_TABLE)
             cursor.executescript(DatabaseSchema.PROCESSING_LOG_TABLE)
+            cursor.executescript(DatabaseSchema.CUE_TABLE)
+            cursor.executescript(DatabaseSchema.BEATGRID_TABLE)
 
             conn.commit()
             conn.close()
@@ -271,7 +318,7 @@ class DatabaseSchema:
     @staticmethod
     def get_schema_version() -> str:
         """Get the current schema version."""
-        return "1.0.0"
+        return "1.1.0"
     
     @staticmethod
     def validate_schema(db_path: Path) -> List[str]:
@@ -293,7 +340,8 @@ class DatabaseSchema:
             # Check for required tables
             required_tables = [
                 "fg_content", "fg_artist", "fg_album", "fg_genre",
-                "fg_key", "fg_label", "fg_playlist", "fg_playlist_song"
+                "fg_key", "fg_label", "fg_playlist", "fg_playlist_song",
+                "fg_cue", "fg_beatgrid"
             ]
             
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -309,6 +357,48 @@ class DatabaseSchema:
             errors.append(f"Schema validation failed: {exc}")
         
         return errors
+
+    @staticmethod
+    def upgrade_schema(db_path: Path) -> bool:
+        """
+        Upgrade the schema of an existing database if needed.
+        Adds new columns and tables for schema version 1.1.0.
+        """
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Check if color column exists in fg_content
+            cursor.execute("PRAGMA table_info(fg_content)")
+            columns = {row[1] for row in cursor.fetchall()}
+            if "color" not in columns:
+                log.info("Migrating database: adding color column to fg_content")
+                cursor.execute("ALTER TABLE fg_content ADD COLUMN color TEXT")
+            
+            # Create new tables
+            cursor.executescript(DatabaseSchema.CUE_TABLE)
+            cursor.executescript(DatabaseSchema.BEATGRID_TABLE)
+            
+            # Update schema version metadata if metadata table exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='fg_metadata'")
+            if cursor.fetchone():
+                try:
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO fg_metadata (key, value, updated_at) VALUES ('schema_version', ?, CURRENT_TIMESTAMP)",
+                        (DatabaseSchema.get_schema_version(),)
+                    )
+                except sqlite3.OperationalError:
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO fg_metadata (key, value) VALUES ('schema_version', ?)",
+                        (DatabaseSchema.get_schema_version(),)
+                    )
+            
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as exc:
+            log.error("Failed to upgrade database schema: %s", exc)
+            return False
 
 
 @dataclass

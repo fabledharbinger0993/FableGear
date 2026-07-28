@@ -18,15 +18,16 @@
           <p><strong>Key</strong> uses the Krumhansl-Schmuckler algorithm on the audio's chroma features via librosa. The
             result is translated to whichever notation RekordBox uses (Camelot, Open Key, or standard — whatever's already
             in your database).</p>
-          <p>Files that already have a BPM or key tag are <strong>skipped by default</strong>. Use <em>Force Overwrite</em>
-            only if you want to replace existing values.</p>
+          <p>Files that already have a BPM or key tag are <strong>skipped by default</strong>. Use the
+            <em>Re-detect</em> toggles only if you want to replace existing values.</p>
           <p>Optional <strong>MusicBrainz enrichment</strong> fingerprints each track via AcoustID and fills in missing title, artist, and album tags from the MusicBrainz database. Requires an AcoustID API key in settings.</p>
         </div>
       </details>
       <details>
         <summary>What could go wrong?</summary>
         <div class="explain-body">
-          <p>This modifies the <strong>file tags</strong> (ID3, AIFF metadata etc.) — not the audio itself. Your audio waveform is untouched.</p>
+          <p>This modifies the <strong>file tags</strong> (ID3, AIFF metadata etc.). Your audio waveform is untouched —
+            <strong>unless Normalize loudness is checked</strong>, which re-encodes the file to hit the target volume.</p>
           <p>Edge cases to know about:</p>
           <ul>
             <li>BPM detection can be fooled by very long intros or unusual time signatures. Review results in RekordBox afterward.</li>
@@ -54,31 +55,58 @@
         <div class="folder-pills" id="process-pills"></div>
       </div>
       <div class="field">
-        <label>Options</label>
-        <div class="checkbox-row">
-          <label class="checkbox-label">
-            <input type="checkbox" id="process-no-bpm"> Skip BPM detection
+        <label>Effects</label>
+        <div class="checkbox-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 16px">
+          <label class="checkbox-label" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+            <span>BPM mode</span>
+            <select id="process-bpm-mode" class="settings-path-input" style="max-width:220px">
+              <option value="passive" selected>Passive — fill only missing BPM</option>
+              <option value="aggressive">Aggressive — overwrite BPM</option>
+              <option value="off">Off</option>
+            </select>
           </label>
-          <label class="checkbox-label">
-            <input type="checkbox" id="process-no-key"> Skip key detection
+          <label class="checkbox-label" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+            <span>Key mode</span>
+            <select id="process-key-mode" class="settings-path-input" style="max-width:220px">
+              <option value="passive" selected>Passive — fill only missing key</option>
+              <option value="aggressive">Aggressive — overwrite key</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+          <label class="checkbox-label" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+            <span>Normalize mode</span>
+            <select id="process-normalize-mode" class="settings-path-input" style="max-width:260px">
+              <option value="off" selected>Off</option>
+              <option value="passive">Passive — normalize out-of-range files</option>
+              <option value="aggressive">Aggressive — force normalize all scanned files</option>
+            </select>
+          </label>
+          <label class="checkbox-label" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+            <span>Rename mode</span>
+            <select id="process-rename-mode" class="settings-path-input" style="max-width:260px">
+              <option value="off" selected>Off</option>
+              <option value="passive">Passive — rename files that changed this run</option>
+              <option value="aggressive">Aggressive — rename all scanned files</option>
+            </select>
           </label>
           <label class="checkbox-label" id="process-retry-errored-row">
             <input type="checkbox" id="process-retry-errored">
             <span>Retry errored tracks only <span class="field-badge caution" id="process-retry-count"></span></span>
-          </label>
-          <label class="checkbox-label">
-            <input type="checkbox" id="process-force"> Force overwrite <em>all</em> existing tags
           </label>
         </div>
       </div>
       <div class="field">
         <label>Metadata Enrichment <span class="field-badge caution">Requires AcoustID API key</span></label>
         <div class="enrichment-option-row">
-          <label class="checkbox-label enrichment-checkbox-label">
-            <input type="checkbox" id="process-enrich-tags">
-            <span>Look up title, artist &amp; album from MusicBrainz after tagging</span>
+          <label class="checkbox-label enrichment-checkbox-label" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+            <span>MusicBrainz mode</span>
+            <select id="process-enrich-mode" class="settings-path-input" style="max-width:290px">
+              <option value="off" selected>Off</option>
+              <option value="passive">Passive — fill missing title/artist/album</option>
+              <option value="aggressive">Aggressive — overwrite title/artist/album</option>
+            </select>
           </label>
-          <p class="field-hint">Fingerprints each track and queries the AcoustID web service (~1 req/s). Only fills in <em>missing</em> fields unless Force Overwrite is on. Requires <code>acoustid_api_key</code> in your FableGear config.</p>
+          <p class="field-hint">Fingerprints each track and queries the AcoustID web service (~1 req/s). Passive fills only missing fields; aggressive overwrites title/artist/album. Requires <code>acoustid_api_key</code> in your FableGear config.</p>
         </div>
       </div>
       <div class="btn-row">

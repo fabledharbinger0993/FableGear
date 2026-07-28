@@ -29,8 +29,28 @@ function _showRetryOption() {
     row.style.display = 'none';
     const cb = document.getElementById('process-retry-errored');
     if (cb) cb.checked = false;
+    _syncProcessRetryDisabled();
   }
 }
+
+// Retry mode hardcodes --force --no-normalize server-side, so the per-effect
+// force / normalize checkboxes have no effect while it's on — disable them so
+// that's obvious instead of letting them silently do nothing.
+function _syncProcessRetryDisabled() {
+  const checked = !!document.getElementById('process-retry-errored')?.checked;
+  ['process-bpm-mode', 'process-key-mode', 'process-normalize-mode', 'process-enrich-mode', 'process-rename-mode'].forEach(id => {
+    const cb = document.getElementById(id);
+    if (cb) cb.disabled = checked;
+  });
+}
+
+function _initProcessRetryToggle() {
+  const retryCb = document.getElementById('process-retry-errored');
+  if (!retryCb) return;
+  retryCb.addEventListener('change', _syncProcessRetryDisabled);
+  _syncProcessRetryDisabled();
+}
+document.addEventListener('DOMContentLoaded', _initProcessRetryToggle);
 
 /* ── Individual command runners ────────────────────────────────────────────── */
 
@@ -66,11 +86,11 @@ function runProcess() {
   const paths = getFolderPaths('process-pills');
   if (!paths.length) { _flashNeedsInput('process-pills'); showToast('Add at least one music folder first.', 'warning'); return; }
 
-  const enrichChecked = document.getElementById('process-enrich-tags')?.checked;
-  if (enrichChecked) {
+  const enrichMode = document.getElementById('process-enrich-mode')?.value || 'off';
+  if (enrichMode !== 'off') {
     fetch('/api/config').then(r => r.json()).then(cfg => {
-      if (!cfg.acoustid_api_key) {
-        showToast('AcoustID API key not set — enrichment will be skipped. Add acoustid_api_key to your config.', 'warning');
+      if (!cfg.acoustid_api_key_configured) {
+        showToast('AcoustID API key not set — enrichment will be skipped. Add it in Settings.', 'warning');
       }
       _doRunProcess(paths);
     }).catch(() => _doRunProcess(paths));
@@ -93,28 +113,45 @@ function _doRunProcess(paths) {
     }
     const body = {
       paths:  retryPaths,
-      no_bpm: document.getElementById('process-no-bpm').checked,
-      no_key: document.getElementById('process-no-key').checked,
+      bpm_mode: document.getElementById('process-bpm-mode')?.value || 'passive',
+      key_mode: document.getElementById('process-key-mode')?.value || 'passive',
     };
     _runProcessRetry(body);
     return;
   }
 
+  const bpmMode = document.getElementById('process-bpm-mode')?.value || 'passive';
+  const keyMode = document.getElementById('process-key-mode')?.value || 'passive';
+  const normalizeMode = document.getElementById('process-normalize-mode')?.value || 'off';
+  const enrichMode = document.getElementById('process-enrich-mode')?.value || 'off';
+  const renameMode = document.getElementById('process-rename-mode')?.value || 'off';
+  if (
+    bpmMode === 'off' &&
+    keyMode === 'off' &&
+    normalizeMode === 'off' &&
+    enrichMode === 'off' &&
+    renameMode === 'off'
+  ) {
+    showToast('All Tag Tracks modes are Off — enable at least one effect.', 'warning');
+    return;
+  }
+
   const p = new URLSearchParams();
   paths.forEach(path => p.append('path', path));
-  if (document.getElementById('process-no-bpm').checked)  p.set('no_bpm', '1');
-  if (document.getElementById('process-no-key').checked)  p.set('no_key', '1');
-  if (document.getElementById('process-force').checked)   p.set('force',  '1');
-  if (document.getElementById('process-enrich-tags')?.checked) p.set('enrich_tags', '1');
-  p.set('no_normalize', '1');
+  p.set('bpm_mode', bpmMode);
+  p.set('key_mode', keyMode);
+  p.set('normalize_mode', normalizeMode);
+  p.set('enrich_mode', enrichMode);
+  p.set('rename_mode', renameMode);
   const el = document.getElementById('process-result');
   if (el) el.classList.add('hidden');
   _saveToolCkpt('process', {
     paths,
-    no_bpm:      document.getElementById('process-no-bpm').checked,
-    no_key:      document.getElementById('process-no-key').checked,
-    force:       document.getElementById('process-force').checked,
-    enrich_tags: document.getElementById('process-enrich-tags')?.checked || false,
+    bpm_mode: bpmMode,
+    key_mode: keyMode,
+    normalize_mode: normalizeMode,
+    enrich_mode: enrichMode,
+    rename_mode: renameMode,
   });
   document.getElementById('step-process')?.querySelector('.tool-resume-banner')?.remove();
   runCommand(`/api/run/process?${p}`, 'Tag Tracks — BPM & Key Detection',
@@ -254,19 +291,26 @@ function runDuplicates() {
   if (!paths.length) { _flashNeedsInput('dupes-pills'); showToast('Add at least one music folder first.', 'warning'); return; }
   const p = new URLSearchParams();
   paths.forEach(path => p.append('path', path));
-  const workers = document.getElementById('dupes-workers')?.value || '4';
-  if (parseInt(workers) > 1) p.set('workers', workers);
-  // Match mode
-  const matchMode = document.querySelector('input[name="dupes-match-mode"]:checked')?.value || 'exact';
-  if (matchMode !== 'exact') p.set('match_mode', matchMode);
-  // Fuzzy threshold (only relevant when fuzzy or all)
-  if (matchMode === 'fuzzy' || matchMode === 'all') {
-    const thresholdPct = parseInt(document.getElementById('fuzzy-threshold')?.value || '85');
-    p.set('fuzzy_threshold', (thresholdPct / 100).toFixed(2));
+  // Tier: quick = instant cached-hash match; deep = acoustic fpcalc.
+  const scanMode = document.querySelector('input[name="dupes-scan-mode"]:checked')?.value || 'quick';
+  p.set('scan_mode', scanMode);
+  let matchMode = 'exact';
+  if (scanMode === 'deep') {
+    const workers = document.getElementById('dupes-workers')?.value || '4';
+    if (parseInt(workers) > 1) p.set('workers', workers);
+    matchMode = document.querySelector('input[name="dupes-match-mode"]:checked')?.value || 'exact';
+    if (matchMode !== 'exact') p.set('match_mode', matchMode);
+    // Fuzzy threshold (only relevant when fuzzy or all)
+    if (matchMode === 'fuzzy' || matchMode === 'all') {
+      const thresholdPct = parseInt(document.getElementById('fuzzy-threshold')?.value || '85');
+      p.set('fuzzy_threshold', (thresholdPct / 100).toFixed(2));
+    }
   }
-  _saveToolCkpt('duplicates', { paths, workers, matchMode });
+  _saveToolCkpt('duplicates', { paths, scanMode, matchMode });
   document.getElementById('step-duplicates')?.querySelector('.tool-resume-banner')?.remove();
-  const title = 'Find Duplicates — Acoustic Fingerprinting';
+  const title = scanMode === 'quick'
+    ? 'Find Duplicates — Quick (exact copies)'
+    : 'Find Duplicates — Deep (acoustic fingerprint)';
   runCommand(`/api/run/duplicates?${p}`, title, (exitCode) => {
     if (exitCode === 0) {
       _clearToolCkpt('duplicates');
@@ -291,6 +335,14 @@ function _initMatchModeUI() {
   }));
 }
 document.addEventListener('DOMContentLoaded', _initMatchModeUI);
+
+// Show/hide the Deep (acoustic) options based on the Quick vs Deep scan tier.
+function _dupesUpdateScanMode() {
+  const mode = document.querySelector('input[name="dupes-scan-mode"]:checked')?.value || 'quick';
+  const deep = document.getElementById('dupes-deep-options');
+  if (deep) deep.style.display = (mode === 'deep') ? '' : 'none';
+}
+document.addEventListener('DOMContentLoaded', _dupesUpdateScanMode);
 
 function runConvert() {
   const paths = getFolderPaths('convert-pills');
@@ -345,20 +397,23 @@ function runNovelty() {
   }
   const sources = getFolderPaths('novelty-pills');
   const dest    = document.getElementById('novelty-dest').value.trim();
+  const copyTo  = document.getElementById('novelty-copy-to')?.value.trim() || '';
   const dryRun  = document.getElementById('novelty-dry-run').checked;
   const matchMode = document.getElementById('novelty-match-mode')?.value || 'fingerprint';
   if (!sources.length) { _flashNeedsInput('novelty-pills'); showToast('Add at least one source drive or folder.', 'warning'); return; }
-  if (!dest)           { _flashNeedsInput('novelty-dest'); showToast('Enter a destination library path.', 'warning'); return; }
+  if (!dest)           { _flashNeedsInput('novelty-dest'); showToast('Enter a home library path to compare against.', 'warning'); return; }
   const p = new URLSearchParams();
   sources.forEach(source => p.append('source', source));
   p.set('dest', dest);
+  if (copyTo) p.set('copy_to', copyTo);
   p.set('match_mode', matchMode);
   if (!dryRun) p.set('no_dry_run', '1');
+  const copyTargetLabel = copyTo || dest;
   const label = dryRun
     ? 'Novelty Scan — Dry Run (nothing will be copied)'
-    : 'Novelty Scan — Copying novel tracks to destination';
+    : `Novelty Scan — Copying novel tracks to ${copyTargetLabel}`;
   if (!dryRun) {
-    _saveToolCkpt('novelty', { sources, dest, dryRun: false });
+    _saveToolCkpt('novelty', { sources, dest, copyTo, dryRun: false });
     document.getElementById('step-novelty')?.querySelector('.tool-resume-banner')?.remove();
   }
   runCommand(`/api/run/novelty?${p}`, label,

@@ -27,9 +27,16 @@ Two-phase to keep Chromaprint calls to a minimum:
 
   Phase 1 — Pre-filter (fast)
     Build a key+BPM+duration index of the DESTINATION from scan_index.json
-    and/or the rekordbox DB.  Any source track that has NO candidate match
-    on all three criteria is immediately flagged as novel — no fingerprinting
-    needed.
+    and/or the rekordbox DB, plus a normalized-filename index. A source
+    track becomes a fingerprint candidate if it matches on key+BPM+duration
+    OR shares a normalized filename with a destination track. Only a track
+    with NEITHER kind of match is flagged novel without fingerprinting.
+    The filename fallback matters when scan_index.json hasn't been built
+    yet (fresh install, or files never run through Tag Tracks) — without
+    it, BPM/key/duration are unknown on both sides for every comparison,
+    Phase 1 finds nothing, and Phase 2 never runs at all: a literal
+    drive-to-drive copy of the destination would be re-copied as "novel"
+    every time, without a single fingerprint ever being checked.
 
   Phase 2 — Fingerprint confirmation (slow, only for candidates)
     Source tracks that DO match a destination track on key+BPM+duration are
@@ -54,6 +61,11 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
+
+try:
+    from path_guard import guard_sources as _guard_sources
+except ImportError:  # imported via the chop_shop package
+    from chop_shop.path_guard import guard_sources as _guard_sources
 
 log = logging.getLogger(__name__)
 
@@ -153,6 +165,7 @@ def _dest_candidates(
     track_key: str | None,
     track_dur: float | None,
     dest_index: dict[str, dict],
+    filename_candidates: "list[str] | None" = None,
 ) -> list[str]:
     """
     Return dest index keys that could be the same track based on
@@ -160,16 +173,27 @@ def _dest_candidates(
 
     If a dest entry has no metadata (scanned from disk only) it is always
     returned as a candidate — better to fingerprint it than miss a match.
+
+    filename_candidates are always included regardless of metadata state —
+    they come from a normalized-filename match against the destination
+    (see _build_dest_filename_index) and are the fallback that keeps
+    fingerprinting from being skipped entirely when scan_index.json hasn't
+    been built (BPM/key/duration unknown on both sides). Without this, a
+    literal file copy sitting in the destination — same filename, zero
+    tag metadata on either side — would never be candidate-matched at all
+    and would silently get re-copied as "novel".
     """
-    candidates = []
+    candidates = set(filename_candidates or ())
     no_src_metadata = (track_bpm is None and track_key is None and track_dur is None)
     for dest_path, meta in dest_index.items():
-        # No metadata on either side → skip; fingerprinting the entire library
-        # is prohibitively slow and the module philosophy is "when in doubt, copy"
+        # No metadata on either side → skip (unless already added via a
+        # filename match above); fingerprinting the entire library against
+        # itself is prohibitively slow and the module philosophy is
+        # "when in doubt, copy" — but only once a real check had a chance.
         if not meta:
             if no_src_metadata:
                 continue
-            candidates.append(dest_path)
+            candidates.add(dest_path)
             continue
 
         # Duration check
@@ -198,9 +222,25 @@ def _dest_candidates(
         if track_key and dest_key and track_key != dest_key:
             continue
 
-        candidates.append(dest_path)
+        candidates.add(dest_path)
 
-    return candidates
+    return list(candidates)
+
+
+def _build_dest_filename_index(dest_index: dict[str, dict]) -> dict[str, list[str]]:
+    """Map normalized filename -> destination paths sharing that name.
+
+    Cheap (O(1) lookup per source track) fallback candidate source for
+    _dest_candidates when BPM/key/duration are unknown on both sides — the
+    scenario that otherwise skips fingerprinting entirely (see its
+    docstring). A same-named file in the destination is exactly the case a
+    literal drive-to-drive copy produces, so this is what actually catches it.
+    """
+    index: dict[str, list[str]] = {}
+    for dest_path in dest_index.keys():
+        key = _normalized_filename_key(Path(dest_path))
+        index.setdefault(key, []).append(dest_path)
+    return index
 
 
 # ─── Fingerprint comparison ───────────────────────────────────────────────────
@@ -312,11 +352,14 @@ def scan_novel(
     source:      "Path | list[Path]",
     destination: Path,
     *,
+    copy_to:     "Path | None" = None,
     dry_run:     bool = True,
     max_workers: int  = 1,
     match_mode:  str  = "fingerprint",
     progress_cb: "callable | None" = None,
     archive=None,
+    skip_paths: "set[str] | None" = None,
+    on_result: "callable | None" = None,
 ) -> NovelScanResult:
     """
     Scan *source* for tracks that do not exist in *destination* and copy them
@@ -327,7 +370,17 @@ def scan_novel(
     source : Path | list[Path]
         One directory or a list of directories to scan for novel tracks.
     destination : Path
-        The home library to copy novel tracks into.
+        The library to compare against — a track already found here (by
+        metadata pre-filter + fingerprint, or by filename in filename mode)
+        is skipped as "present". This is NOT necessarily where novel tracks
+        land; see copy_to.
+    copy_to : Path | None
+        Where confirmed-novel tracks actually get copied. Defaults to
+        *destination* when omitted, matching the original single-folder
+        behavior. Pointing this somewhere separate from *destination* lets a
+        scan check against the real home library while keeping newly-found
+        tracks segregated in their own folder for review, rather than
+        dumping them straight into the compared-against library.
     dry_run : bool
         If True (default), report what would be copied without doing it.
     max_workers : int
@@ -338,22 +391,28 @@ def scan_novel(
     progress_cb : callable | None
         Optional callback(done, total, copied, skipped, errors) called after
         each track is processed.  Used by the Flask SSE route.
+    skip_paths : set[str] | None
+        Absolute source paths (as str) to exclude entirely — used by the
+        caller for checkpoint resume (tracks already evaluated/copied in an
+        interrupted run).
+    on_result : callable | None
+        Invoked once per track as callback(NovelTrack) right after tallying,
+        so the caller can persist a checkpoint incrementally.
     """
     from config import AUDIO_EXTENSIONS, SKIP_DIRS, SKIP_PREFIXES
 
     source_list: list[Path] = [source] if isinstance(source, Path) else list(source)
+    _guard_sources(source_list, "the novelty scanner")
     match_mode = (match_mode or "fingerprint").strip().lower()
     if match_mode not in {"fingerprint", "filename"}:
         raise ValueError(f"Unsupported match_mode: {match_mode}")
+    copy_root: Path = copy_to if copy_to is not None else destination
 
     # ── 1. Build destination index ────────────────────────────────────────────
     log.info("Building destination index: %s", destination)
     dest_index = _build_dest_index(destination)
     dest_size  = len(dest_index)
-    dest_filename_keys = {
-        _normalized_filename_key(Path(dest_path))
-        for dest_path in dest_index.keys()
-    }
+    dest_filename_index = _build_dest_filename_index(dest_index)
     log.info("Destination index: %d tracks", dest_size)
 
     # ── 2. Collect source tracks ──────────────────────────────────────────────
@@ -374,6 +433,8 @@ def scan_novel(
                 if fp.suffix.lower() in AUDIO_EXTENSIONS:
                     src_tracks.append(fp)
 
+    if skip_paths:
+        src_tracks = [p for p in src_tracks if str(p) not in skip_paths]
     total = len(src_tracks)
     log.info("Source tracks to evaluate: %d", total)
 
@@ -403,10 +464,12 @@ def scan_novel(
     def _process(src: Path) -> NovelTrack:
         nonlocal fingerprinted
 
+        src_filename_key = _normalized_filename_key(src)
+
         if match_mode == "filename":
-            if _normalized_filename_key(src) in dest_filename_keys:
+            if src_filename_key in dest_filename_index:
                 return NovelTrack(path=src, action="skipped", reason="filename match in destination")
-            return _copy_novel(src, destination, dry_run)
+            return _copy_novel(src, copy_root, dry_run)
 
         src_meta   = scan_index.get(str(src), {})
         try:
@@ -419,13 +482,18 @@ def scan_novel(
         except (ValueError, TypeError):
             src_dur = None
 
-        # Phase 1: pre-filter — find destination candidates
-        candidates = _dest_candidates(src_bpm, src_key, src_dur, dest_index)
+        # Phase 1: pre-filter — find destination candidates. Filename
+        # matches are always folded in (see _dest_candidates) so a literal
+        # file copy still gets fingerprint-checked even with zero BPM/key
+        # metadata on either side, instead of silently skipping straight to
+        # "novel" because scan_index.json hasn't been built.
+        filename_candidates = dest_filename_index.get(src_filename_key, [])
+        candidates = _dest_candidates(src_bpm, src_key, src_dur, dest_index, filename_candidates)
 
         if not candidates:
             # No metadata match anywhere in destination → novel, copy immediately
             log.debug("Novel (no pre-filter match): %s", src.name)
-            return _copy_novel(src, destination, dry_run)
+            return _copy_novel(src, copy_root, dry_run)
 
         # Phase 2: fingerprint confirmation — only called when candidates exist
         fingerprinted += 1
@@ -435,7 +503,20 @@ def scan_novel(
 
         # Candidates existed but fingerprint didn't confirm — copy it
         log.debug("Novel (fingerprint mismatch): %s", src.name)
-        return _copy_novel(src, destination, dry_run)
+        return _copy_novel(src, copy_root, dry_run)
+
+    def _journal_copy(r: NovelTrack) -> None:
+        """Journal each copy the moment it lands — an interrupted scan must
+        still record every track it brought into the library."""
+        if archive is None or r.action != "copied" or r.dest is None:
+            return
+        try:
+            archive.log_operation(
+                "novelty_copy", str(r.dest), status="ok",
+                metadata={"from": str(r.path)},
+            )
+        except Exception as exc:
+            log.warning("Archive update failed for novelty copy %s: %s", r.path, exc)
 
     if max_workers > 1:
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -449,6 +530,7 @@ def scan_novel(
                 if r.action in ("copied", "dry_run"):
                     copied  += 1
                     result.novel.append(r)
+                    _journal_copy(r)
                 elif r.action == "skipped":
                     skipped += 1
                     result.present.append(futures[future])
@@ -456,6 +538,8 @@ def scan_novel(
                     errors  += 1
                     result.errors.append(futures[future])
                     log.error("Error processing %s: %s", futures[future].name, r.reason)
+                if on_result is not None:
+                    on_result(r)
                 done += 1; _emit()
     else:
         for i, src in enumerate(src_tracks):
@@ -467,6 +551,7 @@ def scan_novel(
             if r.action in ("copied", "dry_run"):
                 copied  += 1
                 result.novel.append(r)
+                _journal_copy(r)
             elif r.action == "skipped":
                 skipped += 1
                 result.present.append(src)
@@ -474,6 +559,9 @@ def scan_novel(
                 errors  += 1
                 result.errors.append(src)
                 log.error("Error processing %s: %s", src.name, r.reason)
+
+            if on_result is not None:
+                on_result(r)
 
             done += 1
             log.info("[%d/%d] %-8s %s", done, total, r.action.upper(), src.name)

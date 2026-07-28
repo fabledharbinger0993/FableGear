@@ -62,6 +62,11 @@ from scanner import extract_metadata
 if TYPE_CHECKING:
     pass
 
+try:
+    from path_guard import guard_sources as _guard_sources
+except ImportError:  # imported via the chop_shop package
+    from chop_shop.path_guard import guard_sources as _guard_sources
+
 log = logging.getLogger(__name__)
 
 # Patterns to detect and clean from filenames
@@ -80,6 +85,11 @@ _NO_NAME_FOLDER = "No-Name tracks for Tagging"
 _NO_NAME_MANIFEST = "_quarantine_manifest.json"
 FILENAME_SEPARATOR = " - "
 _LEGACY_FILENAME_SEPARATORS = (FILENAME_SEPARATOR, ": ")
+
+# APFS/HFS+/ext4/NTFS all reject a single path component beyond 255 bytes.
+# Tag metadata (artist/title) is free text and can run far longer than that —
+# this is the ceiling _generate_filename() enforces on the combined name.
+_MAX_FILENAME_BYTES = 255
 
 
 def _is_key_token(token: str) -> bool:
@@ -280,6 +290,7 @@ class RenameResult:
     action: str  # "renamed" | "skipped" | "collision_numbered" | "error" | "no_change"
     reason: str = ""
     content_id: str | None = None
+    db_rows_updated: int = 0  # rekordbox rows whose path this rename actually updated
 
 
 @dataclass
@@ -316,6 +327,54 @@ def _looks_like_junk_title(text: str | None) -> bool:
     if _is_key_or_bpm_chunk(s):
         return True
     if re.fullmatch(r"unknown|untitled|track\s*\d*", s, flags=re.IGNORECASE):
+        return True
+    return False
+
+
+def _looks_like_junk_album(text: str | None) -> bool:
+    """True when an album/release value carries no useful information and should
+    be omitted from the filename (rather than emitting an 'Unknown' segment)."""
+    if not text:
+        return True
+    s = text.strip()
+    if not s:
+        return True
+    if _is_key_or_bpm_chunk(s):
+        return True
+    # Common placeholder album tags written by rippers, DJ software, and the
+    # UnknownAlbum/ folder scaffolding.
+    if re.fullmatch(
+        r"unknown(\s*album)?|untitled|album|various(\s*artists)?|va|"
+        r"unknownalbum|no\s*album|n/?a",
+        s,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    return False
+
+
+def _album_is_redundant(album: str, artist: str, title: str) -> bool:
+    """
+    True when the album segment adds nothing to "Artist - Album - Title" and
+    should be dropped.
+
+    Beyond the album exactly matching the artist ("Artist - Artist - Title")
+    or the title, this also catches the common single-release case where the
+    album and title share a leading run — a single sold as its own "album",
+    e.g. album "Snow Day" against title "Snow Day (Rain Day Remix)", which
+    would otherwise render the doubled "Snow Day - Snow Day (Rain Day Remix)".
+    Prefix in either direction counts (album "Snow Day EP" vs title "Snow
+    Day" is just as redundant), compared on the canonical, punctuation- and
+    case-insensitive form.
+    """
+    a, al, t = _canon(artist), _canon(album), _canon(title)
+    if not al:
+        return True
+    if al == a or al == t:
+        return True
+    # Prefix either way — but only when the other side has real content, so an
+    # empty/degenerate title canon can't make every album look redundant.
+    if t and (t.startswith(al) or al.startswith(t)):
         return True
     return False
 
@@ -581,9 +640,12 @@ def probe_ambiguous(
             mix_annotation,
             label_artist_hints,
         )
-        proposed = _generate_filename(artist, title, file_path.suffix, copy_suffix)
+        album = getattr(metadata, "album", None)
+        proposed = _generate_filename(artist, title, file_path.suffix, copy_suffix, album=album)
         if mix_annotation:
-            proposed = _generate_filename(artist, f"{title} ({mix_annotation})", file_path.suffix, copy_suffix)
+            proposed = _generate_filename(
+                artist, f"{title} ({mix_annotation})", file_path.suffix, copy_suffix, album=album
+            )
 
         candidates.append(ProbeCandidate(
             source_path=file_path,
@@ -718,30 +780,101 @@ def _extract_artist_title(
     return artist or None, title or None, copy_suffix
 
 
+def _truncate_utf8_safe(text: str, max_bytes: int) -> str:
+    """Truncate text to at most max_bytes when UTF-8 encoded, without
+    splitting a multi-byte character in half."""
+    if max_bytes <= 0:
+        return ""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    truncated = encoded[:max_bytes]
+    while truncated and (truncated[-1] & 0xC0) == 0x80:  # mid-codepoint continuation byte
+        truncated = truncated[:-1]
+    return truncated.decode("utf-8", errors="ignore")
+
+
 def _sanitize_filename(text: str, max_len: int = 200) -> str:
     """
     Clean a string for use in a filename.
     Removes filesystem-unsafe characters, collapses spaces, strips dots.
+    max_len is a byte budget (UTF-8), not a character count.
     """
     text = _UNSAFE_CHARS.sub(" ", text)
     text = _MULTI_SPACE.sub(" ", text).strip().strip(".")
-    return text[:max_len] if text else "Unknown"
+    text = _truncate_utf8_safe(text, max_len).strip().strip(".")
+    return text if text else "Unknown"
 
 
-def _generate_filename(artist: str | None, title: str | None, ext: str, copy_suffix: str | None = None) -> str:
+def _generate_filename(
+    artist: str | None,
+    title: str | None,
+    ext: str,
+    copy_suffix: str | None = None,
+    album: str | None = None,
+) -> str:
     """
-    Generate a clean filename with artist, title, and optional copy suffix.
-    Format: "Artist - Title.ext" or "Artist - Title (2).ext"
-    
-    Artist and title are both included in filename for clear visual identification.
-    Copy suffix (e.g., "(2)", "(copy)") is appended before the extension if present.
-    Full metadata remains in ID3 tags for database searchability.
+    Generate a clean filename with artist, optional album/release, title, and
+    optional copy suffix.
+    Format: "Artist - Album - Title.ext"  (album segment included only when
+    present and non-junk) or "Artist - Title.ext" / "Artist - Title (2).ext".
+
+    Artist, album, and title come from the file's tags — which by this point
+    already carry whatever the Tag Tracks / AcoustID enrichment step wrote — so
+    the name reflects the best available metadata, not just the raw filename.
+    Any mix/remix annotation is already folded into `title` by the caller (it
+    arrives as "Title (Refreq Edit)"), so it naturally lands at the end.
+
+    Tag metadata can be arbitrarily long (some releases stuff catalog numbers,
+    remix credits, and session notes into the title). The combined name is
+    kept under the filesystem's 255-byte component limit — otherwise the
+    rename silently fails on exactly the messiest files this tool exists to
+    clean up. Title gets the larger share of the budget since it's what a DJ
+    actually scans for; artist is never starved below a readable floor; album
+    yields first when space runs short.
     """
     artist = _sanitize_filename(artist or "Unknown")
     title = _sanitize_filename(title or "Unknown")
     title = _strip_leading_artist_from_title(artist, title)
+
+    # Album is optional: omit the segment entirely when missing or junk rather
+    # than emitting an "Unknown" placeholder.
+    album_clean = None if _looks_like_junk_album(album) else _sanitize_filename(album)
+    if album_clean and _album_is_redundant(album_clean, artist, title):
+        album_clean = None
+
     suffix_str = f" {copy_suffix}" if copy_suffix else ""
-    return f"{artist}{FILENAME_SEPARATOR}{title}{suffix_str}{ext}"
+
+    sep_bytes = len(FILENAME_SEPARATOR.encode("utf-8"))
+    n_seps = 2 if album_clean else 1
+    fixed_overhead = (
+        sep_bytes * n_seps
+        + len(suffix_str.encode("utf-8"))
+        + len(ext.encode("utf-8"))
+    )
+    budget = max(_MAX_FILENAME_BYTES - fixed_overhead, 20)
+
+    artist_bytes = len(artist.encode("utf-8"))
+    title_bytes = len(title.encode("utf-8"))
+    album_bytes = len(album_clean.encode("utf-8")) if album_clean else 0
+    if artist_bytes + album_bytes + title_bytes > budget:
+        artist_budget = max(min(artist_bytes, int(budget * 0.30)), 20)
+        remaining = budget - artist_budget
+        if album_clean:
+            # Album gives up space first — it's the least load-bearing segment.
+            album_budget = max(min(album_bytes, int(remaining * 0.30)), 12)
+            title_budget = max(remaining - album_budget, 20)
+            album_clean = _sanitize_filename(album_clean, max_len=album_budget)
+        else:
+            title_budget = max(remaining, 20)
+        artist = _sanitize_filename(artist, max_len=artist_budget)
+        title = _sanitize_filename(title, max_len=title_budget)
+
+    parts = [artist]
+    if album_clean:
+        parts.append(album_clean)
+    parts.append(title)
+    return f"{FILENAME_SEPARATOR.join(parts)}{suffix_str}{ext}"
 
 
 def _resolve_filename_collision(dest: Path) -> Path:
@@ -906,9 +1039,10 @@ def _rename_one(
                     action="error",
                     reason=f"Quarantine move failed: {exc}",
                 )
+            db_rows_updated = 0
             if db is not None:
                 try:
-                    _sync_db_path_or_revert(path, Path(moved["dest_path"]), db)
+                    db_rows_updated = _sync_db_path_or_revert(path, Path(moved["dest_path"]), db)
                 except Exception as exc:
                     return RenameResult(
                         original_path=path,
@@ -928,8 +1062,10 @@ def _rename_one(
                 new_path=Path(moved["dest_path"]),
                 action="quarantined",
                 reason="Moved unresolved file to No-Name tracks for Tagging",
+                db_rows_updated=db_rows_updated,
             )
-        new_name = _generate_filename(artist, title, ext, copy_suffix)
+        album = getattr(metadata, "album", None)
+        new_name = _generate_filename(artist, title, ext, copy_suffix, album=album)
     new_path = path.parent / new_name
     
     # If the new name matches the current name, skip
@@ -969,7 +1105,7 @@ def _rename_one(
             )
 
         try:
-            _sync_db_path_or_revert(path, new_path, db)
+            db_rows_updated = _sync_db_path_or_revert(path, new_path, db)
         except Exception as e:
             return RenameResult(
                 original_path=path,
@@ -979,6 +1115,13 @@ def _rename_one(
             )
 
         _archive_rename(archive, path, new_path, action)
+
+        return RenameResult(
+            original_path=path,
+            new_path=new_path,
+            action=action,
+            db_rows_updated=db_rows_updated,
+        )
 
     return RenameResult(
         original_path=path,
@@ -1003,26 +1146,30 @@ def _archive_rename(archive, old_path: Path, new_path: Path, action: str) -> Non
         log.warning("Archive update failed for rename %s -> %s: %s", old_path, new_path, exc)
 
 
-def _update_db_path(old_path: Path, new_path: Path, db) -> None:
+def _update_db_path(old_path: Path, new_path: Path, db) -> int:
     """
     Update rekordbox DjmdContent.FolderPath for the given file.
 
     Rename operations happen in place, so the safest lookup is an exact
     FolderPath match against the previous on-disk path.
+
+    Returns the number of DB rows actually updated (0 when the file isn't in
+    the library, or the DB backend doesn't support path updates).
     """
     if not hasattr(db, 'update_content_path'):
         log.debug("Database does not support update_content_path — skipping DB update")
-        return
+        return 0
 
     try:
         rows = db.get_content(FolderPath=str(old_path)).all()
         if not rows:
             log.debug("No DB row matched renamed file: %s", old_path)
-            return
+            return 0
 
         for row in rows:
             db.update_content_path(row, new_path, check_path=True)
         log.debug("Updated DB: %s -> %s (%d row(s))", old_path.name, new_path.name, len(rows))
+        return len(rows)
     except Exception as e:
         log.warning("Database lookup/update failed for %s: %s", old_path, e)
         raise
@@ -1033,16 +1180,18 @@ def _content_ids_for_path(path: Path, db) -> list[str]:
     return [str(row.ID) for row in rows]
 
 
-def _sync_db_path_or_revert(old_path: Path, new_path: Path, db) -> None:
-    """Update Rekordbox for a moved file or revert the filesystem change on failure."""
+def _sync_db_path_or_revert(old_path: Path, new_path: Path, db) -> int:
+    """Update Rekordbox for a moved file or revert the filesystem change on
+    failure. Returns the number of DB rows actually updated (0 when db is None
+    or the file isn't in the library)."""
     if db is None:
-        return
+        return 0
 
     content_ids: list[str] = []
 
     try:
         content_ids = _content_ids_for_path(old_path, db)
-        _update_db_path(old_path, new_path, db)
+        return _update_db_path(old_path, new_path, db)
     except Exception as exc:
         try:
             db.rollback()
@@ -1086,6 +1235,8 @@ def rename_directory(
     max_workers: int = 1,
     rules: "_learned.LearnedRules | None" = None,
     archive=None,
+    skip_paths: "set[str] | None" = None,
+    on_result=None,
 ) -> list[RenameResult]:
     """
     Batch-rename all audio files in a directory based on their metadata.
@@ -1104,16 +1255,25 @@ def rename_directory(
     archive : FableGearDatabase, optional
         If provided, logs each rename/quarantine to the Archive's processing
         log and relinks fg_content.file_path so the Record Room stays in sync.
+    skip_paths : set[str] | None
+        Absolute paths (as str) to exclude entirely — used by the caller for
+        checkpoint resume (files already renamed in an interrupted run).
+    on_result : Callable[[RenameResult], None] | None
+        Invoked once per file right after tallying, so the caller can persist
+        a checkpoint incrementally.
 
     Returns
     -------
     list[RenameResult]
         Outcome for each file processed.
     """
+    _guard_sources([root], "the renamer")
     if rules is None:
         rules = _learned.load()
 
     files = _walk_audio_files(root)
+    if skip_paths:
+        files = [f for f in files if str(f) not in skip_paths]
     total = len(files)
     results: list[RenameResult] = []
     label_artist_hints = _infer_artists_by_label(files)
@@ -1131,7 +1291,9 @@ def rename_directory(
     )
     
     renamed = skipped = collisions = errors = quarantined = 0
-    batch_count = 0
+    batch_count = 0          # renames since last DB commit — controls flush cadence
+    db_rows_pending = 0      # rekordbox rows actually updated since last commit
+    db_rows_total = 0        # rekordbox rows actually updated across the whole run
 
     def _emit() -> None:
         print(
@@ -1174,14 +1336,24 @@ def rename_directory(
         elif result.action == "error":
             errors += 1
 
+        db_rows_pending += result.db_rows_updated
+        db_rows_total += result.db_rows_updated
+
+        if on_result is not None:
+            on_result(result)
+
         if (i + 1) % max(1, total // 20) == 0 or i == total - 1:
             _emit()
 
         if not dry_run and db is not None and batch_count >= BATCH_SIZE:
             try:
                 db.commit()
-                log.info("Committed batch of %d DB path updates", batch_count)
+                log.info(
+                    "Committed batch: %d file(s) renamed, %d rekordbox row(s) updated",
+                    batch_count, db_rows_pending,
+                )
                 batch_count = 0
+                db_rows_pending = 0
             except Exception:
                 log.exception("Batch commit failed — rolling back")
                 db.rollback()
@@ -1190,19 +1362,24 @@ def rename_directory(
     if not dry_run and db is not None and batch_count > 0:
         try:
             db.commit()
-            log.info("Final commit: %d DB path updates", batch_count)
+            log.info(
+                "Final commit: %d file(s) renamed, %d rekordbox row(s) updated",
+                batch_count, db_rows_pending,
+            )
         except Exception:
             log.exception("Final commit failed — rolling back")
             db.rollback()
             raise
 
     log.info(
-        "Rename complete: %d renamed, %d skipped, %d collisions handled, %d quarantined, %d errors",
+        "Rename complete: %d renamed, %d skipped, %d collisions handled, "
+        "%d quarantined, %d errors, %d rekordbox row(s) updated",
         renamed,
         skipped,
         collisions,
         quarantined,
         errors,
+        db_rows_total,
     )
 
     if archive is not None and not dry_run and (renamed or collisions or quarantined):
@@ -1215,6 +1392,7 @@ def rename_directory(
                 "quarantined": quarantined,
                 "errors": errors,
                 "total": total,
+                "db_rows_updated": db_rows_total,
             },
         )
 

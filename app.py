@@ -59,6 +59,10 @@ app = Flask(
 @app.errorhandler(Exception)
 def _handle_unexpected_exception(exc):
     if request.path.startswith("/api/"):
+        import logging as _logging  # noqa: PLC0415
+        _logging.getLogger(__name__).exception(
+            "Unhandled exception on %s %s", request.method, request.path
+        )
         return api_error_from_exc(exc)
     raise exc
 
@@ -213,9 +217,13 @@ from brew_updater import (                          # noqa: E402
 )
 _start_brew_checker()
 
+from snapshot_scheduler import start_background_scheduler as _start_snapshot_scheduler  # noqa: E402
+_start_snapshot_scheduler()
+
 from update_checker import (                        # noqa: E402
     start_background_checker as _start_update_checker,
     get_status as _update_get_status,
+    check_now as _update_check_now,
 )
 _start_update_checker()
 
@@ -224,6 +232,76 @@ try:
     ensure_archive_structure()
 except Exception:
     pass  # Drive not mounted yet — non-fatal
+
+try:
+    # Archive-first DB home (docs/archive_first_architecture.md §3): restore
+    # the local working copy from the archive if it's missing/corrupt, or
+    # seed the archive from an existing local DB on first run. No-ops
+    # (returns action="skipped") when the drive isn't mounted — never blocks
+    # startup.
+    import logging as _logging  # noqa: PLC0415
+    from fablegear_database.archive_sync import startup_sync_check as _archive_startup_sync_check
+    _startup_sync_result = _archive_startup_sync_check()
+    if not _startup_sync_result.ok:
+        _logging.getLogger(__name__).warning(
+            "Archive DB sync check at startup: %s", _startup_sync_result.reason,
+        )
+    elif _startup_sync_result.action != "skipped":
+        _logging.getLogger(__name__).info(
+            "Archive DB sync check at startup: %s (%s)",
+            _startup_sync_result.action, _startup_sync_result.reason,
+        )
+except Exception:
+    import logging as _logging  # noqa: PLC0415
+    _logging.getLogger(__name__).exception("Archive DB startup sync check failed")
+
+
+def _sync_archive_db_on_exit() -> None:
+    """Clean-shutdown checkpoint (doc §3.2): back up the local working copy
+    to the archive on process exit. Best-effort — a missing drive or an
+    interrupted shutdown just means the periodic scheduler
+    (snapshot_scheduler) picks it up on its next cadence instead."""
+    try:
+        from fablegear_database.archive_sync import sync_db_to_archive  # noqa: PLC0415
+        sync_db_to_archive()
+    except Exception:
+        pass
+
+
+import atexit  # noqa: E402
+atexit.register(_sync_archive_db_on_exit)
+
+# atexit alone doesn't run on SIGTERM/SIGINT (Python's default handling for
+# both terminates immediately without unwinding to atexit). This app's own
+# self-update flow signals itself with SIGTERM (see api_update_apply), and a
+# packaged desktop build is routinely closed via SIGTERM/SIGINT from the OS
+# or its process supervisor — those are the *actual* common shutdown paths,
+# not a plain interpreter exit. Route both through the same sync + exit so
+# "clean shutdown" in the doc means what actually happens, not just the
+# idealized case.
+_prior_sigterm_handler = signal.getsignal(signal.SIGTERM)
+_prior_sigint_handler = signal.getsignal(signal.SIGINT)
+
+
+def _handle_shutdown_signal(signum, frame):
+    _sync_archive_db_on_exit()
+    if signum == signal.SIGTERM and callable(_prior_sigterm_handler):
+        _prior_sigterm_handler(signum, frame)
+        return
+    if signum == signal.SIGINT and callable(_prior_sigint_handler):
+        _prior_sigint_handler(signum, frame)
+        return
+    sys.exit(0)
+
+
+try:
+    signal.signal(signal.SIGTERM, _handle_shutdown_signal)
+    signal.signal(signal.SIGINT, _handle_shutdown_signal)
+except (ValueError, OSError):
+    # signal.signal() only works in the main thread of the main interpreter —
+    # non-fatal if app.py is ever imported somewhere that isn't (e.g. certain
+    # test harnesses); atexit above still covers normal interpreter exit.
+    pass
 
 
 # ── Health check cache ────────────────────────────────────────────────────────
@@ -342,12 +420,10 @@ _SPLASH_HTML = """\
 @app.route("/")
 def index():
     from flask import redirect as _redirect  # noqa: PLC0415
-
     ready, reason, _state = _setup_gate_status(repair=True)
     if not ready:
         app.logger.info("Redirecting to onboarding (reason=%s)", reason)
         return _redirect("/onboarding")
-
     return render_template("index.html")
 
 
@@ -442,8 +518,9 @@ def api_config():
     from helpers import _current_fablegear_mode, _backup_dir  # noqa: PLC0415
     try:
         from config import (  # noqa: PLC0415
-            DJMT_DB, LOCAL_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
-            BACKUP_DIR, ARCHIVE_ENABLED, _archive_mode, _custom_archive,
+            DEVICE_DB, LOCAL_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
+            BACKUP_DIR, ARCHIVE_ENABLED, SNAPSHOT_CADENCE, SNAPSHOT_INCLUDE_MASTER_DB,
+            _archive_mode, _custom_archive,
         )
         from user_config import load_user_config as _luc  # noqa: PLC0415
         _ucfg = _luc()
@@ -451,7 +528,7 @@ def api_config():
         return jsonify({
             "music_root":       str(MUSIC_ROOT),
             "local_db":         str(LOCAL_DB),
-            "djmt_db":          str(DJMT_DB),
+            "device_db":        str(DEVICE_DB),
             "backup_dir":       str(BACKUP_DIR),
             "archive_root":     str(ARCHIVE_ROOT),
             "quarantine":       str(QUARANTINE_DIR),
@@ -459,7 +536,10 @@ def api_config():
             "archive_mode":     _archive_mode,
             "custom_archive":   _custom_archive,
             "archive_enabled":  ARCHIVE_ENABLED,
+            "snapshot_cadence": SNAPSHOT_CADENCE,
+            "snapshot_include_master_db": SNAPSHOT_INCLUDE_MASTER_DB,
             "excluded_dirs":    _ucfg.get("excluded_dirs", []),
+            "acoustid_api_key_configured": bool(_ucfg.get("acoustid_api_key", "").strip()),
             "mode":             current_mode,
             "configured":       True,
         })
@@ -467,7 +547,7 @@ def api_config():
         current_mode = _current_fablegear_mode()
         return jsonify({
             "music_root":      "",
-            "djmt_db":         "",
+            "device_db":       "",
             "backup_dir":      str(_backup_dir()),
             "archive_root":    "",
             "quarantine":      "",
@@ -475,6 +555,8 @@ def api_config():
             "archive_mode":    "auto",
             "custom_archive":  "",
             "archive_enabled": True,
+            "snapshot_cadence": "monthly",
+            "snapshot_include_master_db": False,
             "mode":            current_mode,
             "configured":      False,
         })
@@ -505,7 +587,13 @@ def api_setup_archive():
 def api_settings():
     """Save archive mode and custom path to user config."""
     try:
-        from user_config import archive_root_for_music_root, load_user_config, CONFIG_PATH  # noqa: PLC0415
+        from user_config import (  # noqa: PLC0415
+            archive_root_for_music_root,
+            load_user_config,
+            CONFIG_PATH,
+            normalize_snapshot_cadence,
+            _coerce_bool,
+        )
         import json as _json
         data = request.get_json(force=True) or {}
         cfg = load_user_config()
@@ -528,8 +616,19 @@ def api_settings():
             cfg["backup_dir"] = str(cfg.get("backup_dir", "")).strip() or str(Path.home() / ".fablegear" / "backups")
         if "excluded_dirs" in data:
             cfg["excluded_dirs"] = [d for d in data["excluded_dirs"] if isinstance(d, str) and d.strip()]
+        if "acoustid_api_key" in data:
+            # AcoustID key for MusicBrainz enrichment (music data only). Trim
+            # whitespace; empty string disables lookup.
+            cfg["acoustid_api_key"] = str(data.get("acoustid_api_key", "")).strip()
         if "mode" in data and data["mode"] in ("rural", "suburban"):
             cfg["mode"] = data["mode"]
+        if "snapshot_cadence" in data:
+            cfg["snapshot_cadence"] = normalize_snapshot_cadence(data.get("snapshot_cadence"))
+        if "snapshot_include_master_db" in data:
+            cfg["snapshot_include_master_db"] = _coerce_bool(
+                data.get("snapshot_include_master_db"),
+                cfg.get("snapshot_include_master_db", False),
+            )
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             _json.dump(cfg, f, indent=2)
         return jsonify({"ok": True, "note": "Restart FableGear for changes to take effect."})
@@ -541,7 +640,18 @@ def api_settings():
 
 @app.route("/api/update/status")
 def api_update_status():
-    """Return the cached GitHub release check result (never blocks)."""
+    """Return the GitHub release check result.
+
+    Default: the cached status (never blocks) — used by the automatic startup
+    check. With ?refresh=1: run a live check first (blocks a few seconds) —
+    used by the manual "Check for Updates" button so the answer is current and
+    failures are reportable rather than silently stale.
+    """
+    if request.args.get("refresh") == "1":
+        try:
+            return jsonify(_update_check_now())
+        except Exception as exc:
+            return jsonify({"error": str(exc), "update_available": False}), 502
     return jsonify(_update_get_status())
 
 
@@ -740,6 +850,27 @@ def api_pick_folder():
     return jsonify({"path": None})
 
 
+@app.route("/api/pick-file")
+def api_pick_file():
+    """Open the native file-chooser dialog. macOS uses osascript; other platforms
+    rely on pywebview's js_api.pick_file() called directly from the frontend.
+
+    Used as the fallback when the page isn't running inside the pywebview native
+    window (e.g. a plain browser tab), where window.pywebview is never defined.
+    """
+    if _SYSTEM == "Darwin":
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", "POSIX path of (choose file)"],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode == 0:
+                return jsonify({"path": result.stdout.strip()})
+        except Exception:
+            pass
+    return jsonify({"path": None})
+
+
 # ── Volume helpers ─────────────────────────────────────────────────────────────
 
 _AUDIO_BEARING_SKIP = frozenset({"Macintosh HD", "Recovery", "VM", "Preboot", "Update", "Data"})
@@ -765,14 +896,17 @@ def _drive_name(mountpoint: str) -> str:
 
 
 def _is_browseable_path(p: Path) -> bool:
-    """Security check: only allow paths the user legitimately owns."""
-    s = str(p)
-    home = str(Path.home())
-    if _SYSTEM == "Darwin":
-        return s.startswith("/Volumes/") or s.startswith(home)
-    if _SYSTEM == "Windows":
-        return len(s) >= 3 and s[1] == ":" and s[2] in ("/", "\\")
-    return s.startswith("/media/") or s.startswith("/mnt/") or s.startswith(home)
+    """Security check for the read-only file-browser panel.
+
+    Any real, existing folder is browseable — a drive or subfolder shouldn't
+    have to live under /Volumes or the user's home directory to be pointed at
+    a tool. Only OS-internal trees are excluded; see forbidden_browse_reason().
+    """
+    try:
+        from path_guard import forbidden_browse_reason  # noqa: PLC0415
+    except ImportError:  # imported via the chop_shop package
+        from chop_shop.path_guard import forbidden_browse_reason  # noqa: PLC0415
+    return forbidden_browse_reason(p) is None
 
 
 def _mounted_volumes() -> list:
@@ -843,7 +977,7 @@ def api_fs_list():
         return jsonify({"error": "Forbidden"}), 403
     AUDIO_EXTS = {
         ".aiff", ".aif", ".aifc", ".wav", ".flac", ".mp3",
-        ".m4a", ".m4p", ".mp4", ".m4v", ".alac", ".ogg", ".opus",
+        ".m4a", ".m4p", ".alac", ".ogg", ".opus",
     }
     if _SYSTEM == "Windows":
         default_root = "C:\\"
@@ -983,6 +1117,7 @@ _SETUP_STATE_DEFAULTS = {
     "db_read": None,
     "db_write": None,
     "drive_scan": False,
+    "mcp_opted_in": False,
 }
 
 
@@ -993,6 +1128,7 @@ def _normalize_setup_state(raw: dict | None) -> dict:
 
     state["setup_complete"] = bool(raw.get("setup_complete", False))
     state["drive_scan"] = bool(raw.get("drive_scan", False))
+    state["mcp_opted_in"] = bool(raw.get("mcp_opted_in", False))
 
     for key in ("db_read", "db_write"):
         value = raw.get(key)
@@ -1214,15 +1350,19 @@ def api_drives_first_aid():
 def onboarding():
     """Serve the first-run setup wizard."""
     from flask import redirect as _redirect  # noqa: PLC0415
-
     ready, reason, _state = _setup_gate_status(repair=True)
+    already_configured = bool(ready)
 
     # `?reconfigure=1` lets a completed user re-enter the wizard (e.g. to
     # change permissions or paths); otherwise a finished setup bounces home.
     if ready and not request.args.get("reconfigure"):
         return _redirect("/")
 
-    return render_template("onboarding.html", setup_gate_reason=reason)
+    return render_template(
+        "onboarding.html",
+        already_configured=already_configured,
+        setup_gate_reason=reason,
+    )
 
 
 @app.route("/api/onboarding/dep-check")
@@ -1362,6 +1502,60 @@ def api_onboarding_scan_library():
     return jsonify(scan_for_rekordbox_assets())
 
 
+# ── Onboarding: seed the FableGear database from chosen sources ──────────────
+
+_OB_IMPORT = {"running": False, "phase": "idle", "done": 0, "total": 0,
+              "result": None, "error": None}
+
+
+@app.route("/api/onboarding/import-sources", methods=["POST"])
+def api_onboarding_import_sources():
+    """Import the user's chosen music sources into the FableGear database.
+
+    Body: {"paths": ["/Volumes/DJ/Music", ...]} — explicit, user-selected
+    directories only. Runs in a background thread; poll
+    /api/onboarding/import-sources/status for progress.
+    """
+    body = request.get_json(silent=True) or {}
+    paths = [str(p).strip() for p in body.get("paths", []) if str(p).strip()]
+    if not paths:
+        return jsonify({"error": "paths list is required"}), 400
+    roots = [Path(p) for p in paths]
+    bad = [str(r) for r in roots if not r.is_dir()]
+    if bad:
+        return jsonify({"error": f"not a directory: {', '.join(bad)}"}), 400
+    if _OB_IMPORT["running"]:
+        return jsonify({"error": "an import is already running"}), 409
+
+    def _run():
+        _OB_IMPORT.update(running=True, phase="scanning", done=0, total=0,
+                          result=None, error=None)
+        try:
+            from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
+            from fablegear_database.importer import FileImporter  # noqa: PLC0415
+
+            def _progress(done, total):
+                _OB_IMPORT.update(phase="importing", done=done, total=total)
+
+            db = FableGearDatabase()
+            _OB_IMPORT["result"] = FileImporter(db).import_files(
+                roots, progress_callback=_progress
+            )
+        except Exception as exc:  # noqa: BLE001 — surfaced to the wizard UI
+            _OB_IMPORT["error"] = str(exc)
+        finally:
+            _OB_IMPORT.update(running=False, phase="done")
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"started": True, "paths": paths})
+
+
+@app.route("/api/onboarding/import-sources/status")
+@limiter.exempt
+def api_onboarding_import_sources_status():
+    return jsonify(_OB_IMPORT)
+
+
 @app.route("/api/onboarding/check-fda")
 def api_onboarding_check_fda():
     """Check if the local Rekordbox DB is readable (Full Disk Access indicator)."""
@@ -1396,7 +1590,13 @@ def api_onboarding_open_fda_prefs():
 @app.route("/api/onboarding/save-config", methods=["POST"])
 def api_onboarding_save_config():
     """Save confirmed paths to config.json and mark setup complete."""
-    from user_config import DEFAULTS, archive_root_for_music_root, save_user_config  # noqa: PLC0415
+    from user_config import (  # noqa: PLC0415
+        DEFAULTS,
+        archive_root_for_music_root,
+        save_user_config,
+        normalize_snapshot_cadence,
+        _coerce_bool,
+    )
 
     data = request.get_json(silent=True) or {}
     required = {"local_db", "device_db", "music_root"}
@@ -1426,6 +1626,8 @@ def api_onboarding_save_config():
         "backup_dir": backup_dir,
         "archive_mode": archive_mode,
         "custom_archive_dir": custom_archive_dir if archive_mode == "custom" else "",
+        "snapshot_cadence": normalize_snapshot_cadence(data.get("snapshot_cadence")),
+        "snapshot_include_master_db": _coerce_bool(data.get("snapshot_include_master_db"), False),
     }
     for key, default in DEFAULTS.items():
         cfg.setdefault(key, default)
@@ -1442,6 +1644,8 @@ def api_onboarding_save_config():
         # Consent to scan connected drives/volumes for music-specific formats,
         # granted (or declined) during onboarding — the only place that asks.
         "drive_scan": bool(data.get("drive_scan", False)),
+        # AI/MCP integration is opt-in during onboarding (or later via Settings).
+        "mcp_opted_in": bool(data.get("mcp_opted_in", False)),
     }
     _FABLEGEAR_STATE.parent.mkdir(parents=True, exist_ok=True)
     _FABLEGEAR_STATE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
@@ -1612,9 +1816,11 @@ def disable_cache_on_static_files(response):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # FABLEGEAR_PORT lets a dev checkout run beside an installed copy on 5001.
+    _port = int(os.environ.get("FABLEGEAR_PORT", "5001"))
     print()
     print("  ┌──────────────────────────────────┐")
-    print("  │  FableGear · http://localhost:5001  │")
+    print(f"  │  FableGear · http://localhost:{_port}  │")
     print("  └──────────────────────────────────┘")
     print()
-    app.run(host="127.0.0.1", port=5001, debug=False)
+    app.run(host="127.0.0.1", port=_port, debug=False)

@@ -317,6 +317,12 @@ function pipeWizSelectStep(i) {
       _wizUpdateProgress();
     });
   });
+  panel.querySelectorAll('input[type=checkbox]').forEach(el => {
+    el.addEventListener('change', () => {
+      _pipeWizReadDraft(step);
+      _wizUpdateProgress();
+    });
+  });
   // Wire drop zones — single-path inputs use setupDropZone; multi-path textareas use setupMultiDropZone
   panel.querySelectorAll('input[type=text]').forEach(setupDropZone);
   panel.querySelectorAll('textarea.pipe-cfg-input').forEach(setupMultiDropZone);
@@ -367,8 +373,57 @@ function _pipeWizConfigHTML(step, saved) {
     case 'audit':
       return multiPathRow('paths', 'Music folders (optional)', 'Choose or enter a music folder', false);
 
-    case 'process':
-      return multiPathRow('paths', 'Music folders', 'Choose or enter a music folder') + workersRow(4);
+    case 'process': {
+      const bpmMode = v('bpm_mode', 'passive');
+      const keyMode = v('key_mode', 'passive');
+      const normalizeLegacy = saved && saved.no_normalize !== undefined ? (saved.no_normalize ? 'off' : 'passive') : '';
+      const normalizeMode = v('normalize_mode', normalizeLegacy || 'off');
+      const enrichMode = v('enrich_mode', 'off');
+      const renameMode = v('rename_mode', 'off');
+      return multiPathRow('paths', 'Music folders', 'Choose or enter a music folder') + workersRow(4) + `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 14px">
+          <div class="pipe-cfg-field">
+            <label class="pipe-cfg-label">BPM mode</label>
+            <select class="pipe-cfg-input" data-cfg="bpm_mode">
+              <option value="passive" ${bpmMode === 'passive' ? 'selected' : ''}>Passive</option>
+              <option value="aggressive" ${bpmMode === 'aggressive' ? 'selected' : ''}>Aggressive</option>
+              <option value="off" ${bpmMode === 'off' ? 'selected' : ''}>Off</option>
+            </select>
+          </div>
+          <div class="pipe-cfg-field">
+            <label class="pipe-cfg-label">Key mode</label>
+            <select class="pipe-cfg-input" data-cfg="key_mode">
+              <option value="passive" ${keyMode === 'passive' ? 'selected' : ''}>Passive</option>
+              <option value="aggressive" ${keyMode === 'aggressive' ? 'selected' : ''}>Aggressive</option>
+              <option value="off" ${keyMode === 'off' ? 'selected' : ''}>Off</option>
+            </select>
+          </div>
+          <div class="pipe-cfg-field">
+            <label class="pipe-cfg-label">Normalize mode</label>
+            <select class="pipe-cfg-input" data-cfg="normalize_mode">
+              <option value="off" ${normalizeMode === 'off' ? 'selected' : ''}>Off</option>
+              <option value="passive" ${normalizeMode === 'passive' ? 'selected' : ''}>Passive</option>
+              <option value="aggressive" ${normalizeMode === 'aggressive' ? 'selected' : ''}>Aggressive</option>
+            </select>
+          </div>
+          <div class="pipe-cfg-field">
+            <label class="pipe-cfg-label">MusicBrainz mode</label>
+            <select class="pipe-cfg-input" data-cfg="enrich_mode">
+              <option value="off" ${enrichMode === 'off' ? 'selected' : ''}>Off</option>
+              <option value="passive" ${enrichMode === 'passive' ? 'selected' : ''}>Passive</option>
+              <option value="aggressive" ${enrichMode === 'aggressive' ? 'selected' : ''}>Aggressive</option>
+            </select>
+          </div>
+          <div class="pipe-cfg-field">
+            <label class="pipe-cfg-label">Rename mode</label>
+            <select class="pipe-cfg-input" data-cfg="rename_mode">
+              <option value="off" ${renameMode === 'off' ? 'selected' : ''}>Off</option>
+              <option value="passive" ${renameMode === 'passive' ? 'selected' : ''}>Passive</option>
+              <option value="aggressive" ${renameMode === 'aggressive' ? 'selected' : ''}>Aggressive</option>
+            </select>
+          </div>
+        </div>`;
+    }
 
     case 'rename':
       return multiPathRow('paths', 'Folders to rename', 'Choose or enter a music folder') + workersRow(1);
@@ -454,6 +509,10 @@ function _pipeWizReadDraft(step) {
     if (!el) return [];
     return el.value.split('\n').map(s => s.trim()).filter(Boolean);
   };
+  const getChecked = (field, def = false) => {
+    const el = panel.querySelector(`[data-cfg="${field}"]`);
+    return el ? el.checked : def;
+  };
 
   const draft = {};
   switch (step.type) {
@@ -464,9 +523,14 @@ function _pipeWizReadDraft(step) {
     case 'link':
       draft.paths = getLines('paths'); break;
     case 'process':
-      draft.paths       = getLines('paths');
-      draft.workers     = getN('workers', 1);
-      draft.no_normalize = true; break;
+      draft.paths        = getLines('paths');
+      draft.workers      = getN('workers', 1);
+      draft.bpm_mode = get('bpm_mode') || 'passive';
+      draft.key_mode = get('key_mode') || 'passive';
+      draft.normalize_mode = get('normalize_mode') || 'off';
+      draft.enrich_mode = get('enrich_mode') || 'off';
+      draft.rename_mode = get('rename_mode') || 'off';
+      break;
     case 'rename':
       draft.paths   = getLines('paths');
       draft.workers = getN('workers', 1); break;
@@ -553,8 +617,10 @@ function _showToolResumeBanner(toolKey, cardId, resumeFn) {
       <div class="trb-title">Interrupted run — ${ageText}</div>
       <div class="trb-paths">${pathsText}</div>
     </div>
-    <button class="btn btn-neon trb-btn-resume" onclick="_resumeTool('${toolKey}')">Resume</button>
-    <button class="trb-btn-dismiss" title="Dismiss — start fresh" onclick="_dismissToolCkpt('${toolKey}', '${cardId}')">✕</button>`;
+    <button class="btn btn-neon trb-btn-resume" onclick="_resumeTool('${toolKey}')"
+            title="Continue from where this run left off — files already done are skipped">Resume</button>
+    <button class="btn trb-btn-restart" onclick="_restartToolFresh('${toolKey}', '${cardId}')"
+            title="Discard saved progress and reprocess this folder from the beginning">Start Fresh</button>`;
 
   const form = card.querySelector('.card-form');
   if (form) form.prepend(banner);
@@ -567,9 +633,25 @@ function _resumeTool(toolKey) {
   if (ckpt && _toolResumeFns[toolKey]) _toolResumeFns[toolKey](ckpt);
 }
 
-function _dismissToolCkpt(toolKey, cardId) {
+// Frontend checkpoint "toolKey" values that don't match the backend's CLI
+// subcommand/checkpoint-tool name 1:1 — Normalize is process (with BPM/key
+// detection switched off), not a separate CLI tool.
+const _CKPT_BACKEND_TOOL = { normalize: 'process' };
+
+// "Start Fresh": clears the local "interrupted run" banner AND tells the
+// server to discard the saved checkpoint for this tool. Previously this only
+// cleared the browser-side marker, so the *server* checkpoint survived and
+// the next Run silently resumed from stale state anyway — exactly what this
+// button is supposed to prevent.
+async function _restartToolFresh(toolKey, cardId) {
   _clearToolCkpt(toolKey);
   document.getElementById(cardId)?.querySelector('.tool-resume-banner')?.remove();
+  const backendTool = _CKPT_BACKEND_TOOL[toolKey] || toolKey;
+  try {
+    await fetch(`/api/checkpoint/reset?tool=${encodeURIComponent(backendTool)}`, { method: 'POST' });
+  } catch (e) {
+    console.warn('[checkpoint reset] failed:', e);
+  }
 }
 
 function _populatePills(pillsId, paths) {
@@ -581,11 +663,16 @@ function _populatePills(pillsId, paths) {
 // ── Resume functions — restore form state and re-run ─────────────────────────
 function _resumeProcess(ckpt) {
   _populatePills('process-pills', ckpt.paths);
-  document.getElementById('process-no-bpm').checked  = !!ckpt.no_bpm;
-  document.getElementById('process-no-key').checked  = !!ckpt.no_key;
-  document.getElementById('process-force').checked   = false; // never force on resume
-  const enrich = document.getElementById('process-enrich-tags');
-  if (enrich) enrich.checked = !!ckpt.enrich_tags;
+  const bpmMode = document.getElementById('process-bpm-mode');
+  if (bpmMode) bpmMode.value = ckpt.bpm_mode || 'passive';
+  const keyMode = document.getElementById('process-key-mode');
+  if (keyMode) keyMode.value = ckpt.key_mode || 'passive';
+  const enrichMode = document.getElementById('process-enrich-mode');
+  if (enrichMode) enrichMode.value = ckpt.enrich_mode || 'off';
+  const normalizeMode = document.getElementById('process-normalize-mode');
+  if (normalizeMode) normalizeMode.value = ckpt.normalize_mode || 'off';
+  const renameMode = document.getElementById('process-rename-mode');
+  if (renameMode) renameMode.value = ckpt.rename_mode || 'off';
   document.getElementById('step-process')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   runProcess();
 }
@@ -638,10 +725,20 @@ function _resumeNovelty(ckpt) {
   _populatePills('novelty-pills', ckpt.sources);
   const d = document.getElementById('novelty-dest');
   if (d && ckpt.dest) d.value = ckpt.dest;
+  const ct = document.getElementById('novelty-copy-to');
+  if (ct && ckpt.copyTo) ct.value = ckpt.copyTo;
   const dr = document.getElementById('novelty-dry-run');
   if (dr) dr.checked = !!ckpt.dryRun;
   document.getElementById('step-novelty')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   runNovelty();
+}
+
+function _resumeRename(ckpt) {
+  _populatePills('rename-pills', ckpt.paths || (ckpt.path ? [ckpt.path] : []));
+  const dr = document.getElementById('rename-dry-run');
+  if (dr) dr.checked = !!ckpt.dryRun;
+  document.getElementById('step-rename')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  runRename();
 }
 
 // ── Init — show banners for any stale checkpoints on page load ───────────────
@@ -652,6 +749,7 @@ function _initToolCheckpoints() {
   _showToolResumeBanner('duplicates', 'step-duplicates', _resumeDuplicates);
   _showToolResumeBanner('organize',   'step-organize',   _resumeOrganize);
   _showToolResumeBanner('novelty',    'step-novelty',    _resumeNovelty);
+  _showToolResumeBanner('rename',     'step-rename',     _resumeRename);
 }
 
 /* ── Pipeline checkpoint: survive interruptions and resume ────────────────── */
@@ -1107,4 +1205,3 @@ function runOrganize() {
     }
   });
 }
-

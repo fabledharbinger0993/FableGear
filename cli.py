@@ -58,30 +58,59 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 _ARCHIVE = None
+_ARCHIVE_ERROR: str | None = None
 
 
 def _archive():
-    """Lazily open the FableGear database so every tool can log to it."""
-    global _ARCHIVE
-    if _ARCHIVE is None:
+    """Lazily open the FableGear database so every tool can log to it.
+
+    Failure is LOUD: without the archive, tool runs leave no record in
+    fg_processing_log and every cross-tool optimization is lost, so the
+    operator must be able to see the disconnect the moment it happens.
+    """
+    global _ARCHIVE, _ARCHIVE_ERROR
+    if _ARCHIVE is None and _ARCHIVE_ERROR is None:
         try:
             from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
             _ARCHIVE = FableGearDatabase()
-        except Exception:
-            log.debug("FableGear database not available — archive logging disabled")
+        except Exception as exc:
+            _ARCHIVE_ERROR = f"{type(exc).__name__}: {exc}"
+            log.warning("FableGear archive unavailable — tool runs will NOT be recorded: %s", _ARCHIVE_ERROR)
+            # Also emit on stdout so SSE-streamed UI logs surface it.
+            print(f"[WARN] FableGear archive unavailable — this run will not be recorded ({_ARCHIVE_ERROR})", flush=True)
     return _ARCHIVE
 
 
 def _require_archive(command_name: str):
-    """Return the archive handle or exit with a fail-loud contract error."""
+    """Return the archive handle or exit — write commands must not run un-journaled.
+
+    ``_archive()`` already warns loudly on failure, but a warning is easy to
+    miss in a long SSE-streamed run. A destructive command with no archive
+    means no journal row, no undo record, and no cross-tool report — exactly
+    the silent-failure class the archive contract exists to prevent, so this
+    is a hard stop (exit 2), not a soft warning. Callers exempt dry runs by
+    calling ``_archive()`` directly instead when ``dry_run`` is set.
+    """
     archive = _archive()
     if archive is None:
         log.error(
-            "Archive unavailable for '%s' — this command requires persistent archive logging.",
+            "Archive unavailable for '%s' — this command writes and requires archive logging. "
+            "See the warning above for the underlying error.",
             command_name,
         )
         sys.exit(2)
     return archive
+
+
+def _guard_or_exit(paths, tool: str) -> None:
+    """Refuse system/home/app-data scan roots — same rails as the organizer."""
+    from path_guard import guard_sources  # noqa: PLC0415
+    try:
+        guard_sources(paths, tool)
+    except ValueError as exc:
+        log.error("%s", exc)
+        print(f"[ERROR] {exc}", flush=True)
+        sys.exit(2)
 
 
 # ─── Report helpers ───────────────────────────────────────────────────────────
@@ -223,6 +252,135 @@ def cmd_usb_inspect(args: argparse.Namespace) -> None:
     print(f"  Verdict: {verdict}", flush=True)
 
 
+def cmd_anlz_read(args: argparse.Namespace) -> None:
+    """Read-only deep parse of a track's ANLZ set (.DAT/.EXT/.2EX)."""
+    from anlz_reader import read_anlz_set
+
+    set_report = read_anlz_set(args.path)
+
+    print(f"ANLZ set: {set_report.anlz_dir}", flush=True)
+    for note in set_report.notes:
+        print(f"  note: {note}", flush=True)
+    for label, file_report in (("DAT", set_report.dat), ("EXT", set_report.ext), ("2EX", set_report.two_ex)):
+        if file_report is None:
+            continue
+        tags = ", ".join(file_report.tags_present) or "(none)"
+        print(f"  .{label}: {len(file_report.tags_present)} tags — {tags}", flush=True)
+        if file_report.ppth_path:
+            print(f"    path: {file_report.ppth_path}", flush=True)
+        if file_report.beat_grid:
+            first = file_report.beat_grid[0]
+            print(
+                f"    beat grid: {len(file_report.beat_grid)} beats, "
+                f"first {first.tempo_bpm:.2f} BPM @ {first.time_ms}ms",
+                flush=True,
+            )
+        for name, wf in file_report.waveform_tags.items():
+            print(f"    {name}: len_entry_bytes={wf.len_entry_bytes} len_entries={wf.len_entries} bytes={wf.entry_bytes_total}", flush=True)
+        for note in file_report.notes:
+            print(f"    note: {note}", flush=True)
+    if set_report.track_path:
+        print(f"  Embedded track path: {set_report.track_path}", flush=True)
+    print(f"  Beat count: {set_report.beat_count}", flush=True)
+
+
+def cmd_pioneer_settings(args: argparse.Namespace) -> None:
+    """Read-only parse of Pioneer/rekordbox player & mixer settings files."""
+    from pioneer_settings import read_settings_file, read_settings_tree
+
+    path = Path(args.path)
+    reports = [read_settings_file(path)] if path.is_file() else read_settings_tree(path)
+
+    if not reports:
+        print(f"No known settings files found under {path}", flush=True)
+        return
+
+    for r in reports:
+        mark = "✓" if r.valid else ("⚠" if r.valid is None else "✗")
+        print(f"{mark} {r.filename}: {r.detail}", flush=True)
+        if r.settings:
+            print(f"    {len(r.settings)} settings parsed via {r.parsed_via}", flush=True)
+        for note in r.notes:
+            print(f"    note: {note}", flush=True)
+
+
+def cmd_pdb_read(args: argparse.Namespace) -> None:
+    """Read-only header validation of a DeviceSQL export.pdb / exportExt.pdb."""
+    from devicesql_reader import read_pdb
+
+    report = read_pdb(args.path)
+    mark = "✓" if report.valid_header else "✗"
+    print(f"{mark} {report.path}: {report.detail}", flush=True)
+    for note in report.notes:
+        print(f"  note: {note}", flush=True)
+
+
+def cmd_export_audit(args: argparse.Namespace) -> None:
+    """Read-only Phase B deep audit of a mounted Pioneer export tree.
+
+    Calls anlz_reader / pioneer_settings / devicesql_reader / usb_inspector
+    internally (real function calls, not shelling out) and persists the
+    consolidated findings through the FableGear archive.
+    """
+    from export_auditor import audit_export
+    from usb_inspector import NotAMountError
+
+    archive = _require_archive("export-audit")
+    try:
+        report = audit_export(args.mount, archive=archive)
+    except NotAMountError as exc:
+        print(f"✗ {exc}", flush=True)
+        sys.exit(1)
+
+    print(f"Export audit: {report.mount}", flush=True)
+    if report.usb_inspection:
+        insp = report.usb_inspection
+        verdict = ("DUAL-FORMAT — boots on both fleets" if insp.dual_format
+                   else "CDJ-3000 only" if insp.cdj3000_ready
+                   else "OneLibrary only" if insp.onelibrary_ready
+                   else "no readable device database")
+        print(f"  Verdict: {verdict}", flush=True)
+
+    a = report.anlz_summary
+    print(
+        f"  ANLZ: {a.tracks_scanned} tracks scanned, {a.with_beat_grid} with beat grid "
+        f"({a.total_beats} beats total), {a.with_waveform} with waveform, "
+        f"{a.dat_missing} missing .DAT",
+        flush=True,
+    )
+
+    if report.settings_files:
+        print(f"  Settings: {len(report.settings_files)} file(s) found", flush=True)
+        for sf in report.settings_files:
+            mark = "✓" if sf.valid else "✗"
+            print(f"    {mark} {sf.filename}", flush=True)
+
+    if report.pdb_report:
+        mark = "✓" if report.pdb_report.valid_header else "✗"
+        print(f"  PDB: {mark} {report.pdb_report.detail}", flush=True)
+        if report.pdb_report.partial:
+            print("    note: track row extraction failed for this file (see devicesql_reader.py)", flush=True)
+        elif report.pdb_report.valid_header:
+            print(
+                f"    tracks recovered: {len(report.pdb_report.tracks)} "
+                "(format-spec-verified, not hardware-verified — see devicesql_reader.py HONESTY LIMIT)",
+                flush=True,
+            )
+
+    cm = report.library_cross_match
+    if cm.anlz_tracks_with_path:
+        print(f"  Library cross-match: {cm.matched_in_archive}/{cm.anlz_tracks_with_path} ANLZ tracks matched in archive", flush=True)
+
+    for finding in report.encryption_findings:
+        if finding.present:
+            print(f"  ⚠ {finding.name}: present ({finding.size} bytes) — {finding.note}", flush=True)
+
+    for note in report.notes:
+        print(f"  note: {note}", flush=True)
+
+    print(f"  Archive logged: {report.archive_logged}", flush=True)
+
+
 def cmd_dead_files(args: argparse.Namespace) -> None:
     """Find audio files on disk not referenced in any Rekordbox database."""
     from dead_file_scanner import scan_dead_files
@@ -234,7 +392,7 @@ def cmd_dead_files(args: argparse.Namespace) -> None:
             log.error("PATH is not a directory: %s", root)
             sys.exit(1)
 
-    db_paths = None  # defaults to LOCAL_DB + DJMT_DB
+    db_paths = None  # defaults to LOCAL_DB + DEVICE_DB
 
     total_found = [0]
     total_files = [0]
@@ -272,7 +430,7 @@ def cmd_dead_files(args: argparse.Namespace) -> None:
 
 def cmd_import(args: argparse.Namespace) -> None:
     """Import audio files under one or more source paths into the database."""
-    from importer import import_directory
+    from importer_database import import_multi_drive_database_first
     from db_connection import read_db, write_db
 
     roots: list[Path] = [Path(args.path)]
@@ -286,31 +444,23 @@ def cmd_import(args: argparse.Namespace) -> None:
             log.error("PATH is not a directory: %s", root)
             sys.exit(1)
 
-    aggregate = None
-    root_sections: list[tuple[Path, str]] = []
-
-    def _merge(report):
-        nonlocal aggregate
-        if aggregate is None:
-            aggregate = report
-            return
-        aggregate.imported += report.imported
-        aggregate.skipped += report.skipped
-        aggregate.resumed += report.resumed
-        aggregate.failed += report.failed
-        aggregate.results.extend(report.results)
-
     if args.dry_run:
-        log.info("DRY RUN — no writes will occur")
+        log.info("DRY RUN — no writes will occur (delegating to database-first preview)")
+        # We can run it with export_to_rekordbox=False to preview
         try:
-            with read_db(LOCAL_DB) as db:
-                for index, root in enumerate(roots, start=1):
-                    _log_root_step("Import preview", root, index, len(roots))
-                    report = import_directory(root, db, dry_run=True)
-                    _merge(report)
-                    root_sections.append((root, report.summary()))
-            summary_text = aggregate.summary() if aggregate else "No import sources were processed."
-            summary_text = _append_root_breakdown(summary_text, root_sections)
+            report = import_multi_drive_database_first(
+                roots,
+                export_to_rekordbox=False,
+                force_refresh=False,
+            )
+            summary_text = (
+                f"Database-First Import Preview (Dry Run):\n"
+                f"  Total files scanned: {report.total_files}\n"
+                f"  New files:           {report.new_files}\n"
+                f"  Updated files:       {report.updated_files}\n"
+                f"  Skipped files:       {report.skipped_files}\n"
+                f"  Error files:         {report.error_files}\n"
+            )
             print(summary_text)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             report_path = _write_report("Import", f"preview_import_{timestamp}.txt", summary_text)
@@ -320,19 +470,31 @@ def cmd_import(args: argparse.Namespace) -> None:
             log.exception("Dry-run import failed")
             sys.exit(1)
     else:
-        log.info("Importing from %d source folder(s)", len(roots))
+        log.info("Importing from %d source folder(s) (database-first)", len(roots))
         try:
-            with write_db(LOCAL_DB) as db:
-                for index, root in enumerate(roots, start=1):
-                    _log_root_step("Import", root, index, len(roots))
-                    report = import_directory(root, db, dry_run=False, resume=args.resume)
-                    _merge(report)
-                    root_sections.append((root, report.summary()))
-            summary_text = aggregate.summary() if aggregate else "No import sources were processed."
-            summary_text = _append_root_breakdown(summary_text, root_sections)
+            # Progress callback that prints progress to match SSE generator expects
+            def progress_callback(current, total, drive_idx=0, drive_total=1):
+                # Emit progress ticks to keep scan bar moving
+                print(f"FABLEGEAR_PROGRESS: {json.dumps({'done': current, 'total': total})}", flush=True)
+
+            report = import_multi_drive_database_first(
+                roots,
+                export_to_rekordbox=True,
+                progress_callback=progress_callback,
+                force_refresh=False,
+            )
+            summary_text = (
+                f"Database-First Import Report:\n"
+                f"  Total files scanned: {report.total_files}\n"
+                f"  New files:           {report.new_files}\n"
+                f"  Updated files:       {report.updated_files}\n"
+                f"  Skipped files:       {report.skipped_files}\n"
+                f"  Error files:         {report.error_files}\n"
+                f"  Synced to Rekordbox: {report.rekordbox_exported}\n"
+            )
+            if report.errors:
+                summary_text += "\nErrors:\n" + "\n".join(f"  {err}" for err in report.errors[:50])
             print(summary_text)
-            if aggregate and aggregate.failed > 0:
-                log.warning("%d tracks failed to import — see log above", aggregate.failed)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             report_path = _write_report("Import", f"import_{timestamp}.txt", summary_text)
             if report_path:
@@ -404,11 +566,18 @@ def cmd_relocate(args: argparse.Namespace) -> None:
     # old_root doesn't need to exist on disk — it's a string prefix matched
     # against FolderPath values in the DB. If it's a typo, relocate_directory
     # will match zero rows and log a warning.
-    log.info("Relocating: %s → %s", old_root, new_root)
+    only_missing = not getattr(args, "include_existing", False)
+    log.info(
+        "Relocating: %s → %s (%s)",
+        old_root, new_root,
+        "broken paths only" if only_missing else "ALL rows under old_root",
+    )
     archive = _require_archive("relocate")
     try:
         with write_db(LOCAL_DB) as db:
-            results = relocate_directory(old_root, new_root, db, archive=archive)
+            results = relocate_directory(
+                old_root, new_root, db, archive=archive, only_missing=only_missing,
+            )
     except Exception:
         log.exception("Relocation failed")
         sys.exit(1)
@@ -441,9 +610,86 @@ def cmd_relocate(args: argparse.Namespace) -> None:
     _emit_report("\n".join(lines), "Relocate", f"relocate_{timestamp}.txt")
 
 
+def _get_checkpoint(tool: str, roots, args, config: dict | None = None):
+    """Build a Checkpoint for tool+roots+config, honoring --checkpoint-action.
+
+    Shared by every long-running per-file command (process, convert, organize,
+    rename, novelty — duplicates uses its own richer variant below since it
+    also restores in-memory fingerprint maps, not just a completed-count).
+
+    reset clears any prior state and starts over; the default (resume) lets
+    the caller pick up exactly where an interrupted run stopped by slicing
+    its file list at saved["completed"]. Returns None if the checkpoint
+    module or file is unavailable — callers must proceed unconditionally
+    (no resume support) rather than fail when that happens.
+    """
+    try:
+        from checkpoint import Checkpoint  # noqa: PLC0415
+    except ImportError:
+        return None
+    try:
+        ckpt = Checkpoint(tool, [str(r) for r in roots], config or {})
+        action = getattr(args, "checkpoint_action", None) or "resume"
+        if action == "reset":
+            ckpt.reset()
+            log.info("Checkpoint reset — starting %s from the beginning.", tool)
+        elif ckpt.exists():
+            info = ckpt.info()
+            log.info(
+                "Found checkpoint from %s (%s/%s done) — resuming. "
+                "Pass --checkpoint-action reset to start over.",
+                info.get("saved_at", "?"), info.get("completed", "?"), info.get("total", "?"),
+            )
+        return ckpt
+    except Exception as exc:
+        log.warning("Checkpoint unavailable (%s) — running without resume support.", exc)
+        return None
+
+
+def _duplicates_checkpoint(roots, args):
+    """Build the duplicate-scan Checkpoint for resume/reset support.
+
+    Returns a Checkpoint object (or None if the module is unavailable).
+    --checkpoint-action reset clears any prior state; the default (resume)
+    lets scan_duplicates pick up exactly where an interrupted run stopped.
+    """
+    try:
+        from checkpoint import Checkpoint  # noqa: PLC0415
+    except ImportError:
+        return None
+    try:
+        config = {
+            "match_mode": getattr(args, "match_mode", "exact"),
+            "fuzzy_threshold": f"{getattr(args, 'fuzzy_threshold', 0.85):.2f}",
+        }
+        ckpt = Checkpoint("duplicates", [str(r) for r in roots], config)
+        action = getattr(args, "checkpoint_action", None) or "resume"
+        if action == "reset":
+            ckpt.reset()
+            log.info("Checkpoint reset — starting the scan from the beginning.")
+        elif ckpt.exists():
+            info = ckpt.info()
+            log.info(
+                "Found checkpoint from %s (%s files done) — resuming. "
+                "Pass --checkpoint-action reset to start over.",
+                info.get("saved_at", "?"), info.get("completed", "?"),
+            )
+        return ckpt
+    except Exception as exc:
+        log.warning("Checkpoint unavailable (%s) — running without resume support.", exc)
+        return None
+
+
 def cmd_duplicates(args: argparse.Namespace) -> None:
-    """Scan one or more PATHs for acoustically identical files and write a CSV report."""
-    from duplicate_detector import scan_duplicates, write_csv_report, write_trash_rescue_report
+    """Scan one or more PATHs for duplicate files and write a CSV report.
+
+    Two tiers: scan_mode='quick' does instant byte-identical matching from the
+    cached DB hashes; scan_mode='deep' (default) runs acoustic fingerprinting.
+    Both return a ScanResult, so the report / prune / resolve pipeline is shared.
+    """
+    from duplicate_detector import (
+        scan_duplicates, scan_duplicates_hash, write_csv_report, write_trash_rescue_report,
+    )
 
     paths = args.path if isinstance(args.path, list) else [args.path]
     roots = []
@@ -479,24 +725,35 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
     ).with_suffix(".txt")
 
     workers = max(1, args.workers)
+    scan_mode = getattr(args, "scan_mode", "deep")
     root_label = ", ".join(str(r) for r in roots)
-    log.info("Scanning for duplicates under: %s (workers=%d, match=%s)", root_label, workers, args.match_mode)
-    log.info("This may take a while for large libraries — progress logged every %d files", 100)
-    if len(roots) > 1:
+    if scan_mode == "quick":
+        log.info("Quick scan under: %s — byte-identical match from cached hashes (no fpcalc).", root_label)
+    else:
+        log.info("Scanning for duplicates under: %s (workers=%d, match=%s)", root_label, workers, args.match_mode)
+        log.info("This may take a while for large libraries — progress logged every %d files", 100)
+
+    # ── Checkpoint: only the deep (fpcalc) scan can be interrupted/resumed;
+    # the quick hash scan is instant, so it never touches the checkpoint.
+    ckpt = None if scan_mode == "quick" else _duplicates_checkpoint(roots, args)
+    if scan_mode != "quick" and len(roots) > 1:
         log.info(
             "Selected folders are scanned together as one comparison set so duplicates across different source folders are not missed."
         )
 
     archive = _require_archive("duplicates")
-
     try:
-        result = scan_duplicates(
-            root,
-            max_workers=workers,
-            match_mode=args.match_mode,
-            fuzzy_threshold=args.fuzzy_threshold,
-            archive=archive,
-        )
+        if scan_mode == "quick":
+            result = scan_duplicates_hash(root, archive=archive)
+        else:
+            result = scan_duplicates(
+                root,
+                max_workers=workers,
+                match_mode=args.match_mode,
+                fuzzy_threshold=args.fuzzy_threshold,
+                checkpoint=ckpt,
+                archive=archive,
+            )
     except Exception:
         log.exception("Duplicate scan failed")
         sys.exit(1)
@@ -549,15 +806,82 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
             print(f"FABLEGEAR_REPORT_PATH: {output}", flush=True)
 
 
+def _persist_process_results(all_results, archive) -> int:
+    """
+    Persist tagger analysis (BPM / key) into fg_content and append a
+    tag_tracks row to fg_processing_log.
+
+    This is the producer half of the tagger → deduper Archive edge: what the
+    tagger learns is durable, so downstream tools read it instead of
+    recomputing. Returns the number of fg_content rows written.
+    """
+    if archive is None:
+        return 0
+    entries = []
+    for r in all_results:
+        if r.bpm_detected is None and r.key_detected is None:
+            continue
+        try:
+            size = r.path.stat().st_size
+        except OSError:
+            size = 0
+        entries.append((str(r.path), r.bpm_detected, r.key_detected, size))
+    try:
+        written = archive.bulk_set_analysis(entries)
+        archive.log_operation(
+            "tag_tracks",
+            status="ok",
+            metadata={
+                "files_processed": len(all_results),
+                "analysis_persisted": written,
+                "bpm_written": sum(1 for r in all_results if r.bpm_written),
+                "key_written": sum(1 for r in all_results if r.key_written),
+                "normalized": sum(1 for r in all_results if r.normalised),
+                "enrich_written": sum(1 for r in all_results if r.enrich_written),
+                "errors": sum(1 for r in all_results if not r.ok),
+            },
+        )
+        if written:
+            log.info("Archive updated: BPM/key for %d file(s) persisted to fg_content", written)
+        return written
+    except Exception as exc:
+        log.warning("Failed to persist tagger analysis to archive: %s", exc)
+        return 0
+
+
 def _run_shared_report(args, all_results, root_sections, _quarantine_dir) -> None:
     """
     Build and emit the Tag Tracks / Normalize completion report.
     Called from both the directory-scan and --paths-file retry branches of cmd_process.
     """
 
-    detect_bpm = not args.no_bpm
-    detect_key = not args.no_key
-    normalise = not args.no_normalize and not getattr(args, "dry_run", False)
+    archive = _archive()
+    _persist_process_results(all_results, archive)
+
+    bpm_mode = _resolve_effect_mode(
+        getattr(args, "bpm_mode", None),
+        legacy_off=getattr(args, "no_bpm", False),
+        legacy_force=getattr(args, "force", False) or getattr(args, "force_bpm", False),
+    )
+    key_mode = _resolve_effect_mode(
+        getattr(args, "key_mode", None),
+        legacy_off=getattr(args, "no_key", False),
+        legacy_force=getattr(args, "force", False) or getattr(args, "force_key", False),
+    )
+    normalize_mode = _resolve_effect_mode(
+        getattr(args, "normalize_mode", None),
+        legacy_off=getattr(args, "no_normalize", False),
+        legacy_force=getattr(args, "force_normalize", False),
+    )
+    enrich_mode = _resolve_effect_mode(
+        getattr(args, "enrich_mode", None),
+        legacy_off=not getattr(args, "enrich_tags", False),
+        legacy_force=getattr(args, "force_enrich", False) or getattr(args, "force", False),
+    )
+    detect_bpm = bpm_mode != "off"
+    detect_key = key_mode != "off"
+    normalise = normalize_mode != "off" and not getattr(args, "dry_run", False)
+    enrich_tags = enrich_mode != "off"
 
     total = len(all_results)
     bpm_written = sum(1 for r in all_results if r.bpm_written)
@@ -603,7 +927,7 @@ def _run_shared_report(args, all_results, root_sections, _quarantine_dir) -> Non
     if sources_line:
         report_lines.insert(1, sources_line)
         enrich_written = sum(1 for r in all_results if getattr(r, "enrich_written", False))
-        if getattr(args, "enrich_tags", False) and enrich_written:
+        if enrich_tags and enrich_written:
             report_lines.append(f"  MusicBrainz enriched: {enrich_written} files.")
 
     # ── Error breakdown ──────────────────────────────────────────────────────
@@ -711,13 +1035,13 @@ def cmd_prune(args: argparse.Namespace) -> None:
     # Operate on the device DB when the Pioneer drive is mounted, else local —
     # same selection the interactive prune endpoint uses.
     try:
-        from FableGear.config import DJMT_DB as _DJMT_DB  # noqa: PLC0415
+        from FableGear.config import DEVICE_DB as _DEVICE_DB  # noqa: PLC0415
     except ImportError:
         try:
-            from config import DJMT_DB as _DJMT_DB        # noqa: PLC0415
+            from config import DEVICE_DB as _DEVICE_DB        # noqa: PLC0415
         except Exception:
-            _DJMT_DB = None
-    db_path = _DJMT_DB if (_DJMT_DB and _DJMT_DB.exists()) else LOCAL_DB
+            _DEVICE_DB = None
+    db_path = _DEVICE_DB if (_DEVICE_DB and _DEVICE_DB.exists()) else LOCAL_DB
 
     # Load + rank the report (read-only connection flags DB-referenced files).
     try:
@@ -802,7 +1126,7 @@ def cmd_prune(args: argparse.Namespace) -> None:
 
 
 def _resolve_active_db_path(cli_db_path: str | None = None) -> Path:
-    """Return the DB path to operate on (explicit override > DJMT > LOCAL)."""
+    """Return the DB path to operate on (explicit override > DEVICE > LOCAL)."""
     if cli_db_path:
         candidate = Path(cli_db_path).expanduser()
         if not candidate.exists():
@@ -811,19 +1135,134 @@ def _resolve_active_db_path(cli_db_path: str | None = None) -> Path:
         return candidate
 
     try:
-        from FableGear.config import DJMT_DB as _DJMT_DB  # noqa: PLC0415
+        from FableGear.config import DEVICE_DB as _DEVICE_DB  # noqa: PLC0415
     except ImportError:
         try:
-            from config import DJMT_DB as _DJMT_DB  # noqa: PLC0415
+            from config import DEVICE_DB as _DEVICE_DB  # noqa: PLC0415
         except Exception:
-            _DJMT_DB = None
+            _DEVICE_DB = None
 
-    if _DJMT_DB and _DJMT_DB.exists():
-        return _DJMT_DB
+    if _DEVICE_DB and _DEVICE_DB.exists():
+        return _DEVICE_DB
     if LOCAL_DB is None:
         log.error("No Rekordbox database path available")
         sys.exit(1)
     return LOCAL_DB
+
+
+def cmd_rekordbox_sync(args: argparse.Namespace) -> None:
+    """Run bidirectional synchronization between FableGear and Rekordbox databases."""
+    from config import LOCAL_DB
+    from fablegear_database import FableGearDatabase, RekordboxSyncAdapter
+    
+    db_path = _resolve_active_db_path(getattr(args, "db_path", None))
+    dry_run = getattr(args, "dry_run", True)
+    
+    log.info("Starting bidirectional Rekordbox synchronization using DB: %s", db_path)
+    if dry_run:
+        log.info("Dry-run mode active. No database writes will be executed.")
+        
+    try:
+        fg_db = FableGearDatabase()
+        adapter = RekordboxSyncAdapter(fg_db)
+        stats = adapter.sync_bidirectional(db_path, dry_run=dry_run)
+        
+        log.info("Synchronization complete. Results:")
+        log.info("  Tracks imported to Rekordbox: %d", stats["tracks_imported_to_rekordbox"])
+        log.info("  Tracks imported to FableGear:  %d", stats["tracks_imported_to_fablegear"])
+        log.info("  Tracks updated in Rekordbox:  %d", stats["tracks_updated_in_rekordbox"])
+        log.info("  Tracks updated in FableGear:   %d", stats["tracks_updated_in_fablegear"])
+        log.info("  Cues/loops synchronized:       %d", stats["cues_synchronized"])
+        log.info("  Cues/loops deleted:            %d", stats["cues_deleted"])
+        
+        if stats["errors"]:
+            log.error("Sync encountered errors:")
+            for err in stats["errors"]:
+                log.error("  %s", err)
+            sys.exit(1)
+            
+    except Exception as e:
+        log.exception("Fatal error during database synchronization: %s", e)
+        sys.exit(1)
+
+
+def cmd_export_onelibrary(args: argparse.Namespace) -> None:
+    """Write a Pioneer OneLibrary exportLibrary.db from FableGear's database,
+    plus the device-identity companion files (RBFLTR.DAT, djprofile.nxs)
+    that sit alongside it on a real device tree.
+
+    Read-only against FableGear's own database; never touches Rekordbox or
+    any existing Pioneer file. Refuses to overwrite an existing target.
+    """
+    from fablegear_database import FableGearDatabase
+    from fablegear_database.onelibrary_writer import OneLibraryWriter
+    from fablegear_database.device_identity import write_rbfltr, write_dj_profile
+
+    target = Path(args.target)
+    log.info("Writing OneLibrary export to: %s", target)
+
+    device_name = getattr(args, "device_name", "") or "FableGear"
+    dj_name = getattr(args, "dj_name", "") or "FableGear"
+
+    fg_db = FableGearDatabase()
+    try:
+        result = OneLibraryWriter(fg_db).write(
+            target,
+            include_playlists=not getattr(args, "no_playlists", False),
+            device_name=device_name,
+        )
+    except FileExistsError as exc:
+        log.error(str(exc))
+        sys.exit(1)
+    except Exception:
+        log.exception("OneLibrary export failed")
+        sys.exit(1)
+
+    log.info("Export complete:")
+    log.info("  Tracks written  : %d", result.tracks_written)
+    log.info("  Tracks skipped  : %d", result.tracks_skipped)
+    log.info("  Cues written    : %d", result.cues_written)
+    log.info("  Playlists       : %d", result.playlists_written)
+    log.info("  Playlist entries: %d", result.playlist_entries_written)
+    if result.errors:
+        log.warning("  Errors (%d):", len(result.errors))
+        for err in result.errors[:20]:
+            log.warning("    %s", err)
+        if len(result.errors) > 20:
+            log.warning("    ... and %d more", len(result.errors) - 20)
+
+    if not getattr(args, "no_identity_files", False):
+        # target is expected to be .../PIONEER/rekordbox/exportLibrary.db —
+        # derive the PIONEER/ root two levels up to place the companions
+        # correctly. If the caller pointed target somewhere unconventional,
+        # skip rather than guess at a wrong location.
+        pioneer_root = target.parent.parent
+        if pioneer_root.name == "PIONEER":
+            write_rbfltr(pioneer_root)
+            write_dj_profile(pioneer_root, display_name=dj_name)
+            log.info("  Device identity : RBFLTR.DAT + djprofile.nxs (%s) written", dj_name)
+        else:
+            log.warning(
+                "  Skipped device-identity files — target's grandparent "
+                "directory is %r, not 'PIONEER'. Pass a target like "
+                ".../PIONEER/rekordbox/exportLibrary.db for these to be "
+                "placed automatically, or use --no-identity-files to silence "
+                "this note.", pioneer_root.name,
+            )
+
+    log.warning(
+        "NOTE: none of this has been validated on physical Pioneer hardware. "
+        "Test on a sacrificial USB stick — never a gig stick — and keep a "
+        "Rekordbox-made control stick until trust is earned."
+    )
+    if not getattr(args, "no_anlz_note", False):
+        log.info(
+            "To generate matching ANLZ analysis files, call "
+            "PioneerExporter.export_track_anlz(content_id=<FableGear id>, "
+            "device_content_id=<OneLibrary id>, ...) using the id pairs in "
+            "this run's content_id_map — the two must agree or tracks will "
+            "point at ANLZ folders that were never written."
+        )
 
 
 def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
@@ -1021,6 +1460,18 @@ def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
     _emit_report("\n".join(lines), "Rekordbox Dedupe", f"rekordbox_dedupe_{timestamp}.txt")
 
 
+def _resolve_effect_mode(mode: str | None, *, legacy_off: bool = False, legacy_force: bool = False) -> str:
+    """Resolve per-effect mode with backwards-compatible legacy flags."""
+    val = (mode or "").strip().lower()
+    if val in {"off", "passive", "aggressive"}:
+        return val
+    if legacy_off:
+        return "off"
+    if legacy_force:
+        return "aggressive"
+    return "passive"
+
+
 def cmd_process(args: argparse.Namespace) -> None:
     """
     Detect BPM/key and normalise loudness for audio files under PATH.
@@ -1039,6 +1490,46 @@ def cmd_process(args: argparse.Namespace) -> None:
     import json as _json
 
     paths_file = getattr(args, "paths_file", None)
+    bpm_mode = _resolve_effect_mode(
+        getattr(args, "bpm_mode", None),
+        legacy_off=getattr(args, "no_bpm", False),
+        legacy_force=getattr(args, "force", False) or getattr(args, "force_bpm", False),
+    )
+    key_mode = _resolve_effect_mode(
+        getattr(args, "key_mode", None),
+        legacy_off=getattr(args, "no_key", False),
+        legacy_force=getattr(args, "force", False) or getattr(args, "force_key", False),
+    )
+    normalize_mode = _resolve_effect_mode(
+        getattr(args, "normalize_mode", None),
+        legacy_off=getattr(args, "no_normalize", False),
+        legacy_force=getattr(args, "force_normalize", False),
+    )
+    enrich_mode = _resolve_effect_mode(
+        getattr(args, "enrich_mode", None),
+        legacy_off=not getattr(args, "enrich_tags", False),
+        legacy_force=getattr(args, "force_enrich", False) or getattr(args, "force", False),
+    )
+    rename_mode = _resolve_effect_mode(
+        getattr(args, "rename_mode", None),
+        legacy_off=True if getattr(args, "rename_mode", None) is None else False,
+        legacy_force=False,
+    )
+
+    detect_bpm = bpm_mode != "off"
+    detect_key = key_mode != "off"
+    normalise = normalize_mode != "off" and not args.dry_run
+    force_bpm = bpm_mode == "aggressive"
+    force_key = key_mode == "aggressive"
+    force_normalize = normalize_mode == "aggressive"
+    enrich_tags = enrich_mode != "off"
+    force_enrich = enrich_mode == "aggressive"
+
+    archive = _archive()
+    if archive is None and (detect_bpm or detect_key or normalise or enrich_tags or rename_mode != "off"):
+        log.error("FableGear archive unavailable — refusing Tag Tracks run because writes would be unlogged.")
+        print("[ERROR] FableGear archive unavailable — Tag Tracks requires archive logging for all actions.", flush=True)
+        sys.exit(2)
 
     # ── Specific-file retry mode ────────────────────────────────────────────
     if paths_file:
@@ -1051,24 +1542,48 @@ def cmd_process(args: argparse.Namespace) -> None:
             log.error("--paths-file is empty: %s", pf)
             sys.exit(1)
 
-        detect_bpm = not args.no_bpm
-        detect_key = not args.no_key
-        normalise = not args.no_normalize and not args.dry_run
-
         try:
             from config import QUARANTINE_DIR as _cfg_quarantine
             _quarantine_dir = _cfg_quarantine
         except Exception:
             _quarantine_dir = specific_paths[0].parent / "QUARANTINE"
 
+        # Checkpoint: only when this retry-mode entry is the Smart Skip
+        # pre-filter's own recursion (args._smart_skip_roots is set by that
+        # block just before it calls cmd_process() again) — a genuine
+        # explicit "retry these specific files" call (process-retry route)
+        # never sets this and must always reprocess exactly what it's given.
+        _smart_skip_origin_roots = getattr(args, "_smart_skip_roots", None)
+        ckpt = None
+        ckpt_done_paths: set[str] = set()
+        if _smart_skip_origin_roots:
+            ckpt_roots = [r for r, _count in _smart_skip_origin_roots]
+            ckpt = _get_checkpoint("process", ckpt_roots, args, {
+                "bpm": detect_bpm, "key": detect_key, "normalize": normalise,
+                "enrich": bool(getattr(args, "enrich_tags", False)),
+                "force": bool(getattr(args, "force", False)),
+            })
+            if ckpt is not None:
+                saved = ckpt.load()
+                if saved:
+                    ckpt_done_paths = set(saved.get("done_paths", []))
+                    if ckpt_done_paths:
+                        before = len(specific_paths)
+                        specific_paths = [p for p in specific_paths if str(p) not in ckpt_done_paths]
+                        log.info(
+                            "Resuming: %d/%d files already done per checkpoint, skipping those.",
+                            before - len(specific_paths), before,
+                        )
+
         log.info(
-            "Retry mode: processing %d specific file(s) — BPM:%s KEY:%s NORMALIZE:%s FORCE:%s",
-            len(specific_paths), detect_bpm, detect_key, normalise, args.force,
+            "Retry mode: processing %d specific file(s) — BPM_MODE:%s KEY_MODE:%s NORMALIZE_MODE:%s ENRICH_MODE:%s",
+            len(specific_paths), bpm_mode, key_mode, normalize_mode, enrich_mode,
         )
 
         all_results = []
         total = len(specific_paths)
         done = clean = errors = edited = tags_written = bpm_key_written = quarantined = enriched = 0
+        _ckpt_save_counter = 0
 
         for i, path in enumerate(specific_paths, start=1):
             if not path.exists():
@@ -1079,14 +1594,20 @@ def cmd_process(args: argparse.Namespace) -> None:
                 detect_bpm=detect_bpm,
                 detect_key=detect_key,
                 normalise=normalise,
-                force=True,   # always force in retry mode
-                enrich_tags=getattr(args, "enrich_tags", False),
+                force=False,
+                force_bpm=force_bpm,
+                force_key=force_key,
+                force_normalize=force_normalize,
+                enrich_tags=enrich_tags,
+                force_enrich=force_enrich,
             )
             if r.errors:
                 errors += 1
                 log.info("[%d/%d] %s  ✗ %s", i, total, path.name, "; ".join(r.errors))
             else:
                 log.info("[%d/%d] %s", i, total, path.name)
+                if ckpt is not None:
+                    ckpt_done_paths.add(str(path))
 
             if is_corrupt(r):
                 quarantine_file(r, _quarantine_dir)
@@ -1102,6 +1623,11 @@ def cmd_process(args: argparse.Namespace) -> None:
                 clean += 1
             done += 1
 
+            if ckpt is not None:
+                _ckpt_save_counter += 1
+                if _ckpt_save_counter % 25 == 0:
+                    ckpt.save({"done_paths": sorted(ckpt_done_paths), "completed": len(ckpt_done_paths)})
+
             print(
                 "FABLEGEAR_PROGRESS: " + _json.dumps({
                     "done": done, "total": total, "remaining": total - done,
@@ -1112,6 +1638,10 @@ def cmd_process(args: argparse.Namespace) -> None:
                 flush=True,
             )
             all_results.append(r)
+
+        # Clean completion of the Smart Skip retry pass — clear the checkpoint.
+        if ckpt is not None:
+            ckpt.reset()
 
         # Build root_sections from smart-skip metadata if available,
         # otherwise fall back to a single entry for retry mode.
@@ -1147,8 +1677,7 @@ def cmd_process(args: argparse.Namespace) -> None:
             log.error("PATH is not a directory: %s", root)
             sys.exit(1)
 
-    detect_bpm = not args.no_bpm
-    detect_key = not args.no_key
+    _guard_or_exit(roots, "the track tagger")
 
     # ── Smart-skip pre-filter ───────────────────────────────────────────────
     # When --smart-skip is set, scan each root and collect only files that
@@ -1206,11 +1735,9 @@ def cmd_process(args: argparse.Namespace) -> None:
         except Exception:
             pass
         return
-    normalise = not args.no_normalize and not args.dry_run
-
     log.info(
-        "Processing %d root(s) — BPM:%s KEY:%s NORMALIZE:%s FORCE:%s DRY_RUN:%s",
-        len(roots), detect_bpm, detect_key, normalise, args.force, args.dry_run,
+        "Processing %d root(s) — BPM_MODE:%s KEY_MODE:%s NORMALIZE_MODE:%s ENRICH_MODE:%s RENAME_MODE:%s DRY_RUN:%s",
+        len(roots), bpm_mode, key_mode, normalize_mode, enrich_mode, rename_mode, args.dry_run,
     )
 
     if args.dry_run:
@@ -1233,22 +1760,84 @@ def cmd_process(args: argparse.Namespace) -> None:
     except Exception:
         _quarantine_dir = roots[0].parent / "QUARANTINE"
 
+    # Checkpoint: remember which files were cleanly processed (no errors) so
+    # an interrupted run can resume without redoing BPM/key detection or —
+    # more importantly — re-normalising files that were already normalised.
+    ckpt = _get_checkpoint("process", roots, args, {
+        "bpm": detect_bpm, "key": detect_key, "normalize": normalise,
+        "enrich": bool(args.enrich_tags), "force": bool(args.force),
+    })
+    ckpt_done_paths: set[str] = set()
+    if ckpt is not None:
+        saved = ckpt.load()
+        if saved:
+            ckpt_done_paths = set(saved.get("done_paths", []))
+
+    _ckpt_save_counter = 0
+
+    def _on_result(r) -> None:
+        nonlocal _ckpt_save_counter
+        if ckpt is None:
+            return
+        if r.ok and not r.errors:
+            ckpt_done_paths.add(str(r.path))
+        _ckpt_save_counter += 1
+        if _ckpt_save_counter % 25 == 0:
+            ckpt.save({"done_paths": sorted(ckpt_done_paths), "completed": len(ckpt_done_paths)})
+
     all_results = []
     root_sections: list[tuple[Path, str]] = []
+    rename_summary = {"renamed": 0, "collisions": 0, "quarantined": 0, "errors": 0, "roots": 0}
     for index, root in enumerate(roots, start=1):
         _log_root_step("Process", root, index, len(roots))
         try:
+            already_done = 0
+            if ckpt_done_paths:
+                from scanner import scan_directory  # noqa: PLC0415
+                already_done = len([1 for t in scan_directory(root) if str(t.path) in ckpt_done_paths])
             results = process_directory(
                 root,
                 detect_bpm=detect_bpm,
                 detect_key=detect_key,
                 normalise=normalise,
-                force=args.force,
+                force=False,
+                force_bpm=force_bpm,
+                force_key=force_key,
+                force_normalize=force_normalize,
                 max_workers=max(1, args.workers),
                 quarantine_dir=_quarantine_dir,
                 enrich_tags=args.enrich_tags,
+                skip_paths=ckpt_done_paths or None,
+                on_result=_on_result,
             )
             all_results.extend(results)
+            # Persist this root's analysis immediately — a multi-drive run
+            # interrupted on drive 3 must keep drives 1-2 in the archive.
+            _persist_process_results(results, archive)
+            if rename_mode != "off" and not args.dry_run:
+                from db_connection import write_db  # noqa: PLC0415
+                from renamer import rename_directory  # noqa: PLC0415
+                rename_roots: list[Path]
+                if rename_mode == "aggressive":
+                    rename_roots = [root]
+                else:
+                    touched = {
+                        r.path.parent for r in results
+                        if (r.bpm_written or r.key_written or r.enrich_written or r.normalised) and r.path.exists()
+                    }
+                    rename_roots = sorted(touched)
+                if rename_roots:
+                    with write_db(LOCAL_DB) as db:
+                        root_rename_results = []
+                        for rr in rename_roots:
+                            root_rename_results.extend(
+                                rename_directory(rr, db=db, dry_run=False, max_workers=1, archive=archive)
+                            )
+                    rename_summary["roots"] += len(rename_roots)
+                    rename_summary["renamed"] += sum(1 for r in root_rename_results if r.action == "renamed")
+                    rename_summary["collisions"] += sum(1 for r in root_rename_results if r.action == "collision_numbered")
+                    rename_summary["quarantined"] += sum(1 for r in root_rename_results if r.action == "quarantined")
+                    rename_summary["errors"] += sum(1 for r in root_rename_results if r.action == "error")
             root_total = len(results)
             root_bpm_written = sum(1 for r in results if r.bpm_written)
             root_key_written = sum(1 for r in results if r.key_written)
@@ -1258,6 +1847,8 @@ def cmd_process(args: argparse.Namespace) -> None:
             root_skipped_bpm = sum(1 for r in results if r.skipped_bpm)
             root_skipped_key = sum(1 for r in results if r.skipped_key)
             root_lines = [f"{root_total} files were analyzed."]
+            if already_done:
+                root_lines.append(f"{already_done} already done per checkpoint — skipped.")
             if detect_bpm:
                 root_lines.append(
                     f"BPM written: {root_bpm_written}.{f' {root_skipped_bpm} already had one.' if root_skipped_bpm else ''}"
@@ -1272,10 +1863,16 @@ def cmd_process(args: argparse.Namespace) -> None:
                 root_lines.append(f"{root_quarantined} corrupt files moved to QUARANTINE — see report.")
             if root_errored:
                 root_lines.append(f"{root_errored} files had errors — check the log above.")
+            if rename_mode != "off" and not args.dry_run:
+                root_lines.append(f"Filename cleanup mode: {rename_mode}.")
             root_sections.append((root, "\n".join(root_lines)))
         except Exception:
             log.exception("Processing failed for %s", root)
             sys.exit(1)
+
+    # Clean completion — clear the checkpoint so the next run starts fresh.
+    if ckpt is not None:
+        ckpt.reset()
 
     total = len(all_results)
     bpm_written = sum(1 for r in all_results if r.bpm_written)
@@ -1312,8 +1909,14 @@ def cmd_process(args: argparse.Namespace) -> None:
             f"  Key written: {key_written} files.{f'  {skipped_key} already had one.' if skipped_key else ''}",
         ]
         enrich_written = sum(1 for r in all_results if getattr(r, 'enrich_written', False))
-        if args.enrich_tags and enrich_written:
+        if enrich_tags and enrich_written:
             report_lines.append(f"  MusicBrainz enriched: {enrich_written} files.")
+    if rename_mode != "off" and not args.dry_run:
+        report_lines.append(
+            f"  Filename cleanup ({rename_mode}): {rename_summary['renamed']} renamed, "
+            f"{rename_summary['collisions']} collisions handled, "
+            f"{rename_summary['quarantined']} quarantined, {rename_summary['errors']} errors."
+        )
 
     # ── Error breakdown — shared across all modes ────────────────────────────
     if errored:
@@ -1424,6 +2027,8 @@ def cmd_convert(args: argparse.Namespace) -> None:
             log.error("PATH is not a directory: %s", root)
             sys.exit(1)
 
+    _guard_or_exit(roots, "the converter")
+
     target_format = args.format.lower().lstrip(".")
     if target_format not in ("mp3", "wav", "aif", "aiff", "flac"):
         log.error("Unsupported format: %s", args.format)
@@ -1449,10 +2054,38 @@ def cmd_convert(args: argparse.Namespace) -> None:
         log.warning("No audio files found")
         return
 
+    # ── Checkpoint: resume by path (not index) — directory listing order
+    # isn't guaranteed stable run to run, so a saved index-slice could skip
+    # the wrong files. A completed-paths set is order-independent instead.
+    ckpt = _get_checkpoint("convert", roots, args, {"format": target_format})
+    ckpt_done_paths: set[str] = set()
+    if ckpt is not None:
+        saved = ckpt.load()
+        if saved:
+            ckpt_done_paths = set(saved.get("done_paths", []))
+            if ckpt_done_paths:
+                log.info(
+                    "Resuming: %d/%d files already converted, skipping those.",
+                    len(ckpt_done_paths), total,
+                )
+
+    def _save_ckpt_now() -> None:
+        if ckpt is not None:
+            ckpt.save({"done_paths": sorted(ckpt_done_paths), "completed": len(ckpt_done_paths), "total": total})
+
     done = 0
-    success_count = 0
-    error_count = 0
+    converted_count = 0   # files actually converted   → footer "edited"
+    skipped_count = 0     # nothing to do (already the target, or target exists) → footer "clean"
+    error_count = 0       # genuine failures — corrupt or DRM-protected inputs
     root_sections: list[tuple[Path, str]] = []
+
+    def _classify(ok: bool, msg: str) -> str:
+        """Bucket a per-file result: 'converted' (file changed), 'skipped'
+        (already the target format, or an MP3 already exists — nothing to do and
+        nothing lost), or 'error' (a real decode/convert failure)."""
+        if ok:
+            return "skipped" if msg.startswith("Already") else "converted"
+        return "skipped" if msg.lower().endswith("already exists") else "error"
 
     def _emit_progress() -> None:
         print(
@@ -1460,23 +2093,64 @@ def cmd_convert(args: argparse.Namespace) -> None:
                 "done":      done,
                 "total":     total,
                 "remaining": total - done,
-                "converted": success_count,
+                "edited":    converted_count,   # live-counts converted files in the footer
+                "clean":     skipped_count,     # live-counts skipped files in the footer
                 "errors":    error_count,
+                "converted": converted_count,   # kept for the report / back-compat
+                "skipped":   skipped_count,
             }),
             flush=True,
         )
 
     def _convert_one(track) -> tuple[bool, str, str]:
         ok, msg = _convert_file(track.path, target_format)
+        _journal_convert(track.path, ok, msg)
         return ok, msg, track.path.name
+
+    _fg_archive = _archive()
+    _target_ext = ".aiff" if target_format == "aiff" else f".{target_format}"
+
+    def _journal_convert(src_path: Path, ok: bool, msg: str) -> None:
+        """Journal each conversion the moment it lands — the original file is
+        replaced, so an interrupted run must still know what was converted."""
+        if _fg_archive is None or not ok or msg.startswith("Already"):
+            return
+        dest = src_path.with_suffix(_target_ext)
+        try:
+            rec = _fg_archive.get_content_by_path(str(src_path))
+            if rec and rec.id is not None:
+                # Rekordbox-style relocate + refresh: keep the row (tags/cues/
+                # playlists/id) but repoint it at the new file and refresh
+                # file_size/file_hash + clear the now-stale acoustic fingerprint.
+                _fg_archive.relink_converted(rec.id, str(dest))
+            _fg_archive.log_operation(
+                "convert", str(dest), status="ok",
+                metadata={"from": str(src_path), "format": target_format},
+            )
+        except Exception as exc:
+            log.warning("Archive update failed for convert %s: %s", src_path, exc)
 
     _emit_progress()
 
     for root_index, (root, tracks) in enumerate(tracks_by_root, start=1):
         _log_root_step("Convert", root, root_index, len(tracks_by_root))
-        root_success = 0
+        root_converted = 0
+        root_skipped = 0
         root_errors = 0
         root_total = len(tracks)
+
+        # Checkpoint resume: files already recorded as done in a previous run
+        # are skipped outright — no restat, no ffmpeg invocation — rather than
+        # re-scanned and re-classified as "already converted" every time.
+        already_done = [t for t in tracks if str(t.path) in ckpt_done_paths]
+        to_process = [t for t in tracks if str(t.path) not in ckpt_done_paths]
+        if already_done:
+            done += len(already_done)
+            skipped_count += len(already_done)
+            root_skipped += len(already_done)
+            log.info("%d file(s) already converted per checkpoint — skipped.", len(already_done))
+            _emit_progress()
+        tracks = to_process
 
         if max_workers > 1:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -1487,48 +2161,95 @@ def cmd_convert(args: argparse.Namespace) -> None:
                     except Exception as exc:
                         ok, msg, name = False, str(exc), futures[future].path.name
                     done += 1
-                    if ok:
-                        success_count += 1
-                        root_success += 1
+                    kind = _classify(ok, msg)
+                    if kind == "converted":
+                        converted_count += 1
+                        root_converted += 1
+                        ckpt_done_paths.add(str(futures[future].path))
                         log.info("✓ %s: %s", name, msg)
+                    elif kind == "skipped":
+                        skipped_count += 1
+                        root_skipped += 1
+                        ckpt_done_paths.add(str(futures[future].path))
+                        log.info("• %s: %s", name, msg)
                     else:
                         error_count += 1
                         root_errors += 1
                         log.error("✗ %s: %s", name, msg)
+                    if done % 25 == 0:
+                        _save_ckpt_now()
                     _emit_progress()
         else:
             for track_index, track in enumerate(tracks, start=1):
                 log.info("[%d/%d] Converting %s", track_index, root_total, track.path.name)
                 ok, msg = _convert_file(track.path, target_format)
+                _journal_convert(track.path, ok, msg)
                 done += 1
-                if ok:
-                    success_count += 1
-                    root_success += 1
+                kind = _classify(ok, msg)
+                if kind == "converted":
+                    converted_count += 1
+                    root_converted += 1
+                    ckpt_done_paths.add(str(track.path))
                     log.info("✓ %s: %s", track.path.name, msg)
+                elif kind == "skipped":
+                    skipped_count += 1
+                    root_skipped += 1
+                    ckpt_done_paths.add(str(track.path))
+                    log.info("• %s: %s", track.path.name, msg)
                 else:
                     error_count += 1
                     root_errors += 1
                     log.error("✗ %s: %s", track.path.name, msg)
+                if done % 25 == 0:
+                    _save_ckpt_now()
                 _emit_progress()
 
-        root_lines = [f"{root_success} of {root_total} files were converted to {target_format.upper()}."]
+        root_lines = [f"{root_converted} of {root_total} files converted to {target_format.upper()}."]
+        if root_skipped:
+            root_lines.append(f"{root_skipped} skipped (already {target_format.upper()} or already present).")
         if root_errors:
-            root_lines.append(f"{root_errors} files had errors — check the log above.")
+            root_lines.append(f"{root_errors} could not be converted (corrupt or DRM-protected input).")
         else:
             root_lines.append("No errors.")
         root_sections.append((root, "\n".join(root_lines)))
 
+    # Clean completion (every root's file list fully processed) — clear the
+    # checkpoint so the next run starts fresh rather than finding a stale
+    # "resume" state for what is, from here on, a finished job.
+    if ckpt is not None:
+        ckpt.reset()
+
+    if _fg_archive is not None and converted_count:
+        try:
+            _fg_archive.log_operation(
+                "convert_batch",
+                metadata={
+                    "roots": [str(r) for r in roots],
+                    "format": target_format,
+                    "converted": converted_count,
+                    "skipped": skipped_count,
+                    "errors": error_count,
+                },
+            )
+        except Exception as exc:
+            log.warning("Archive batch log failed for convert: %s", exc)
+
     fmt_upper = target_format.upper()
-    lines = ["Done converting.", "", f"{success_count} of {total} files were converted to {fmt_upper}."]
+    lines = ["Done converting.", "", f"{converted_count} of {total} files converted to {fmt_upper}."]
+    if skipped_count:
+        lines.append(f"{skipped_count} skipped — already {fmt_upper}, or an {fmt_upper} already exists (nothing lost).")
     if error_count:
-        lines.append(f"{error_count} files had errors — check the log above.")
+        lines.append(
+            f"{error_count} could not be converted — corrupt files or DRM-protected inputs "
+            "(e.g. iTunes .m4p, protected .wma). These are bad inputs, not a FableGear failure."
+        )
     else:
         lines.append("No errors.")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     _emit_report(_append_root_breakdown("\n".join(lines), root_sections), "Convert", f"convert_{timestamp}.txt")
 
     if error_count > 0:
-        log.warning("%d files had errors — check log above", error_count)
+        log.warning("%d files could not be converted (corrupt or DRM-protected)", error_count)
 
 
 def cmd_organize(args: argparse.Namespace) -> None:
@@ -1565,6 +2286,8 @@ def cmd_organize(args: argparse.Namespace) -> None:
     if dry_run:
         log.info("DRY RUN — no files will be touched. Pass --no-dry-run to execute.")
 
+    # Live runs must not proceed un-journaled — see _require_archive. Dry runs
+    # touch nothing, so a missing archive is just a soft warning there.
     archive = _archive() if dry_run else _require_archive("organize")
 
     # Past-participle forms used in both dry-run plans and live reports.
@@ -1576,18 +2299,51 @@ def cmd_organize(args: argparse.Namespace) -> None:
         [str(s) for s in sources], target, mode, dry_run, max_workers, threshold / 60,
     )
 
+    # Checkpoint: only for live runs — a dry run touches nothing, so there's
+    # nothing to resume and re-running it in full is cheap and expected.
+    ckpt = None
+    ckpt_done_paths: set[str] = set()
+    if not dry_run:
+        ckpt = _get_checkpoint("organize", sources, args, {
+            "target": str(target), "mode": mode,
+        })
+        if ckpt is not None:
+            saved = ckpt.load()
+            if saved:
+                ckpt_done_paths = set(saved.get("done_paths", []))
+
+    _ckpt_save_counter = 0
+
+    def _on_organize_result(r) -> None:
+        nonlocal _ckpt_save_counter
+        if ckpt is None:
+            return
+        if r.action in ("moved", "conflict_renamed", "skipped"):
+            ckpt_done_paths.add(str(r.src))
+        _ckpt_save_counter += 1
+        if _ckpt_save_counter % 25 == 0:
+            ckpt.save({"done_paths": sorted(ckpt_done_paths), "completed": len(ckpt_done_paths)})
+
     results = []
     root_sections: list[tuple[Path, str]] = []
     for index, source in enumerate(sources, start=1):
         _log_root_step("Organize", source, index, len(sources))
-        root_results = organize_library(
-            [source], target,
-            mode=mode,
-            dry_run=dry_run,
-            max_workers=max_workers,
-            mix_threshold_sec=threshold,
-            archive=archive,
-        )
+        try:
+            root_results = organize_library(
+                [source], target,
+                mode=mode,
+                dry_run=dry_run,
+                max_workers=max_workers,
+                mix_threshold_sec=threshold,
+                archive=archive,
+                skip_paths=ckpt_done_paths or None,
+                on_result=_on_organize_result,
+            )
+        except ValueError as exc:
+            # Source guardrail tripped (system root / home folder / app data).
+            log.error("%s", exc)
+            print(f"[ERROR] {exc}", flush=True)
+            sys.exit(2)
         results.extend(root_results)
 
         root_moved = sum(1 for r in root_results if r.action in ("moved", "dry_run", "conflict_renamed"))
@@ -1608,6 +2364,10 @@ def cmd_organize(args: argparse.Namespace) -> None:
         if root_errors:
             root_lines.append(f"{root_errors} files had errors — check the log above.")
         root_sections.append((source, "\n".join(root_lines)))
+
+    # Clean completion — clear the checkpoint so the next run starts fresh.
+    if ckpt is not None:
+        ckpt.reset()
 
     moved     = sum(1 for r in results if r.action in ("moved", "dry_run", "conflict_renamed"))
     skipped   = sum(1 for r in results if r.action == "skipped")
@@ -1675,6 +2435,8 @@ def cmd_novelty(args: argparse.Namespace) -> None:
     extra   = [Path(p) for p in (getattr(args, "also_scan", None) or [])]
     sources = [primary] + extra
     dest    = Path(args.dest)
+    copy_to_arg = getattr(args, "copy_to", None)
+    copy_to = Path(copy_to_arg) if copy_to_arg else None
     dry_run = not args.no_dry_run
     match_mode = getattr(args, "match_mode", "fingerprint")
 
@@ -1688,17 +2450,26 @@ def cmd_novelty(args: argparse.Namespace) -> None:
         except OSError as e:
             log.error("Cannot create destination %s: %s", dest, e)
             sys.exit(1)
+    if copy_to is not None and not copy_to.is_dir():
+        try:
+            copy_to.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            log.error("Cannot create copy-to folder %s: %s", copy_to, e)
+            sys.exit(1)
 
     max_workers = max(1, getattr(args, "workers", 1))
 
     if dry_run:
         log.info("DRY RUN — no files will be copied. Pass --no-dry-run to execute.")
 
+    # Live runs must not proceed un-journaled — see _require_archive. Dry runs
+    # touch nothing, so a missing archive is just a soft warning there.
     archive = _archive() if dry_run else _require_archive("novelty")
 
     log.info(
-        "Novel scan  sources=%s  dest=%s  dry_run=%s  workers=%d  match_mode=%s",
-        [str(s) for s in sources], dest, dry_run, max_workers, match_mode,
+        "Novel scan  sources=%s  compare_against=%s  copy_to=%s  dry_run=%s  "
+        "workers=%d  match_mode=%s",
+        [str(s) for s in sources], dest, copy_to or dest, dry_run, max_workers, match_mode,
     )
 
     total_src = 0
@@ -1708,15 +2479,44 @@ def cmd_novelty(args: argparse.Namespace) -> None:
     aggregate_errors = []
     root_sections: list[tuple[Path, str]] = []
     verb = "would be copied" if dry_run else "copied"
+    copy_target_label = str(copy_to) if copy_to is not None else str(dest)
+
+    # Checkpoint: only for live runs — a dry run touches nothing, so there's
+    # nothing to resume and re-running it in full is cheap and expected.
+    ckpt = None
+    ckpt_done_paths: set[str] = set()
+    if not dry_run:
+        ckpt = _get_checkpoint("novelty", sources, args, {
+            "dest": str(dest), "copy_to": str(copy_to) if copy_to else "", "match_mode": match_mode,
+        })
+        if ckpt is not None:
+            saved = ckpt.load()
+            if saved:
+                ckpt_done_paths = set(saved.get("done_paths", []))
+
+    _ckpt_save_counter = 0
+
+    def _on_novelty_result(r) -> None:
+        nonlocal _ckpt_save_counter
+        if ckpt is None:
+            return
+        if r.action in ("copied", "dry_run", "skipped"):
+            ckpt_done_paths.add(str(r.path))
+        _ckpt_save_counter += 1
+        if _ckpt_save_counter % 25 == 0:
+            ckpt.save({"done_paths": sorted(ckpt_done_paths), "completed": len(ckpt_done_paths)})
 
     for index, source in enumerate(sources, start=1):
         _log_root_step("Novelty", source, index, len(sources))
         root_result = scan_novel(
             [source], dest,
+            copy_to=copy_to,
             dry_run=dry_run,
             max_workers=max_workers,
             match_mode=match_mode,
             archive=archive,
+            skip_paths=ckpt_done_paths or None,
+            on_result=_on_novelty_result,
         )
         total_src += root_result.total_src
         dest_index_size = max(dest_index_size, root_result.dest_index_size)
@@ -1729,15 +2529,19 @@ def cmd_novelty(args: argparse.Namespace) -> None:
         root_errors = len(root_result.errors)
         root_lines = [
             f"{root_result.total_src} tracks scanned on source.",
-            f"Destination index: {root_result.dest_index_size} tracks.",
+            f"Compared against: {root_result.dest_index_size} tracks in {dest}.",
         ]
         if root_novel:
-            root_lines.append(f"{root_novel} novel tracks {verb} to destination.")
+            root_lines.append(f"{root_novel} novel tracks {verb} to {copy_target_label}.")
         if root_present:
             root_lines.append(f"{root_present} tracks confirmed already present — skipped.")
         if root_errors:
             root_lines.append(f"{root_errors} errors — check log above.")
         root_sections.append((source, "\n".join(root_lines)))
+
+    # Clean completion — clear the checkpoint so the next run starts fresh.
+    if ckpt is not None:
+        ckpt.reset()
 
     class _AggregateNoveltyResult:
         pass
@@ -1759,12 +2563,12 @@ def cmd_novelty(args: argparse.Namespace) -> None:
         "Novel Track Scan complete.",
         "",
         f"{result.total_src} tracks scanned on source.",
-        f"Destination index: {result.dest_index_size} tracks.",
+        f"Compared against: {result.dest_index_size} tracks in {dest}.",
         f"Comparison mode: {match_mode}.",
         "",
     ]
     if novel:
-        lines.append(f"  {novel} novel tracks {verb} to destination.")
+        lines.append(f"  {novel} novel tracks {verb} to {copy_target_label}.")
     if present:
         lines.append(f"  {present} tracks confirmed already present — skipped.")
     if errors:
@@ -1805,6 +2609,29 @@ def cmd_rename(args: argparse.Namespace) -> None:
         [str(r) for r in roots], dry_run, max_workers,
     )
 
+    # Checkpoint: only for live runs — a dry run touches nothing, so there's
+    # nothing to resume and re-running it in full is cheap and expected.
+    ckpt = None
+    ckpt_done_paths: set[str] = set()
+    if not dry_run:
+        ckpt = _get_checkpoint("rename", roots, args, {})
+        if ckpt is not None:
+            saved = ckpt.load()
+            if saved:
+                ckpt_done_paths = set(saved.get("done_paths", []))
+
+    _ckpt_save_counter = 0
+
+    def _on_rename_result(r) -> None:
+        nonlocal _ckpt_save_counter
+        if ckpt is None:
+            return
+        if r.action in ("renamed", "no_change", "collision_numbered", "quarantined"):
+            ckpt_done_paths.add(str(r.original_path))
+        _ckpt_save_counter += 1
+        if _ckpt_save_counter % 25 == 0:
+            ckpt.save({"done_paths": sorted(ckpt_done_paths), "completed": len(ckpt_done_paths)})
+
     results = []
     root_sections: list[tuple[Path, str]] = []
 
@@ -1812,7 +2639,10 @@ def cmd_rename(args: argparse.Namespace) -> None:
         if dry_run:
             for index, root in enumerate(roots, start=1):
                 _log_root_step("Rename", root, index, len(roots))
-                root_results = rename_directory(root, db=None, dry_run=True, max_workers=max_workers)
+                root_results = rename_directory(
+                    root, db=None, dry_run=True, max_workers=max_workers, archive=_archive(),
+                    skip_paths=ckpt_done_paths or None, on_result=_on_rename_result,
+                )
                 results.extend(root_results)
                 root_renamed = sum(1 for r in root_results if r.action == "renamed")
                 root_skipped = sum(1 for r in root_results if r.action == "no_change")
@@ -1836,7 +2666,10 @@ def cmd_rename(args: argparse.Namespace) -> None:
             with write_db(LOCAL_DB) as db:
                 for index, root in enumerate(roots, start=1):
                     _log_root_step("Rename", root, index, len(roots))
-                    root_results = rename_directory(root, db=db, dry_run=False, max_workers=max_workers, archive=archive)
+                    root_results = rename_directory(
+                        root, db=db, dry_run=False, max_workers=max_workers, archive=archive,
+                        skip_paths=ckpt_done_paths or None, on_result=_on_rename_result,
+                    )
                     results.extend(root_results)
                     root_renamed = sum(1 for r in root_results if r.action == "renamed")
                     root_skipped = sum(1 for r in root_results if r.action == "no_change")
@@ -1858,6 +2691,10 @@ def cmd_rename(args: argparse.Namespace) -> None:
     except Exception:
         log.exception("Rename failed")
         sys.exit(1)
+
+    # Clean completion — clear the checkpoint so the next run starts fresh.
+    if ckpt is not None:
+        ckpt.reset()
 
     total = len(results)
     renamed = sum(1 for r in results if r.action == "renamed")
@@ -1943,8 +2780,36 @@ Examples:
         "usb-inspect",
         help="Read-only check of a Pioneer export drive (DeviceSQL + OneLibrary)",
     )
-    p_usb.add_argument("mount", help="Mount point of the drive, e.g. /Volumes/GIGSTICK")
+    p_usb.add_argument("mount", help="Mount point of the drive, e.g. /Volumes/DJ_USB")
     p_usb.set_defaults(func=cmd_usb_inspect)
+
+    p_anlz = sub.add_parser(
+        "anlz-read",
+        help="Read-only deep parse of one track's ANLZ set (.DAT/.EXT/.2EX)",
+    )
+    p_anlz.add_argument("path", help="Per-track ANLZ directory (contains ANLZ0000.DAT)")
+    p_anlz.set_defaults(func=cmd_anlz_read)
+
+    p_settings = sub.add_parser(
+        "pioneer-settings",
+        help="Read-only parse of Pioneer/rekordbox player & mixer settings files",
+    )
+    p_settings.add_argument("path", help="A settings file, or a PIONEER/ directory to scan")
+    p_settings.set_defaults(func=cmd_pioneer_settings)
+
+    p_pdb = sub.add_parser(
+        "pdb-read",
+        help="Read-only header validation of a DeviceSQL export.pdb / exportExt.pdb",
+    )
+    p_pdb.add_argument("path", help="Path to export.pdb or exportExt.pdb")
+    p_pdb.set_defaults(func=cmd_pdb_read)
+
+    p_export_audit = sub.add_parser(
+        "export-audit",
+        help="Read-only Phase B deep audit of a mounted Pioneer export tree (writes to the FableGear archive)",
+    )
+    p_export_audit.add_argument("mount", help="Mount point of the drive, e.g. /Volumes/DJ_USB")
+    p_export_audit.set_defaults(func=cmd_export_audit)
 
     p_audit = sub.add_parser("audit", help="Read-only library health check")
     p_audit.add_argument(
@@ -2011,6 +2876,12 @@ Examples:
         help="Previous path prefix stored in the DB (does not need to exist on disk)",
     )
     p_relocate.add_argument("new_root", metavar="NEW_ROOT", help="New path where files now live")
+    p_relocate.add_argument(
+        "--include-existing",
+        action="store_true",
+        help="Also repoint rows whose file still exists at the old path "
+             "(mid-migration only; by default healthy tracks are never touched)",
+    )
     p_relocate.set_defaults(func=cmd_relocate)
 
     # ── duplicates ──
@@ -2053,6 +2924,22 @@ Examples:
         dest="fuzzy_threshold",
         help="Similarity threshold for fuzzy fingerprint matching (0.0–1.0, default: 0.85)",
     )
+    p_dupes.add_argument(
+        "--checkpoint-action",
+        choices=["resume", "reset"],
+        default="resume",
+        dest="checkpoint_action",
+        help="resume (default): continue an interrupted scan from its checkpoint. "
+             "reset: discard the checkpoint and fingerprint from the beginning.",
+    )
+    p_dupes.add_argument(
+        "--scan-mode",
+        choices=["quick", "deep"],
+        default="deep",
+        dest="scan_mode",
+        help="quick = instant byte-identical match from cached DB hashes (no fpcalc); "
+             "deep (default) = acoustic Chromaprint fingerprinting (catches re-encodes / different formats).",
+    )
     p_dupes.set_defaults(func=cmd_duplicates)
 
     # ── rekordbox-dedupe ──
@@ -2063,7 +2950,7 @@ Examples:
     p_rb_dupes.add_argument(
         "--db-path",
         metavar="PATH",
-        help="Explicit Rekordbox DB path (default: DJMT_DB when mounted, else LOCAL_DB)",
+        help="Explicit Rekordbox DB path (default: DEVICE_DB when mounted, else LOCAL_DB)",
     )
     p_rb_dupes.add_argument(
         "--output", "-o",
@@ -2108,6 +2995,57 @@ Examples:
     )
     p_rb_dupes.set_defaults(func=cmd_rekordbox_dedupe, dry_run=True, permanent=False)
 
+    # ── rekordbox-sync ──
+    p_rb_sync = sub.add_parser(
+        "rekordbox-sync",
+        help="Run bidirectional synchronization between FableGear and Rekordbox databases",
+    )
+    p_rb_sync.add_argument(
+        "--db-path",
+        metavar="PATH",
+        help="Explicit Rekordbox DB path (default: LOCAL_DB)",
+    )
+    p_rb_sync.add_argument(
+        "--no-dry-run",
+        dest="dry_run",
+        action="store_false",
+        help="Actually apply synchronization changes to the databases",
+    )
+    p_rb_sync.set_defaults(func=cmd_rekordbox_sync, dry_run=True)
+
+    # ── export-onelibrary ──
+    p_onelib = sub.add_parser(
+        "export-onelibrary",
+        help="Write a Pioneer OneLibrary exportLibrary.db from FableGear's database "
+             "(CDJ-3000/OMNIS-DUO/XDJ-AZ/OPUS-QUAD format; hardware-unvalidated)",
+    )
+    p_onelib.add_argument(
+        "target",
+        metavar="TARGET",
+        help="Destination path for exportLibrary.db (must not already exist)",
+    )
+    p_onelib.add_argument(
+        "--no-playlists",
+        action="store_true",
+        help="Skip exporting playlists/folders",
+    )
+    p_onelib.add_argument(
+        "--device-name",
+        default="",
+        help="Device name to record in the property table (default: FableGear)",
+    )
+    p_onelib.add_argument(
+        "--dj-name",
+        default="",
+        help="DJ profile display name for djprofile.nxs (default: FableGear)",
+    )
+    p_onelib.add_argument(
+        "--no-identity-files",
+        action="store_true",
+        help="Skip writing RBFLTR.DAT and djprofile.nxs alongside exportLibrary.db",
+    )
+    p_onelib.set_defaults(func=cmd_export_onelibrary)
+
     # ── prune ──
     p_prune = sub.add_parser(
         "prune",
@@ -2141,6 +3079,18 @@ Examples:
         "--force",
         action="store_true",
         help="Overwrite existing BPM/key tags",
+    )
+    p_process.add_argument(
+        "--force-bpm",
+        action="store_true",
+        dest="force_bpm",
+        help="Re-detect and overwrite BPM even if a BPM tag already exists",
+    )
+    p_process.add_argument(
+        "--force-key",
+        action="store_true",
+        dest="force_key",
+        help="Re-detect and overwrite key even if a key tag already exists",
     )
     p_process.add_argument(
         "--no-bpm",
@@ -2186,6 +3136,46 @@ Examples:
         help="Enrich metadata from AcoustID/MusicBrainz after BPM/key detection (requires ACOUSTID_API_KEY in config)",
     )
     p_process.add_argument(
+        "--bpm-mode",
+        choices=["off", "passive", "aggressive"],
+        default=None,
+        help="off: skip BPM, passive: fill missing BPM, aggressive: overwrite BPM",
+    )
+    p_process.add_argument(
+        "--key-mode",
+        choices=["off", "passive", "aggressive"],
+        default=None,
+        help="off: skip key, passive: fill missing key, aggressive: overwrite key",
+    )
+    p_process.add_argument(
+        "--normalize-mode",
+        choices=["off", "passive", "aggressive"],
+        default=None,
+        help="off: skip normalization, passive: normalize out-of-range files, aggressive: force normalization",
+    )
+    p_process.add_argument(
+        "--enrich-mode",
+        choices=["off", "passive", "aggressive"],
+        default=None,
+        help="off: skip enrichment, passive: fill missing title/artist/album, aggressive: overwrite those fields",
+    )
+    p_process.add_argument(
+        "--rename-mode",
+        choices=["off", "passive", "aggressive"],
+        default="off",
+        help="off: skip filename cleanup, passive: rename touched files, aggressive: rename all scanned files",
+    )
+    p_process.add_argument(
+        "--force-normalize",
+        action="store_true",
+        help="Legacy override: force loudness rewrite even when already in tolerance",
+    )
+    p_process.add_argument(
+        "--force-enrich",
+        action="store_true",
+        help="Legacy override: overwrite enriched title/artist/album values",
+    )
+    p_process.add_argument(
         "--paths-file",
         metavar="FILE",
         dest="paths_file",
@@ -2197,6 +3187,14 @@ Examples:
         action="store_true",
         dest="smart_skip",
         help="Before processing, filter out files that already have all requested tags. Faster re-runs when most files are already complete.",
+    )
+    p_process.add_argument(
+        "--checkpoint-action",
+        choices=["resume", "reset"],
+        default="resume",
+        dest="checkpoint_action",
+        help="resume (default): continue an interrupted run from its checkpoint. "
+             "reset: discard the checkpoint and start from the beginning.",
     )
     p_process.set_defaults(func=cmd_process)
 
@@ -2224,6 +3222,14 @@ Examples:
         type=int,
         default=1,
         help="Parallel ffmpeg workers for conversion (default: 1)",
+    )
+    p_convert.add_argument(
+        "--checkpoint-action",
+        choices=["resume", "reset"],
+        default="resume",
+        dest="checkpoint_action",
+        help="resume (default): continue an interrupted conversion from its checkpoint. "
+             "reset: discard the checkpoint and start from the beginning.",
     )
     p_convert.set_defaults(func=cmd_convert)
 
@@ -2279,6 +3285,14 @@ Examples:
             "integrate: copy files to target only — source drive is never modified."
         ),
     )
+    p_organize.add_argument(
+        "--checkpoint-action",
+        choices=["resume", "reset"],
+        default="resume",
+        dest="checkpoint_action",
+        help="resume (default): continue an interrupted organize run from its checkpoint. "
+             "reset: discard the checkpoint and start from the beginning.",
+    )
     p_organize.set_defaults(func=cmd_organize)
 
     # ── novelty ───────────────────────────────────────────────────────────────
@@ -2294,7 +3308,17 @@ Examples:
     p_novelty.add_argument(
         "dest",
         metavar="DEST",
-        help="Home library root to copy novel tracks into",
+        help="Home library root to compare source tracks against",
+    )
+    p_novelty.add_argument(
+        "--copy-to",
+        metavar="PATH",
+        dest="copy_to",
+        default=None,
+        help="Where confirmed-novel tracks are copied. Defaults to DEST "
+             "(the old single-folder behavior) when omitted — pass this to "
+             "keep new finds segregated in their own folder while still "
+             "comparing against the real home library.",
     )
     p_novelty.add_argument(
         "--no-dry-run",
@@ -2322,6 +3346,14 @@ Examples:
         choices=["fingerprint", "filename"],
         default="fingerprint",
         help="fingerprint: metadata pre-filter + fingerprint confirmation (default). filename: match by normalized filename only (faster, less strict).",
+    )
+    p_novelty.add_argument(
+        "--checkpoint-action",
+        choices=["resume", "reset"],
+        default="resume",
+        dest="checkpoint_action",
+        help="resume (default): continue an interrupted novelty scan from its checkpoint. "
+             "reset: discard the checkpoint and start from the beginning.",
     )
     p_novelty.set_defaults(func=cmd_novelty)
 
@@ -2356,6 +3388,14 @@ Examples:
         default=1,
         help="Parallel workers (default: 1)",
     )
+    p_rename.add_argument(
+        "--checkpoint-action",
+        choices=["resume", "reset"],
+        default="resume",
+        dest="checkpoint_action",
+        help="resume (default): continue an interrupted rename run from its checkpoint. "
+             "reset: discard the checkpoint and start from the beginning.",
+    )
     p_rename.set_defaults(func=cmd_rename)
 
     # ── dead-files ──
@@ -2389,10 +3429,15 @@ Examples:
     return parser
 
 
+def build_parser() -> argparse.ArgumentParser:
+    """Public parser factory for testing and programmatic access."""
+    return _build_parser()
+
+
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = _build_parser()
+    parser = build_parser()
     args = parser.parse_args()
     _setup_logging(args.verbose)
 

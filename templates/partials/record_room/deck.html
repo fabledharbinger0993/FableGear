@@ -46,42 +46,72 @@
     </div>
 
     <div class="deck-half-bottom">
-      <div class="deck-ctrl-group">
-        <div class="deck-ctrl-header">
-          <span class="deck-ctrl-label">TEMPO</span>
-          <span class="deck-ctrl-pct" id="deck-a-tempo-pct">0.0%</span>
+      <div class="deck-ctrl-row">
+        <div class="deck-ctrl-group">
+          <div class="deck-ctrl-header">
+            <span class="deck-ctrl-label">TEMPO</span>
+            <span class="deck-ctrl-pct" id="deck-a-tempo-pct">0.0%</span>
+          </div>
+          <div class="deck-bpm-row">
+            <span class="deck-meta-dot bpm"></span>
+            <input type="text" class="deck-bpm-input" id="deck-a-bpm-input"
+                   value="—" title="Type a target BPM" autocomplete="off" inputmode="decimal">
+            <span class="deck-bpm-unit">BPM</span>
+          </div>
+          <input type="range" class="deck-range deck-tempo-range" id="deck-a-tempo-slider"
+                 min="-8" max="8" step="0.1" value="0">
         </div>
-        <div class="deck-bpm-row">
-          <span class="deck-meta-dot bpm"></span>
-          <input type="text" class="deck-bpm-input" id="deck-a-bpm-input"
-                 value="—" title="Type a target BPM" autocomplete="off" inputmode="decimal">
-          <span class="deck-bpm-unit">BPM</span>
+
+        <div class="deck-ctrl-group">
+          <div class="deck-ctrl-header">
+            <span class="deck-ctrl-label">PITCH</span>
+            <button type="button" class="deck-keylock-btn deck-keylock-on" id="deck-a-keylock-btn"
+                    title="Key Lock">
+              <span class="deck-keylock-ico">&#x1F512;</span> KEY LOCK
+            </button>
+          </div>
+          <div class="deck-pitch-row">
+            <button type="button" class="deck-pitch-step" id="deck-a-pitch-down">-</button>
+            <input type="text" class="deck-key-input" id="deck-a-key-input" value="—" readonly>
+            <span class="deck-semitone-val" id="deck-a-semitone-val">0 st</span>
+            <button type="button" class="deck-pitch-step" id="deck-a-pitch-up">+</button>
+          </div>
+          <input type="range" class="deck-range deck-pitch-range" id="deck-a-pitch-slider"
+                 min="-6" max="6" step="1" value="0">
         </div>
-        <input type="range" class="deck-range deck-tempo-range" id="deck-a-tempo-slider"
-               min="-8" max="8" step="0.1" value="0">
+
+        <div class="deck-meta-row">
+          <span class="deck-meta-tag"><span class="deck-meta-dot key"></span> <span id="deck-a-orig-key">—</span></span>
+          <span class="deck-meta-tag"><span class="deck-meta-dot dur"></span> <span id="deck-a-dur">—</span></span>
+        </div>
       </div>
 
-      <div class="deck-ctrl-group">
-        <div class="deck-ctrl-header">
-          <span class="deck-ctrl-label">PITCH</span>
-          <button type="button" class="deck-keylock-btn deck-keylock-on" id="deck-a-keylock-btn"
-                  title="Key Lock">
-            <span class="deck-keylock-ico">&#x1F512;</span> KEY LOCK
-          </button>
+      <div class="deck-ctrl-row">
+        <div class="deck-ctrl-group deck-ctrl-group-hotcue">
+          <div class="deck-ctrl-header">
+            <span class="deck-ctrl-label">HOT CUES</span>
+          </div>
+          <div class="deck-hotcue-row" id="deck-a-hotcue-row">
+            <button type="button" class="deck-hotcue-pad" id="deck-a-hc-0" data-slot="0" title="Click to set — click again to jump — right-click to clear">1</button>
+            <button type="button" class="deck-hotcue-pad" id="deck-a-hc-1" data-slot="1" title="Click to set — click again to jump — right-click to clear">2</button>
+            <button type="button" class="deck-hotcue-pad" id="deck-a-hc-2" data-slot="2" title="Click to set — click again to jump — right-click to clear">3</button>
+            <button type="button" class="deck-hotcue-pad" id="deck-a-hc-3" data-slot="3" title="Click to set — click again to jump — right-click to clear">4</button>
+          </div>
         </div>
-        <div class="deck-pitch-row">
-          <button type="button" class="deck-pitch-step" id="deck-a-pitch-down">-</button>
-          <input type="text" class="deck-key-input" id="deck-a-key-input" value="—" readonly>
-          <span class="deck-semitone-val" id="deck-a-semitone-val">0 st</span>
-          <button type="button" class="deck-pitch-step" id="deck-a-pitch-up">+</button>
-        </div>
-        <input type="range" class="deck-range deck-pitch-range" id="deck-a-pitch-slider"
-               min="-6" max="6" step="1" value="0">
-      </div>
 
-      <div class="deck-meta-row">
-        <span class="deck-meta-tag"><span class="deck-meta-dot key"></span> <span id="deck-a-orig-key">—</span></span>
-        <span class="deck-meta-tag"><span class="deck-meta-dot dur"></span> <span id="deck-a-dur">—</span></span>
+        <div class="deck-ctrl-group">
+          <div class="deck-ctrl-header">
+            <span class="deck-ctrl-label">LOOP</span>
+            <span class="deck-ctrl-pct" id="deck-a-loop-len">4</span>
+          </div>
+          <div class="deck-loop-row">
+            <button type="button" class="deck-loop-btn" id="deck-a-loop-halve" title="Halve loop length">&#189;&times;</button>
+            <button type="button" class="deck-loop-btn deck-loop-btn-in" id="deck-a-loop-in" title="Set loop start at current position">IN</button>
+            <button type="button" class="deck-loop-btn deck-loop-btn-out" id="deck-a-loop-out" title="Set loop end here and start looping">OUT</button>
+            <button type="button" class="deck-loop-btn" id="deck-a-loop-double" title="Double loop length">2&times;</button>
+            <button type="button" class="deck-loop-btn deck-loop-btn-reloop" id="deck-a-reloop" title="Toggle the last loop on/off">LOOP</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -89,13 +119,23 @@
   <!-- ═══ CENTER STRIP ════════════════════════════════════════════════════ -->
   <div class="deck-center-strip">
     <button type="button" class="deck-close-btn" id="deck-close-btn" title="Hide decks">&#x2715;</button>
-    <button type="button" class="deck-sync-btn" id="deck-sync-a" title="Match Deck B tempo to Deck A">
+    <button type="button" class="deck-sync-btn" id="deck-sync-a" title="Match Deck B tempo + beat phase to Deck A">
       SYNC<br>A&#x2192;B
     </button>
     <div class="deck-strip-divider"></div>
-    <button type="button" class="deck-sync-btn" id="deck-sync-b" title="Match Deck A tempo to Deck B">
+    <button type="button" class="deck-sync-btn" id="deck-sync-b" title="Match Deck A tempo + beat phase to Deck B">
       SYNC<br>B&#x2192;A
     </button>
+    <div class="deck-strip-divider"></div>
+    <button type="button" class="deck-sync-btn" id="deck-key-a" title="Shift Deck B key to match Deck A">
+      KEY<br>A&#x2192;B
+    </button>
+    <div class="deck-strip-divider"></div>
+    <button type="button" class="deck-sync-btn" id="deck-key-b" title="Shift Deck A key to match Deck B">
+      KEY<br>B&#x2192;A
+    </button>
+    <div class="deck-strip-divider"></div>
+    <div class="deck-harmony" id="deck-harmony" title="Harmonic compatibility of the two decks' current keys">&#x266B;</div>
   </div>
 
   <!-- ═══ DECK B ═══════════════════════════════════════════════════════════ -->
@@ -141,42 +181,72 @@
     </div>
 
     <div class="deck-half-bottom">
-      <div class="deck-ctrl-group">
-        <div class="deck-ctrl-header">
-          <span class="deck-ctrl-label">TEMPO</span>
-          <span class="deck-ctrl-pct" id="deck-b-tempo-pct">0.0%</span>
+      <div class="deck-ctrl-row">
+        <div class="deck-ctrl-group">
+          <div class="deck-ctrl-header">
+            <span class="deck-ctrl-label">TEMPO</span>
+            <span class="deck-ctrl-pct" id="deck-b-tempo-pct">0.0%</span>
+          </div>
+          <div class="deck-bpm-row">
+            <span class="deck-meta-dot bpm"></span>
+            <input type="text" class="deck-bpm-input" id="deck-b-bpm-input"
+                   value="—" title="Type a target BPM" autocomplete="off" inputmode="decimal">
+            <span class="deck-bpm-unit">BPM</span>
+          </div>
+          <input type="range" class="deck-range deck-tempo-range" id="deck-b-tempo-slider"
+                 min="-8" max="8" step="0.1" value="0">
         </div>
-        <div class="deck-bpm-row">
-          <span class="deck-meta-dot bpm"></span>
-          <input type="text" class="deck-bpm-input" id="deck-b-bpm-input"
-                 value="—" title="Type a target BPM" autocomplete="off" inputmode="decimal">
-          <span class="deck-bpm-unit">BPM</span>
+
+        <div class="deck-ctrl-group">
+          <div class="deck-ctrl-header">
+            <span class="deck-ctrl-label">PITCH</span>
+            <button type="button" class="deck-keylock-btn deck-keylock-on" id="deck-b-keylock-btn"
+                    title="Key Lock">
+              <span class="deck-keylock-ico">&#x1F512;</span> KEY LOCK
+            </button>
+          </div>
+          <div class="deck-pitch-row">
+            <button type="button" class="deck-pitch-step" id="deck-b-pitch-down">-</button>
+            <input type="text" class="deck-key-input" id="deck-b-key-input" value="—" readonly>
+            <span class="deck-semitone-val" id="deck-b-semitone-val">0 st</span>
+            <button type="button" class="deck-pitch-step" id="deck-b-pitch-up">+</button>
+          </div>
+          <input type="range" class="deck-range deck-pitch-range" id="deck-b-pitch-slider"
+                 min="-6" max="6" step="1" value="0">
         </div>
-        <input type="range" class="deck-range deck-tempo-range" id="deck-b-tempo-slider"
-               min="-8" max="8" step="0.1" value="0">
+
+        <div class="deck-meta-row">
+          <span class="deck-meta-tag"><span class="deck-meta-dot key"></span> <span id="deck-b-orig-key">—</span></span>
+          <span class="deck-meta-tag"><span class="deck-meta-dot dur"></span> <span id="deck-b-dur">—</span></span>
+        </div>
       </div>
 
-      <div class="deck-ctrl-group">
-        <div class="deck-ctrl-header">
-          <span class="deck-ctrl-label">PITCH</span>
-          <button type="button" class="deck-keylock-btn deck-keylock-on" id="deck-b-keylock-btn"
-                  title="Key Lock">
-            <span class="deck-keylock-ico">&#x1F512;</span> KEY LOCK
-          </button>
+      <div class="deck-ctrl-row">
+        <div class="deck-ctrl-group deck-ctrl-group-hotcue">
+          <div class="deck-ctrl-header">
+            <span class="deck-ctrl-label">HOT CUES</span>
+          </div>
+          <div class="deck-hotcue-row" id="deck-b-hotcue-row">
+            <button type="button" class="deck-hotcue-pad" id="deck-b-hc-0" data-slot="0" title="Click to set — click again to jump — right-click to clear">1</button>
+            <button type="button" class="deck-hotcue-pad" id="deck-b-hc-1" data-slot="1" title="Click to set — click again to jump — right-click to clear">2</button>
+            <button type="button" class="deck-hotcue-pad" id="deck-b-hc-2" data-slot="2" title="Click to set — click again to jump — right-click to clear">3</button>
+            <button type="button" class="deck-hotcue-pad" id="deck-b-hc-3" data-slot="3" title="Click to set — click again to jump — right-click to clear">4</button>
+          </div>
         </div>
-        <div class="deck-pitch-row">
-          <button type="button" class="deck-pitch-step" id="deck-b-pitch-down">-</button>
-          <input type="text" class="deck-key-input" id="deck-b-key-input" value="—" readonly>
-          <span class="deck-semitone-val" id="deck-b-semitone-val">0 st</span>
-          <button type="button" class="deck-pitch-step" id="deck-b-pitch-up">+</button>
-        </div>
-        <input type="range" class="deck-range deck-pitch-range" id="deck-b-pitch-slider"
-               min="-6" max="6" step="1" value="0">
-      </div>
 
-      <div class="deck-meta-row">
-        <span class="deck-meta-tag"><span class="deck-meta-dot key"></span> <span id="deck-b-orig-key">—</span></span>
-        <span class="deck-meta-tag"><span class="deck-meta-dot dur"></span> <span id="deck-b-dur">—</span></span>
+        <div class="deck-ctrl-group">
+          <div class="deck-ctrl-header">
+            <span class="deck-ctrl-label">LOOP</span>
+            <span class="deck-ctrl-pct" id="deck-b-loop-len">4</span>
+          </div>
+          <div class="deck-loop-row">
+            <button type="button" class="deck-loop-btn" id="deck-b-loop-halve" title="Halve loop length">&#189;&times;</button>
+            <button type="button" class="deck-loop-btn deck-loop-btn-in" id="deck-b-loop-in" title="Set loop start at current position">IN</button>
+            <button type="button" class="deck-loop-btn deck-loop-btn-out" id="deck-b-loop-out" title="Set loop end here and start looping">OUT</button>
+            <button type="button" class="deck-loop-btn" id="deck-b-loop-double" title="Double loop length">2&times;</button>
+            <button type="button" class="deck-loop-btn deck-loop-btn-reloop" id="deck-b-reloop" title="Toggle the last loop on/off">LOOP</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

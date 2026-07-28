@@ -22,12 +22,6 @@
         </div>
         <div class="folder-pills" id="audit-pills"></div>
       </div>
-      <div class="field organize-note">
-        <label class="audit-save-label">
-          <input type="checkbox" id="audit-save-physical">
-          Save physical file index to disk
-        </label>
-      </div>
       <div id="dead-roots-banner" class="dead-roots-banner">
         <strong>⚠ Dead library roots detected</strong>
         <div id="dead-roots-detail"></div>
@@ -35,5 +29,6 @@
       <div class="btn-row audit-btn-mt">
         <button type="button" class="btn btn-neon" onclick="runAudit()">Run Audit</button>
         <button type="button" class="btn btn-secondary" onclick="previewCanonicalPlan()">Preview Canonical Plan</button>
+        <button type="button" class="btn btn-secondary" onclick="executeCanonicalConsolidation()" title="Database Library dedup — re-wires playlists then removes redundant DjmdContent records. No audio file is ever touched.">Consolidate Duplicates</button>
       </div>
     </div>
