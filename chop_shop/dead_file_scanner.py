@@ -19,6 +19,11 @@ from typing import Callable
 
 from config import AUDIO_EXTENSIONS, SKIP_DIRS, SKIP_PREFIXES
 
+try:
+    from path_guard import guard_sources as _guard_sources
+except ImportError:  # imported via the chop_shop package
+    from chop_shop.path_guard import guard_sources as _guard_sources
+
 log = logging.getLogger(__name__)
 
 _FS_CASE_INSENSITIVE: bool = platform.system() in ("Darwin", "Windows")
@@ -79,10 +84,17 @@ def _build_db_index(db_paths: list[Path]) -> set[str]:
         try:
             from pyrekordbox import Rekordbox6Database
             db = Rekordbox6Database(str(db_path), unlock=True)
-            for track in db.get_content().all():
-                fp = getattr(track, "FolderPath", None)
-                if fp:
-                    known.add(_normalise(fp))
+            try:
+                for track in db.get_content().all():
+                    fp = getattr(track, "FolderPath", None)
+                    if fp:
+                        known.add(_normalise(fp))
+            finally:
+                # Non-greedy posture: never hold a Rekordbox DB handle beyond
+                # the scan itself. This connection previously leaked for the
+                # app's whole lifetime, keeping master.db (+WAL/SHM) open and
+                # blocking Rekordbox from launching while FableGear was idle.
+                db.close()
             log.debug("Dead-file scan: loaded %d paths from %s", len(known), db_path.name)
         except Exception as exc:
             # Fail loud: a silently skipped DB shrinks the known-paths set,
@@ -127,12 +139,13 @@ def scan_dead_files(
     Parameters
     ----------
     roots:        Directories to scan for audio files.
-    db_paths:     Database files to check against. Defaults to LOCAL_DB + DJMT_DB.
+    db_paths:     Database files to check against. Defaults to LOCAL_DB + DEVICE_DB.
     progress_cb:  Optional callback(scanned, total) called periodically.
     """
+    _guard_sources(roots, "the dead-file scanner")
     if db_paths is None:
-        from config import LOCAL_DB, DJMT_DB
-        db_paths = [p for p in (LOCAL_DB, DJMT_DB) if p is not None]
+        from config import LOCAL_DB, DEVICE_DB
+        db_paths = [p for p in (LOCAL_DB, DEVICE_DB) if p is not None]
 
     result = DeadFileScanResult(
         db_paths_used=[str(p) for p in db_paths if p.exists()],

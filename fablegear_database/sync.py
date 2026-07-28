@@ -64,8 +64,15 @@ class DatabaseSync:
                 the move as a delete + add
 
         Returns:
-            Dictionary with reconciliation statistics (including a ``moves``
-            list of {id, from, to} for any relinked files)
+            Dictionary with reconciliation statistics. Always includes these keys:
+              - imported_new (int): newly imported files
+              - imported_updated (int): re-imported changed files
+              - skipped (int): files unchanged since last import
+              - moved (int): count of successfully relinked files (if detect_moves=True)
+              - missing (int): files marked processing_status='missing' (if remove_missing=False)
+              - removed (int): deleted records (if remove_missing=True)
+              - moves (list): [{id, from, to}, ...] for each relinked file (always present, empty if detect_moves=False)
+              - errors (list): error messages from the import phase
         """
         # 1. New + changed files. The importer walks via the scanner, skips
         #    unchanged files, and writes everything in one bulk transaction.

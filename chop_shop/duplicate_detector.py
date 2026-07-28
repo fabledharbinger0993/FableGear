@@ -65,6 +65,19 @@ from mutagen import File as MutagenFile
 
 from config import ACOUSTID_API_KEY, AUDIO_EXTENSIONS, MUSIC_ROOT, SKIP_DIRS, SKIP_PREFIXES
 
+try:
+    from path_guard import guard_sources as _guard_sources
+except ImportError:  # imported via the chop_shop package
+    from chop_shop.path_guard import guard_sources as _guard_sources
+
+# The keeper recommendation written into the report MUST match the keeper the
+# pruner will actually retain. Both rank by pruner.dedupe_sort_key so what a
+# human reviews in the CSV is exactly what survives a prune (audit M1).
+try:
+    from pruner import dedupe_sort_key as _dedupe_sort_key
+except ImportError:  # imported via the chop_shop package
+    from chop_shop.pruner import dedupe_sort_key as _dedupe_sort_key
+
 log = logging.getLogger(__name__)
 
 _LOG_EVERY: int = 100
@@ -498,6 +511,20 @@ def _rank_file(path: Path) -> int:
 _RANK_LABELS = {0: "PN", 1: "MIK", 2: "RAW"}
 
 
+def _rank_group(paths: list[Path]) -> list[Path]:
+    """
+    Order a duplicate group best-keeper-first, using the SAME key the pruner
+    executes with (pruner.dedupe_sort_key: format tier, size, RARP, tags).
+    The RARP label per file still comes from _rank_file. Returned list[0] is
+    the recommended keeper; the rest are removal candidates.
+    """
+    return sorted(
+        paths,
+        key=lambda p: _dedupe_sort_key(p, _RANK_LABELS[_rank_file(p)]),
+        reverse=True,
+    )
+
+
 # ─── Data structures ──────────────────────────────────────────────────────────
 
 @dataclass
@@ -529,6 +556,112 @@ class ScanResult:
     """
     groups: list[DuplicateGroup]
     unique_in_trash: list[Path]
+
+
+def scan_duplicates_hash(root, *, archive=None, max_workers: int = 1,
+                         match_mode: str = "hash", fuzzy_threshold: float = 0.85,
+                         checkpoint=None, cancel_event=None,
+                         pause_seconds: float = 0.0, files_override=None) -> ScanResult:
+    """Tier-1 duplicate scan: byte-identical files via the FableGear DB's cached
+    SHA-256 hashes (find_duplicates_by_hash). Instant — no fpcalc, no audio
+    decode. Returns a ScanResult that is a drop-in for scan_duplicates(), so the
+    exact same CSV report / prune / resolve pipeline handles it unchanged.
+
+    The extra keyword args mirror scan_duplicates()'s signature so callers can
+    swap the two freely; only ``root`` and ``archive`` are used here.
+    """
+    roots = [Path(root)] if not isinstance(root, (list, tuple)) else [Path(r) for r in root]
+    _guard_sources(roots, "the duplicate scanner")
+    print("FABLEGEAR_MATCH_MODE: " + json.dumps({"match_mode": "hash"}), flush=True)
+    if archive is None:
+        log.warning("Quick (hash) duplicate scan needs the FableGear database — none available.")
+        print("FABLEGEAR_PROGRESS: " + json.dumps({"scanned": 0, "total": 0, "remaining": 0, "errors": 0}), flush=True)
+        return ScanResult(groups=[], unique_in_trash=[])
+
+    try:
+        hash_groups = archive.find_duplicates_by_hash()   # [(hash, [record_id, ...]), ...]
+    except Exception as exc:
+        log.error("Quick duplicate scan: find_duplicates_by_hash failed: %s", exc)
+        return ScanResult(groups=[], unique_in_trash=[])
+
+    # Resolve every referenced content id → path in a single batched query.
+    all_ids = [rid for _h, ids in hash_groups for rid in ids]
+    try:
+        id_to_path = archive.get_paths_for_ids(all_ids)
+    except Exception as exc:
+        log.error("Quick duplicate scan: id→path resolution failed: %s", exc)
+        return ScanResult(groups=[], unique_in_trash=[])
+
+    resolved_roots = []
+    for r in roots:
+        try:
+            resolved_roots.append(r.resolve())
+        except OSError:
+            resolved_roots.append(r)
+
+    def _under_roots(p: Path) -> bool:
+        try:
+            rp = p.resolve()
+        except OSError:
+            rp = p
+        for rr in resolved_roots:
+            try:
+                rp.relative_to(rr)
+                return True
+            except ValueError:
+                continue
+        return False
+
+    groups: list[DuplicateGroup] = []
+    total = len(hash_groups)
+    for scanned, (file_hash, record_ids) in enumerate(hash_groups, start=1):
+        if cancel_event is not None and cancel_event.is_set():
+            break
+        # Only files that still exist on disk AND fall under the selected folders.
+        paths: list[Path] = []
+        seen: set[str] = set()
+        for rid in record_ids:
+            fp = id_to_path.get(rid)
+            if not fp or fp in seen:
+                continue
+            p = Path(fp)
+            if not _under_roots(p):
+                continue
+            try:
+                if not p.is_file():
+                    continue
+            except OSError:
+                continue
+            seen.add(fp)
+            paths.append(p)
+        if len(paths) >= 2:
+            ranked = _rank_group(paths)
+            keep = ranked[0]
+            remove = ranked[1:]
+            ranks = {str(p): _RANK_LABELS[_rank_file(p)] for p in paths}
+            groups.append(DuplicateGroup(
+                fingerprint=f"HASH:{file_hash}",
+                files=paths,
+                recommended_keep=keep,
+                recommended_remove=remove,
+                ranks=ranks,
+                keep_in_trash=_is_trash_adjacent(keep),
+            ))
+        if scanned % 200 == 0:
+            print("FABLEGEAR_PROGRESS: " + json.dumps(
+                {"scanned": scanned, "total": total, "remaining": total - scanned, "errors": 0}), flush=True)
+
+    groups.sort(key=lambda g: len(g.files), reverse=True)
+    print("FABLEGEAR_PROGRESS: " + json.dumps(
+        {"scanned": total, "total": total, "remaining": 0, "errors": 0}), flush=True)
+    log.info("Quick (hash) duplicate scan: %d byte-identical groups from %d cached-hash sets", len(groups), total)
+    try:
+        archive.log_operation("duplicate_scan", status="ok", metadata={
+            "match_mode": "hash", "groups": len(groups), "hash_sets": total, "method": "file_hash",
+        })
+    except Exception as exc:
+        log.warning("Archive log_operation failed for quick dedup scan: %s", exc)
+    return ScanResult(groups=groups, unique_in_trash=[])
 
 
 # ─── Fingerprinting ───────────────────────────────────────────────────────────
@@ -662,6 +795,14 @@ def _fingerprint_raw_integers(path: Path) -> tuple[float, list[int]] | None:
         return None
 
 
+# Chromaprint fingerprint length is proportional to track duration. Two files
+# whose fingerprints differ greatly in length are different-duration tracks and
+# must not be called duplicates even if the shorter is an acoustic prefix of
+# the longer (a radio edit vs. extended mix, or a short clip vs. the full
+# track). Require the shorter array to be at least this fraction of the longer.
+_FP_LENGTH_RATIO_MIN: float = 0.90
+
+
 def _hamming_similarity(a: list[int], b: list[int]) -> float:
     """
     Compute the Hamming similarity between two raw Chromaprint integer arrays.
@@ -670,11 +811,20 @@ def _hamming_similarity(a: list[int], b: list[int]) -> float:
     position, count differing bits via XOR + popcount. Similarity is:
         1.0 - (total_differing_bits / total_bits)
 
-    If the arrays differ in length, only the overlapping prefix is compared.
-    Returns 0.0 if either array is empty or there is no overlap.
+    Length guard: because fingerprint length tracks duration, arrays that
+    differ in length by more than (1 - _FP_LENGTH_RATIO_MIN) are treated as
+    non-matches (0.0) — otherwise a short prefix could score ~1.0 against the
+    opening of a much longer track and be merged as a duplicate. Only the
+    overlapping prefix is compared once the lengths are close enough.
+    Returns 0.0 if either array is empty or the lengths are too dissimilar.
     """
-    length = min(len(a), len(b))
+    len_a, len_b = len(a), len(b)
+    length = min(len_a, len_b)
     if length == 0:
+        return 0.0
+
+    longest = max(len_a, len_b)
+    if length / longest < _FP_LENGTH_RATIO_MIN:
         return 0.0
 
     total_bits = length * 32
@@ -781,7 +931,7 @@ def _find_fuzzy_groups(
             continue
 
         paths = [unique_files[i] for i in members]
-        ranked = sorted(paths, key=_rank_file)
+        ranked = _rank_group(paths)
         keep = ranked[0]
         remove = ranked[1:]
         ranks = {str(p): _RANK_LABELS[_rank_file(p)] for p in paths}
@@ -911,6 +1061,7 @@ def scan_duplicates(
         unique_in_trash: Files with no duplicate that live inside trash folders.
     """
     roots = [root] if isinstance(root, Path) else list(root)
+    _guard_sources(roots, "the duplicate scanner")
     all_files: list[Path] = []
 
     if files_override is not None:
@@ -992,6 +1143,49 @@ def scan_duplicates(
                 flush=True,
             )
 
+    # ── Archive reuse: skip fpcalc for fingerprints the Archive already knows ──
+    # The tagger/deduper persist fingerprints into fg_content; read them back
+    # here and compute only the misses. file_size mismatch = stale → recompute.
+    archive_reused = 0
+    computed_entries: list[tuple[str, str, "float | None", int]] = []
+    computed_total = 0
+    if archive is not None:
+        try:
+            fp_index = archive.get_fingerprint_index()
+        except Exception as exc:
+            log.warning("Archive fingerprint index unavailable — computing all: %s", exc)
+            fp_index = {}
+        if fp_index:
+            remaining: list[Path] = []
+            for path in files:
+                known = fp_index.get(str(path))
+                fp_known = known[0] if known else None
+                if fp_known:
+                    try:
+                        size_ok = known[1] == path.stat().st_size
+                    except OSError:
+                        size_ok = False
+                    if size_ok:
+                        bucket = fp_map.setdefault(fp_known, [])
+                        if path not in bucket:
+                            bucket.append(path)
+                        dur_map.setdefault(fp_known, float(known[2] or 0.0))
+                        archive_reused += 1
+                        continue
+                remaining.append(path)
+            files = remaining
+            total -= archive_reused
+            if archive_reused:
+                log.info(
+                    "Archive reuse: %d fingerprints loaded from fg_content — %d files left to compute",
+                    archive_reused, len(files),
+                )
+                print(
+                    "FABLEGEAR_ARCHIVE_REUSE: "
+                    + json.dumps({"reused": archive_reused, "to_compute": len(files)}),
+                    flush=True,
+                )
+
     log.info(
         "Beginning fingerprint pass on %d files "
         "(workers=%d pause=%.1fs match_mode=%s)",
@@ -999,6 +1193,14 @@ def scan_duplicates(
     )
 
     def _save_checkpoint_now() -> None:
+        # Fingerprints computed so far are flushed to the archive with every
+        # checkpoint, so an interrupted scan keeps its work either way.
+        if archive is not None and computed_entries:
+            try:
+                archive.bulk_set_fingerprints(computed_entries)
+                computed_entries.clear()
+            except Exception as exc:
+                log.warning("Checkpoint fingerprint flush failed: %s", exc)
         if checkpoint is None:
             return
         checkpoint.save({
@@ -1040,6 +1242,12 @@ def scan_duplicates(
                     if path not in bucket:
                         bucket.append(path)
                     dur_map.setdefault(fp, dur)
+                    try:
+                        computed_entries.append((str(path), fp, dur, path.stat().st_size))
+                    except OSError:
+                        pass
+                    else:
+                        computed_total += 1
                 if completed % _LOG_EVERY == 0:
                     log.info(
                         "Fingerprinting: %d / %d  (failures: %d)",
@@ -1077,6 +1285,12 @@ def scan_duplicates(
                 if path not in bucket:
                     bucket.append(path)
                 dur_map.setdefault(fp, dur)
+                try:
+                    computed_entries.append((str(path), fp, dur, path.stat().st_size))
+                except OSError:
+                    pass
+                else:
+                    computed_total += 1
             completed += 1
             print(
                 "FABLEGEAR_PROGRESS: " + json.dumps({
@@ -1117,7 +1331,7 @@ def scan_duplicates(
                 unique_fingerprint_files.append(paths[0])
             continue
 
-        ranked = sorted(paths, key=_rank_file)
+        ranked = _rank_group(paths)
         keep = ranked[0]
         remove = ranked[1:]
         ranks = {str(p): _RANK_LABELS[_rank_file(p)] for p in paths}
@@ -1211,12 +1425,22 @@ def scan_duplicates(
         )
 
     if archive is not None:
+        # Write back what this run computed so the next scan (and every other
+        # tool) starts from the Archive instead of from zero.
+        if computed_entries:
+            try:
+                archive.bulk_set_fingerprints(computed_entries)
+                log.info("Archive updated: %d fingerprints persisted to fg_content", len(computed_entries))
+            except Exception as exc:
+                log.warning("Failed to persist fingerprints to archive: %s", exc)
         archive.log_operation(
             "duplicate_scan",
             metadata={
                 "groups": len(groups),
                 "unique_in_trash": len(unique_in_trash),
                 "match_mode": match_mode,
+                "fingerprints_reused": archive_reused,
+                "fingerprints_computed": computed_total,
             },
         )
 

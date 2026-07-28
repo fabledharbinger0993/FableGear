@@ -41,10 +41,10 @@ function updateScanBar(p) {
     return;
   }
   document.getElementById('sb-scanned-wrap').style.display = 'none';
-  document.getElementById('sb-remaining').textContent = p.remaining.toLocaleString();
-  document.getElementById('sb-clean').textContent     = p.clean.toLocaleString();
-  document.getElementById('sb-edited').textContent    = p.edited.toLocaleString();
-  document.getElementById('sb-errors').textContent    = p.errors.toLocaleString();
+  document.getElementById('sb-remaining').textContent = (p.remaining ?? 0).toLocaleString();
+  document.getElementById('sb-clean').textContent     = (p.clean ?? 0).toLocaleString();
+  document.getElementById('sb-edited').textContent    = (p.edited ?? 0).toLocaleString();
+  document.getElementById('sb-errors').textContent    = (p.errors ?? 0).toLocaleString();
   document.getElementById('sb-warnings').textContent  = scanWarnings.toLocaleString();
   if (p.quarantined > 0) {
     document.getElementById('sb-quarantined').textContent = p.quarantined.toLocaleString();
@@ -154,6 +154,7 @@ const LOG_MAX_LINES = 800;
 let _logScrollPending = false;
 function appendLog(text, cls = '') {
   const out  = document.getElementById('log-output');
+  const shouldStickToBottom = (out.scrollHeight - out.clientHeight - out.scrollTop) <= 24;
   const line = document.createElement('div');
   line.className = 'log-line ' + cls;
   line.textContent = text;
@@ -165,7 +166,7 @@ function appendLog(text, cls = '') {
     out.removeChild(out.firstChild);
   }
   // Debounce scroll via rAF — avoids forced reflow on every line
-  if (!_logScrollPending) {
+  if (shouldStickToBottom && !_logScrollPending) {
     _logScrollPending = true;
     requestAnimationFrame(() => {
       out.scrollTop = out.scrollHeight;

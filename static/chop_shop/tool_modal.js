@@ -571,8 +571,14 @@ function leEnsurePlayer() {
   // Prefer the DOM-attached element — WKWebView (pywebview/macOS) requires the
   // audio element to be part of the document for media playback to work.
   _lePlayer = document.getElementById('le-player-audio') || new Audio();
-  _lePlayer.addEventListener('play', () => leRefreshPlaybackButtons());
+  _lePlayer.addEventListener('play', () => {
+    // Single audio focus: the inline sample player and the performance decks
+    // never sound at once. Starting a preview silences any running deck.
+    window.deckPauseAll?.();
+    leRefreshPlaybackButtons();
+  });
   _lePlayer.addEventListener('pause', () => leRefreshPlaybackButtons());
+  _lePlayer.addEventListener('timeupdate', () => _leUpdateInlineProgress());
   _lePlayer.addEventListener('ended', () => {
     _lePlayingTrackId = null;
     leRefreshPlaybackButtons();
@@ -591,17 +597,70 @@ function leEnsurePlayer() {
 }
 
 function lePlaybackStateFor(trackId) {
-  // The decks are the single source of playback truth now.
-  return window.deckIsPlaying?.(String(trackId)) ? 'pause' : 'play';
+  // The slim inline sample player is the single source of row-playback truth.
+  // A row shows ❚❚ only while it is the loaded preview AND actually playing.
+  return (_lePlayingTrackId != null
+          && String(trackId) === String(_lePlayingTrackId)
+          && _lePlayer && !_lePlayer.paused) ? 'pause' : 'play';
+}
+
+// Current inline playback position as a 0–100 percentage (0 when idle).
+function _leInlinePct() {
+  const p = _lePlayer;
+  return (p && p.duration && isFinite(p.duration)) ? (p.currentTime / p.duration) * 100 : 0;
+}
+
+// Paint the progress fill behind the active preview row's title.
+function _leUpdateInlineProgress() {
+  if (_lePlayingTrackId == null) return;
+  const row = document.querySelector(
+    `.le-track-row[data-id="${(window.CSS && CSS.escape) ? CSS.escape(String(_lePlayingTrackId)) : String(_lePlayingTrackId)}"]`);
+  const fill = row?.querySelector('.le-title-progress');
+  if (fill) fill.style.width = _leInlinePct() + '%';
+}
+
+// Pause the inline preview — called by deck.js so a deck never doubles up on it.
+function leInlinePause() {
+  if (_lePlayer && !_lePlayer.paused) _lePlayer.pause();
+}
+window.leInlinePause = leInlinePause;
+
+// Drop the inline preview's row ownership (e.g. when the filesystem player takes
+// over the shared audio element) so no library row is left showing ❚❚.
+function leClearInlinePreview() {
+  _lePlayingTrackId = null;
+  leRefreshPlaybackButtons();
+}
+window.leClearInlinePreview = leClearInlinePreview;
+
+// Seek the inline preview by clicking the thin strip under the active title.
+function leSeekInline(evt) {
+  evt.stopPropagation();
+  const rect = evt.currentTarget.getBoundingClientRect();
+  const pct = Math.min(1, Math.max(0, (evt.clientX - rect.left) / (rect.width || 1)));
+  if (_lePlayer && _lePlayer.duration && isFinite(_lePlayer.duration)) {
+    _lePlayer.currentTime = pct * _lePlayer.duration;
+    _leUpdateInlineProgress();
+  }
 }
 
 function leRefreshPlaybackButtons() {
-  document.querySelectorAll('.le-play-btn').forEach(btn => {
-    const state = lePlaybackStateFor(btn.dataset.trackId);
-    btn.textContent = state === 'pause' ? '❚❚' : '▶';
-    btn.setAttribute('aria-label', state === 'pause' ? 'Pause track' : 'Play track');
-    btn.classList.toggle('is-playing', state === 'pause');
+  const activeId = _lePlayingTrackId;
+  const playing = !!(_lePlayer && !_lePlayer.paused);
+  document.querySelectorAll('.le-track-row').forEach(row => {
+    const id = row.dataset.id;
+    if (id == null || id === '') return;   // skip filesystem rows (data-path only)
+    const isActive = activeId != null && id === String(activeId);
+    const showPause = isActive && playing;
+    const btn = row.querySelector('.le-play-btn');
+    if (btn) {
+      btn.textContent = showPause ? '❚❚' : '▶';
+      btn.setAttribute('aria-label', showPause ? 'Pause track' : 'Play track');
+      btn.classList.toggle('is-playing', showPause);
+    }
+    row.querySelector('.le-col-title')?.classList.toggle('le-title-playing', isActive);
   });
+  _leUpdateInlineProgress();
 }
 // Exposed so deck.js can refresh row buttons + resolve metadata for drops.
 window.leRefreshPlaybackButtons = leRefreshPlaybackButtons;
@@ -611,36 +670,27 @@ async function leToggleTrackPlayback(trackId, event) {
   event?.stopPropagation();
   const id = String(trackId);
 
-  // Single audio path: the decks ARE the player. The ▶ button on a row
-  // loads into / toggles a deck, so pause on the row and pause on the deck
-  // act on the same stream.
-  if (typeof window.deckFindTrack === 'function') {
-    const loadedDeck = window.deckFindTrack(id);
-    if (loadedDeck) {
-      // Already on a deck — toggle that deck's playback.
-      if (window.deckIsPlaying(id)) window.deckPause(loadedDeck);
-      else window.deckPlay(loadedDeck);
-      leRefreshPlaybackButtons();
-      return;
+  // The row ▶ is the slim inline sample player — it auditions the track in
+  // place and NEVER opens the performance decks. Load a track onto a deck by
+  // dragging it there or via the 🎛 Decks pop-out.
+  const player = leEnsurePlayer();
+
+  // Same track already loaded → toggle pause/resume.
+  if (_lePlayingTrackId === id) {
+    if (player.paused) {
+      window.deckPauseAll?.();
+      try { await player.play(); } catch (_) { showToast('Could not play track.', 'error'); }
+    } else {
+      player.pause();
     }
-    // Not loaded yet — load into the next free deck and play it.
-    const meta = (_leAllTracks || []).find(t => String(t.id) === id) || {};
-    window.deckSetPanel?.(true);
-    const usedDeck = window.deckLoadTrack(id, meta);
-    if (usedDeck) window.deckPlay(usedDeck);
     leRefreshPlaybackButtons();
     return;
   }
 
-  // Fallback (deck.js not loaded): legacy single preview player.
-  const player = leEnsurePlayer();
-  if (_lePlayingTrackId === id) {
-    if (player.paused) { try { await player.play(); } catch (_) { showToast('Could not play track.', 'error'); } }
-    else player.pause();
-    leRefreshPlaybackButtons();
-    return;
-  }
+  // Different track → swap the single inline stream over to it and play.
+  document.querySelectorAll('.fs-play-btn').forEach(b => { b.textContent = '▶'; });  // clear filesystem-row glyphs
   _lePlayingTrackId = id;
+  window.deckPauseAll?.();
   player.src = `/api/library/tracks/${encodeURIComponent(id)}/stream`;
   player.load();
   try { await player.play(); } catch (_) { _lePlayingTrackId = null; showToast('Could not play track.', 'error'); }
@@ -659,6 +709,9 @@ async function leLoadLibrary() {
     if (!tracksRes.ok || !playlistsRes.ok) {
       throw new Error('library load failed');
     }
+    // "missing" → the FableGear library hasn't been built yet; the read path
+    // deliberately did NOT create the database file (no silent automation).
+    const libMissing = tracksRes.headers.get('X-FableGear-Library') === 'missing';
     if (tracksRes.ok) {
       _leAllTracks = await tracksRes.json();
       _leTracksLoaded = true;
@@ -671,6 +724,16 @@ async function leLoadLibrary() {
       leRenderPlaylistTree(playlists);
     }
     leActivateAllTracksSelection();
+    if (libMissing && !_leAllTracks.length) {
+      const empty = document.getElementById('le-empty-state');
+      if (empty) {
+        empty.style.display = 'flex';
+        empty.innerHTML = '<div style="font-size:2rem;margin-bottom:10px;opacity:.4">♫</div>'
+          + '<div>No library yet — import sources to build it.</div>'
+          + '<div style="font-size:.8rem;opacity:.6;margin-top:6px">Use ↻ Sync or drag tracks into the FableGear column (Integrated view).</div>';
+      }
+      leSetStatus('No FableGear library yet — import sources to build it.');
+    }
   } catch (err) {
     _leTracksLoaded = false;
     leSetStatus('Could not load library — is the database connected?');
@@ -716,15 +779,16 @@ function leRenderPlaylistTree(nodes, parentEl, depth) {
         const trackId = e.dataTransfer?.getData('text/fg-track');
         if (!trackId) return;
         try {
-          const res = await fetch(`/api/library/playlists/${node.id}/tracks`, {
+          const res = await fetch(`/api/library/playlists/${node.id}/tracks?db=${encodeURIComponent(_leDbSource)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ track_id: trackId }),
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) { showToast(data.error || 'Could not add track to playlist.', 'error'); return; }
-          if (data.added === 0) showToast(`Already in “${node.name}”.`, 'info');
-          else showToast(`Added to “${node.name}”.`, 'success');
+          if (data.added > 0) showToast(`Added to “${node.name}”.`, 'success');
+          else if (data.missing && data.missing.length) showToast('Not in your Rekordbox library yet — import it there first.', 'info');
+          else showToast(`Already in “${node.name}”.`, 'info');
         } catch (_) {
           showToast('Could not add track to playlist.', 'error');
         }
@@ -755,7 +819,7 @@ async function leSelectPlaylist(node, buttonEl) {
   _leActivePlaylistName = node.name || 'Playlist';
   leSetActiveTreeItem(buttonEl);
   try {
-    const res = await fetch(`/api/library/playlists/${node.id}/tracks`);
+    const res = await fetch(`/api/library/playlists/${node.id}/tracks?db=${encodeURIComponent(_leDbSource)}`);
     if (res.ok) {
       const tracks = await res.json();
       leSetTrackView(tracks, node.name);
@@ -793,10 +857,25 @@ async function leSelectHistory(buttonEl) {
 
 let _leDragSrcId = null;
 
-function leRenderTracks(tracks) {
-  const list = document.getElementById('le-track-list');
-  if (!list) return;
-  list.querySelectorAll('.le-track-row').forEach(row => row.remove());
+/* ── Virtualized track list ────────────────────────────────────────────────
+ * Rendering every row of a large library (70k+ tracks) into the DOM freezes
+ * the renderer — the old code appended one <div> per track with three event
+ * listeners each, which is why "Loading library…" never cleared. Instead we
+ * hold the full scroll height with a sizer element and build only the rows in
+ * (and just past) the viewport, rebuilding that window on scroll. Playlists
+ * and short lists still render directly so drag-reorder is untouched.
+ */
+const LE_ROW_H = 34;         // .le-track-row height (px) — must match the CSS
+const LE_VIRTUAL_MIN = 120;  // at/under this many rows, render directly
+const LE_OVERSCAN = 8;       // extra rows kept above/below the viewport
+
+let _leRenderRows = [];
+let _leVirtualActive = false;
+let _leVirtualRaf = 0;
+let _leWinStart = -1;
+let _leWinEnd = -1;
+
+function _leEnsureEmptyState(list) {
   let empty = document.getElementById('le-empty-state');
   if (!empty) {
     empty = document.createElement('div');
@@ -804,54 +883,139 @@ function leRenderTracks(tracks) {
     empty.className = 'le-empty-state';
     list.appendChild(empty);
   }
-  if (!tracks || !tracks.length) {
-    empty.style.display = 'flex';
-    empty.innerHTML = '<div style="font-size:2rem;margin-bottom:10px;opacity:.4">♫</div><div>No tracks here.</div>';
-    return;
-  }
-  empty.style.display = 'none';
-  const inPlaylist = _leActiveNodeType === 'playlist' && !!_leActivePlaylistId;
-  const sorted = inPlaylist ? tracks : leSorted(tracks);
-  sorted.forEach((t, i) => {
-    const row = document.createElement('div');
-    row.className = 'le-track-row';
-    row.dataset.id = t.id;
-    if (_leSelectedTrackIds.has(String(t.id))) row.classList.add('selected');
-    const playbackState = lePlaybackStateFor(t.id);
-    const key = t.key ? `<span class="le-key-badge">${_leEsc(t.key)}</span>` : '—';
-    const bpm = t.bpm ? Math.round(t.bpm) : '—';
-    const dur = t.duration ? leFormatDur(t.duration) : '—';
-    const date = t.date_added ? t.date_added.slice(0, 10) : '—';
-    const handle = inPlaylist ? '<div class="le-drag-handle" title="Drag to reorder">⠿</div>' : '';
-    row.innerHTML = `
+  return empty;
+}
+
+function _leClearTrackRows(list) {
+  list.querySelectorAll('.le-track-row').forEach(row => row.remove());
+  document.getElementById('le-track-sizer')?.remove();
+}
+
+// Build a single track row. `absIndex` is the row's position in the full
+// (sorted/filtered) list — used for the # column and zebra striping, so both
+// stay correct even when only a window of rows exists in the DOM.
+function _leBuildTrackRow(t, absIndex, inPlaylist) {
+  const row = document.createElement('div');
+  row.className = 'le-track-row';
+  if (absIndex % 2 === 1) row.classList.add('le-row-alt');
+  row.dataset.id = t.id;
+  if (_leSelectedTrackIds.has(String(t.id))) row.classList.add('selected');
+  const playbackState = lePlaybackStateFor(t.id);
+  const key = t.key ? `<span class="le-key-badge">${_leEsc(t.key)}</span>` : '—';
+  const bpm = t.bpm ? Math.round(t.bpm) : '—';
+  const dur = t.duration ? leFormatDur(t.duration) : '—';
+  const date = t.date_added ? t.date_added.slice(0, 10) : '—';
+  const handle = inPlaylist ? '<div class="le-drag-handle" title="Drag to reorder">⠿</div>' : '';
+  row.innerHTML = `
       ${handle}
       <div class="le-col le-col-play"><button class="le-play-btn${playbackState === 'pause' ? ' is-playing' : ''}" data-track-id="${_leEsc(t.id)}" aria-label="${playbackState === 'pause' ? 'Pause track' : 'Play track'}">${playbackState === 'pause' ? '❚❚' : '▶'}</button></div>
-      <div class="le-col le-col-num">${i + 1}</div>
-      <div class="le-col le-col-title le-editable le-title-editable" data-field="title" data-id="${_leEsc(t.id)}" title="Double-click to edit title">${_leEsc(t.title || '—')}</div>
+      <div class="le-col le-col-num">${absIndex + 1}</div>
+      <div class="le-col le-col-title le-editable le-title-editable" data-field="title" data-id="${_leEsc(t.id)}" title="Double-click to edit title"><div class="le-title-progress"></div><span class="le-title-text">${_leEsc(t.title || '—')}</span><div class="le-title-seek" aria-hidden="true"></div></div>
       <div class="le-col le-col-artist">${_leEsc(t.artist || '—')}</div>
       <div class="le-col le-col-album">${_leEsc(t.album || '—')}</div>
       <div class="le-col le-col-bpm">${bpm}</div>
       <div class="le-col le-col-key">${key}</div>
       <div class="le-col le-col-dur">${dur}</div>
       <div class="le-col le-col-date">${date}</div>`;
-    row.querySelector('.le-play-btn')?.addEventListener('click', evt => leToggleTrackPlayback(t.id, evt));
-    row.querySelector('.le-title-editable')?.addEventListener('dblclick', evt => leEditTrackTitle(t, evt));
-    row.addEventListener('click', evt => leToggleTrackSelection(String(t.id), evt));
-    if (inPlaylist) {
-      // Playlist view: row drag reorders within the playlist.
-      _leBindDragReorder(row, t.id);
-    } else {
-      // Library view: drag a track onto a deck (load) or a playlist (add).
-      row.draggable = true;
-      row.addEventListener('dragstart', (e) => {
-        e.dataTransfer.setData('text/fg-track', String(t.id));
-        e.dataTransfer.effectAllowed = 'copy';
-        row.classList.add('le-row-dragging');
-      });
-      row.addEventListener('dragend', () => row.classList.remove('le-row-dragging'));
-    }
-    list.appendChild(row);
+  row.querySelector('.le-play-btn')?.addEventListener('click', evt => leToggleTrackPlayback(t.id, evt));
+  row.querySelector('.le-title-editable')?.addEventListener('dblclick', evt => leEditTrackTitle(t, evt));
+  row.querySelector('.le-title-seek')?.addEventListener('click', evt => leSeekInline(evt));
+  row.addEventListener('click', evt => leToggleTrackSelection(String(t.id), evt));
+  // Restore the inline-preview markers when this row (re)enters a virtualized view.
+  if (_lePlayingTrackId != null && String(t.id) === String(_lePlayingTrackId)) {
+    const titleCell = row.querySelector('.le-col-title');
+    titleCell?.classList.add('le-title-playing');
+    const fill = titleCell?.querySelector('.le-title-progress');
+    if (fill) fill.style.width = _leInlinePct() + '%';
+  }
+  if (inPlaylist) {
+    // Playlist view: row drag reorders within the playlist.
+    _leBindDragReorder(row, t.id);
+  } else {
+    // Library view: drag a track onto a deck (load) or a playlist (add).
+    row.draggable = true;
+    row.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/fg-track', String(t.id));
+      e.dataTransfer.effectAllowed = 'copy';
+      row.classList.add('le-row-dragging');
+    });
+    row.addEventListener('dragend', () => row.classList.remove('le-row-dragging'));
+  }
+  return row;
+}
+
+function leRenderTracks(tracks) {
+  const list = document.getElementById('le-track-list');
+  if (!list) return;
+  const inPlaylist = _leActiveNodeType === 'playlist' && !!_leActivePlaylistId;
+  const sorted = inPlaylist ? tracks : leSorted(tracks);
+  _leRenderRows = sorted;
+  _leWinStart = _leWinEnd = -1;
+
+  _leClearTrackRows(list);
+  const empty = _leEnsureEmptyState(list);
+
+  if (!sorted || !sorted.length) {
+    _leVirtualActive = false;
+    empty.style.display = 'flex';
+    empty.innerHTML = '<div style="font-size:2rem;margin-bottom:10px;opacity:.4">♫</div><div>No tracks here.</div>';
+    return;
+  }
+  empty.style.display = 'none';
+  list.scrollTop = 0;  // fresh view starts at the top
+
+  if (inPlaylist || sorted.length <= LE_VIRTUAL_MIN) {
+    // Direct render (normal flow): small lists + playlist drag-reorder.
+    _leVirtualActive = false;
+    const frag = document.createDocumentFragment();
+    sorted.forEach((t, i) => frag.appendChild(_leBuildTrackRow(t, i, inPlaylist)));
+    list.appendChild(frag);
+    return;
+  }
+
+  // Virtualized render: only the visible window is ever in the DOM.
+  _leVirtualActive = true;
+  const sizer = document.createElement('div');
+  sizer.id = 'le-track-sizer';
+  sizer.style.height = (sorted.length * LE_ROW_H) + 'px';
+  list.appendChild(sizer);
+  _leBindVirtualScroll(list);
+  _leRenderWindow(list);
+}
+
+function _leBindVirtualScroll(list) {
+  if (list.dataset.leVirtualBound) return;
+  list.dataset.leVirtualBound = '1';
+  list.addEventListener('scroll', () => {
+    if (!_leVirtualActive || _leVirtualRaf) return;
+    _leVirtualRaf = requestAnimationFrame(() => {
+      _leVirtualRaf = 0;
+      _leRenderWindow(list);
+    });
   });
+}
+
+function _leRenderWindow(list) {
+  if (!_leVirtualActive) return;
+  const total = _leRenderRows.length;
+  const viewH = list.clientHeight || 600;
+  const maxScroll = Math.max(0, total * LE_ROW_H - viewH);
+  const st = Math.min(list.scrollTop, maxScroll);
+  const start = Math.max(0, Math.floor(st / LE_ROW_H) - LE_OVERSCAN);
+  const end = Math.min(total, Math.ceil((st + viewH) / LE_ROW_H) + LE_OVERSCAN);
+  if (start === _leWinStart && end === _leWinEnd) return;  // window unchanged
+  _leWinStart = start;
+  _leWinEnd = end;
+
+  list.querySelectorAll('.le-track-row').forEach(row => row.remove());
+  const frag = document.createDocumentFragment();
+  for (let i = start; i < end; i++) {
+    const row = _leBuildTrackRow(_leRenderRows[i], i, false);
+    row.classList.add('le-virtual-row');
+    row.style.top = (i * LE_ROW_H) + 'px';
+    frag.appendChild(row);
+  }
+  list.appendChild(frag);
 }
 
 function _leBindDragReorder(row, trackId) {
@@ -905,7 +1069,7 @@ async function _leApplyReorder(srcId, targetId) {
   list.querySelectorAll('.le-col-num').forEach((el, i) => { el.textContent = i + 1; });
 
   try {
-    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActivePlaylistId)}/tracks/order`, {
+    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActivePlaylistId)}/tracks/order?db=${encodeURIComponent(_leDbSource)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ track_ids: ids }),
@@ -986,9 +1150,57 @@ function leRefreshSortIndicators() {
 }
 
 function leSortBy(col) {
+  // Playlist view: header click reorders the playlist itself (persisted),
+  // per the playlist-builder spec — sort by key, BPM, name, or length.
+  if (_leActiveNodeType === 'playlist' && _leActivePlaylistId) {
+    leSortPlaylistBy(col);
+    return;
+  }
   if (_leSortCol === col) _leSortAsc = !_leSortAsc; else { _leSortCol = col; _leSortAsc = true; }
   leRefreshSortIndicators();
   leRefreshTrackView();
+}
+
+/* Camelot keys sort musically (1A, 1B, 2A … 12B), not lexicographically. */
+function _leKeySortValue(key) {
+  const m = /^(\d{1,2})\s*([ABab])$/.exec(String(key || '').trim());
+  if (!m) return 1000; // non-Camelot keys sort to the end, grouped
+  return parseInt(m[1], 10) * 2 + (m[2].toUpperCase() === 'B' ? 1 : 0);
+}
+
+async function leSortPlaylistBy(col) {
+  if (_leSortCol === col) _leSortAsc = !_leSortAsc; else { _leSortCol = col; _leSortAsc = true; }
+  leRefreshSortIndicators();
+
+  const sorted = [..._leBaseTracks].sort((a, b) => {
+    let va, vb;
+    if (col === 'key') {
+      va = _leKeySortValue(a.key); vb = _leKeySortValue(b.key);
+    } else {
+      va = a[col] ?? ''; vb = b[col] ?? '';
+      if (typeof va === 'string') va = va.toLowerCase();
+      if (typeof vb === 'string') vb = vb.toLowerCase();
+    }
+    return _leSortAsc ? (va < vb ? -1 : va > vb ? 1 : 0) : (va > vb ? -1 : va < vb ? 1 : 0);
+  });
+
+  try {
+    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActivePlaylistId)}/tracks/order?db=${encodeURIComponent(_leDbSource)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_ids: sorted.map(t => String(t.id)) }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      showToast(d.error || 'Could not save the sorted order.', 'error');
+      return;
+    }
+    leSetTrackView(sorted, _leStatusLabel);
+    const labels = { title: 'title', artist: 'artist', album: 'album', bpm: 'BPM', key: 'key', duration: 'length', date_added: 'date added' };
+    showToast(`Playlist sorted by ${labels[col] || col}${_leSortAsc ? '' : ' (reversed)'} — order saved.`, 'success');
+  } catch (_) {
+    showToast('Could not save the sorted order.', 'error');
+  }
 }
 
 function leFormatDur(secs) {
@@ -1023,7 +1235,7 @@ async function leSubmitCreate() {
   }
   const parentId = _leActiveNodeType === 'folder' && _leActiveNodeId ? _leActiveNodeId : '';
   try {
-    const res = await fetch('/api/library/playlists', {
+    const res = await fetch(`/api/library/playlists?db=${encodeURIComponent(_leDbSource)}`, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ name, type: _leCreateType, parent_id: parentId }),
@@ -1053,7 +1265,7 @@ async function leAddSelectionToActivePlaylist() {
     return;
   }
   try {
-    const res = await fetch(`/api/library/playlists/${_leActivePlaylistId}/tracks`, {
+    const res = await fetch(`/api/library/playlists/${_leActivePlaylistId}/tracks?db=${encodeURIComponent(_leDbSource)}`, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ track_ids: trackIds }),
@@ -1090,7 +1302,7 @@ async function leRenameActivePlaylist() {
   }
   const savedNode = { id: _leActiveNodeId, type: _leActiveNodeType, name: trimmed };
   try {
-    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActiveNodeId)}`, {
+    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActiveNodeId)}?db=${encodeURIComponent(_leDbSource)}`, {
       method: 'PUT',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ name: trimmed }),
@@ -1122,7 +1334,7 @@ async function leDeleteActivePlaylist() {
     : confirm(`Delete playlist "${label}"?\n\nTracks will remain in your library.`);
   if (!ok) return;
   try {
-    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActiveNodeId)}`, {
+    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActiveNodeId)}?db=${encodeURIComponent(_leDbSource)}`, {
       method: 'DELETE',
     });
     const data = await res.json().catch(() => ({}));
@@ -1154,7 +1366,7 @@ async function leRemoveSelectionFromActivePlaylist() {
     return;
   }
   try {
-    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActivePlaylistId)}/tracks`, {
+    const res = await fetch(`/api/library/playlists/${encodeURIComponent(_leActivePlaylistId)}/tracks?db=${encodeURIComponent(_leDbSource)}`, {
       method: 'DELETE',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ track_ids: trackIds }),

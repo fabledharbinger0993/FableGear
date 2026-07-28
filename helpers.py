@@ -134,6 +134,41 @@ REPO_ROOT: Path = _REPO_ROOT
 CLI_PATH: Path = REPO_ROOT / "cli.py"  # sentinel string, not a file path — frozen bundles match argv[1].endswith('cli.py') in main.py; do not 'fix' this
 
 
+# ── FableGear archive (shared tool database) ─────────────────────────────────
+
+_ARCHIVE = None
+_ARCHIVE_ERROR: str | None = None
+_archive_lock: threading.Lock = threading.Lock()
+
+
+def get_archive():
+    """Open (once) the FableGear archive for in-process tool calls.
+
+    Returns None when unavailable — but never silently: the failure reason is
+    kept in get_archive_error() and logged at WARNING, because a missing
+    archive means tool runs leave no record in fg_processing_log.
+    """
+    global _ARCHIVE, _ARCHIVE_ERROR
+    with _archive_lock:
+        if _ARCHIVE is None and _ARCHIVE_ERROR is None:
+            try:
+                from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
+                _ARCHIVE = FableGearDatabase()
+            except Exception as exc:
+                _ARCHIVE_ERROR = f"{type(exc).__name__}: {exc}"
+                import logging  # noqa: PLC0415
+                logging.getLogger(__name__).warning(
+                    "FableGear archive unavailable — in-process tool runs will NOT be recorded: %s",
+                    _ARCHIVE_ERROR,
+                )
+        return _ARCHIVE
+
+
+def get_archive_error() -> str | None:
+    """The reason the archive failed to open, or None if it opened (or wasn't tried)."""
+    return _ARCHIVE_ERROR
+
+
 # ── Flask extensions (lazy-init; app.py calls .init_app(app)) ────────────────
 
 limiter: Limiter = Limiter(

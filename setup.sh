@@ -9,6 +9,18 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV="$SCRIPT_DIR/venv"
 SENTINEL="$SCRIPT_DIR/.fablegear_ready"
+FAILED="$SCRIPT_DIR/.fablegear_failed"
+
+# Clear any stale sentinels so this run starts from a clean state.
+rm -f "$SENTINEL" "$FAILED"
+
+# fail() — signal launch.sh to stop polling immediately, then wait for the
+# user to read the (already-printed) error before closing the window.
+fail() {
+  touch "$FAILED"
+  read -rp "     Press Return to close this window." _
+  exit 1
+}
 
 # ── Banner ────────────────────────────────────────────────────────────────
 clear
@@ -45,8 +57,7 @@ if [ -z "$BREW" ]; then
     echo ""
     echo "  ✗  Homebrew installation failed. Check the output above."
     echo "     Fix the issue, then double-click FableGear again."
-    read -rp "     Press Return to close this window." _
-    exit 1
+    fail
   fi
   ok "Homebrew installed"
 else
@@ -121,8 +132,7 @@ if [ ! -f "$VENV/bin/activate" ]; then
   echo ""
   echo "  ✗  Could not create a working Python venv with $PYTHON3."
   echo "     Try: brew install python@3.13 then double-click FableGear again."
-  read -rp "     Press Return to close this window." _
-  exit 1
+  fail
 fi
 ok "Virtual environment ready"
 
@@ -133,8 +143,7 @@ if [ "${VENV_MINOR:-0}" -lt 11 ]; then
   echo ""
   echo "  ✗  Python $VENV_VER in this venv is too old — FableGear requires 3.11 or later."
   echo "     Run: brew install python@3.12  then double-click FableGear again."
-  read -rp "     Press Return to close this window." _
-  exit 1
+  fail
 fi
 ok "Python version check passed ($VENV_VER)"
 
@@ -147,11 +156,17 @@ step "Python packages"
 info "Upgrading pip..."
 pip install --upgrade pip --quiet
 
-info "Installing UI packages (Flask, Waitress)..."
-pip install -r "$SCRIPT_DIR/requirements_ui.txt" --quiet
+# No --quiet on the requirements installs: if a wheel fails to build (e.g. a
+# C-extension or SQLCipher/pyrekordbox), the user must see the real error in
+# this visible window. Any failure aborts setup via fail() so launch.sh does
+# not proceed to launch an app with missing dependencies.
+info "Installing UI packages (Flask, Waitress, pywebview)..."
+pip install -r "$SCRIPT_DIR/requirements_ui.txt" \
+  || { echo "  ✗  UI package install failed — see the errors above."; fail; }
 
 info "Installing library packages..."
-pip install -r "$SCRIPT_DIR/requirements.txt" --quiet
+pip install -r "$SCRIPT_DIR/requirements.txt" \
+  || { echo "  ✗  Library package install failed — see the errors above."; fail; }
 
 ok "All Python packages installed"
 

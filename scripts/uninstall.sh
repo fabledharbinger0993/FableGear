@@ -25,7 +25,7 @@ Dock Icon Only
   Your music library and the FableGear repo folder are untouched.
 
 Full Uninstall
-    Removes everything above AND deletes the FableGear repo folder (~'$HOME/FableGear').
+  Removes everything above AND deletes the FableGear repo folder (~'$HOME/FableGear').
   Your Rekordbox library is never touched." buttons {"Cancel", "Dock Icon Only", "Full Uninstall"} default button "Dock Icon Only" with icon caution with title "FableGear Uninstall")' \
     2>/dev/null || echo "Cancel")
 

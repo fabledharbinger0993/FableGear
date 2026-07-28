@@ -123,8 +123,8 @@ function _populateErrorActions(scanTitle) {
       closeReportModal(false);
       _runProcessRetry({
         paths:  retryPaths,
-        no_bpm: document.getElementById('process-no-bpm')?.checked || false,
-        no_key: document.getElementById('process-no-key')?.checked  || false,
+        bpm_mode: document.getElementById('process-bpm-mode')?.value || 'passive',
+        key_mode: document.getElementById('process-key-mode')?.value || 'passive',
       });
     };
     btns.appendChild(b);
@@ -168,4 +168,3 @@ function closeReportModal(shrinkToPill) {
 }
 
 // Escape key handled in the global keydown listener below
-

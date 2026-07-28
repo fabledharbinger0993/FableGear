@@ -208,7 +208,7 @@ def inspect_usb(mount_root: PathLike) -> UsbInspectionReport:
 
     Examples
     --------
-    >>> report = inspect_usb("/Volumes/GIGSTICK")     # doctest: +SKIP
+    >>> report = inspect_usb("/Volumes/DJ_USB")     # doctest: +SKIP
     >>> report.dual_format                            # doctest: +SKIP
     False
     """

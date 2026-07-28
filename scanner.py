@@ -381,3 +381,26 @@ def scan_directory(
 
             yield track
 
+
+def count_scannable_files(root: Path) -> int:
+    """
+    Count files scan_directory would yield, without extracting metadata.
+
+    Mirrors scan_directory's own skip rules (same dir-pruning, same
+    extension/size checks) but skips the expensive extract_metadata() call,
+    so a caller can get an accurate total up front — for a determinate
+    progress bar — at a small fraction of a full scan's cost.
+    """
+    if not root.is_dir():
+        raise ValueError(f"count_scannable_files: {root} is not a directory")
+
+    total = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirpath = Path(dirpath)
+        dirnames[:] = [d for d in dirnames if not _should_skip_dir(dirpath / d)]
+        for filename in filenames:
+            file_path = dirpath / filename
+            if not _should_skip_file(file_path):
+                total += 1
+    return total
+
