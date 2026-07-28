@@ -89,7 +89,7 @@ class RecoveryReport:
     notes: List[str] = field(default_factory=list)
 
 
-_EXPORT_NAMES = ("exportLibrary.db", "export.pdb")
+_EXPORT_NAMES = ("exportLibrary.db", "export.pdb", "master.db")
 
 
 def find_export_sources(roots) -> List[ExportSource]:
@@ -98,12 +98,21 @@ def find_export_sources(roots) -> List[ExportSource]:
     the sibling pdb. A root may also be a direct path to an export file."""
     found: Dict[str, ExportSource] = {}
     pdb_dirs_with_onelib = set()
+    def _kind(name: str) -> str:
+        return {"exportLibrary.db": "onelibrary", "export.pdb": "pdb",
+                "master.db": "masterdb"}[name]
+
+    def _is_real_masterdb(p) -> bool:
+        # skip the blank ~4KB template shipped inside rekordbox.app
+        return "rekordbox.app" not in str(p) and _mtime(p) and os.path.getsize(p) > 5_000_000
+
     for root in roots:
         root = Path(root)
         # direct file path
         if root.is_file() and root.name in _EXPORT_NAMES:
-            kind = "onelibrary" if root.name == "exportLibrary.db" else "pdb"
-            found[str(root)] = ExportSource(path=str(root), kind=kind, mtime=_mtime(root))
+            if root.name == "master.db" and not _is_real_masterdb(root):
+                continue
+            found[str(root)] = ExportSource(path=str(root), kind=_kind(root.name), mtime=_mtime(root))
             continue
         if not root.is_dir():
             continue
@@ -201,8 +210,53 @@ def _read_pdb(path: str) -> List[RecoveredCrate]:
     return crates
 
 
+def _read_master_db(path: str) -> List[RecoveredCrate]:
+    """Read crates from a full rekordbox master.db (SQLCipher, via pyrekordbox).
+    This is the richest source — the whole library's playlists with membership,
+    not just what one stick carried. Folders (no song links) are skipped."""
+    try:
+        from pyrekordbox import Rekordbox6Database
+        from pyrekordbox.db6 import tables
+    except Exception as exc:  # noqa: BLE001
+        log.warning("pyrekordbox unavailable for master.db read: %s", exc)
+        return []
+    try:
+        db = Rekordbox6Database(path=path)
+        cinfo: Dict[int, tuple] = {}
+        for c in db.query(tables.DjmdContent).with_entities(
+                tables.DjmdContent.ID, tables.DjmdContent.Title, tables.DjmdContent.FolderPath):
+            fn = os.path.basename(c.FolderPath) if c.FolderPath else None
+            cinfo[c.ID] = (c.Title, fn)
+        names = {pl.ID: (pl.Name or f"playlist_{pl.ID}") for pl in db.query(tables.DjmdPlaylist)}
+        mem: Dict[int, list] = {}
+        for sp in db.query(tables.DjmdSongPlaylist).with_entities(
+                tables.DjmdSongPlaylist.PlaylistID, tables.DjmdSongPlaylist.ContentID,
+                tables.DjmdSongPlaylist.TrackNo):
+            mem.setdefault(sp.PlaylistID, []).append((sp.TrackNo or 0, sp.ContentID))
+        db.close()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not read master.db %s: %s", path, exc)
+        return []
+
+    crates = []
+    for pid, links in mem.items():
+        if not links:
+            continue
+        tracks = []
+        for order, cid in sorted(links):
+            title, fn = cinfo.get(cid, (None, None))
+            tracks.append(CrateTrack(title=title, filename=fn, order=order))
+        crates.append(RecoveredCrate(name=names.get(pid, f"playlist_{pid}"),
+                                     tracks=tracks, sources=[path]))
+    return crates
+
+
 def read_crates(source: ExportSource) -> List[RecoveredCrate]:
-    return _read_onelibrary(source.path) if source.kind == "onelibrary" else _read_pdb(source.path)
+    if source.kind == "onelibrary":
+        return _read_onelibrary(source.path)
+    if source.kind == "masterdb":
+        return _read_master_db(source.path)
+    return _read_pdb(source.path)
 
 
 # ── Union ──────────────────────────────────────────────────────────────────
