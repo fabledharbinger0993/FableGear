@@ -1242,29 +1242,21 @@ def cmd_import_missing_rekordbox(args: argparse.Namespace) -> None:
         log.info("DRY RUN — nothing added. Re-run with --write (Rekordbox closed).")
         return
 
-    if _rekordbox_running():
-        log.error("Rekordbox is running — close it before --write.")
-        sys.exit(1)
-    tgt = Path(target) if target else LIVE_DB
-    if not tgt.is_file():
-        log.error("Target master.db not found: %s", tgt)
-        sys.exit(1)
-    bdir = Path.home() / ".fablegear" / "rekordbox_master_backups" / datetime.now().strftime("%Y%m%d_%H%M%S_import")
-    bdir.mkdir(parents=True, exist_ok=True)
-    for suf in ("", "-wal", "-shm"):
-        p = Path(str(tgt) + suf)
-        if p.is_file():
-            shutil.copy2(p, bdir / p.name)
-    log.info("Backed up %s → %s", tgt.name, bdir)
-
-    rep = R.import_missing_to_rekordbox(rec.crates, fg, target_db_path=target, dry_run=False)
-    MANIFESTS.mkdir(parents=True, exist_ok=True)
-    man = {"target": target, "backup": str(bdir), "added": rep.added,
-           "added_content_ids": rep.added_content_ids, "timestamp": datetime.now().isoformat()}
-    (MANIFESTS / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.json").write_text(json.dumps(man, indent=2))
+    from rekordbox_safe_write import safe_master_write, SafeWriteError
     try:
-        fg.log_operation("import_to_rekordbox", file_path=str(tgt), status="ok",
-                         metadata={"added": rep.added, "backup": str(bdir)})
+        with safe_master_write(target, tag="import", manifest_dir=MANIFESTS) as ctx:
+            log.info("Backed up %s → %s", ctx.target.name, ctx.backup_dir)
+            rep = R.import_missing_to_rekordbox(rec.crates, fg, target_db_path=target,
+                                                dry_run=False)
+            ctx.record_manifest({"added": rep.added,
+                                 "added_content_ids": rep.added_content_ids})
+    except SafeWriteError as exc:
+        log.error("%s", exc)
+        sys.exit(1)
+
+    try:
+        fg.log_operation("import_to_rekordbox", file_path=str(ctx.target), status="ok",
+                         metadata={"added": rep.added, "backup": str(ctx.backup_dir)})
     except Exception:  # noqa: BLE001
         pass
     log.info("%s", rep.detail)
@@ -1349,43 +1341,126 @@ def cmd_push_rekordbox(args: argparse.Namespace) -> None:
         log.info("DRY RUN — nothing written. Re-run with --write to push (Rekordbox must be closed).")
         return
 
-    # ── WRITE (guarded) ──
-    if _rekordbox_running():
-        log.error("Rekordbox is running — close it before --write.")
-        sys.exit(1)
-    tgt = Path(target) if target else LIVE_DB
-    if not tgt.is_file():
-        log.error("Target master.db not found: %s", tgt)
-        sys.exit(1)
-    # own fresh backup
-    bdir = Path.home() / ".fablegear" / "rekordbox_master_backups" / datetime.now().strftime("%Y%m%d_%H%M%S_push")
-    bdir.mkdir(parents=True, exist_ok=True)
-    for suf in ("", "-wal", "-shm"):
-        p = Path(str(tgt) + suf)
-        if p.is_file():
-            shutil.copy2(p, bdir / p.name)
-    log.info("Backed up %s → %s", tgt.name, bdir)
+    # ── WRITE (guarded by the shared safe-write envelope) ──
+    from rekordbox_safe_write import safe_master_write, SafeWriteError
 
     folder_name = f"Recovered {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-    rep = R.push_to_rekordbox(crates, target_db_path=target, dry_run=False,
-                              folder_name=folder_name, skip_existing=skip_existing,
-                              min_tracks=min_tracks)
-
-    MANIFESTS.mkdir(parents=True, exist_ok=True)
-    man = {"folder_name": folder_name, "target": target, "backup": str(bdir),
-           "created_folder_id": rep.created_folder_id,
-           "created_playlist_ids": rep.created_playlist_ids,
-           "crates": rep.crates_planned, "links": rep.links_planned,
-           "timestamp": datetime.now().isoformat()}
-    (MANIFESTS / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.json").write_text(json.dumps(man, indent=2))
     try:
-        FableGearDatabase().log_operation("push_to_rekordbox", file_path=str(tgt), status="ok",
-                                          metadata={k: man[k] for k in ("folder_name", "crates", "links", "backup")})
+        with safe_master_write(target, tag="push", manifest_dir=MANIFESTS) as ctx:
+            log.info("Backed up %s → %s", ctx.target.name, ctx.backup_dir)
+            rep = R.push_to_rekordbox(crates, target_db_path=target, dry_run=False,
+                                      folder_name=folder_name, skip_existing=skip_existing,
+                                      min_tracks=min_tracks)
+            ctx.record_manifest({
+                "folder_name": folder_name,
+                "created_folder_id": rep.created_folder_id,
+                "created_playlist_ids": rep.created_playlist_ids,
+                "crates": rep.crates_planned, "links": rep.links_planned,
+            })
+    except SafeWriteError as exc:
+        log.error("%s", exc)
+        sys.exit(1)
+
+    try:
+        FableGearDatabase().log_operation("push_to_rekordbox", file_path=str(ctx.target),
+                                          status="ok",
+                                          metadata={"folder_name": folder_name,
+                                                    "crates": rep.crates_planned,
+                                                    "links": rep.links_planned,
+                                                    "backup": str(ctx.backup_dir)})
     except Exception:  # noqa: BLE001
         pass
     log.info("%s", rep.detail)
     log.info("Undo anytime (Rekordbox closed): python3 cli.py push-recovery-to-rekordbox --undo")
-    log.info("Backup kept at %s", bdir)
+    log.info("Backup kept at %s", ctx.backup_dir)
+
+
+def cmd_smart_dedup(args: argparse.Namespace) -> None:
+    """Smart Deduper — resolve duplicate Rekordbox records WITHOUT orphaning any
+    playlist. Re-wires every playlist membership of a duplicate onto the surviving
+    copy before deleting the record. Dry-run by default; --write executes behind
+    the safe-write envelope (Rekordbox closed + verified backup); --undo restores
+    the last run from its backup. Never touches an audio file."""
+    import json as _json
+    import shutil as _shutil
+    import smart_dedup as SD
+    from pyrekordbox import Rekordbox6Database
+
+    DEDUP_MANIFESTS = Path.home() / ".fablegear" / "rekordbox_dedup_manifests"
+    target = getattr(args, "target", None)
+    mode = SD.DedupMode.PHYSICAL if getattr(args, "mode", "database") == "physical" \
+        else SD.DedupMode.DATABASE
+
+    # ── UNDO: restore master.db from the last dedup backup ──
+    if getattr(args, "undo", False):
+        if _rekordbox_running():
+            log.error("Rekordbox is running — close it before --undo.")
+            sys.exit(1)
+        mans = sorted(DEDUP_MANIFESTS.glob("*.json")) if DEDUP_MANIFESTS.is_dir() else []
+        if not mans:
+            log.error("No dedup manifest found — nothing to undo.")
+            sys.exit(1)
+        man = _json.loads(mans[-1].read_text())
+        bdir = Path(man["backup"])
+        tgt = Path(man["target"])
+        for suf in ("", "-wal", "-shm"):
+            bfile = bdir / (tgt.name + suf)
+            if bfile.is_file():
+                _shutil.copy2(bfile, Path(str(tgt) + suf))
+        mans[-1].rename(mans[-1].with_suffix(".json.undone"))
+        log.info("Undid dedup — restored %s from %s", tgt.name, bdir)
+        return
+
+    # ── PLAN (read-only) ──
+    db = Rekordbox6Database(path=target) if target else Rekordbox6Database()
+    try:
+        plan = SD.SmartDedup(db, mode=mode).plan()
+    finally:
+        db.close()
+
+    s = plan.summary()
+    log.info("Smart Dedup (%s model):", s["mode"])
+    log.info("  duplicate groups     : %d", s["duplicate_groups"])
+    log.info("  auto-resolvable      : %d", s["auto_resolvable"])
+    log.info("  flagged for review   : %d", s["flagged_for_review"])
+    log.info("  records to remove    : %d", s["records_to_remove"])
+    log.info("  memberships re-wired : %d (moved onto survivors)", s["memberships_rewired"])
+    log.info("  duplicate links dropped: %d", s["duplicate_memberships_dropped"])
+
+    if getattr(args, "flagged_out", None):
+        flagged = [{"key": list(g.key),
+                    "records": [{"id": r.id, "path": r.folder_path,
+                                 "playlists": len(r.playlist_ids)} for r in g.records],
+                    "reason": g.reason} for g in plan.flagged]
+        Path(args.flagged_out).write_text(_json.dumps(flagged, indent=2))
+        log.info("Wrote %d flagged group(s) → %s", len(flagged), args.flagged_out)
+
+    if not getattr(args, "write", False):
+        log.info("DRY RUN — nothing changed. Re-run with --write to resolve "
+                 "(Rekordbox must be closed).")
+        return
+
+    # ── WRITE (guarded by the safe-write envelope) ──
+    from rekordbox_safe_write import safe_master_write, SafeWriteError
+    try:
+        with safe_master_write(target, tag="dedup", manifest_dir=DEDUP_MANIFESTS) as ctx:
+            log.info("Backed up %s → %s", ctx.target.name, ctx.backup_dir)
+            wdb = Rekordbox6Database(path=str(ctx.target))
+            try:
+                sd = SD.SmartDedup(wdb, mode=mode)
+                result = sd.execute(sd.plan())
+            finally:
+                wdb.close()
+            ctx.record_manifest({"mode": mode.value, **result})
+    except SafeWriteError as exc:
+        log.error("%s", exc)
+        sys.exit(1)
+
+    log.info("Resolved %d group(s): removed %d record(s), re-wired %d membership(s), "
+             "dropped %d duplicate link(s).", result["groups_resolved"],
+             result["records_removed"], result["memberships_rewired"],
+             result["duplicate_memberships_dropped"])
+    log.info("Undo (Rekordbox closed): python3 cli.py smart-dedup --undo")
 
 
 def cmd_recover_playlists(args: argparse.Namespace) -> None:
@@ -2879,6 +2954,14 @@ def cmd_organize(args: argparse.Namespace) -> None:
         sys.exit(2)
     scheme_label = " / ".join(k.capitalize() for k in scheme_keys)
 
+    # Playlist mirror is always copy-based (a track can be in many playlists),
+    # so it never moves or prunes the source regardless of --mode.
+    if scheme_keys == ("playlist",):
+        if mode == "assimilate":
+            log.info("--by playlist mirrors playlists by COPYING; source is left "
+                     "intact (ignoring --mode assimilate).")
+        mode = "integrate"
+
     for s in sources:
         if not s.is_dir():
             log.error("SOURCE is not a directory: %s", s)
@@ -3696,6 +3779,25 @@ Examples:
                         help="Remove the playlists created by the last push (Rekordbox closed)")
     p_push.set_defaults(func=cmd_push_rekordbox)
 
+    p_dedup = sub.add_parser(
+        "smart-dedup",
+        help="Resolve duplicate Rekordbox records without orphaning playlists "
+             "(re-wires memberships to the survivor first). Dry-run unless --write.",
+    )
+    p_dedup.add_argument("--target", default=None,
+                         help="master.db to work on (default: your live library)")
+    p_dedup.add_argument("--mode", choices=["database", "physical"], default="database",
+                         help="database (default): records referencing files that may or "
+                              "may not exist — keep best path + richest crates, never touch "
+                              "files. physical: only records whose files exist on disk.")
+    p_dedup.add_argument("--write", action="store_true",
+                         help="Actually resolve (default: dry-run). Requires Rekordbox closed.")
+    p_dedup.add_argument("--flagged-out", default=None, dest="flagged_out",
+                         help="Write groups needing manual review to this JSON file")
+    p_dedup.add_argument("--undo", action="store_true",
+                         help="Restore master.db from the last dedup backup (Rekordbox closed)")
+    p_dedup.set_defaults(func=cmd_smart_dedup)
+
     p_pl = sub.add_parser("playlist", help="Create or list FableGear playlists")
     pl_sub = p_pl.add_subparsers(dest="playlist_action", required=True)
     pl_create = pl_sub.add_parser("create", help="Create a playlist (optionally from an imported folder)")
@@ -3975,7 +4077,9 @@ Examples:
              "Keys: label, artist, album, title, genre, year, filetype. "
              "Examples: --by label   --by label/artist   --by genre/artist   --by filetype. "
              "Tag values are cleaned (URLs, junk, Camelot-in-artist dropped); a track with no "
-             "value for the first key goes to Orphaned Tracks.",
+             "value for the first key goes to Orphaned Tracks. "
+             "Special: --by playlist mirrors the archive's playlist tree to folders by "
+             "COPYING (a track in many crates yields many copies; source is left intact).",
     )
     p_organize.add_argument(
         "target",
