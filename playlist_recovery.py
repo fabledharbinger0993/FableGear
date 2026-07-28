@@ -39,6 +39,14 @@ from typing import Dict, List, Optional
 # Trailing Rekordbox duplicate-name suffix, e.g. "best of house (2)" / "  (3)".
 _NUM_SUFFIX = re.compile(r"\s*\(\d+\)\s*$")
 
+# Auto-generated / system playlist names Rekordbox creates (not user crates):
+# file-relocation reports, cue-analysis scratch, empty defaults.
+_AUTO_JUNK = re.compile(
+    r"(could not be relocated|successful relocations|replacement exists|"
+    r"new filepath generated|cue analysis playlist|untitled playlist)",
+    re.IGNORECASE,
+)
+
 log = logging.getLogger(__name__)
 
 
@@ -357,7 +365,7 @@ class PushReport:
 
 def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str] = None,
                       dry_run: bool = True, folder_name: str = "Recovered",
-                      skip_existing: bool = True):
+                      skip_existing: bool = True, min_tracks: int = 1):
     """Write recovered crates into a Rekordbox master.db via pyrekordbox.
 
     Resolves each track against the live collection by filename; creates each
@@ -382,6 +390,8 @@ def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str
 
         plan = []  # (name, [content_id, ...])
         for cr in crates:
+            if _AUTO_JUNK.search(cr.name or ""):
+                continue  # Rekordbox auto-generated report/scratch playlist
             if skip_existing and cr.name in existing:
                 rep.skipped_existing += 1
                 continue
@@ -394,7 +404,8 @@ def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str
                         ids.append(cid)
                 else:
                     rep.unresolved_placements += 1
-            if not ids:
+            if len(ids) < min_tracks:
+                # de-clutter: drop tiny package playlists (or fully unresolved)
                 rep.crates_no_match += 1
                 continue
             plan.append((cr.name, ids))
@@ -424,6 +435,28 @@ def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str
             for i, cid in enumerate(ids, 1):
                 db.add_to_playlist(pl, cid, track_no=i)
             db.commit()
+
+        # Reconcile masterPlaylists6.xml with master.db so Rekordbox actually
+        # displays the new crates (create_playlist usually syncs it, but ensure
+        # every playlist is indexed — the XML is Rekordbox's display tree).
+        from datetime import datetime as _dt
+        xmlobj = getattr(db, "playlist_xml", None)
+        if xmlobj is not None:
+            for p in db.query(tables.DjmdPlaylist):
+                if xmlobj.get(p.ID) is None:
+                    par = p.ParentID if p.ParentID not in (None, "0", 0, "") else "root"
+                    ua = getattr(p, "updated_at", None)
+                    if not isinstance(ua, _dt):
+                        ua = _dt.now()
+                    try:
+                        xmlobj.add(p.ID, par, int(p.Attribute or 0), ua)
+                    except Exception:  # noqa: BLE001
+                        pass
+            try:
+                xmlobj.save()
+            except Exception:  # noqa: BLE001
+                pass
+
         rep.created_playlist_ids = created
         rep.written = True
         rep.detail = (f"WROTE {rep.crates_planned} crate(s), {rep.links_planned} link(s) "

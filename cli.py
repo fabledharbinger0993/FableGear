@@ -1331,9 +1331,10 @@ def cmd_push_rekordbox(args: argparse.Namespace) -> None:
     crates = rec.crates
     skip_existing = not getattr(args, "no_skip_existing", False)
 
+    min_tracks = int(getattr(args, "min_tracks", 1))
     if not getattr(args, "write", False):
         rep = R.push_to_rekordbox(crates, target_db_path=target, dry_run=True,
-                                  skip_existing=skip_existing)
+                                  skip_existing=skip_existing, min_tracks=min_tracks)
         log.info("Target: %s", rep.target)
         log.info("Recovered crates: %d", rep.total_crates)
         log.info("  would CREATE : %d crate(s), %d track link(s)", rep.crates_planned, rep.links_planned)
@@ -1364,7 +1365,8 @@ def cmd_push_rekordbox(args: argparse.Namespace) -> None:
 
     folder_name = f"Recovered {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     rep = R.push_to_rekordbox(crates, target_db_path=target, dry_run=False,
-                              folder_name=folder_name, skip_existing=skip_existing)
+                              folder_name=folder_name, skip_existing=skip_existing,
+                              min_tracks=min_tracks)
 
     MANIFESTS.mkdir(parents=True, exist_ok=True)
     man = {"folder_name": folder_name, "target": target, "backup": str(bdir),
@@ -3581,6 +3583,9 @@ Examples:
                         help="Actually write (default: dry-run). Requires Rekordbox closed.")
     p_push.add_argument("--merge-duplicates", action="store_true", dest="merge_duplicates",
                         help="Collapse Rekordbox '(N)' duplicate-name crates into one each")
+    p_push.add_argument("--min-tracks", type=int, default=1, dest="min_tracks",
+                        help="Only push crates with at least this many resolvable tracks "
+                             "(e.g. 7 to drop tiny package playlists)")
     p_push.add_argument("--no-skip-existing", action="store_true", dest="no_skip_existing",
                         help="Do not skip crates whose name already exists (default: skip them)")
     p_push.add_argument("--undo", action="store_true",
