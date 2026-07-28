@@ -148,6 +148,9 @@ async function saveSettings() {
   const btn = document.querySelector('.settings-save');
   btn.textContent = 'Saving…'; btn.disabled = true;
   try {
+    const acoustidEl = document.getElementById('settings-acoustid-key');
+    const acoustidNewValue = (acoustidEl?.value || '').trim();
+    const clearAcoustid = !!document.getElementById('settings-clear-acoustid-key')?.checked;
     const payload = {
       archive_mode: mode,
       custom_archive_dir: custom,

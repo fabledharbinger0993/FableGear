@@ -113,9 +113,18 @@ def test_process_directory_forwards_per_effect_force(tmp_path, monkeypatch):
     monkeypatch.setattr("scanner.scan_directory",
                         lambda root: [type("T", (), {"path": tmp_path / "a.mp3"})()])
 
-    ap.process_directory(tmp_path, force_bpm=True, force_key=False, normalise=False)
+    ap.process_directory(
+        tmp_path,
+        force_bpm=True,
+        force_key=False,
+        force_normalize=True,
+        force_enrich=True,
+        normalise=False,
+    )
     assert captured.get("force_bpm") is True
     assert captured.get("force_key") is False
+    assert captured.get("force_normalize") is True
+    assert captured.get("force_enrich") is True
 
 
 def test_journal_records_per_effect_counts(tmp_path):
@@ -159,3 +168,23 @@ def test_cli_parser_has_per_effect_force():
     ns = parser.parse_args(["process", "/tmp/x", "--force-bpm"])
     assert ns.force_bpm is True
     assert ns.force_key is False
+
+
+def test_cli_parser_has_process_modes():
+    import cli
+    parser = cli.build_parser()
+    ns = parser.parse_args(
+        [
+            "process", "/tmp/x",
+            "--bpm-mode", "aggressive",
+            "--key-mode", "off",
+            "--normalize-mode", "passive",
+            "--enrich-mode", "aggressive",
+            "--rename-mode", "passive",
+        ]
+    )
+    assert ns.bpm_mode == "aggressive"
+    assert ns.key_mode == "off"
+    assert ns.normalize_mode == "passive"
+    assert ns.enrich_mode == "aggressive"
+    assert ns.rename_mode == "passive"

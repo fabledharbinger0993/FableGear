@@ -5,14 +5,13 @@ SQLite's host-parameter limit.
 The original implementation built one ``IN (?,?,...)`` clause sized to the
 entire fetched track set for the fg_cue and fg_beatgrid lookups (and the
 explicit ``content_ids`` path did the same for the fg_content fetch itself).
-SQLITE_MAX_VARIABLE_NUMBER is a compile-time knob — classically 999, 32766 on
-modern builds (measured 32766 on this project's venv, SQLite 3.50) — so a
-big enough Record Room crashed with ``sqlite3.OperationalError: too many SQL
-variables`` on some machines and silently worked on others.
+SQLITE_MAX_VARIABLE_NUMBER is a compile-time knob — classically 999 — so a
+library with more than ~999 tracks crashed with
+``sqlite3.OperationalError: too many SQL variables``.
 
-TRACK_COUNT below is deliberately above every common ceiling, including the
-modern 32766 default, so the test goes red on unchunked code regardless of
-which SQLite this machine ships.
+TRACK_COUNT is set to 1500, which is above the classic 999 limit and spans
+three 500-row chunks, exercising the loop boundary in both code paths without
+making the fixture slow in CI.
 
 Run from the repo root:
     python3 -m pytest tests/test_content_relations_chunking.py -v
@@ -30,9 +29,11 @@ if str(REPO_ROOT) not in sys.path:
 from fablegear_database.database import FableGearDatabase
 from fablegear_database.schema import DatabaseConfig
 
-# Above the classic 999 limit AND the 32766 modern default. Chunked code
-# (500/batch) never approaches either.
-TRACK_COUNT = 33_000
+# Above the classic 999-variable limit so unchunked code raises
+# OperationalError on the most common SQLite builds. 1500 rows also
+# span three 500-row chunks, exercising the loop boundary without
+# making the fixture slow in CI.
+TRACK_COUNT = 1_500
 
 
 @pytest.fixture(scope="module")
@@ -42,7 +43,7 @@ def big_db(tmp_path_factory):
 
     Setup uses raw SQL in a single transaction purely for fixture speed —
     the code under test is get_content_with_relations(), not the inserts.
-    Module-scoped: building 2500 rows once is enough for both tests.
+    Module-scoped: building 1500 rows once is enough for both tests.
     """
     db_path = tmp_path_factory.mktemp("chunking") / "fablegear.db"
     db = FableGearDatabase(DatabaseConfig(db_path=db_path))

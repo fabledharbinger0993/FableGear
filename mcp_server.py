@@ -61,6 +61,7 @@ from user_config import (
 
 try:
     from mcp.server.fastmcp import FastMCP
+    from mcp.server.transport_security import TransportSecuritySettings
 except ImportError:
     print(
         "The 'mcp' package is required. Install with:\n"
@@ -1213,12 +1214,12 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.transport == "sse":
-        cfg = _get_config() or {}
-        token = cfg.get("mcp_token", "")
-        host = args.host
-        if host == "0.0.0.0" and token:
-            _log.info("Exposed mode — token auth enabled")
-        mcp.run(transport="sse", host=host, port=args.port)
+        mcp.settings.host = "0.0.0.0"
+        mcp.settings.port = args.port
+        mcp.settings.transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=False,
+        )
+        mcp.run(transport="sse")
     else:
         mcp.run(transport="stdio")
 
