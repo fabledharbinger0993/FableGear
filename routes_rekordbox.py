@@ -292,3 +292,36 @@ def api_migrate_pioneer_db():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ── Export Audit ──────────────────────────────────────────────────────────────
+
+@bp.route("/api/run/export-audit")
+def api_export_audit():
+    mount = request.args.get("mount", "").strip()
+    if not mount:
+        return jsonify({"error": "mount is required"}), 400
+        
+    cmd = [sys.executable, str(CLI_PATH), "export-audit", mount]
+    return _sse_response(cmd, library_root=mount, step_name="export-audit")
+
+
+# ── Bidirectional Sync ────────────────────────────────────────────────────────
+
+@bp.route("/api/run/bidirectional-sync")
+def api_bidirectional_sync():
+    dry_run = request.args.get("dry_run") == "1"
+    if not dry_run:
+        err = _require_rb_closed()
+        if err:
+            return err
+
+    cmd = [sys.executable, str(CLI_PATH), "rekordbox-sync"]
+    db_path = request.args.get("db_path", "").strip()
+    if db_path:
+        cmd += ["--db-path", db_path]
+    if not dry_run:
+        cmd.append("--no-dry-run")
+
+    library_root = db_path or "rekordbox"
+    return _sse_response(cmd, library_root=library_root, step_name="rekordbox-sync")

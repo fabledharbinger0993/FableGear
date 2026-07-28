@@ -146,19 +146,21 @@
     <div id="drive-detect-results" class="drive-detect-results" style="display:none"></div>
   </div>
 
-  <!-- Health hazard panel — shown when background checks find configuration hazards -->
+  <!-- Health hazard banner — compact dock trigger; findings + fixes live in
+       #health-modal so a long finding list can never grow the dock and push
+       the docked tool modal into overlap (see #health-modal below). -->
   <div id="health-panel" class="health-panel" style="display:none">
     <div class="health-panel-header">
-      <span id="health-panel-badge" class="health-badge"></span>
+      <span id="health-panel-badge" class="health-badge" style="cursor:pointer" onclick="openHealthModal()" title="Review health issues"></span>
       <strong>Health Issues</strong>
       <div class="health-panel-controls">
+        <button type="button" class="btn btn-neon btn-xs" onclick="openHealthModal()">Review</button>
         <button type="button" class="btn btn-secondary btn-xs" onclick="runHealthCheck(true)" id="health-recheck-btn">Re-check</button>
         <button type="button" class="drive-offline-close" onclick="dismissHealthPanel()" title="Dismiss">
           <img src="/static/close.png" alt="Close" class="drive-offline-close-img">
         </button>
       </div>
     </div>
-    <div id="health-findings-list"></div>
   </div>
   </div>
 
@@ -277,6 +279,23 @@
 <!-- Session summary pills — float at bottom-right -->
 <div id="session-pills-container"></div>
 
+<!-- ══ Health issues modal ══════════════════════════════════════════════════
+     Findings + their smart-handling fixes (fix_hint / fix_action, see
+     static/shared/health.js) are reviewed here instead of inline in the
+     dock, so a long list can't overlap the docked Tag Tracks/tool modal. -->
+<div id="health-modal-backdrop" class="hidden">
+  <div id="health-modal">
+    <div class="settings-header">
+      <strong id="health-modal-badge" class="health-badge"></strong>
+      <h2>Health Issues</h2>
+      <button type="button" class="settings-close" onclick="closeHealthModal()">✕</button>
+    </div>
+    <div class="settings-body">
+      <div id="health-findings-list"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ══ Settings modal ═══════════════════════════════════════════════════════ -->
 <div id="settings-backdrop" class="hidden">
   <div id="settings-modal">
@@ -342,6 +361,10 @@
             </label>
             <input type="text" id="settings-acoustid-key" class="settings-path-input"
                    placeholder="Paste your AcoustID API key" autocomplete="off" spellcheck="false">
+            <label class="checkbox-label" style="margin-top:8px;display:flex;gap:8px;align-items:center">
+              <input type="checkbox" id="settings-clear-acoustid-key">
+              <span>Clear stored AcoustID key</span>
+            </label>
             <div class="settings-excl-note">
               Enables the “Metadata Enrichment” option in Tag Tracks — fingerprints each file and fills in
               missing title / artist / album from MusicBrainz. Music data only; nothing else leaves your machine.
@@ -373,9 +396,9 @@
           </div>
 
           <div class="settings-path-group">
-            <label class="settings-path-label">Device DB (DJMT)</label>
+            <label class="settings-path-label">Device DB</label>
             <div class="settings-path-row">
-              <input type="text" id="settings-djmt-db" class="settings-path-input" readonly>
+              <input type="text" id="settings-device-db" class="settings-path-input" readonly>
             </div>
           </div>
 
@@ -1052,7 +1075,8 @@
           <div class="le-col le-col-dur" onclick="leSortBy('duration')">Time <span class="le-sort-arrow" data-col="duration"></span></div>
           <div class="le-col le-col-date" onclick="leSortBy('date_added')">Added <span class="le-sort-arrow" data-col="date_added"></span></div>
         </div>
-        <div class="le-track-list" id="le-track-list">
+        <div class="le-track-list" id="le-track-list"
+             ondragover="leTrackListDragOver(event)" ondragleave="leTrackListDragLeave(event)" ondrop="leTrackListDrop(event)">
           <div class="le-empty-state" id="le-empty-state">
             <div class="le-empty-music-icon">♫</div>
             <div>Loading library…</div>
@@ -1108,6 +1132,9 @@
         <div id="le-export-progress-bar" class="le-export-progress-bar"></div>
       </div>
       <div id="le-export-progress-label" class="le-export-progress-label">Starting…</div>
+      <div id="le-export-audit-action" class="hidden" style="margin-top: 12px; text-align: center;">
+        <button type="button" class="btn btn-neon btn-xs" onclick="leRunExportAudit()">🔍 Verify Exported Drive</button>
+      </div>
     </div>
 
     <!-- Errors -->

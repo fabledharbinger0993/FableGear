@@ -150,7 +150,7 @@ def _load_duplicate_cache(csv_path: Path, *, include_db: bool = True) -> dict:
     if include_db:
         try:
             from db_connection import read_db  # noqa: PLC0415
-            from config import DJMT_DB as _DB  # noqa: PLC0415
+            from config import DEVICE_DB as _DB  # noqa: PLC0415
             with read_db(_DB) as db:
                 groups = load_report(csv_path, db)
         except Exception as db_exc:
@@ -226,48 +226,79 @@ def api_process():
     if not paths:
         return jsonify({"error": "path is required"}), 400
 
-    no_bpm = request.args.get("no_bpm") == "1"
-    no_key = request.args.get("no_key") == "1"
-    no_normalize = request.args.get("no_normalize") == "1"
+    bpm_mode = (request.args.get("bpm_mode") or "").strip().lower()
+    key_mode = (request.args.get("key_mode") or "").strip().lower()
+    normalize_mode = (request.args.get("normalize_mode") or "").strip().lower()
+    enrich_mode = (request.args.get("enrich_mode") or "").strip().lower()
+    rename_mode = (request.args.get("rename_mode") or "").strip().lower()
     force = request.args.get("force") == "1"
     force_bpm = request.args.get("force_bpm") == "1"
     force_key = request.args.get("force_key") == "1"
+    no_bpm = request.args.get("no_bpm") == "1"
+    no_key = request.args.get("no_key") == "1"
+    no_normalize = request.args.get("no_normalize") == "1"
     enrich_tags = request.args.get("enrich_tags") == "1"
     smart_skip = request.args.get("smart_skip", "1") == "1"
 
-    detect_bpm = not no_bpm
-    detect_key = not no_key
+    # Backward-compatible coercion from legacy booleans when explicit modes
+    # are not supplied by the client.
+    if bpm_mode not in {"off", "passive", "aggressive"}:
+        if no_bpm:
+            bpm_mode = "off"
+        elif force or force_bpm:
+            bpm_mode = "aggressive"
+        else:
+            bpm_mode = "passive"
+    if key_mode not in {"off", "passive", "aggressive"}:
+        if no_key:
+            key_mode = "off"
+        elif force or force_key:
+            key_mode = "aggressive"
+        else:
+            key_mode = "passive"
+    if normalize_mode not in {"off", "passive", "aggressive"}:
+        normalize_mode = "off" if no_normalize else "passive"
+    if enrich_mode not in {"off", "passive", "aggressive"}:
+        enrich_mode = "passive" if enrich_tags else "off"
+    if rename_mode not in {"off", "passive", "aggressive"}:
+        rename_mode = "off"
+
+    detect_bpm = bpm_mode != "off"
+    detect_key = key_mode != "off"
+    if (
+        bpm_mode == "off"
+        and key_mode == "off"
+        and normalize_mode == "off"
+        and enrich_mode == "off"
+        and rename_mode == "off"
+    ):
+        return jsonify({"error": "All tagger modes are Off — enable at least one effect."}), 400
 
     cmd = [sys.executable, str(CLI_PATH), "process", paths[0]]
     for extra in paths[1:]:
         cmd += ["--also-scan", extra]
 
-    if no_bpm:
-        cmd.append("--no-bpm")
-    if no_key:
-        cmd.append("--no-key")
-    if no_normalize:
-        cmd.append("--no-normalize")
+    cmd += ["--bpm-mode", bpm_mode, "--key-mode", key_mode]
+    cmd += ["--normalize-mode", normalize_mode, "--enrich-mode", enrich_mode]
+    cmd += ["--rename-mode", rename_mode]
     if force:
         cmd.append("--force")
-    if force_bpm:
-        cmd.append("--force-bpm")
-    if force_key:
-        cmd.append("--force-key")
-    if enrich_tags:
-        cmd.append("--enrich-tags")
     if request.args.get("dry_run") == "1":
         cmd.append("--dry-run")
     workers = request.args.get("workers", "").strip()
     if workers and workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
-
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
 
     if (
         smart_skip
-        and not force and not force_bpm and not force_key
-        and no_normalize
-        and not enrich_tags
+        and bpm_mode == "passive"
+        and key_mode == "passive"
+        and normalize_mode == "off"
+        and enrich_mode == "off"
+        and rename_mode == "off"
         and (detect_bpm or detect_key)
     ):
         roots = [Path(p) for p in paths]
@@ -301,17 +332,22 @@ def api_process_retry():
     tf.close()
 
     placeholder_root = str(Path(paths[0]).parent)
+    bpm_mode = str(body.get("bpm_mode", "passive")).strip().lower()
+    key_mode = str(body.get("key_mode", "passive")).strip().lower()
+    if bpm_mode not in {"off", "passive", "aggressive"}:
+        bpm_mode = "passive"
+    if key_mode not in {"off", "passive", "aggressive"}:
+        key_mode = "passive"
+
     cmd = [
         sys.executable, str(CLI_PATH),
         "process", placeholder_root,
         "--no-normalize",
         "--force",
         "--paths-file", tf.name,
+        "--bpm-mode", bpm_mode,
+        "--key-mode", key_mode,
     ]
-    if body.get("no_bpm"):
-        cmd.append("--no-bpm")
-    if body.get("no_key"):
-        cmd.append("--no-key")
 
     library_root = str(Path(paths[0]).parent)
     return _sse_response(
@@ -377,10 +413,36 @@ def api_pipeline():
             for extra in paths[1:]:
                 if extra:
                     cmd += ["--also-scan", extra]
-            if cfg.get("no_bpm"):       cmd.append("--no-bpm")
-            if cfg.get("no_key"):       cmd.append("--no-key")
-            if cfg.get("no_normalize"): cmd.append("--no-normalize")
-            if cfg.get("force"):        cmd.append("--force")
+            bpm_mode = str(cfg.get("bpm_mode", "")).strip().lower()
+            key_mode = str(cfg.get("key_mode", "")).strip().lower()
+            normalize_mode = str(cfg.get("normalize_mode", "")).strip().lower()
+            enrich_mode = str(cfg.get("enrich_mode", "")).strip().lower()
+            rename_mode = str(cfg.get("rename_mode", "off")).strip().lower()
+            if bpm_mode not in {"off", "passive", "aggressive"}:
+                if cfg.get("no_bpm"):
+                    bpm_mode = "off"
+                elif cfg.get("force") or cfg.get("force_bpm"):
+                    bpm_mode = "aggressive"
+                else:
+                    bpm_mode = "passive"
+            if key_mode not in {"off", "passive", "aggressive"}:
+                if cfg.get("no_key"):
+                    key_mode = "off"
+                elif cfg.get("force") or cfg.get("force_key"):
+                    key_mode = "aggressive"
+                else:
+                    key_mode = "passive"
+            if normalize_mode not in {"off", "passive", "aggressive"}:
+                normalize_mode = "off" if cfg.get("no_normalize", False) else "passive"
+            if enrich_mode not in {"off", "passive", "aggressive"}:
+                enrich_mode = "passive" if cfg.get("enrich_tags", False) else "off"
+            if rename_mode not in {"off", "passive", "aggressive"}:
+                rename_mode = "off"
+            cmd += ["--bpm-mode", bpm_mode, "--key-mode", key_mode]
+            cmd += ["--normalize-mode", normalize_mode, "--enrich-mode", enrich_mode]
+            cmd += ["--rename-mode", rename_mode]
+            if cfg.get("force"):
+                cmd.append("--force")
             if cfg.get("workers", 1) > 1:
                 cmd += ["--workers", str(cfg["workers"])]
             if dry_run:                 cmd.append("--dry-run")
@@ -557,6 +619,10 @@ def api_organize():
         except ValueError:
             pass
 
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
+
     library_root = _get_library_root(request, "target")
     return _sse_response(cmd, library_root=library_root, step_name="organize")
 
@@ -576,6 +642,9 @@ def api_convert():
     workers = request.args.get("workers", "1").strip()
     if workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
     library_root = paths[0]
     return _sse_response(cmd, library_root=library_root, step_name="convert")
 
@@ -593,6 +662,10 @@ def api_novelty():
     for extra in sources[1:]:
         cmd += ["--also-scan", extra]
 
+    copy_to = request.args.get("copy_to", "").strip()
+    if copy_to:
+        cmd += ["--copy-to", copy_to]
+
     if request.args.get("no_dry_run") == "1":
         cmd.append("--no-dry-run")
 
@@ -604,6 +677,10 @@ def api_novelty():
     workers = request.args.get("workers", "1").strip()
     if workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
+
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
 
     library_root = _get_library_root(request, "dest")
     return _sse_response(cmd, library_root=library_root, step_name="novelty")
@@ -637,6 +714,10 @@ def api_rename():
     workers = request.args.get("workers", "1").strip()
     if workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
+
+    checkpoint_action = request.args.get("checkpoint_action", "").strip()
+    if checkpoint_action in ("resume", "reset"):
+        cmd += ["--checkpoint-action", checkpoint_action]
 
     library_root = paths[0]
     return _sse_response(cmd, library_root=library_root, step_name="rename")
@@ -784,6 +865,31 @@ def api_checkpoint_check():
         return jsonify(ck.info())
     except Exception as exc:
         return jsonify({"exists": False, "error": str(exc)}), 200
+
+
+@bp.route("/api/checkpoint/reset", methods=["POST"])
+def api_checkpoint_reset():
+    """
+    Discard every saved checkpoint for a tool — the server-side half of
+    "Start Fresh". Clearing only the browser's localStorage banner (what the
+    UI previously did on its own) left the actual ~/.fablegear/checkpoints
+    file in place, so the next run silently resumed from stale state anyway.
+
+    Query params:
+      tool — tool name: duplicates, process, convert, organize, novelty, rename
+    """
+    try:
+        from checkpoint import reset_all  # noqa: PLC0415
+    except ImportError:
+        return jsonify({"ok": False, "error": "checkpoint module not available"}), 200
+
+    tool = request.args.get("tool", "").strip()
+    valid_tools = {"duplicates", "process", "convert", "organize", "novelty", "rename"}
+    if tool not in valid_tools:
+        return jsonify({"error": f"tool must be one of: {', '.join(sorted(valid_tools))}"}), 400
+
+    removed = reset_all(tool)
+    return jsonify({"ok": True, "tool": tool, "removed": removed})
 
 
 # ── Duplicates ────────────────────────────────────────────────────────────────
@@ -1033,11 +1139,11 @@ def api_run_prune():
 
             from pruner import prune_files  # noqa: PLC0415
             from db_connection import write_db  # noqa: PLC0415
-            from config import DJMT_DB as _DJMT_DB, LOCAL_DB as _LOCAL_DB  # noqa: PLC0415
+            from config import DEVICE_DB as _DEVICE_DB, LOCAL_DB as _LOCAL_DB  # noqa: PLC0415
 
             # Use the device DB (Pioneer drive) when it's mounted — that's where
-            # the actual library lives. Fall back to LOCAL_DB only if DJMT_DB is absent.
-            _prune_db_path = _DJMT_DB if (_DJMT_DB and _DJMT_DB.exists()) else _LOCAL_DB
+            # the actual library lives. Fall back to LOCAL_DB only if DEVICE_DB is absent.
+            _prune_db_path = _DEVICE_DB if (_DEVICE_DB and _DEVICE_DB.exists()) else _LOCAL_DB
 
             from helpers import get_archive, get_archive_error  # noqa: PLC0415
             _fg_archive = get_archive()
