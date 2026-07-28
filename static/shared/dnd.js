@@ -416,6 +416,10 @@ function runDeadFiles() {
   runCommand(`/api/run/dead-files?${p.toString()}`, 'Dead File Scanner — Untracked Audio Files', null, true);
 }
 
+// Signatures (artist+title+duration) from the last preview — Consolidate
+// only acts on groups the user actually reviewed, not a fresh re-scan.
+let _lastCanonicalPlanSignatures = null;
+
 async function previewCanonicalPlan() {
   try {
     const res = await fetch('/api/library/integrity/canonical-paths/plan?max_groups=50', { cache: 'no-store' });
@@ -425,15 +429,21 @@ async function previewCanonicalPlan() {
       return;
     }
 
+    const plans = Array.isArray(data.plans) ? data.plans : [];
+    _lastCanonicalPlanSignatures = plans.map(p => p.signature).filter(Boolean);
+
     const lines = [];
     lines.push('Canonical Path Consolidation Plan (Read-only Preview)');
+    lines.push('');
+    lines.push('Database Library duplicates — DjmdContent records that share');
+    lines.push('artist + title + duration but disagree on file path. Nothing on');
+    lines.push('disk is read or touched; this is metadata-only.');
     lines.push('');
     lines.push(`Tracks scanned: ${data.total_tracks_scanned || 0}`);
     lines.push(`Conflict groups: ${data.total_conflict_groups || 0}`);
     lines.push(`Planned groups shown: ${data.planned_groups || 0}`);
     lines.push('');
 
-    const plans = Array.isArray(data.plans) ? data.plans : [];
     if (!plans.length) {
       lines.push('No canonical-path conflicts detected.');
     } else {
@@ -441,7 +451,8 @@ async function previewCanonicalPlan() {
         const sig = plan.signature || {};
         const keeper = plan.keeper || {};
         const remove = Array.isArray(plan.remove_candidates) ? plan.remove_candidates : [];
-        lines.push(`[${idx + 1}] ${sig.artist || '(unknown artist)'} — ${sig.title || '(untitled)'} (${sig.duration || 0}s)`);
+        const flag = plan.ambiguous ? '  [AMBIGUOUS — will be skipped; needs a manual pick]' : '';
+        lines.push(`[${idx + 1}] ${sig.artist || '(unknown artist)'} — ${sig.title || '(untitled)'} (${sig.duration || 0}s)${flag}`);
         lines.push(`  Keep: ${keeper.path || '(missing path)'} [ContentID ${keeper.content_id || '?'}]`);
         lines.push(`  Estimated playlist slots to rethread: ${plan.estimated_playlist_slots_to_rethread || 0}`);
         remove.forEach((entry) => {
@@ -449,11 +460,64 @@ async function previewCanonicalPlan() {
         });
         lines.push('');
       });
+      lines.push('Click "Consolidate Duplicates" to act on this plan: playlists are');
+      lines.push('re-wired onto each keeper, then the redundant records are removed.');
+      lines.push('No audio file is ever moved or deleted. Ambiguous groups are skipped.');
     }
 
     openReportModal('Canonical Path Plan — Read-only Preview', lines.join('\n'), null);
   } catch (_) {
     showToast('Could not load canonical plan preview.', 'error');
+  }
+}
+
+async function executeCanonicalConsolidation() {
+  if (!_lastCanonicalPlanSignatures || !_lastCanonicalPlanSignatures.length) {
+    showToast('Run "Preview Canonical Plan" first, then Consolidate.', 'warning');
+    return;
+  }
+
+  const n = _lastCanonicalPlanSignatures.length;
+  const ok = confirm(
+    `Consolidate ${n} duplicate group${n === 1 ? '' : 's'}?\n\n` +
+    'Every playlist that referenced a duplicate record will be re-wired to ' +
+    'the kept record, then the redundant database rows are removed. No ' +
+    'audio file is moved or deleted. Rekordbox must be closed — FableGear ' +
+    'will back up your database first.'
+  );
+  if (!ok) return;
+
+  try {
+    const res = await fetch('/api/library/integrity/canonical-paths/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signatures: _lastCanonicalPlanSignatures }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(data.error || 'Consolidation failed.', 'error');
+      return;
+    }
+
+    const lines = [];
+    lines.push('Database Library Consolidation — Complete');
+    lines.push('');
+    lines.push(`Groups resolved            : ${data.groups_resolved || 0}`);
+    lines.push(`Database records removed   : ${data.content_removed || 0}`);
+    lines.push(`Playlist slots re-threaded : ${data.playlists_rethreaded || 0}`);
+    if (data.groups_skipped_ambiguous) {
+      lines.push(`Skipped (ambiguous)        : ${data.groups_skipped_ambiguous}`);
+    }
+    if (Array.isArray(data.log) && data.log.length) {
+      lines.push('');
+      lines.push(...data.log);
+    }
+
+    _lastCanonicalPlanSignatures = null;
+    openReportModal('Database Library Consolidation', lines.join('\n'), null);
+    showToast('Duplicate database records consolidated.', 'success');
+  } catch (_) {
+    showToast('Consolidation failed.', 'error');
   }
 }
 

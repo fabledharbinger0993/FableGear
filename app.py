@@ -59,6 +59,10 @@ app = Flask(
 @app.errorhandler(Exception)
 def _handle_unexpected_exception(exc):
     if request.path.startswith("/api/"):
+        import logging as _logging  # noqa: PLC0415
+        _logging.getLogger(__name__).exception(
+            "Unhandled exception on %s %s", request.method, request.path
+        )
         return api_error_from_exc(exc)
     raise exc
 
@@ -228,6 +232,76 @@ try:
     ensure_archive_structure()
 except Exception:
     pass  # Drive not mounted yet — non-fatal
+
+try:
+    # Archive-first DB home (docs/archive_first_architecture.md §3): restore
+    # the local working copy from the archive if it's missing/corrupt, or
+    # seed the archive from an existing local DB on first run. No-ops
+    # (returns action="skipped") when the drive isn't mounted — never blocks
+    # startup.
+    import logging as _logging  # noqa: PLC0415
+    from fablegear_database.archive_sync import startup_sync_check as _archive_startup_sync_check
+    _startup_sync_result = _archive_startup_sync_check()
+    if not _startup_sync_result.ok:
+        _logging.getLogger(__name__).warning(
+            "Archive DB sync check at startup: %s", _startup_sync_result.reason,
+        )
+    elif _startup_sync_result.action != "skipped":
+        _logging.getLogger(__name__).info(
+            "Archive DB sync check at startup: %s (%s)",
+            _startup_sync_result.action, _startup_sync_result.reason,
+        )
+except Exception:
+    import logging as _logging  # noqa: PLC0415
+    _logging.getLogger(__name__).exception("Archive DB startup sync check failed")
+
+
+def _sync_archive_db_on_exit() -> None:
+    """Clean-shutdown checkpoint (doc §3.2): back up the local working copy
+    to the archive on process exit. Best-effort — a missing drive or an
+    interrupted shutdown just means the periodic scheduler
+    (snapshot_scheduler) picks it up on its next cadence instead."""
+    try:
+        from fablegear_database.archive_sync import sync_db_to_archive  # noqa: PLC0415
+        sync_db_to_archive()
+    except Exception:
+        pass
+
+
+import atexit  # noqa: E402
+atexit.register(_sync_archive_db_on_exit)
+
+# atexit alone doesn't run on SIGTERM/SIGINT (Python's default handling for
+# both terminates immediately without unwinding to atexit). This app's own
+# self-update flow signals itself with SIGTERM (see api_update_apply), and a
+# packaged desktop build is routinely closed via SIGTERM/SIGINT from the OS
+# or its process supervisor — those are the *actual* common shutdown paths,
+# not a plain interpreter exit. Route both through the same sync + exit so
+# "clean shutdown" in the doc means what actually happens, not just the
+# idealized case.
+_prior_sigterm_handler = signal.getsignal(signal.SIGTERM)
+_prior_sigint_handler = signal.getsignal(signal.SIGINT)
+
+
+def _handle_shutdown_signal(signum, frame):
+    _sync_archive_db_on_exit()
+    if signum == signal.SIGTERM and callable(_prior_sigterm_handler):
+        _prior_sigterm_handler(signum, frame)
+        return
+    if signum == signal.SIGINT and callable(_prior_sigint_handler):
+        _prior_sigint_handler(signum, frame)
+        return
+    sys.exit(0)
+
+
+try:
+    signal.signal(signal.SIGTERM, _handle_shutdown_signal)
+    signal.signal(signal.SIGINT, _handle_shutdown_signal)
+except (ValueError, OSError):
+    # signal.signal() only works in the main thread of the main interpreter —
+    # non-fatal if app.py is ever imported somewhere that isn't (e.g. certain
+    # test harnesses); atexit above still covers normal interpreter exit.
+    pass
 
 
 # ── Health check cache ────────────────────────────────────────────────────────
@@ -458,7 +532,7 @@ def api_config():
     from helpers import _current_fablegear_mode, _backup_dir  # noqa: PLC0415
     try:
         from config import (  # noqa: PLC0415
-            DJMT_DB, LOCAL_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
+            DEVICE_DB, LOCAL_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
             BACKUP_DIR, ARCHIVE_ENABLED, SNAPSHOT_CADENCE, SNAPSHOT_INCLUDE_MASTER_DB,
             _archive_mode, _custom_archive,
         )
@@ -468,7 +542,7 @@ def api_config():
         return jsonify({
             "music_root":       str(MUSIC_ROOT),
             "local_db":         str(LOCAL_DB),
-            "djmt_db":          str(DJMT_DB),
+            "device_db":        str(DEVICE_DB),
             "backup_dir":       str(BACKUP_DIR),
             "archive_root":     str(ARCHIVE_ROOT),
             "quarantine":       str(QUARANTINE_DIR),
@@ -487,7 +561,7 @@ def api_config():
         current_mode = _current_fablegear_mode()
         return jsonify({
             "music_root":      "",
-            "djmt_db":         "",
+            "device_db":       "",
             "backup_dir":      str(_backup_dir()),
             "archive_root":    "",
             "quarantine":      "",
@@ -790,6 +864,27 @@ def api_pick_folder():
     return jsonify({"path": None})
 
 
+@app.route("/api/pick-file")
+def api_pick_file():
+    """Open the native file-chooser dialog. macOS uses osascript; other platforms
+    rely on pywebview's js_api.pick_file() called directly from the frontend.
+
+    Used as the fallback when the page isn't running inside the pywebview native
+    window (e.g. a plain browser tab), where window.pywebview is never defined.
+    """
+    if _SYSTEM == "Darwin":
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", "POSIX path of (choose file)"],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode == 0:
+                return jsonify({"path": result.stdout.strip()})
+        except Exception:
+            pass
+    return jsonify({"path": None})
+
+
 # ── Volume helpers ─────────────────────────────────────────────────────────────
 
 _AUDIO_BEARING_SKIP = frozenset({"Macintosh HD", "Recovery", "VM", "Preboot", "Update", "Data"})
@@ -815,14 +910,17 @@ def _drive_name(mountpoint: str) -> str:
 
 
 def _is_browseable_path(p: Path) -> bool:
-    """Security check: only allow paths the user legitimately owns."""
-    s = str(p)
-    home = str(Path.home())
-    if _SYSTEM == "Darwin":
-        return s.startswith("/Volumes/") or s.startswith(home)
-    if _SYSTEM == "Windows":
-        return len(s) >= 3 and s[1] == ":" and s[2] in ("/", "\\")
-    return s.startswith("/media/") or s.startswith("/mnt/") or s.startswith(home)
+    """Security check for the read-only file-browser panel.
+
+    Any real, existing folder is browseable — a drive or subfolder shouldn't
+    have to live under /Volumes or the user's home directory to be pointed at
+    a tool. Only OS-internal trees are excluded; see forbidden_browse_reason().
+    """
+    try:
+        from path_guard import forbidden_browse_reason  # noqa: PLC0415
+    except ImportError:  # imported via the chop_shop package
+        from chop_shop.path_guard import forbidden_browse_reason  # noqa: PLC0415
+    return forbidden_browse_reason(p) is None
 
 
 def _mounted_volumes() -> list:
@@ -1239,16 +1337,25 @@ def onboarding():
     """Serve the first-run setup wizard."""
     from flask import redirect as _redirect  # noqa: PLC0415
     from user_config import config_exists   # noqa: PLC0415
+    # Whether a usable app already exists behind the wizard. Drives the
+    # wizard's Exit control: a configured user (re-running setup) can exit
+    # straight back to the app; a first-run user has no app to return to, so
+    # Exit offers to quit and resume later instead.
+    already_configured = False
     try:
         if config_exists():
             state = _load_setup_state(repair=True)
+            already_configured = bool(state.get("setup_complete"))
             # `?reconfigure=1` lets a completed user re-enter the wizard (e.g. to
             # change permissions or paths); otherwise a finished setup bounces home.
-            if state.get("setup_complete") and not request.args.get("reconfigure"):
+            if already_configured and not request.args.get("reconfigure"):
                 return _redirect("/")
     except Exception:
-        pass
-    return render_template("onboarding.html")
+        # Fails open onto the wizard (the safe default), but silently — log
+        # it so a real setup-state bug is visible instead of just "onboarding
+        # showed up again for no obvious reason."
+        app.logger.exception("onboarding gate: setup state check failed — showing wizard")
+    return render_template("onboarding.html", already_configured=already_configured)
 
 
 @app.route("/api/onboarding/dep-check")
@@ -1437,6 +1544,7 @@ def api_onboarding_import_sources():
 
 
 @app.route("/api/onboarding/import-sources/status")
+@limiter.exempt
 def api_onboarding_import_sources_status():
     return jsonify(_OB_IMPORT)
 

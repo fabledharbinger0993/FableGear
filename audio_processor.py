@@ -32,6 +32,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 import librosa
 import numpy as np
@@ -40,25 +41,9 @@ from mutagen import File as MutagenFile
 from mutagen.id3 import TBPM, TKEY
 
 from config import AUDIO_EXTENSIONS, BPM_MAX, BPM_MIN, LUFS_TOLERANCE, TARGET_LUFS
+from health_acoustid import collect_health
 
 log = logging.getLogger(__name__)
-
-
-def _fpcalc_available() -> bool:
-    """Return True if fpcalc is on PATH and responds to -version.
-    Fingerprinting features degrade gracefully when this returns False
-    (Windows users without a manual fpcalc install).
-    """
-    found = shutil.which("fpcalc")
-    if not found:
-        return False
-    try:
-        result = subprocess.run(
-            [found, "-version"], capture_output=True, text=True, timeout=5
-        )
-        return result.returncode == 0
-    except Exception:
-        return False
 
 
 # Resolve ffmpeg once at import time — on macOS with Homebrew the server process
@@ -294,12 +279,55 @@ def _get_ffmpeg_codec_args(path: Path) -> list[str]:
         return ["-codec:a", "copy"]
 
 
+# Rough output/source size ratios by target format, used to size the disk
+# preflight check realistically instead of always assuming worst-case (source
+# size again). mp3 in particular is drastically smaller than any lossless
+# source, so sizing its margin off the source file wrongly skips conversions
+# that would easily fit. flac compresses moderately; wav/aiff are ~1:1 with
+# a lossless source (or larger, if going from a lower bit depth up).
+_CONVERT_SIZE_RATIO = {"mp3": 0.35, "flac": 0.75, "wav": 1.3, "aiff": 1.3}
+
+
+def _has_room_for(path: Path, *, multiplier: float = 1.5) -> tuple[bool, int, int]:
+    """
+    Check whether path.parent's filesystem has enough free space to hold a
+    working copy of *path* before we start writing one.
+
+    Every in-place transform here (normalise, convert) already keeps overhead
+    to a single file at a time: it writes one temp file, then swaps it in with
+    shutil.move() — a same-filesystem rename, not a copy, so the original's
+    space is reclaimed the instant .bak is deleted. It never duplicates the
+    whole library. But a batch job still needs *at least one file's worth* of
+    real headroom to start that swap, and on a full disk retrying that per
+    file just produces a wall of ffmpeg ENOSPC errors. Check up front instead.
+
+    multiplier=1.5 is a safety margin: a re-encode (e.g. AIFF→WAV, or a
+    normalise pass) isn't guaranteed to be smaller than the source.
+
+    Returns (has_room, free_bytes, needed_bytes).
+    """
+    try:
+        free_bytes = shutil.disk_usage(path.parent).free
+    except OSError:
+        return True, 0, 0  # can't check — don't block on a stat failure
+    needed_bytes = int(path.stat().st_size * multiplier)
+    return free_bytes >= needed_bytes, free_bytes, needed_bytes
+
+
 def _normalise_file(path: Path, gain_db: float) -> bool:
     """
     Apply gain_db to path using ffmpeg volume filter.
     Write → verify → move original to .bak → move temp to path → delete .bak.
     Restores from .bak if the final move fails. Logs CRITICAL if restore fails.
     """
+    has_room, free_bytes, needed_bytes = _has_room_for(path)
+    if not has_room:
+        log.error(
+            "Skipping %s — not enough free space on %s (%.1f MB free, need ~%.1f MB)",
+            path.name, path.parent, free_bytes / 1_048_576, needed_bytes / 1_048_576,
+        )
+        return False
+
     suffix = path.suffix
     tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=suffix, dir=path.parent)
     tmp_path = Path(tmp_path_str)
@@ -397,6 +425,15 @@ def _convert_file(path: Path, target_format: str) -> tuple[bool, str]:
     if new_path.exists():
         return False, f"{new_path.name} already exists"
 
+    has_room, free_bytes, needed_bytes = _has_room_for(
+        path, multiplier=_CONVERT_SIZE_RATIO.get(target_format, 1.5)
+    )
+    if not has_room:
+        return False, (
+            f"Skipped — not enough free space on {path.parent} "
+            f"({free_bytes / 1_048_576:.1f} MB free, need ~{needed_bytes / 1_048_576:.1f} MB)"
+        )
+
     tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=target_ext, dir=path.parent)
     tmp_path = Path(tmp_path_str)
     os.close(tmp_fd)
@@ -430,8 +467,19 @@ def _convert_file(path: Path, target_format: str) -> tuple[bool, str]:
         ]
         result = subprocess.run(cmd, capture_output=True, timeout=600)
         if result.returncode != 0:
-            stderr_str = result.stderr.decode("utf-8", errors="replace")[-200:]
-            return False, f"ffmpeg failed: {stderr_str}"
+            stderr_str = result.stderr.decode("utf-8", errors="replace")
+            log.error("ffmpeg failed for %s (exit %d):\n%s", path.name, result.returncode, stderr_str[-2000:])
+            # ffmpeg always prints a size/bitrate/muxing-overhead summary line
+            # last, whether the run succeeded or failed — truncating to a raw
+            # tail surfaces that boilerplate instead of the actual error, which
+            # appears earlier in stderr. Pull the last non-progress line instead.
+            diag_lines = [
+                ln.strip() for ln in stderr_str.splitlines()
+                if ln.strip() and "time=" not in ln
+                and not ln.lstrip().startswith(("size=", "frame="))
+            ]
+            reason = diag_lines[-1] if diag_lines else stderr_str[-200:].strip()
+            return False, f"ffmpeg failed: {reason}"
 
         # Verify output without loading into RAM
         try:
@@ -445,6 +493,13 @@ def _convert_file(path: Path, target_format: str) -> tuple[bool, str]:
         shutil.move(str(path), str(bak))
         original_moved = True
         shutil.move(str(tmp_path), str(new_path))
+        # ⚠ PERMANENT OPERATION — once .bak is deleted the pre-conversion file
+        # is unrecoverable.  This is an intentional, documented tradeoff: the
+        # purpose of conversion is to change the format, and re-encoding from
+        # the output would degrade quality further.  The .bak is kept just long
+        # enough to guarantee the output is non-empty; if the caller ever needs
+        # "true undo" for conversions, it must archive .bak before this line
+        # rather than deleting it (see routes_undo.py comment on 'convert').
         bak.unlink()
         return True, f"Converted to {target_format}"
 
@@ -478,41 +533,56 @@ def _enrich_from_acoustid(path: Path, *, force: bool = False) -> dict | None:
     Note: when enrich_tags=True is passed to process_directory(), expect
     ~1s additional time per file due to AcoustID rate limits (3 req/s).
     """
-    if not _fpcalc_available():
+    health = collect_health()
+    fpcalc_path = str(health["fpcalc_path"])
+    if not bool(health["ok"]) or not fpcalc_path:
+        log.debug("AcoustID enrichment skipped (preflight failed): %s", health)
         return None
+    previous_fpcalc = os.environ.get("FPCALC")
     try:
-        from config import ACOUSTID_API_KEY   # noqa: PLC0415
-    except ImportError:
-        return None
-    if not ACOUSTID_API_KEY:
-        return None
-
-    try:
+        os.environ["FPCALC"] = fpcalc_path
         import acoustid  # noqa: PLC0415
+        from config import ACOUSTID_API_KEY  # noqa: PLC0415
+
         duration, fingerprint = acoustid.fingerprint_file(str(path))
         if not fingerprint:
             return None
         if isinstance(fingerprint, bytes):
             fingerprint = fingerprint.decode("utf-8", errors="replace")
-    except Exception as e:
-        log.debug("AcoustID fingerprint failed for %s: %s", path.name, e)
-        return None
-
-    try:
-        import acoustid  # noqa: PLC0415
         response = acoustid.lookup(
             ACOUSTID_API_KEY, fingerprint, duration,
             meta=["recordings", "releasegroups", "compress"],
         )
+        # Not using acoustid.parse_lookup_result() here: it only yields
+        # (score, recording_id, title, artist) and silently drops the
+        # releasegroups data we asked for above, so album/release never made
+        # it into best_meta even though the docstring promised it. Walk the
+        # raw response ourselves to keep the release-group title.
+        if response.get("status") != "ok" or "results" not in response:
+            log.debug("AcoustID: bad response for %s: %s", path.name, response.get("status"))
+            return None
         best_score = 0.0
         best_meta: dict = {}
-        for score, rid, title, artist in acoustid.parse_lookup_result(response):
-            if score > best_score:
+        for result in response["results"]:
+            score = result.get("score", 0.0)
+            if score <= best_score or "recordings" not in result:
+                continue
+            for recording in result["recordings"]:
+                artists = recording.get("artists")
+                if artists:
+                    artist_name = "".join(
+                        a["name"] + a.get("joinphrase", "") for a in artists
+                    )
+                else:
+                    artist_name = None
+                releasegroups = recording.get("releasegroups") or []
+                album_name = releasegroups[0].get("title") if releasegroups else None
                 best_score = score
                 best_meta = {
-                    "recording_id": rid or "",
-                    "title":        title or "",
-                    "artist":       artist or "",
+                    "recording_id": recording.get("id") or "",
+                    "title":        recording.get("title") or "",
+                    "artist":       artist_name or "",
+                    "album":        album_name or "",
                 }
         if best_score < 0.60 or not best_meta:
             log.debug("AcoustID: no confident match for %s (best=%.2f)", path.name, best_score)
@@ -521,8 +591,13 @@ def _enrich_from_acoustid(path: Path, *, force: bool = False) -> dict | None:
                  path.name, best_meta.get("artist", "?"), best_meta.get("title", "?"), best_score)
         return best_meta
     except Exception as e:
-        log.warning("AcoustID lookup failed for %s: %s", path.name, e)
+        log.warning("AcoustID enrichment failed for %s: %s", path.name, e)
         return None
+    finally:
+        if previous_fpcalc is None:
+            os.environ.pop("FPCALC", None)
+        else:
+            os.environ["FPCALC"] = previous_fpcalc
 
 
 def _write_enriched_tags(path: Path, meta: dict, *, force: bool = False) -> list[str]:
@@ -789,6 +864,8 @@ def process_directory(
     max_workers: int = 1,
     pause_seconds: float = 0.0,
     quarantine_dir: Path | None = None,
+    skip_paths: "set[str] | None" = None,
+    on_result: "Callable[[ProcessResult], None] | None" = None,
 ) -> list[ProcessResult]:
     """
     Process all audio files under root. Returns all ProcessResults.
@@ -813,11 +890,22 @@ def process_directory(
         If provided, any file whose result is corrupt (cannot be opened
         at the binary level) is moved here after processing. Pass the
         FableGear Archive Quarantine path from config or a custom location.
+    skip_paths : set[str] | None
+        Absolute paths (as str) to exclude from this run entirely — no
+        process_file() call, no result. Used by the caller for checkpoint
+        resume: files already completed in an interrupted prior run.
+    on_result : Callable[[ProcessResult], None] | None
+        Invoked once per file immediately after its result is tallied, from
+        whichever thread produced it. Used by the caller to persist a
+        checkpoint incrementally rather than only after the whole root
+        finishes — process_directory() itself has no notion of checkpoints.
     """
     import concurrent.futures
     from scanner import scan_directory
 
     tracks = list(scan_directory(root))
+    if skip_paths:
+        tracks = [t for t in tracks if str(t.path) not in skip_paths]
     total = len(tracks)
     results: list[ProcessResult] = []
 
@@ -952,6 +1040,8 @@ def process_directory(
                     results.append(r)
                     _tally(r)
                     _emit_progress()
+                    if on_result is not None:
+                        on_result(r)
                 except Exception as exc:
                     idx = futures[future]
                     log.error("Unexpected error processing file %d: %s", idx + 1, exc)
@@ -964,6 +1054,8 @@ def process_directory(
             results.append(r)
             _tally(r)
             _emit_progress()
+            if on_result is not None:
+                on_result(r)
             if pause_seconds > 0 and i < total - 1:
                 time.sleep(pause_seconds)
 

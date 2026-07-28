@@ -20,7 +20,7 @@ if sys.version_info < (3, 11):
 # at ~/.fablegear/config.json and written there by `python3 cli.py setup`.
 #
 # These module-level names preserve the existing import interface throughout
-# the codebase — callers use LOCAL_DB, DJMT_DB, MUSIC_ROOT, BACKUP_DIR,
+# the codebase — callers use LOCAL_DB, DEVICE_DB, MUSIC_ROOT, BACKUP_DIR,
 # TARGET_LUFS, and LUFS_TOLERANCE exactly as before.
 
 
@@ -45,7 +45,7 @@ FABLEGEAR_MODE = _cfg.get("mode", "suburban")
 LOCAL_DB = Path(_cfg["local_db"])
 
 # Database on the DJ drive (exported for CDJ playback)
-DJMT_DB = Path(_cfg["device_db"])
+DEVICE_DB = Path(_cfg["device_db"])
 
 # Music library root on the DJ drive
 MUSIC_ROOT = Path(_cfg["music_root"])
@@ -189,8 +189,8 @@ SKIP_DIRS: set[str] = {
     # macOS internals
     "__MACOSX", ".Spotlight-V100", ".fseventsd", ".DocumentRevisions-V100",
     ".TemporaryItems", ".Trashes",
-    # Common non-music app data that ends up inside music drives
-    "ollama", "FableGear Archive",
+    # FableGear's own archive tree — never rescan what we wrote
+    "FableGear Archive",
     # Processing artifacts left by FableGear or other tools
     "PROCESSING_CACHE", "POST_PROCESS_ARCHIVE",
     # Source-control, language toolchains, and build outputs that may sit inside
@@ -218,19 +218,23 @@ if _user_excluded:
 #       "batch_size": 500,
 #       "archive_chunk_size": 500,
 #       "progress_item_interval": 50,
-#       "progress_min_seconds": 0.15,
-#       "max_workers": 8
+#       "progress_min_seconds": 0.15
 #     }
 #   }
 #
 # Auto-detected tiers (by available RAM at startup):
-#   <4 GB   → batch=100,  chunk=100,  interval=200, min_sec=0.50, workers=2
-#   4–12 GB → batch=250,  chunk=250,  interval=100, min_sec=0.25, workers=cores
-#  12–32 GB → batch=500,  chunk=500,  interval=50,  min_sec=0.15, workers=cores
-#   >32 GB  → batch=1000, chunk=1000, interval=25,  min_sec=0.10, workers=cores
+#   <4 GB   → batch=100,  chunk=100,  interval=200, min_sec=0.50
+#   4–12 GB → batch=250,  chunk=250,  interval=100, min_sec=0.25
+#  12–32 GB → batch=500,  chunk=500,  interval=50,  min_sec=0.15
+#   >32 GB  → batch=1000, chunk=1000, interval=25,  min_sec=0.10
 #
 # SSD storage reduces progress_min_seconds by 25% (I/O is faster → loops run
 # faster → the time gate can be tighter without flooding the UI).
+#
+# system_probe.SYSTEM_PROFILE also computes max_workers (a "how many cores
+# does this machine have" tier value, with its own config.json override) —
+# it isn't re-exported here because nothing in FableGear currently reads it;
+# every parallel scan/convert path takes its own explicit --workers flag.
 
 from system_probe import SYSTEM_PROFILE as _sys_profile  # noqa: E402
 
@@ -239,9 +243,6 @@ BATCH_SIZE: int = _sys_profile.batch_size
 
 # Maximum number of items buffered before a chunked archive write is flushed.
 ARCHIVE_CHUNK_SIZE: int = _sys_profile.archive_chunk_size
-
-# Maximum parallel workers for CPU-bound scan/analysis paths.
-MAX_SCAN_WORKERS: int = _sys_profile.max_workers
 
 # Progress-event throttle: emit at most once every N items ...
 PROGRESS_ITEM_INTERVAL: int = _sys_profile.progress_item_interval

@@ -214,7 +214,7 @@ if __name__ == "__main__":
     sys.path.insert(0, ".")
 
     from db_connection import read_db
-    from config import DJMT_DB
+    from config import DEVICE_DB
 
     # ── Part 1: notation_to_scale_name (no DB needed) ──
     print("=== notation_to_scale_name ===")
@@ -244,7 +244,7 @@ if __name__ == "__main__":
     # NOTE: resolve_key_id may call db.add()/flush() if a row is missing.
     # For creation testing use write_db instead.
     print("\n=== resolve_key_id (existing rows — expect no creation) ===")
-    with read_db(DJMT_DB) as db:
+    with read_db(DEVICE_DB) as db:
         for scale_name in ["Ebm", "C", "Fm", "Eb"]:
             kid = resolve_key_id(scale_name, db)
             print(f"  {scale_name:6} → KeyID: {kid}  (type: {type(kid).__name__})")

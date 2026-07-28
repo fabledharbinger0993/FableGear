@@ -70,6 +70,14 @@ try:
 except ImportError:  # imported via the chop_shop package
     from chop_shop.path_guard import guard_sources as _guard_sources
 
+# The keeper recommendation written into the report MUST match the keeper the
+# pruner will actually retain. Both rank by pruner.dedupe_sort_key so what a
+# human reviews in the CSV is exactly what survives a prune (audit M1).
+try:
+    from pruner import dedupe_sort_key as _dedupe_sort_key
+except ImportError:  # imported via the chop_shop package
+    from chop_shop.pruner import dedupe_sort_key as _dedupe_sort_key
+
 log = logging.getLogger(__name__)
 
 _LOG_EVERY: int = 100
@@ -503,6 +511,20 @@ def _rank_file(path: Path) -> int:
 _RANK_LABELS = {0: "PN", 1: "MIK", 2: "RAW"}
 
 
+def _rank_group(paths: list[Path]) -> list[Path]:
+    """
+    Order a duplicate group best-keeper-first, using the SAME key the pruner
+    executes with (pruner.dedupe_sort_key: format tier, size, RARP, tags).
+    The RARP label per file still comes from _rank_file. Returned list[0] is
+    the recommended keeper; the rest are removal candidates.
+    """
+    return sorted(
+        paths,
+        key=lambda p: _dedupe_sort_key(p, _RANK_LABELS[_rank_file(p)]),
+        reverse=True,
+    )
+
+
 # ─── Data structures ──────────────────────────────────────────────────────────
 
 @dataclass
@@ -613,7 +635,7 @@ def scan_duplicates_hash(root, *, archive=None, max_workers: int = 1,
             seen.add(fp)
             paths.append(p)
         if len(paths) >= 2:
-            ranked = sorted(paths, key=_rank_file)
+            ranked = _rank_group(paths)
             keep = ranked[0]
             remove = ranked[1:]
             ranks = {str(p): _RANK_LABELS[_rank_file(p)] for p in paths}
@@ -773,6 +795,14 @@ def _fingerprint_raw_integers(path: Path) -> tuple[float, list[int]] | None:
         return None
 
 
+# Chromaprint fingerprint length is proportional to track duration. Two files
+# whose fingerprints differ greatly in length are different-duration tracks and
+# must not be called duplicates even if the shorter is an acoustic prefix of
+# the longer (a radio edit vs. extended mix, or a short clip vs. the full
+# track). Require the shorter array to be at least this fraction of the longer.
+_FP_LENGTH_RATIO_MIN: float = 0.90
+
+
 def _hamming_similarity(a: list[int], b: list[int]) -> float:
     """
     Compute the Hamming similarity between two raw Chromaprint integer arrays.
@@ -781,11 +811,20 @@ def _hamming_similarity(a: list[int], b: list[int]) -> float:
     position, count differing bits via XOR + popcount. Similarity is:
         1.0 - (total_differing_bits / total_bits)
 
-    If the arrays differ in length, only the overlapping prefix is compared.
-    Returns 0.0 if either array is empty or there is no overlap.
+    Length guard: because fingerprint length tracks duration, arrays that
+    differ in length by more than (1 - _FP_LENGTH_RATIO_MIN) are treated as
+    non-matches (0.0) — otherwise a short prefix could score ~1.0 against the
+    opening of a much longer track and be merged as a duplicate. Only the
+    overlapping prefix is compared once the lengths are close enough.
+    Returns 0.0 if either array is empty or the lengths are too dissimilar.
     """
-    length = min(len(a), len(b))
+    len_a, len_b = len(a), len(b)
+    length = min(len_a, len_b)
     if length == 0:
+        return 0.0
+
+    longest = max(len_a, len_b)
+    if length / longest < _FP_LENGTH_RATIO_MIN:
         return 0.0
 
     total_bits = length * 32
@@ -892,7 +931,7 @@ def _find_fuzzy_groups(
             continue
 
         paths = [unique_files[i] for i in members]
-        ranked = sorted(paths, key=_rank_file)
+        ranked = _rank_group(paths)
         keep = ranked[0]
         remove = ranked[1:]
         ranks = {str(p): _RANK_LABELS[_rank_file(p)] for p in paths}
@@ -1292,7 +1331,7 @@ def scan_duplicates(
                 unique_fingerprint_files.append(paths[0])
             continue
 
-        ranked = sorted(paths, key=_rank_file)
+        ranked = _rank_group(paths)
         keep = ranked[0]
         remove = ranked[1:]
         ranks = {str(p): _RANK_LABELS[_rank_file(p)] for p in paths}

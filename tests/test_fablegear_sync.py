@@ -54,6 +54,9 @@ class FakeScanner:
                 continue
             yield t
 
+    def count_scannable_files(self, root):
+        return sum(1 for _ in self.scan_directory(root))
+
 
 @pytest.fixture
 def db(tmp_path):

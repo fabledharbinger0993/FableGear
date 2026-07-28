@@ -284,7 +284,7 @@ def test_api_error_contract_is_sanitized(client, monkeypatch):
     import audit as _audit  # noqa: PLC0415
 
     def _boom(*args, **kwargs):
-        raise RuntimeError("/Users/cameron/Secrets/rekordbox/master.db exploded")
+        raise RuntimeError("/Users/dj/Secrets/rekordbox/master.db exploded")
 
     monkeypatch.setattr(_audit, "find_dead_roots", _boom)
 
