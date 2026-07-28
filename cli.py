@@ -1669,6 +1669,91 @@ def cmd_playlist(args: argparse.Namespace) -> None:
         return
 
 
+def _parsed_status(fg_db, content_ids):
+    """Report how ready a set of tracks is for a pure-assembly export.
+
+    A track is "parsed" when `parse` has produced both halves an export needs:
+    a beat grid in the DB and a waveform cache on disk. Anything missing means
+    `export-onelibrary` would have to synthesize it from the source audio at
+    write time (the silent-DSP fallback) — which is exactly what the parse
+    pre-flight exists to surface.
+
+    Returns ``(total, unparsed)`` where ``unparsed`` is a list of
+    ``(id, name, [reasons])`` for tracks missing one or both pieces.
+    """
+    import sys as _sys
+    from pathlib import Path as _P
+    cs = _P(__file__).resolve().parent / "chop_shop"
+    if str(cs) not in _sys.path:
+        _sys.path.insert(0, str(cs))
+    import waveform_generator as wg
+
+    tracks = fg_db.get_content_with_relations(content_ids)
+    unparsed = []
+    for t in tracks:
+        reasons = []
+        try:
+            if not fg_db.get_beatgrid_for_content(t.id):
+                reasons.append("no beat grid")
+        except Exception:  # noqa: BLE001 — treat an unreadable grid as missing
+            reasons.append("no beat grid")
+        if wg.load_waveform_cache(t.id) is None:
+            reasons.append("no waveforms")
+        if reasons:
+            unparsed.append((t.id, getattr(t, "file_name", None) or str(t.id), reasons))
+    return len(tracks), unparsed
+
+
+def _parse_preflight(fg_db, content_ids, *, require_parsed: bool) -> None:
+    """Log a parse pre-flight for an export set. With ``require_parsed`` set,
+    abort (exit 1) rather than let export silently synthesize missing data."""
+    total_n, unparsed = _parsed_status(fg_db, content_ids)
+    if not unparsed:
+        log.info("Parse pre-flight: all %d track(s) fully parsed (grid + waveforms).", total_n)
+        return
+    log.warning(
+        "Parse pre-flight: %d of %d track(s) are NOT fully parsed — export would "
+        "synthesize the missing grid/waveforms from audio at write time.",
+        len(unparsed), total_n,
+    )
+    for tid, name, reasons in unparsed[:10]:
+        log.warning("  unparsed: %s (%s)", name, ", ".join(reasons))
+    if len(unparsed) > 10:
+        log.warning("  … and %d more", len(unparsed) - 10)
+    if require_parsed:
+        log.error("--require-parsed: refusing to export. Run `parse` first "
+                  "(or drop --require-parsed to allow on-the-fly synthesis).")
+        sys.exit(1)
+
+
+def cmd_parse_status(args: argparse.Namespace) -> None:
+    """Report parse readiness (beat grid + waveforms) for the library or a
+    playlist, without exporting anything. Read-only."""
+    from fablegear_database import FableGearDatabase
+    fg_db = FableGearDatabase()
+    content_ids = None
+    if getattr(args, "playlist", None):
+        match = next((pl for pl in fg_db.list_playlists()
+                      if pl.get("type") != "folder" and pl.get("name") == args.playlist), None)
+        if match is None:
+            log.error("Playlist not found: %r", args.playlist)
+            sys.exit(1)
+        content_ids = [s.id for s in fg_db.get_playlist_songs(match["id"])]
+    total_n, unparsed = _parsed_status(fg_db, content_ids)
+    parsed_n = total_n - len(unparsed)
+    print(f"Parse status: {parsed_n}/{total_n} track(s) fully parsed "
+          f"(grid + waveforms).", flush=True)
+    if unparsed:
+        print(f"{len(unparsed)} need parsing:", flush=True)
+        for tid, name, reasons in unparsed[:50]:
+            print(f"  [{tid}] {name} — {', '.join(reasons)}", flush=True)
+        if len(unparsed) > 50:
+            print(f"  … and {len(unparsed) - 50} more", flush=True)
+        print("\nRun:  python3 cli.py parse" +
+              (f" --path <dir>" if content_ids is None else "") +
+              "   to prepare them.", flush=True)
+
+
 def cmd_export_onelibrary(args: argparse.Namespace) -> None:
     """Write a Pioneer OneLibrary exportLibrary.db from FableGear's database,
     plus the device-identity companion files (RBFLTR.DAT, djprofile.nxs)
@@ -1712,6 +1797,12 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
         if content_ids is None:
             content_ids = [s.id for s in fg_db.get_playlist_songs(match["id"])]
         log.info("Exporting playlist %r (%d tracks)", match["name"], len(content_ids))
+
+    # Parse pre-flight: surface (or, with --require-parsed, refuse) any track
+    # that would force export to synthesize its grid/waveforms from audio.
+    if getattr(args, "with_anlz", False) or getattr(args, "require_parsed", False):
+        _parse_preflight(fg_db, content_ids,
+                         require_parsed=getattr(args, "require_parsed", False))
 
     # Drive root for audio staging / ANLZ = the folder that holds PIONEER/.
     stage_root = None
@@ -3675,7 +3766,25 @@ Examples:
         default=None,
         help="Comma-separated FableGear content ids to export (overrides playlist track set)",
     )
+    p_onelib.add_argument(
+        "--require-parsed",
+        action="store_true",
+        dest="require_parsed",
+        help="Refuse to export if any track lacks a beat grid or waveforms "
+             "(run `parse` first). Without it, missing analysis is synthesized "
+             "at write time and reported as a warning.",
+    )
     p_onelib.set_defaults(func=cmd_export_onelibrary)
+
+    # ── parse-status ──
+    p_pstat = sub.add_parser(
+        "parse-status",
+        help="Report parse readiness (beat grid + waveforms) for the library or "
+             "a playlist, without exporting. Read-only.",
+    )
+    p_pstat.add_argument("--playlist", default=None,
+                         help="Report only this playlist (by name); omit for the whole library")
+    p_pstat.set_defaults(func=cmd_parse_status)
 
     # ── prune ──
     p_prune = sub.add_parser(
