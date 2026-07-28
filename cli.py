@@ -1176,6 +1176,104 @@ def cmd_rekordbox_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_import_missing_rekordbox(args: argparse.Namespace) -> None:
+    """Phase 2: add the audio a recovery references but the Rekordbox collection
+    lacks (located via FableGear's archive) so a later push can link them.
+    Dry-run unless --write; --write requires Rekordbox closed, backs up first,
+    records added track ids for --undo, and logs to the audit trail."""
+    import json
+    import shutil
+    from datetime import datetime
+    from pathlib import Path
+    import playlist_recovery as R
+    from fablegear_database import FableGearDatabase
+
+    MANIFESTS = Path.home() / ".fablegear" / "rekordbox_import_manifests"
+    LIVE_DB = Path.home() / "Library" / "Pioneer" / "rekordbox" / "master.db"
+    target = getattr(args, "target", None)
+
+    if getattr(args, "undo", False):
+        if _rekordbox_running():
+            log.error("Close Rekordbox first, then re-run --undo.")
+            sys.exit(1)
+        mans = sorted(MANIFESTS.glob("*.json")) if MANIFESTS.is_dir() else []
+        if not mans:
+            log.error("No import manifest found — nothing to undo.")
+            sys.exit(1)
+        man = json.loads(mans[-1].read_text())
+        from pyrekordbox import Rekordbox6Database
+        db = Rekordbox6Database(path=man.get("target") or None)
+        n = 0
+        for cid in man.get("added_content_ids", []):
+            try:
+                db.delete_content(cid); n += 1
+            except Exception as exc:  # noqa: BLE001
+                log.warning("  could not remove track %s: %s", cid, exc)
+        db.commit(); db.close()
+        mans[-1].rename(mans[-1].with_suffix(".json.undone"))
+        log.info("Undid import — removed %d added track(s).", n)
+        return
+
+    sources = list(getattr(args, "source", None) or [])
+    if getattr(args, "source_list", None):
+        for ln in Path(args.source_list).read_text().splitlines():
+            ln = ln.strip()
+            if ln and not ln.startswith("#"):
+                sources.append(ln)
+    if not sources:
+        log.error("Pass --source / --source-list (e.g. the recovered master.db).")
+        sys.exit(1)
+
+    fg = FableGearDatabase()
+    log.info("Reading recovered crates from %d source(s)…", len(sources))
+    rec = R.recover(sources, database=None, strategy="richest",
+                    merge_numbered=getattr(args, "merge_duplicates", False))
+
+    if not getattr(args, "write", False):
+        rep = R.import_missing_to_rekordbox(rec.crates, fg, target_db_path=target, dry_run=True)
+        log.info("Target: %s", rep.target)
+        log.info("Files referenced by recovered crates: %d", rep.wanted_files)
+        log.info("  already in collection : %d", rep.already_present)
+        log.info("  missing               : %d", rep.missing)
+        log.info("  -> LOCATABLE (add now): %d", rep.locatable)
+        log.info("  -> not locatable      : %d (drive unmounted or gone)", rep.not_locatable)
+        for fn in rep.sample:
+            log.info("      + %s", fn)
+        log.info("DRY RUN — nothing added. Re-run with --write (Rekordbox closed).")
+        return
+
+    if _rekordbox_running():
+        log.error("Rekordbox is running — close it before --write.")
+        sys.exit(1)
+    tgt = Path(target) if target else LIVE_DB
+    if not tgt.is_file():
+        log.error("Target master.db not found: %s", tgt)
+        sys.exit(1)
+    bdir = Path.home() / ".fablegear" / "rekordbox_master_backups" / datetime.now().strftime("%Y%m%d_%H%M%S_import")
+    bdir.mkdir(parents=True, exist_ok=True)
+    for suf in ("", "-wal", "-shm"):
+        p = Path(str(tgt) + suf)
+        if p.is_file():
+            shutil.copy2(p, bdir / p.name)
+    log.info("Backed up %s → %s", tgt.name, bdir)
+
+    rep = R.import_missing_to_rekordbox(rec.crates, fg, target_db_path=target, dry_run=False)
+    MANIFESTS.mkdir(parents=True, exist_ok=True)
+    man = {"target": target, "backup": str(bdir), "added": rep.added,
+           "added_content_ids": rep.added_content_ids, "timestamp": datetime.now().isoformat()}
+    (MANIFESTS / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.json").write_text(json.dumps(man, indent=2))
+    try:
+        fg.log_operation("import_to_rekordbox", file_path=str(tgt), status="ok",
+                         metadata={"added": rep.added, "backup": str(bdir)})
+    except Exception:  # noqa: BLE001
+        pass
+    log.info("%s", rep.detail)
+    log.info("These new tracks are in the collection but UNANALYZED — analyze them in "
+             "Rekordbox (select all → Analyze) for waveforms/grids.")
+    log.info("Undo (Rekordbox closed): python3 cli.py import-missing-to-rekordbox --undo")
+    log.info("Then run push-recovery-to-rekordbox --write to link the crates.")
+
+
 def cmd_push_rekordbox(args: argparse.Namespace) -> None:
     """Push recovered crates into the live Rekordbox master.db (dry-run unless
     --write). Non-destructive: creates new playlists under one folder, links
@@ -3448,6 +3546,25 @@ Examples:
                        help="Only rebuild crates with at least this many resolved tracks")
     p_rec.add_argument("--report", default=None, help="Write the full crate list to this file")
     p_rec.set_defaults(func=cmd_recover_playlists)
+
+    p_imp = sub.add_parser(
+        "import-missing-to-rekordbox",
+        help="Phase 2: add the audio a recovery references but Rekordbox lacks "
+             "(located via FableGear), so the push can then link it. Dry-run unless --write.",
+    )
+    p_imp.add_argument("--source", action="append", default=[],
+                       help="Recovery source (e.g. the recovered master.db). Repeatable.")
+    p_imp.add_argument("--source-list", default=None, dest="source_list",
+                       help="File with one source path per line")
+    p_imp.add_argument("--target", default=None,
+                       help="master.db to write to (default: your live library)")
+    p_imp.add_argument("--write", action="store_true",
+                       help="Actually add tracks (default: dry-run). Requires Rekordbox closed.")
+    p_imp.add_argument("--merge-duplicates", action="store_true", dest="merge_duplicates",
+                       help="Collapse Rekordbox '(N)' duplicate-name crates into one each")
+    p_imp.add_argument("--undo", action="store_true",
+                       help="Remove the tracks added by the last import (Rekordbox closed)")
+    p_imp.set_defaults(func=cmd_import_missing_rekordbox)
 
     p_push = sub.add_parser(
         "push-recovery-to-rekordbox",

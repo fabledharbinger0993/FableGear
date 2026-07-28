@@ -433,6 +433,88 @@ def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str
         db.close()
 
 
+@dataclass
+class ImportReport:
+    target: str = ""
+    wanted_files: int = 0            # distinct files referenced by recovered crates
+    already_present: int = 0         # already in the Rekordbox collection
+    missing: int = 0                 # not in the collection
+    locatable: int = 0               # missing AND findable (current path, file exists)
+    not_locatable: int = 0           # missing but no current path (drive unmounted / gone)
+    added: int = 0
+    added_content_ids: List = field(default_factory=list)
+    written: bool = False
+    detail: str = ""
+    sample: List = field(default_factory=list)
+
+
+def import_missing_to_rekordbox(crates: List[RecoveredCrate], fg_database,
+                                target_db_path: Optional[str] = None, dry_run: bool = True,
+                                commit_every: int = 200):
+    """Add the audio files a recovery references but the Rekordbox collection
+    lacks — located via FableGear's archive (current paths) since the crates'
+    original paths are stale. add_content(path) inserts each track (reading its
+    tags); Rekordbox analyses waveform/grid later. dry_run plans only."""
+    from pyrekordbox import Rekordbox6Database
+
+    db = Rekordbox6Database(path=target_db_path) if target_db_path else Rekordbox6Database()
+    rep = ImportReport(target=target_db_path or "(live master.db)")
+    try:
+        from pyrekordbox.db6 import tables
+        have = set()
+        for c in db.query(tables.DjmdContent).with_entities(tables.DjmdContent.FolderPath):
+            if c.FolderPath:
+                have.add(os.path.basename(c.FolderPath).lower())
+
+        wanted = set()
+        for cr in crates:
+            for t in cr.tracks:
+                if t.filename:
+                    wanted.add(t.filename.lower())
+        rep.wanted_files = len(wanted)
+        missing = [fn for fn in wanted if fn not in have]
+        rep.already_present = len(wanted) - len(missing)
+        rep.missing = len(missing)
+
+        # locate current paths via FableGear's archive
+        fg_by_fn: Dict[str, str] = {}
+        for t in fg_database.get_content_with_relations(None):
+            if t.file_name and t.file_path:
+                fg_by_fn.setdefault(t.file_name.strip().lower(), t.file_path)
+        to_add = []
+        for fn in missing:
+            path = fg_by_fn.get(fn)
+            if path and os.path.exists(path):
+                to_add.append(path)
+        rep.locatable = len(to_add)
+        rep.not_locatable = len(missing) - len(to_add)
+        rep.sample = [os.path.basename(p) for p in to_add[:12]]
+
+        if dry_run:
+            rep.detail = (f"DRY RUN — would add {rep.locatable} track(s) to the collection; "
+                          f"{rep.not_locatable} missing file(s) not locatable "
+                          f"(drive unmounted or gone); {rep.already_present} already present")
+            return rep
+
+        added = []
+        for i, path in enumerate(to_add, 1):
+            try:
+                c = db.add_content(path)
+                added.append(c.ID)
+            except Exception as exc:  # noqa: BLE001 — one bad file must not abort
+                log.warning("  add_content failed for %s: %s", os.path.basename(path), exc)
+            if i % commit_every == 0:
+                db.commit()
+        db.commit()
+        rep.added = len(added)
+        rep.added_content_ids = added
+        rep.written = True
+        rep.detail = f"ADDED {rep.added} track(s) to the Rekordbox collection"
+        return rep
+    finally:
+        db.close()
+
+
 def recover(roots, database=None, strategy: str = "richest",
             merge_numbered: bool = False) -> RecoveryReport:
     """Full read-only recovery: scan → read → union → (optionally) resolve."""
