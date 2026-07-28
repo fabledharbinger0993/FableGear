@@ -339,6 +339,100 @@ def resolve_against_archive(crates: List[RecoveredCrate], database) -> Resolutio
     return stats
 
 
+@dataclass
+class PushReport:
+    target: str = ""
+    total_crates: int = 0
+    skipped_existing: int = 0        # name already in the live library
+    crates_planned: int = 0          # would be / were created
+    crates_no_match: int = 0         # no track resolvable in the live collection
+    links_planned: int = 0           # track links to add
+    unresolved_placements: int = 0   # tracks not in the live collection (need import)
+    created_folder_id: Optional[str] = None
+    created_playlist_ids: List = field(default_factory=list)
+    written: bool = False
+    detail: str = ""
+    sample: List = field(default_factory=list)  # (name, link_count) preview
+
+
+def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str] = None,
+                      dry_run: bool = True, folder_name: str = "Recovered",
+                      skip_existing: bool = True):
+    """Write recovered crates into a Rekordbox master.db via pyrekordbox.
+
+    Resolves each track against the live collection by filename; creates each
+    crate (nested under one folder) and links only tracks that already exist,
+    deduped. skip_existing leaves any playlist whose name is already present
+    untouched. dry_run computes the full plan and writes nothing.
+
+    Returns a PushReport. The caller owns the Rekordbox-closed gate + backup.
+    """
+    from pyrekordbox import Rekordbox6Database
+    from pyrekordbox.db6 import tables
+
+    db = Rekordbox6Database(path=target_db_path) if target_db_path else Rekordbox6Database()
+    rep = PushReport(target=target_db_path or "(live master.db)", total_crates=len(crates))
+    try:
+        by_fn: Dict[str, object] = {}
+        for c in db.query(tables.DjmdContent).with_entities(
+                tables.DjmdContent.ID, tables.DjmdContent.FolderPath):
+            if c.FolderPath:
+                by_fn.setdefault(os.path.basename(c.FolderPath).lower(), c.ID)
+        existing = {(p.Name or "") for p in db.query(tables.DjmdPlaylist)}
+
+        plan = []  # (name, [content_id, ...])
+        for cr in crates:
+            if skip_existing and cr.name in existing:
+                rep.skipped_existing += 1
+                continue
+            ids, seen = [], set()
+            for t in cr.tracks:
+                cid = by_fn.get(t.filename.lower()) if t.filename else None
+                if cid is not None:
+                    if cid not in seen:
+                        seen.add(cid)
+                        ids.append(cid)
+                else:
+                    rep.unresolved_placements += 1
+            if not ids:
+                rep.crates_no_match += 1
+                continue
+            plan.append((cr.name, ids))
+            rep.crates_planned += 1
+            rep.links_planned += len(ids)
+
+        rep.sample = [(n, len(ids)) for n, ids in
+                      sorted(plan, key=lambda x: len(x[1]), reverse=True)[:15]]
+
+        if dry_run:
+            rep.detail = (f"DRY RUN — would create {rep.crates_planned} crate(s), "
+                          f"{rep.links_planned} link(s); skip {rep.skipped_existing} existing; "
+                          f"{rep.unresolved_placements} placement(s) need import first")
+            return rep
+
+        # ── WRITE ── nest under one folder; commit per crate (bounded, survives
+        # via folder_id since ORM objects detach after commit).
+        folder = db.create_playlist_folder(folder_name)
+        folder_id = folder.ID
+        rep.created_folder_id = folder_id
+        created = [folder_id]
+        db.commit()
+        for name, ids in plan:
+            pl = db.create_playlist(name, parent=folder_id)
+            pid = pl.ID
+            created.append(pid)
+            for i, cid in enumerate(ids, 1):
+                db.add_to_playlist(pl, cid, track_no=i)
+            db.commit()
+        rep.created_playlist_ids = created
+        rep.written = True
+        rep.detail = (f"WROTE {rep.crates_planned} crate(s), {rep.links_planned} link(s) "
+                      f"under folder {folder_name!r}")
+        return rep
+    finally:
+        db.close()
+
+
 def recover(roots, database=None, strategy: str = "richest",
             merge_numbered: bool = False) -> RecoveryReport:
     """Full read-only recovery: scan → read → union → (optionally) resolve."""

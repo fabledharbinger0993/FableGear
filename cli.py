@@ -103,6 +103,17 @@ def _require_archive(command_name: str):
     return archive
 
 
+def _rekordbox_running() -> bool:
+    """True if a Rekordbox process is running — writing to master.db while it is
+    open risks corruption, so callers must refuse."""
+    import subprocess  # noqa: PLC0415
+    try:
+        return subprocess.run(["pgrep", "-x", "rekordbox"],
+                              capture_output=True).returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _guard_or_exit(paths, tool: str) -> None:
     """Refuse system/home/app-data scan roots — same rails as the organizer."""
     from path_guard import guard_sources  # noqa: PLC0415
@@ -1163,6 +1174,115 @@ def cmd_rekordbox_sync(args: argparse.Namespace) -> None:
     except Exception as e:
         log.exception("Fatal error during database synchronization: %s", e)
         sys.exit(1)
+
+
+def cmd_push_rekordbox(args: argparse.Namespace) -> None:
+    """Push recovered crates into the live Rekordbox master.db (dry-run unless
+    --write). Non-destructive: creates new playlists under one folder, links
+    only tracks already in the collection (deduped), and skips any playlist name
+    that already exists. --write requires Rekordbox closed and takes its own
+    backup first; every created playlist id is recorded for one-command --undo."""
+    import json
+    import shutil
+    from datetime import datetime
+    from pathlib import Path
+    import playlist_recovery as R
+    from fablegear_database import FableGearDatabase
+
+    MANIFESTS = Path.home() / ".fablegear" / "rekordbox_push_manifests"
+    LIVE_DB = Path.home() / "Library" / "Pioneer" / "rekordbox" / "master.db"
+    target = getattr(args, "target", None)
+
+    # ── Undo ──
+    if getattr(args, "undo", False):
+        if _rekordbox_running():
+            log.error("Close Rekordbox first, then re-run --undo.")
+            sys.exit(1)
+        manifests = sorted(MANIFESTS.glob("*.json")) if MANIFESTS.is_dir() else []
+        if not manifests:
+            log.error("No push manifest found — nothing to undo.")
+            sys.exit(1)
+        man = json.loads(manifests[-1].read_text())
+        from pyrekordbox import Rekordbox6Database
+        db = Rekordbox6Database(path=man.get("target") or None)
+        n = 0
+        for pid in reversed(man.get("created_playlist_ids", [])):
+            try:
+                db.delete_playlist(pid); n += 1
+            except Exception as exc:  # noqa: BLE001
+                log.warning("  could not delete playlist %s: %s", pid, exc)
+        db.commit(); db.close()
+        manifests[-1].rename(manifests[-1].with_suffix(".json.undone"))
+        log.info("Undid push %s — removed %d playlist(s).", man.get("folder_name"), n)
+        return
+
+    # ── Gather + resolve (read-only) ──
+    sources = list(getattr(args, "source", None) or [])
+    if getattr(args, "source_list", None):
+        for ln in Path(args.source_list).read_text().splitlines():
+            ln = ln.strip()
+            if ln and not ln.startswith("#"):
+                sources.append(ln)
+    if not sources:
+        log.error("Pass --source / --source-list (e.g. the recovered master.db).")
+        sys.exit(1)
+
+    log.info("Reading recovered crates from %d source(s)…", len(sources))
+    rec = R.recover(sources, database=None, strategy="richest",
+                    merge_numbered=getattr(args, "merge_duplicates", False))
+    crates = rec.crates
+    skip_existing = not getattr(args, "no_skip_existing", False)
+
+    if not getattr(args, "write", False):
+        rep = R.push_to_rekordbox(crates, target_db_path=target, dry_run=True,
+                                  skip_existing=skip_existing)
+        log.info("Target: %s", rep.target)
+        log.info("Recovered crates: %d", rep.total_crates)
+        log.info("  would CREATE : %d crate(s), %d track link(s)", rep.crates_planned, rep.links_planned)
+        log.info("  would SKIP   : %d (name already in your library)", rep.skipped_existing)
+        log.info("  no match     : %d crate(s) with no track in the current collection", rep.crates_no_match)
+        log.info("  need import  : %d placement(s) whose files aren't in the collection yet", rep.unresolved_placements)
+        for name, n in rep.sample:
+            log.info("      [%5d]  %s", n, name)
+        log.info("DRY RUN — nothing written. Re-run with --write to push (Rekordbox must be closed).")
+        return
+
+    # ── WRITE (guarded) ──
+    if _rekordbox_running():
+        log.error("Rekordbox is running — close it before --write.")
+        sys.exit(1)
+    tgt = Path(target) if target else LIVE_DB
+    if not tgt.is_file():
+        log.error("Target master.db not found: %s", tgt)
+        sys.exit(1)
+    # own fresh backup
+    bdir = Path.home() / ".fablegear" / "rekordbox_master_backups" / datetime.now().strftime("%Y%m%d_%H%M%S_push")
+    bdir.mkdir(parents=True, exist_ok=True)
+    for suf in ("", "-wal", "-shm"):
+        p = Path(str(tgt) + suf)
+        if p.is_file():
+            shutil.copy2(p, bdir / p.name)
+    log.info("Backed up %s → %s", tgt.name, bdir)
+
+    folder_name = f"Recovered {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    rep = R.push_to_rekordbox(crates, target_db_path=target, dry_run=False,
+                              folder_name=folder_name, skip_existing=skip_existing)
+
+    MANIFESTS.mkdir(parents=True, exist_ok=True)
+    man = {"folder_name": folder_name, "target": target, "backup": str(bdir),
+           "created_folder_id": rep.created_folder_id,
+           "created_playlist_ids": rep.created_playlist_ids,
+           "crates": rep.crates_planned, "links": rep.links_planned,
+           "timestamp": datetime.now().isoformat()}
+    (MANIFESTS / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.json").write_text(json.dumps(man, indent=2))
+    try:
+        FableGearDatabase().log_operation("push_to_rekordbox", file_path=str(tgt), status="ok",
+                                          metadata={k: man[k] for k in ("folder_name", "crates", "links", "backup")})
+    except Exception:  # noqa: BLE001
+        pass
+    log.info("%s", rep.detail)
+    log.info("Undo anytime (Rekordbox closed): python3 cli.py push-recovery-to-rekordbox --undo")
+    log.info("Backup kept at %s", bdir)
 
 
 def cmd_recover_playlists(args: argparse.Namespace) -> None:
@@ -3328,6 +3448,27 @@ Examples:
                        help="Only rebuild crates with at least this many resolved tracks")
     p_rec.add_argument("--report", default=None, help="Write the full crate list to this file")
     p_rec.set_defaults(func=cmd_recover_playlists)
+
+    p_push = sub.add_parser(
+        "push-recovery-to-rekordbox",
+        help="Push recovered crates into the live Rekordbox master.db (dry-run "
+             "unless --write; non-destructive, backed up, undoable).",
+    )
+    p_push.add_argument("--source", action="append", default=[],
+                        help="Recovery source (e.g. the recovered master.db). Repeatable.")
+    p_push.add_argument("--source-list", default=None, dest="source_list",
+                        help="File with one source path per line")
+    p_push.add_argument("--target", default=None,
+                        help="master.db to write to (default: your live library)")
+    p_push.add_argument("--write", action="store_true",
+                        help="Actually write (default: dry-run). Requires Rekordbox closed.")
+    p_push.add_argument("--merge-duplicates", action="store_true", dest="merge_duplicates",
+                        help="Collapse Rekordbox '(N)' duplicate-name crates into one each")
+    p_push.add_argument("--no-skip-existing", action="store_true", dest="no_skip_existing",
+                        help="Do not skip crates whose name already exists (default: skip them)")
+    p_push.add_argument("--undo", action="store_true",
+                        help="Remove the playlists created by the last push (Rekordbox closed)")
+    p_push.set_defaults(func=cmd_push_rekordbox)
 
     p_pl = sub.add_parser("playlist", help="Create or list FableGear playlists")
     pl_sub = p_pl.add_subparsers(dest="playlist_action", required=True)
