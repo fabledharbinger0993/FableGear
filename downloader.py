@@ -362,7 +362,7 @@ def _run(job_id: str) -> None:
         from scanner import extract_metadata       # noqa: PLC0415
         from importer import _import_track         # noqa: PLC0415
         from db_connection import write_db         # noqa: PLC0415
-        from config import DJMT_DB as _DB          # noqa: PLC0415
+        from config import DEVICE_DB as _DB          # noqa: PLC0415
 
         track_info = extract_metadata(downloaded_path)
         if track_info.is_valid:

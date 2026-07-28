@@ -1,4 +1,4 @@
-# DJMTGO USB Format Inspection — Phase A Ground Truth
+# USB Format Inspection — Phase A Ground Truth
 
 Date: 2026-06-12
 Tooling: `cli.py usb-inspect` (commit 0109a0e) + pyrekordbox 0.4.4 direct ANLZ parsing.
@@ -8,7 +8,7 @@ data are redacted from this report.
 ## usb-inspect verdict
 
 ```
-USB inspection: /Volumes/DJMTGO
+USB inspection: /Volumes/DJ_USB
   PIONEER/ directory:  ✓
   DeviceSQL (CDJ-3000): ✓  DeviceSQL header OK — page size 4096, 20 tables, 610,304 bytes
   OneLibrary (OMNIS):   ⚠  present but not plain SQLite (possibly encrypted) — UNVERIFIED

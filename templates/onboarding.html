@@ -47,6 +47,35 @@
     .ob-dot.active { background: var(--accent); transform: scale(1.35); }
     .ob-dot.done   { background: var(--accent2); }
 
+    /* ── Persistent Exit control (top-right, always available) ── */
+    .ob-exit {
+      position: fixed;
+      top: 14px;
+      right: 16px;
+      z-index: 101;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      font-size: .78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: rgba(13, 16, 28, 0.7);
+      border: 1px solid var(--border-hi);
+      border-radius: 999px;
+      cursor: pointer;
+      -webkit-app-region: no-drag;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: color .2s, border-color .2s, background .2s;
+    }
+    .ob-exit:hover {
+      color: var(--text);
+      border-color: rgba(255, 80, 80, .55);
+      background: rgba(30, 12, 14, 0.75);
+    }
+    .ob-exit .ob-exit-x { font-size: .95rem; line-height: 1; }
+
     /* ── Step container ── */
     .ob-step { display: none; }
     .ob-step.active {
@@ -410,6 +439,16 @@
   </style>
 </head>
 <body>
+
+<!-- Persistent exit / "finish later" control — always available so setup is
+     never a one-way trap. Behavior depends on whether an app already exists
+     behind the wizard (see obExitSetup()). -->
+<div class="ob-exit" id="ob-exit" onclick="obExitSetup()"
+     title="Leave setup — your progress is saved">
+  <span class="ob-exit-x">✕</span>
+  <span id="ob-exit-label">Finish later</span>
+</div>
+
 <div class="ob-wrap">
 
   <!-- Update banner — shown immediately if a newer release exists -->
@@ -763,7 +802,15 @@
 
     <div class="ob-card" id="import-progress-card" style="display:none">
       <div class="ob-card-title">Importing into FableGear.db</div>
-      <div id="import-progress" style="font-size:.85rem;color:var(--text-muted)"></div>
+      <div class="fg-progress">
+        <div class="fg-progress-ticker">
+          <span id="import-progress-label">Starting…</span>
+          <span class="fg-progress-count" id="import-progress-count"></span>
+        </div>
+        <div class="fg-progress-track is-indeterminate" id="import-progress-track">
+          <div class="fg-progress-fill" id="import-progress-fill"></div>
+        </div>
+      </div>
     </div>
 
     <div class="ob-actions" id="import-actions">
@@ -802,6 +849,75 @@ var scanData    = null;
 var confirmedPaths = {};
 var scanConsent = null;   // null = not asked yet, true = allowed, false = manual paths
 
+// Whether a usable app already exists behind the wizard (set by the server).
+var alreadyConfigured = {{ 'true' if already_configured else 'false' }};
+
+// ── Progress persistence ────────────────────────────────────────────────────────
+// So "finish later" is real: the wizard remembers which step you were on and
+// what you typed, and restores it next launch. Frontend-only (localStorage);
+// nothing is written to the real config until you actually finish a step that
+// saves it. Path input IDs whose values are worth preserving across a restart.
+var OB_PROGRESS_KEY = 'fg_onboarding_progress_v1';
+var OB_SAVED_INPUTS = ['inp-local-db', 'inp-device-db', 'inp-music-root',
+                       'inp-archive-root', 'inp-snapshot-cadence', 'inp-snapshot-master-db'];
+
+function saveOnboardingProgress() {
+  try {
+    var inputs = {};
+    OB_SAVED_INPUTS.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && el.value) inputs[id] = el.value;
+    });
+    localStorage.setItem(OB_PROGRESS_KEY, JSON.stringify({ step: currentStep, inputs: inputs }));
+  } catch (_) { /* private mode / storage disabled — non-fatal, progress just won't persist */ }
+}
+
+function restoreOnboardingProgress() {
+  var saved;
+  try { saved = JSON.parse(localStorage.getItem(OB_PROGRESS_KEY) || 'null'); }
+  catch (_) { saved = null; }
+  if (!saved) return;
+  if (saved.inputs) {
+    Object.keys(saved.inputs).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.value = saved.inputs[id];
+    });
+  }
+  // Only resume onto a real, saved-progress step (>0); step 0 is the default.
+  if (saved.step && saved.step > 0 && saved.step <= 7 && document.getElementById('step-' + saved.step)) {
+    goToStep(saved.step);
+    obNotice('Resumed where you left off. Use “Finish later” (top-right) to step away again anytime.', 'ok');
+  }
+}
+
+function clearOnboardingProgress() {
+  try { localStorage.removeItem(OB_PROGRESS_KEY); } catch (_) { /* non-fatal */ }
+}
+
+// ── Exit / finish-later ─────────────────────────────────────────────────────────
+function obExitSetup() {
+  saveOnboardingProgress();
+  if (alreadyConfigured) {
+    // There's a working app behind the wizard — just go back to it.
+    window.location.href = '/';
+    return;
+  }
+  // First run: no app to return to yet. Offer to quit and resume later.
+  var ok = confirm(
+    "Leave setup for now?\n\n" +
+    "FableGear needs setup finished before you can use it, but your progress " +
+    "is saved — you'll pick up right here next time you open FableGear.\n\n" +
+    "Quit FableGear now?"
+  );
+  if (!ok) return;
+  fetch('/api/quit', { method: 'POST' })
+    .then(function () { document.body.innerHTML =
+      '<div style="display:flex;height:100vh;align-items:center;justify-content:center;' +
+      'font-size:1rem;color:#9fb3c8">You can close this window. FableGear will resume ' +
+      'setup where you left off next time.</div>'; })
+    .catch(function () { obNotice('Could not quit automatically — you can just close the window.', 'warn'); });
+}
+
 // ── Navigation ─────────────────────────────────────────────────────────────────
 function goToStep(n) {
   var prev = document.getElementById('step-' + currentStep);
@@ -822,6 +938,8 @@ function goToStep(n) {
   if (n === 3) checkFDA();
   if (n === 6) prepareImportStep();
   if (n === 7) _buildSetupSummary();
+
+  saveOnboardingProgress();
 }
 
 // ── Step 1: Dependencies ───────────────────────────────────────────────────────
@@ -1115,36 +1233,31 @@ function populateScan(data) {
   updateArchiveRecommendation();
 }
 
-// Native pickers via pywebview
+// Native pickers via pywebview, falling back to the server-side osascript
+// dialog (/api/pick-file, /api/pick-folder) when window.pywebview isn't
+// present — e.g. the page is open in a plain browser tab rather than the
+// native app window. window.prompt() is not a reliable fallback: WKWebView
+// (and many embedded/automated browser contexts) never surface it, so the
+// button appeared to do nothing.
 function pickFile(inputId) {
   var api = window.pywebview && window.pywebview.api;
-  if (api && api.pick_file) {
-    api.pick_file(['Database files (*.db)', 'All files (*.*)'])
-      .then(function(p) { if (p) document.getElementById(inputId).value = p; });
-  } else {
-    var cur = document.getElementById(inputId).value;
-    var p = window.prompt('Enter file path:', cur);
-    if (p) document.getElementById(inputId).value = p;
-  }
+  var picked = (api && api.pick_file)
+    ? api.pick_file(['Database files (*.db)', 'All files (*.*)'])
+    : fetch('/api/pick-file').then(function(r) { return r.json(); }).then(function(d) { return d.path; });
+  picked.then(function(p) { if (p) document.getElementById(inputId).value = p; })
+    .catch(function(e) { console.warn('[pickFile] picker failed:', e); });
 }
 
 function pickFolder(inputId) {
   var api = window.pywebview && window.pywebview.api;
-  if (api && api.pick_folder) {
-    api.pick_folder()
-      .then(function(p) {
-        if (!p) return;
-        document.getElementById(inputId).value = p;
-        if (inputId === 'inp-music-root') _onMusicRootChosen(p);
-      });
-  } else {
-    var cur = document.getElementById(inputId).value;
-    var p = window.prompt('Enter folder path:', cur);
-    if (p) {
-      document.getElementById(inputId).value = p;
-      if (inputId === 'inp-music-root') _onMusicRootChosen(p);
-    }
-  }
+  var picked = (api && api.pick_folder)
+    ? api.pick_folder()
+    : fetch('/api/pick-folder').then(function(r) { return r.json(); }).then(function(d) { return d.path; });
+  picked.then(function(p) {
+    if (!p) return;
+    document.getElementById(inputId).value = p;
+    if (inputId === 'inp-music-root') _onMusicRootChosen(p);
+  }).catch(function(e) { console.warn('[pickFolder] picker failed:', e); });
 }
 
 function selectMusicRoot(path) {
@@ -1390,8 +1503,14 @@ function importSelectedSources() {
   startBtn.disabled = true;
   startBtn.textContent = 'Importing…';
   document.getElementById('import-progress-card').style.display = '';
-  var prog = document.getElementById('import-progress');
-  prog.textContent = 'Starting…';
+  var label = document.getElementById('import-progress-label');
+  var count = document.getElementById('import-progress-count');
+  var track = document.getElementById('import-progress-track');
+  var fill  = document.getElementById('import-progress-fill');
+  label.textContent = 'Starting…';
+  count.textContent = '';
+  track.classList.add('is-indeterminate');
+  fill.style.width = '';
 
   _saveConfigNow()
     .then(function(d) {
@@ -1409,14 +1528,24 @@ function importSelectedSources() {
           .then(function(r) { return r.json(); })
           .then(function(s) {
             if (s.running) {
-              prog.textContent = s.phase === 'importing'
-                ? ('Importing ' + s.done + ' / ' + s.total + '…')
-                : (s.phase + '…');
+              if (s.phase === 'importing' && s.total > 0) {
+                track.classList.remove('is-indeterminate');
+                label.textContent = 'Importing…';
+                count.textContent = s.done.toLocaleString() + ' / ' + s.total.toLocaleString();
+                fill.style.width = Math.min(100, (s.done / s.total) * 100) + '%';
+              } else {
+                track.classList.add('is-indeterminate');
+                label.textContent = 'Scanning your library…';
+                count.textContent = '';
+              }
               return;
             }
             clearInterval(_obImportPoll);
             if (s.error) {
-              prog.textContent = '⚠ Import failed: ' + s.error;
+              track.classList.remove('is-indeterminate');
+              fill.style.width = '100%';
+              label.textContent = '⚠ Import failed';
+              count.textContent = s.error;
               startBtn.disabled = false;
               startBtn.textContent = 'Retry import →';
               return;
@@ -1425,7 +1554,10 @@ function importSelectedSources() {
             confirmedPaths._imported_summary =
               (r.new_files || 0) + ' new · ' + (r.updated_files || 0) + ' updated · '
               + (r.skipped_files || 0) + ' already known' + ((r.error_files || 0) ? ' · ' + r.error_files + ' errors' : '');
-            prog.textContent = '✓ ' + confirmedPaths._imported_summary;
+            track.classList.remove('is-indeterminate');
+            fill.style.width = '100%';
+            label.textContent = '✓ Done';
+            count.textContent = confirmedPaths._imported_summary;
             startBtn.style.display = 'none';
             setTimeout(function() { goToStep(7); }, 1200);
           })
@@ -1472,6 +1604,9 @@ function launch(area) {
   .then(function(r) { return r.json(); })
   .then(function(d) {
     if (d.ok) {
+      // Setup finished — clear the saved-progress draft so a future wizard
+      // visit (e.g. reconfigure) starts clean rather than resuming a stale step.
+      clearOnboardingProgress();
       window.location.replace(area === 'chop' ? '/?space=chop' : '/?space=record');
     } else {
       obNotice('Could not save configuration: ' + (d.error || 'unknown error'), 'error');
@@ -1566,7 +1701,19 @@ setTimeout(obUpdateCheck, 10000);
 // ── Boot ───────────────────────────────────────────────────────────────────────
 document.getElementById('inp-music-root').addEventListener('change', updateArchiveRecommendation);
 document.getElementById('inp-archive-root').addEventListener('change', updateArchiveRecommendation);
+
+// The exit control reads "Exit setup" for a configured user (there's a working
+// app to return to) and "Finish later" for a first-run user (there isn't).
+if (alreadyConfigured) document.getElementById('ob-exit-label').textContent = 'Exit setup';
+
+// Persist path edits as they happen so a mid-step exit keeps them too.
+OB_SAVED_INPUTS.forEach(function (id) {
+  var el = document.getElementById(id);
+  if (el) el.addEventListener('change', saveOnboardingProgress);
+});
+
 checkDeps();
+restoreOnboardingProgress();
 </script>
 </body>
 </html>

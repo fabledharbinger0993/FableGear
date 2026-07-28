@@ -17,11 +17,14 @@ Config file schema
   "snapshot_include_master_db": false,
   "target_lufs":     -8.0,
   "lufs_tolerance":  0.5,
-  "excluded_dirs":   ["ollama", "DJMT PRIMARY_PROCESSING_LOGIC"]
+  "excluded_dirs":   ["Sample Packs", "Podcasts"]
 }
 
 Required keys: local_db, device_db, music_root, backup_dir
 Optional keys: target_lufs, lufs_tolerance, excluded_dirs (filled from DEFAULTS if absent)
+
+The excluded_dirs value above is only a schema example — the shipped default
+(DEFAULTS["excluded_dirs"]) is an empty list.
 
 excluded_dirs: list of folder *names* (not paths) to skip when scanning the music
 root. Useful for non-music directories that live inside the music root, such as
@@ -35,7 +38,7 @@ Public interface
   interactive_setup() -> dict         prompts user, validates, saves, returns cfg
 """
 
-import importlib
+import importlib.util
 import json
 import os
 import platform
@@ -66,7 +69,11 @@ DEFAULTS: dict = {
     "snapshot_cadence":    "monthly",
     "snapshot_include_master_db": False,
     "excluded_dirs":       [],   # extra folder names to skip when scanning music root
-    "acoustid_api_key":    "",   # AcoustID API key for fingerprint lookup
+    # AcoustID application key, registered at acoustid.org to FableGear
+    # itself. AcoustID keys are per-application (not per-user) and meant to
+    # ship with the app, so fingerprint lookup works out of the box. Users
+    # can still substitute their own key in settings or the setup wizard.
+    "acoustid_api_key":    "wAbRWVEfls",
     "mode": "suburban",  # 'rural' (no AI) or 'suburban' (AI enabled)
 }
 
@@ -271,7 +278,8 @@ def save_user_config(cfg: dict) -> None:
 
 # ─── Dependency validation ────────────────────────────────────────────────────
 #
-# Checked at startup by check_dependencies() and surfaced by `python3 cli.py check`.
+# Checked at startup by check_dependencies() and surfaced at the end of
+# `python3 cli.py setup` (there is no standalone `check` subcommand).
 # Commands that need a missing dep are expected to fail fast with a clear message
 # rather than deep-stack traceback.
 
@@ -464,7 +472,7 @@ def print_dependency_report(results: Optional[List[Dict]] = None) -> bool:
         print("  All dependencies satisfied.")
     else:
         missing = sum(1 for r in results if not r["ok"])
-        print(f"  {missing} missing. Install the above, then re-run: python3 cli.py check")
+        print(f"  {missing} missing. Install the above, then re-run: python3 cli.py setup --update")
     print()
     return all_ok
 
@@ -636,14 +644,37 @@ def interactive_setup(*, update: bool = False) -> dict:
 
     cfg["lufs_tolerance"] = existing.get("lufs_tolerance", DEFAULTS["lufs_tolerance"])
 
+    # ── Optional: AcoustID API key ──
+    current_key = str(
+        existing.get("acoustid_api_key", DEFAULTS["acoustid_api_key"])
+    ).strip()
+    key_hint = "Enter keeps FableGear's built-in key" if current_key == DEFAULTS["acoustid_api_key"] \
+        else "configured — Enter keeps yours"
+    print(
+        f"\n  AcoustID API key  [{key_hint}]\n"
+        "  Used for MusicBrainz metadata enrichment (fills in missing title/\n"
+        "  artist/album from audio fingerprints). FableGear ships with its own\n"
+        "  registered application key — most users should just press Enter.\n"
+        "  To use your own instead: https://acoustid.org/ → 'Register an application'."
+    )
+    try:
+        raw_key = input("  → ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nSetup cancelled.")
+        sys.exit(0)
+    cfg["acoustid_api_key"] = raw_key if raw_key else current_key
 
     # ── Mode selection ──
     print()
     print("  Select FableGear mode:")
     print("    1. Suburban (AI enabled, recommended)")
     print("    2. Rural (no AI, pure toolkit)")
-    mode_choice = ""
-    while mode_choice not in ("1", "2", ""):  # default to 1
+    # Do-while: "" starts outside the accepted set so the prompt always runs
+    # at least once; Enter maps to "1". (The old guard included "" in the
+    # accepted set, so the loop never executed and every setup silently got
+    # mode="rural" without the question ever being shown.)
+    mode_choice = None
+    while mode_choice not in ("1", "2"):
         mode_choice = input("  → Enter 1 or 2 [1]: ").strip() or "1"
     cfg["mode"] = "suburban" if mode_choice == "1" else "rural"
 

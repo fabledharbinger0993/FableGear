@@ -35,8 +35,73 @@ function undoSwitchTab(tab) {
 
   if (tab === 'timeline') undoLoadTimeline();
   else if (tab === 'operations') undoLoadOperations();
+  else if (tab === 'database') undoLoadDatabase();
   else if (tab === 'savepoints') undoLoadSavepoints();
   else if (tab === 'trash') undoLoadTrash();
+}
+
+/* ── Database Transactions ────────────────────────────────────────────── */
+async function undoLoadDatabase() {
+  const el = document.getElementById('undo-database-list');
+  if (!el) return;
+  el.innerHTML = '<div class="undo-empty">Loading database transactions…</div>';
+  try {
+    const res = await fetch('/api/undo/database/history');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    if (!data.length) {
+      el.innerHTML = '<div class="undo-empty">No database transactions recorded yet.</div>';
+      return;
+    }
+    el.innerHTML = '';
+    data.forEach(tx => {
+      const row = document.createElement('div');
+      row.className = 'undo-item';
+      
+      const label = document.createElement('div');
+      label.className = 'undo-item-main';
+      
+      const title = document.createElement('div');
+      title.className = 'undo-item-title';
+      title.textContent = tx.description || `${tx.operation_type} transaction`;
+      
+      const meta = document.createElement('div');
+      meta.className = 'undo-item-meta';
+      meta.textContent = `${_undoFormatTime(tx.timestamp)} · ID: ${tx.transaction_id}`;
+      
+      label.appendChild(title);
+      label.appendChild(meta);
+      row.appendChild(label);
+      
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-xs btn-neon';
+      btn.textContent = 'Rollback';
+      btn.onclick = async () => {
+        if (!confirm(`Are you sure you want to rollback transaction ${tx.transaction_id}?`)) return;
+        btn.disabled = true;
+        btn.textContent = 'Reverting…';
+        try {
+          const r2 = await fetch('/api/undo/database/revert', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transaction_id: tx.transaction_id }),
+          });
+          const out = await r2.json();
+          if (!r2.ok) throw new Error(out.error || r2.statusText);
+          showToast('Database transaction successfully rolled back.', 'success');
+          undoLoadDatabase();
+        } catch (e) {
+          showToast(`Rollback failed: ${e.message}`, 'error');
+          btn.disabled = false;
+          btn.textContent = 'Rollback';
+        }
+      };
+      row.appendChild(btn);
+      el.appendChild(row);
+    });
+  } catch (e) {
+    el.innerHTML = `<div class="undo-empty">⚠ ${e.message}</div>`;
+  }
 }
 
 /* ── Operations (archive journal) ─────────────────────────────────────── */

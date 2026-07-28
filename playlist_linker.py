@@ -517,12 +517,12 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(message)s")
     sys.path.insert(0, ".")
 
-    from config import DJMT_DB, MUSIC_ROOT
+    from config import DEVICE_DB, MUSIC_ROOT
     from db_connection import read_db
 
     # ── Part 1: playlist index inspection (no writes) ──
     print("=== Playlist index (read-only) ===")
-    with read_db(DJMT_DB) as db:
+    with read_db(DEVICE_DB) as db:
         index = build_playlist_index(db)
         names_lower = list(index.keys())
         print(f"  Total playlists indexed: {len(index)}")

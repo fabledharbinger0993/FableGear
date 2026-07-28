@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .schema import DatabaseSchema, DatabaseConfig
 
@@ -35,6 +35,49 @@ class LibraryNotInitializedError(RuntimeError):
     but has not been created yet. Read paths catch this and present an empty
     library instead of silently materialising the file — FableGear never
     creates the library as a side effect of merely viewing it."""
+
+
+@dataclass
+class CueRecord:
+    """Database record for a cue point or loop in fg_cue table."""
+    id: Optional[int] = None
+    content_id: Optional[int] = None
+    kind: int = 0  # 0 = Memory, 1 = Hotcue, 2 = Loop, 3 = Active Loop
+    slot: Optional[int] = None  # 0-7 for hotcues
+    in_msec: int = 0
+    out_msec: Optional[int] = None
+    color: Optional[str] = None
+    comment: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {k: v for k, v in self.__dict__.items() if v is not None}
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CueRecord":
+        return cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
+
+
+@dataclass
+class BeatGridRecord:
+    """Database record for a beatgrid marker in fg_beatgrid table."""
+    id: Optional[int] = None
+    content_id: Optional[int] = None
+    beat_number: int = 0
+    time_msec: int = 0
+    bpm: float = 120.0
+    meter_numerator: int = 4
+    meter_denominator: int = 4
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {k: v for k, v in self.__dict__.items() if v is not None}
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "BeatGridRecord":
+        return cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
 
 
 @dataclass
@@ -72,12 +115,16 @@ class ContentRecord:
     fingerprint_quality: int = 0
     is_corrupted: bool = False
     processing_status: str = "unprocessed"
+    color: Optional[str] = None
+    cues: List[CueRecord] = field(default_factory=list)
+    beatgrid: List[BeatGridRecord] = field(default_factory=list)
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for database operations."""
-        return {k: v for k, v in self.__dict__.items() if v is not None}
+        exclude = {"cues", "beatgrid"}
+        return {k: v for k, v in self.__dict__.items() if v is not None and k not in exclude}
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ContentRecord":
@@ -154,7 +201,14 @@ class FableGearDatabase:
             # Validate existing schema
             errors = DatabaseSchema.validate_schema(self.config.db_path)
             if errors:
-                log.warning("Database schema validation errors: %s", errors)
+                log.info("Attempting automatic database schema upgrade...")
+                if DatabaseSchema.upgrade_schema(self.config.db_path):
+                    log.info("Database schema upgrade successful.")
+                    errors = DatabaseSchema.validate_schema(self.config.db_path)
+                    if errors:
+                        log.warning("Database schema still has errors after upgrade: %s", errors)
+                else:
+                    log.warning("Database schema upgrade failed. Validation errors: %s", errors)
     
     @contextmanager
     def connection(self):
@@ -251,7 +305,7 @@ class FableGearDatabase:
         "genre", "label", "year", "track_number", "disc_number", "comment",
         "rating", "drive", "relative_path", "rekordbox_id",
         "rekordbox_playlist_id", "in_rekordbox", "last_scanned",
-        "fingerprint_quality", "is_corrupted", "processing_status",
+        "fingerprint_quality", "is_corrupted", "processing_status", "color",
     )
 
     def bulk_upsert_content(self, records: List[ContentRecord]) -> int:
@@ -1109,3 +1163,152 @@ class FableGearDatabase:
             cursor.execute("SELECT value FROM fg_metadata WHERE key = ?", (key,))
             row = cursor.fetchone()
             return row[0] if row else None
+
+    # ── Performance Metadata APIs (Cues, Loops, Beatgrids) ────────────────
+
+    def get_cues_for_content(self, content_id: int) -> List[CueRecord]:
+        """Get all cues and loops for a content record, sorted by position."""
+        with self.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, content_id, kind, slot, in_msec, out_msec, color, comment, created_at, updated_at
+                FROM fg_cue
+                WHERE content_id = ?
+                ORDER BY in_msec ASC
+            """, (content_id,))
+            columns = [col[0] for col in cursor.description]
+            return [CueRecord.from_dict(dict(zip(columns, row))) for row in cursor.fetchall()]
+
+    def get_beatgrid_for_content(self, content_id: int) -> List[BeatGridRecord]:
+        """Get beatgrid markers for a content record, sorted by beat number."""
+        with self.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, content_id, beat_number, time_msec, bpm, meter_numerator, meter_denominator, created_at, updated_at
+                FROM fg_beatgrid
+                WHERE content_id = ?
+                ORDER BY beat_number ASC
+            """, (content_id,))
+            columns = [col[0] for col in cursor.description]
+            return [BeatGridRecord.from_dict(dict(zip(columns, row))) for row in cursor.fetchall()]
+
+    def bulk_upsert_cues(self, content_id: int, cues: List[CueRecord]) -> None:
+        """Replace all cues and loops for a content record in a single transaction."""
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            # Clear existing cues
+            cursor.execute("DELETE FROM fg_cue WHERE content_id = ?", (content_id,))
+            
+            # Insert new cues
+            for cue in cues:
+                cursor.execute("""
+                    INSERT INTO fg_cue (content_id, kind, slot, in_msec, out_msec, color, comment)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    content_id,
+                    cue.kind,
+                    cue.slot,
+                    cue.in_msec,
+                    cue.out_msec,
+                    cue.color,
+                    cue.comment
+                ))
+
+    def bulk_upsert_beatgrids(self, content_id: int, beatgrid: List[BeatGridRecord]) -> None:
+        """Replace all beatgrid markers for a content record in a single transaction."""
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            # Clear existing beatgrid
+            cursor.execute("DELETE FROM fg_beatgrid WHERE content_id = ?", (content_id,))
+            
+            # Insert new beatgrid
+            for grid in beatgrid:
+                cursor.execute("""
+                    INSERT INTO fg_beatgrid (content_id, beat_number, time_msec, bpm, meter_numerator, meter_denominator)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    content_id,
+                    grid.beat_number,
+                    grid.time_msec,
+                    grid.bpm,
+                    grid.meter_numerator,
+                    grid.meter_denominator
+                ))
+
+    def get_content_with_relations(self, content_ids: Optional[List[int]] = None) -> List[ContentRecord]:
+        """
+        Fetch multiple ContentRecords along with all their related cues and beatgrids.
+        IDs are processed in chunks of 500 to stay within SQLite's host-parameter
+        limit; each chunk issues 1 content query plus 1 cue query and 1 beatgrid
+        query, so the total number of queries scales with ceil(N / 500) rather than
+        being a fixed count. This still prevents N+1 roundtrips.
+        If content_ids is None, fetches all records in a single pass.
+        """
+        # Chunking to avoid SQLite host parameter limits — applies to every
+        # IN (...) here, including the fg_content fetch itself: an explicit
+        # content_ids list can exceed the limit just as easily as the
+        # relation lookups can.
+        CHUNK_SIZE = 500
+
+        # 1. Fetch content records
+        with self.connection() as conn:
+            cursor = conn.cursor()
+
+            if content_ids is not None:
+                if not content_ids:
+                    return []
+                tracks = []
+                columns = None
+                for i in range(0, len(content_ids), CHUNK_SIZE):
+                    chunk = content_ids[i:i + CHUNK_SIZE]
+                    placeholders = ",".join("?" for _ in chunk)
+                    cursor.execute(f"""
+                        SELECT * FROM fg_content
+                        WHERE id IN ({placeholders})
+                    """, chunk)
+                    columns = [col[0] for col in cursor.description]
+                    tracks.extend(
+                        ContentRecord.from_dict(dict(zip(columns, row)))
+                        for row in cursor.fetchall()
+                    )
+            else:
+                cursor.execute("SELECT * FROM fg_content")
+                columns = [col[0] for col in cursor.description]
+                tracks = [ContentRecord.from_dict(dict(zip(columns, row))) for row in cursor.fetchall()]
+
+            if not tracks:
+                return []
+
+            track_map = {t.id: t for t in tracks}
+            actual_ids = list(track_map.keys())
+            for i in range(0, len(actual_ids), CHUNK_SIZE):
+                chunk = actual_ids[i:i + CHUNK_SIZE]
+                placeholders_chunk = ",".join("?" for _ in chunk)
+
+                # 2. Fetch cues for this chunk
+                cursor.execute(f"""
+                    SELECT id, content_id, kind, slot, in_msec, out_msec, color, comment, created_at, updated_at
+                    FROM fg_cue
+                    WHERE content_id IN ({placeholders_chunk})
+                    ORDER BY in_msec ASC
+                """, chunk)
+                cue_cols = [col[0] for col in cursor.description]
+                for row in cursor.fetchall():
+                    cue = CueRecord.from_dict(dict(zip(cue_cols, row)))
+                    if cue.content_id in track_map:
+                        track_map[cue.content_id].cues.append(cue)
+
+                # 3. Fetch beatgrid markers for this chunk
+                cursor.execute(f"""
+                    SELECT id, content_id, beat_number, time_msec, bpm, meter_numerator, meter_denominator, created_at, updated_at
+                    FROM fg_beatgrid
+                    WHERE content_id IN ({placeholders_chunk})
+                    ORDER BY beat_number ASC
+                """, chunk)
+                grid_cols = [col[0] for col in cursor.description]
+                for row in cursor.fetchall():
+                    grid = BeatGridRecord.from_dict(dict(zip(grid_cols, row)))
+                    if grid.content_id in track_map:
+                        track_map[grid.content_id].beatgrid.append(grid)
+
+            return tracks

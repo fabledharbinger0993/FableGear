@@ -29,11 +29,15 @@ const _decks = {
   a: { trackId: null, meta: { bpm: 0, key: '', duration: 0, title: '', artist: '', album: '' },
        tempoPct: 0, pitchSemitones: 0, keyLock: true, playing: false,
        shifter: null, gain: null, buffer: null, connected: false, loadToken: 0,
-       animId: null, waveData: [] },
+       animId: null, waveData: [],
+       hotcues: [null, null, null, null],   // slot -> {inMsec, color} | null
+       loop: { active: false, inSec: null, outSec: null } },
   b: { trackId: null, meta: { bpm: 0, key: '', duration: 0, title: '', artist: '', album: '' },
        tempoPct: 0, pitchSemitones: 0, keyLock: true, playing: false,
        shifter: null, gain: null, buffer: null, connected: false, loadToken: 0,
-       animId: null, waveData: [] },
+       animId: null, waveData: [],
+       hotcues: [null, null, null, null],
+       loop: { active: false, inSec: null, outSec: null } },
 };
 let _deckNextTarget = 'a';
 
@@ -110,12 +114,28 @@ function _deckOnEnded(id) {
   _deckUpdateTimes(id, 0, dk.meta.duration || 0);
 }
 
+/* ── Loop enforcement ─────────────────────────────────────────────────────
+   Called from the shifter's own 'play' event (real audio-block callback —
+   see deckLoadTrack) so it fires reliably even when rAF is throttled or
+   stopped by a backgrounded tab. Also called from the animation tick below
+   as a cheap redundant check while the tab IS visible. Safe to call often:
+   it's a no-op unless a loop is actually active and past its out point. */
+function _deckLoopCheck(id) {
+  const dk = _decks[id];
+  if (!dk.loop.active || dk.loop.outSec == null || !dk.shifter) return;
+  const { cur, dur } = _deckPos(id);
+  if (dur && cur >= dk.loop.outSec) {
+    dk.shifter.percentagePlayed = dk.loop.inSec / dur;   // fraction, not percent — see _deckWaveScrub
+  }
+}
+
 /* ── Animation loop ───────────────────────────────────────────────────── */
 function _deckStartAnim(id) {
   const dk = _decks[id];
   cancelAnimationFrame(dk.animId);
   function tick() {
     if (!dk.playing) return;
+    _deckLoopCheck(id);
     const { cur, dur } = _deckPos(id);
     const pos = dur ? cur / dur : 0;
     _deckDrawWave(id, pos);
@@ -147,6 +167,12 @@ async function deckLoadTrack(trackId, meta, targetDeck, opts) {
     artist: meta.artist || '',
     album: meta.album || '',
   };
+
+  dk.hotcues = [null, null, null, null];
+  dk.loop = { active: false, inSec: null, outSec: null };
+  _deckRenderHotcues(id);
+  _deckRenderLoopUI(id);
+  _deckFetchCues(id, trackId);
 
   const titleEl = _d(id, 'title');
   const artistEl = _d(id, 'artist');
@@ -194,6 +220,12 @@ async function deckLoadTrack(trackId, meta, targetDeck, opts) {
     dk.buffer = buffer;
     dk.shifter = new PitchShifter(ctx, buffer, 4096, () => _deckOnEnded(id));
     dk.connected = false;
+    // Loop enforcement rides the shifter's own 'play' event (fired from its
+    // real audio-block callback) rather than requestAnimationFrame — rAF
+    // throttles or fully stops when the tab is backgrounded/minimized, but
+    // audio keeps playing regardless, so a rAF-driven loop check can silently
+    // miss the loop-out point entirely and just play through it.
+    dk.shifter.node.addEventListener('play', () => _deckLoopCheck(id));
     if (!dk.meta.duration) {
       dk.meta.duration = buffer.duration;
       if (durEl) durEl.textContent = _deckFmtTime(buffer.duration);
@@ -418,7 +450,11 @@ function _deckPhaseNudge(fromId, toId) {
   const shiftSec = delta * 60 / dstBpm;
   const next = dstCur + shiftSec;
   if (next >= 0 && (!dstDur || next < dstDur)) {
-    dst.shifter.percentagePlayed = dstDur ? (next / dstDur) * 100 : 0;
+    // NOTE: PitchShifter.percentagePlayed's setter/getter are asymmetric in
+    // the vendored lib — the getter returns 0-100 but the setter expects a
+    // 0-1 fraction (sets sourcePosition = perc * duration * sampleRate
+    // directly, no /100). Assigning a 0-100 value here seeks 100x too far.
+    dst.shifter.percentagePlayed = dstDur ? (next / dstDur) : 0;
   }
 }
 
@@ -569,10 +605,150 @@ function _deckWaveScrub(id, e) {
   const dk = _decks[id];
   const dur = (dk.shifter && dk.shifter.duration) || dk.meta.duration || 0;
   if (dk.shifter && dur > 0) {
-    dk.shifter.percentagePlayed = pct * 100;
+    // See the note in _deckPhaseNudge — the setter wants a 0-1 fraction, not
+    // a 0-100 percentage, despite the property's own getter returning 0-100.
+    dk.shifter.percentagePlayed = pct;
     _deckDrawWave(id, pct);
     _deckUpdateTimes(id, pct * dur, dur);
   }
+}
+
+/* ── Hot cues ─────────────────────────────────────────────────────────────
+   4 pads per deck (Record Room's own call — Rekordbox ships 8, but the
+   "not too busy" sizing goal from the performance-mode audit wins here).
+   Backed by fg_cue via /api/library/tracks/<id>/cues — see routes_player.py.
+   Click an empty pad: sets it at the current position. Click a set pad:
+   jumps there (playback keeps running, CDJ-style). Right-click a set pad:
+   clears it. */
+async function _deckFetchCues(id, trackId) {
+  try {
+    const res = await fetch('/api/library/tracks/' + encodeURIComponent(trackId) + '/cues');
+    if (!res.ok) return;
+    const cues = await res.json();
+    if (!Array.isArray(cues)) return;
+    if (_decks[id].trackId !== trackId) return;  // a newer load superseded this fetch
+    for (const c of cues) {
+      if (c.kind === 1 && c.slot >= 0 && c.slot < 4) {
+        _decks[id].hotcues[c.slot] = { inMsec: c.in_msec, color: c.color || null };
+      }
+    }
+    _deckRenderHotcues(id);
+  } catch (_) { /* offline / library not built — pads just stay empty */ }
+}
+
+function _deckRenderHotcues(id) {
+  const dk = _decks[id];
+  for (let slot = 0; slot < 4; slot++) {
+    const pad = _d(id, 'hc-' + slot);
+    if (pad) pad.classList.toggle('deck-hotcue-set', !!dk.hotcues[slot]);
+  }
+}
+
+function _deckPostCue(id, slot, inMsec) {
+  const dk = _decks[id];
+  if (dk.trackId == null) return;
+  fetch('/api/library/tracks/' + encodeURIComponent(dk.trackId) + '/cues', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 1, slot, in_msec: inMsec }),
+  }).catch(() => {
+    if (typeof showToast === 'function') showToast('Hot cue not saved — offline or library unavailable.', 'warning');
+  });
+}
+
+function _deckHotcueTap(id, slot) {
+  const dk = _decks[id];
+  const existing = dk.hotcues[slot];
+  const { dur } = _deckPos(id);
+  if (existing) {
+    // Jump — keep playing, don't stop the mix.
+    if (dk.shifter && dur > 0) {
+      dk.shifter.percentagePlayed = existing.inMsec / 1000 / dur;   // fraction, not percent
+      if (!dk.playing) { _deckDrawWave(id, existing.inMsec / 1000 / dur); _deckUpdateTimes(id, existing.inMsec / 1000, dur); }
+    }
+    return;
+  }
+  // Set — capture the current position.
+  if (!dk.shifter || dur <= 0) {
+    if (typeof showToast === 'function') showToast('Load a track before setting hot cues.', 'warning');
+    return;
+  }
+  const { cur } = _deckPos(id);
+  const inMsec = Math.round(cur * 1000);
+  dk.hotcues[slot] = { inMsec, color: null };
+  _deckRenderHotcues(id);
+  _deckPostCue(id, slot, inMsec);
+}
+
+function _deckHotcueClear(id, slot) {
+  const dk = _decks[id];
+  if (!dk.hotcues[slot]) return;
+  dk.hotcues[slot] = null;
+  _deckRenderHotcues(id);
+  _deckPostCue(id, slot, null);
+}
+
+/* ── Loop ─────────────────────────────────────────────────────────────────
+   IN / OUT define a loop at any length; RELOOP re-arms the last loop without
+   redefining it; the ½×/2× pair halves/doubles an *active* loop's length —
+   mirrors Rekordbox's IN/OUT/RELOOP + beat-length stepper without trying to
+   match its full auto-loop bank. Loop state is playback-session only (not
+   persisted) — same scope as tempo/pitch, unlike hot cues. */
+function _deckRenderLoopUI(id) {
+  const dk = _decks[id];
+  const btn = _d(id, 'reloop');
+  if (btn) btn.classList.toggle('deck-loop-active', dk.loop.active);
+  const lenEl = _d(id, 'loop-len');
+  if (lenEl) {
+    if (dk.loop.inSec != null && dk.loop.outSec != null && dk.meta.bpm) {
+      const beats = Math.round((dk.loop.outSec - dk.loop.inSec) * dk.meta.bpm / 60);
+      lenEl.textContent = beats > 0 ? String(beats) : '—';
+    } else {
+      lenEl.textContent = '—';
+    }
+  }
+}
+
+function _deckLoopIn(id) {
+  const dk = _decks[id];
+  if (!dk.shifter) return;
+  dk.loop.inSec = _deckPos(id).cur;
+  dk.loop.active = false;   // defining a new IN cancels whatever was looping
+  if (dk.loop.outSec != null && dk.loop.outSec <= dk.loop.inSec) dk.loop.outSec = null;
+  _deckRenderLoopUI(id);
+}
+
+function _deckLoopOut(id) {
+  const dk = _decks[id];
+  if (!dk.shifter) return;
+  const cur = _deckPos(id).cur;
+  if (dk.loop.inSec == null || cur <= dk.loop.inSec) {
+    if (typeof showToast === 'function') showToast('Set LOOP IN first, further back in the track.', 'warning');
+    return;
+  }
+  dk.loop.outSec = cur;
+  dk.loop.active = true;
+  _deckRenderLoopUI(id);
+}
+
+function _deckReloopToggle(id) {
+  const dk = _decks[id];
+  if (dk.loop.inSec == null || dk.loop.outSec == null) return;  // nothing defined yet
+  dk.loop.active = !dk.loop.active;
+  if (dk.loop.active && dk.shifter) {
+    const { dur } = _deckPos(id);
+    if (dur > 0) dk.shifter.percentagePlayed = dk.loop.inSec / dur;   // fraction, not percent
+  }
+  _deckRenderLoopUI(id);
+}
+
+function _deckLoopScale(id, factor) {
+  const dk = _decks[id];
+  if (!dk.loop.active || dk.loop.inSec == null || dk.loop.outSec == null) return;
+  const len = (dk.loop.outSec - dk.loop.inSec) * factor;
+  if (len < 0.05) return;  // don't let ½× collapse the loop to nothing
+  dk.loop.outSec = dk.loop.inSec + len;
+  _deckRenderLoopUI(id);
 }
 
 /* ── Wire up one deck ─────────────────────────────────────────────────── */
@@ -628,6 +804,19 @@ function _deckInitOne(id) {
   });
 
   _d(id, 'wave-wrap')?.addEventListener('click', (e) => _deckWaveScrub(id, e));
+
+  for (let slot = 0; slot < 4; slot++) {
+    const pad = _d(id, 'hc-' + slot);
+    if (!pad) continue;
+    pad.addEventListener('click', () => _deckHotcueTap(id, slot));
+    pad.addEventListener('contextmenu', (e) => { e.preventDefault(); _deckHotcueClear(id, slot); });
+  }
+
+  _d(id, 'loop-in')?.addEventListener('click', () => _deckLoopIn(id));
+  _d(id, 'loop-out')?.addEventListener('click', () => _deckLoopOut(id));
+  _d(id, 'reloop')?.addEventListener('click', () => _deckReloopToggle(id));
+  _d(id, 'loop-halve')?.addEventListener('click', () => _deckLoopScale(id, 0.5));
+  _d(id, 'loop-double')?.addEventListener('click', () => _deckLoopScale(id, 2));
 
   const canvas = _d(id, 'wave-canvas');
   if (canvas) {

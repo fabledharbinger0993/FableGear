@@ -438,6 +438,88 @@ async function leSplitDropImport(ev) {
   }
 }
 
+/* ── Drag a track from the file browser (or novelty list) onto the open
+   library view to import it — and add it to the active playlist if one is
+   selected. Covers the gap where dropping a file-browser item onto an open
+   playlist previously did nothing: no drop zone anywhere accepted the file
+   browser's plain-path drag format except the Integrated view's novelty
+   column, which only imports (it never adds to whatever playlist you had
+   open, since Integrated view has no concept of "the active playlist"). */
+function _leDragPathFromEvent(ev) {
+  const dt = ev.dataTransfer;
+  if (!dt) return null;
+  const novelty = dt.getData('application/x-fablegear-novelty');
+  if (novelty) return novelty;
+  const plain = dt.getData('text/plain');
+  if (plain && plain.startsWith('/')) return plain;
+  return null;
+}
+
+function _leDragHasImportablePath(ev) {
+  // getData() is only readable on drop, not dragover — type presence is all
+  // we can check here, same restriction leSplitDragOver already works around.
+  const types = [...(ev.dataTransfer?.types || [])];
+  return types.includes('application/x-fablegear-novelty') || types.includes('text/plain');
+}
+
+function leTrackListDragOver(ev) {
+  if (_leGetState('_leMode', 'db') !== 'db') return;
+  if (!_leDragHasImportablePath(ev)) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'copy';
+  ev.currentTarget.classList.add('le-split-drop-hot');
+}
+
+function leTrackListDragLeave(ev) {
+  ev.currentTarget.classList.remove('le-split-drop-hot');
+}
+
+async function leTrackListDrop(ev) {
+  ev.preventDefault();
+  ev.currentTarget.classList.remove('le-split-drop-hot');
+  if (_leGetState('_leMode', 'db') !== 'db') return;
+  const path = _leDragPathFromEvent(ev);
+  if (!path) return;
+
+  const playlistId   = typeof _leActivePlaylistId   !== 'undefined' ? _leActivePlaylistId   : null;
+  const playlistName = typeof _leActivePlaylistName !== 'undefined' ? _leActivePlaylistName : '';
+
+  try {
+    const res = await fetch('/api/library/db/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths: [path] }),
+    });
+    const stats = await res.json();
+    if (!res.ok) throw new Error(stats.error || res.statusText);
+    const what = stats.new_files ? 'Imported' : (stats.updated_files ? 'Updated' : 'Already in your library');
+    const contentId = stats.content_ids && stats.content_ids[path];
+
+    if (playlistId && contentId) {
+      const addRes = await fetch(`/api/library/playlists/${playlistId}/tracks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ track_id: contentId }),
+      });
+      const addData = await addRes.json().catch(() => ({}));
+      if (typeof showToast === 'function') {
+        if (addRes.ok && addData.added > 0) {
+          showToast(`${what} · added to "${playlistName}".`, 'success');
+        } else if (addRes.ok) {
+          showToast(`${what} · already in "${playlistName}".`, 'info');
+        } else {
+          showToast(`${what}, but could not add to "${playlistName}": ${addData.error || 'unknown error'}`, 'error');
+        }
+      }
+    } else if (typeof showToast === 'function') {
+      showToast(`${what} into your library.` + (playlistId ? '' : ' Open a playlist to add it there too.'), 'success');
+    }
+    await leLoadLibrary();
+  } catch (e) {
+    if (typeof showToast === 'function') showToast(`Import failed: ${e.message}`, 'error');
+  }
+}
+
 // Expose functions to the global window object for HTML onclick handlers
 window.setLibraryMode = setLibraryMode;
 window.leFsBrowse = leFsBrowse;
@@ -447,3 +529,6 @@ window._leStageFsCurrentFolder = _leStageFsCurrentFolder;
 window.leSplitDragOver = leSplitDragOver;
 window.leSplitDragLeave = leSplitDragLeave;
 window.leSplitDropImport = leSplitDropImport;
+window.leTrackListDragOver = leTrackListDragOver;
+window.leTrackListDragLeave = leTrackListDragLeave;
+window.leTrackListDrop = leTrackListDrop;

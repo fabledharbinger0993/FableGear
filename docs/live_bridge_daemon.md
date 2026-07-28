@@ -14,10 +14,10 @@ Keep active impersonation experiments separate from the daemon until a labeled p
 
 ## Run
 
-Activate the DJMT toolchain depot first if your shell does not already have the required tools:
+Activate your Python environment first if your shell does not already have the required tools (e.g. the project virtualenv):
 
 ```zsh
-source /path/to/toolchains/config/djmt-toolchains.zsh
+source /path/to/your/venv/bin/activate
 ```
 
 Then run the passive daemon from the FableGear repo:

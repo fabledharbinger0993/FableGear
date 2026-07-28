@@ -41,7 +41,7 @@ async function _initStateOverlay() {
   } catch (_) {}
 }
 _initStateOverlay();
-['organize-target','novelty-dest'].forEach(id => {
+['organize-target','novelty-dest','novelty-copy-to'].forEach(id => {
   const el = document.getElementById(id);
   if (el) el.addEventListener('change', () => { if (el.value.trim()) loadState(el.value.trim()); });
 });

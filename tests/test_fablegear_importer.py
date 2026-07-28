@@ -30,7 +30,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from fablegear_database.database import FableGearDatabase
-from fablegear_database.importer import FileImporter
+from fablegear_database.importer import _COMMIT_BATCH_SIZE, FileImporter
 from fablegear_database.schema import DatabaseConfig
 
 
@@ -72,6 +72,9 @@ class FakeScanner:
             except ValueError:
                 continue
             yield t
+
+    def count_scannable_files(self, root):
+        return sum(1 for _ in self.scan_directory(root))
 
 
 @pytest.fixture
@@ -123,7 +126,7 @@ def test_imports_new_files_with_mapped_metadata(db, tmp_path):
     assert rec_b.format == "flac"
 
 
-def test_import_uses_a_single_bulk_transaction(db, tmp_path):
+def test_small_import_uses_a_single_bulk_transaction(db, tmp_path):
     music = tmp_path / "music"
     tracks = [FakeTrack(_make_file(music / f"{i}.mp3", f"x{i}".encode()),
                         title=f"T{i}") for i in range(5)]
@@ -140,9 +143,53 @@ def test_import_uses_a_single_bulk_transaction(db, tmp_path):
     stats = FileImporter(db, scanner_module=FakeScanner(tracks)).import_files([music])
 
     assert stats["new_files"] == 5
-    assert calls["n"] == 1                # one transaction for the whole batch
+    assert calls["n"] == 1                # one transaction, under the batch size
     assert calls["sizes"] == [5]
     assert db.get_statistics()["total_tracks"] == 5
+
+
+def test_large_import_flushes_in_batches(db, tmp_path):
+    """A crash partway through should only lose the current batch, not the
+    whole run — so imports larger than _COMMIT_BATCH_SIZE must commit in
+    more than one transaction rather than accumulating everything in memory
+    until the very end."""
+    music = tmp_path / "music"
+    n = _COMMIT_BATCH_SIZE * 2 + 3
+    tracks = [FakeTrack(_make_file(music / f"{i}.mp3", f"x{i}".encode()),
+                        title=f"T{i}") for i in range(n)]
+
+    calls = {"n": 0, "sizes": []}
+    original = db.bulk_upsert_content
+
+    def spy(records):
+        calls["n"] += 1
+        calls["sizes"].append(len(records))
+        return original(records)
+
+    db.bulk_upsert_content = spy
+    stats = FileImporter(db, scanner_module=FakeScanner(tracks)).import_files([music])
+
+    assert stats["new_files"] == n
+    assert calls["n"] == 3
+    assert calls["sizes"] == [_COMMIT_BATCH_SIZE, _COMMIT_BATCH_SIZE, 3]
+    assert db.get_statistics()["total_tracks"] == n
+
+
+def test_progress_callback_knows_the_real_total_from_the_first_tick(db, tmp_path):
+    """The total must come from the pre-count, not from however many tracks
+    happen to have been processed so far — a caller polling mid-import
+    (e.g. the onboarding wizard) needs an accurate denominator immediately,
+    not only once the whole scan has finished."""
+    music = tmp_path / "music"
+    tracks = [FakeTrack(_make_file(music / f"{i}.mp3", f"x{i}".encode()),
+                        title=f"T{i}") for i in range(4)]
+
+    ticks = []
+    FileImporter(db, scanner_module=FakeScanner(tracks)).import_files(
+        [music], progress_callback=lambda done, total: ticks.append((done, total))
+    )
+
+    assert ticks == [(1, 4), (2, 4), (3, 4), (4, 4)]
 
 
 # --------------------------------------------------------------------------- #
