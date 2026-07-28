@@ -5,15 +5,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FableGear — Record Room &amp; Chop Shop</title>
-<link rel="stylesheet" href="/static/fablegear.css">
-<link rel="stylesheet" href="/static/shared/ui_extras.css">
+<link rel="stylesheet" href="/static/fablegear.css?v={{ cb }}">
+<link rel="stylesheet" href="/static/shared/ui_extras.css?v={{ cb }}">
 <link rel="icon" type="image/png" href="/static/icon-logo-fablegear.png">
 <!-- PWA -->
 <link rel="manifest" href="/static/manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FableGo">
-<link rel="apple-touch-icon" href="/static/icon-fablego.png">
+<link rel="apple-touch-icon" href="/static/icon-logo-fablegear.png">
 <meta name="theme-color" content="#ff6600">
 <!-- CSP: restrict manifest to same-origin only -->
 <meta http-equiv="Content-Security-Policy" content="manifest-src 'self';">
@@ -69,25 +69,50 @@
 <!-- ══ Chop Shop tool rail ═══════════════════════════════════════════════════ -->
 <nav class="workflow-rail" id="workflow-rail">
   <button type="button" class="step-tab active" data-target="step-process">
-    <img class="step-icon" src="/static/icon-tag.png" alt=""> Tag Tracks
+    <img class="step-icon" src="/static/icon-track-tagger.png" alt="Tag Tracks">
   </button>
   <button type="button" class="step-tab" data-target="step-rename">
-    <img class="step-icon" src="/static/icon-filename.png" alt=""> Rename
+    <img class="step-icon" src="/static/icon-renamer.png" alt="Rename">
   </button>
   <button type="button" class="step-tab" data-target="step-convert">
-    <img class="step-icon" src="/static/icon-convert.png" alt=""> Convert
-  </button>
-  <button type="button" class="step-tab" data-target="step-normalize">
-    <img class="step-icon" src="/static/icon-normalize.png" alt=""> Normalize
+    <img class="step-icon" src="/static/icon-converter.png" alt="Convert">
   </button>
   <button type="button" class="step-tab" data-target="step-organize">
-    <img class="step-icon" src="/static/icon-organizer.png" alt=""> Organize
+    <img class="step-icon" src="/static/icon-organizer.png" alt="Organize">
   </button>
   <button type="button" class="step-tab" data-target="step-duplicates">
-    <img class="step-icon" src="/static/icon-find-duplicate.png" alt=""> Duplicates
+    <img class="step-icon" src="/static/icon-deduper.png" alt="Duplicates">
   </button>
   <button type="button" class="step-tab" data-target="step-novelty">
-    <img class="step-icon" src="/static/icon-novelty.png" alt=""> Novelty
+    <img class="step-icon" src="/static/icon-novelty.png" alt="Novelty">
+  </button>
+
+  <button type="button" class="step-tab step-tab-entry" id="nav-btn-pipeline-wizard" onclick="openPipelineWizard()" title="Pipeline Wizard" aria-label="Pipeline Wizard">
+    <!-- alt="" (decorative): the button carries the accessible name via aria-label, so a
+         missing/still-loading image paints nothing instead of floating "Pipeline Wizard"
+         alt text + a broken-image glyph in the background. -->
+    <img class="step-icon" src="/static/icon-logo-fablegear.png" alt="">
+  </button>
+
+  <div class="workflow-rail-divider" aria-hidden="true"></div>
+
+  <!-- Right of the divider: the Rekordbox-explicit tools (the DB panel's
+       sections). FableGear-native tools live left; rekordbox maintenance
+       lives here. Generic nav (Library/Queue/Drives) is the left rail's job. -->
+  <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-audit" onclick="openDbPanel('audit')" title="Audit — read-only Rekordbox library health check">
+    AUDIT
+  </button>
+  <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-relocate" onclick="openDbPanel('relocate')" title="Fix Broken Paths — update DB paths after a drive move">
+    FIX<br>PATHS
+  </button>
+  <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-import" onclick="openDbPanel('import')" title="Import — add tracks to the Rekordbox database">
+    IMPORT
+  </button>
+  <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-link" onclick="openDbPanel('link')" title="Link Playlists — wire imported tracks into playlists">
+    LINK
+  </button>
+  <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-dead-files" onclick="openDbPanel('dead-files')" title="Dead Files — audio on disk not referenced by any Rekordbox DB">
+    DEAD<br>FILES
   </button>
 </nav>
 
@@ -121,19 +146,21 @@
     <div id="drive-detect-results" class="drive-detect-results" style="display:none"></div>
   </div>
 
-  <!-- Health hazard panel — shown when background checks find configuration hazards -->
+  <!-- Health hazard banner — compact dock trigger; findings + fixes live in
+       #health-modal so a long finding list can never grow the dock and push
+       the docked tool modal into overlap (see #health-modal below). -->
   <div id="health-panel" class="health-panel" style="display:none">
     <div class="health-panel-header">
-      <span id="health-panel-badge" class="health-badge"></span>
+      <span id="health-panel-badge" class="health-badge" style="cursor:pointer" onclick="openHealthModal()" title="Review health issues"></span>
       <strong>Health Issues</strong>
       <div class="health-panel-controls">
+        <button type="button" class="btn btn-neon btn-xs" onclick="openHealthModal()">Review</button>
         <button type="button" class="btn btn-secondary btn-xs" onclick="runHealthCheck(true)" id="health-recheck-btn">Re-check</button>
         <button type="button" class="drive-offline-close" onclick="dismissHealthPanel()" title="Dismiss">
           <img src="/static/close.png" alt="Close" class="drive-offline-close-img">
         </button>
       </div>
     </div>
-    <div id="health-findings-list"></div>
   </div>
   </div>
 
@@ -191,6 +218,8 @@
 
 {% include 'partials/staging_panel.html' %}
 
+{% include 'partials/undo_wizard.html' %}
+
 {% include 'partials/physical_library/pipeline_wizard.html' %}
 
 <!-- ══ Step completion report modal ════════════════════════════════════════ -->
@@ -242,117 +271,293 @@
   <div id="fb-drag-hint">Drag any item to a drop zone ↗</div>
 </div>
 
-<!-- ══ Right Navigation Bar ══════════════════════════════════════════════════ -->
-<div id="nav-bar-right">
-  <button type="button" id="nav-btn-library" class="nav-right-btn" onclick="toggleRightNavDropdown('library')" title="Library">
-    <img src="/static/icon-fg-library.png" class="nav-right-icon" alt="Library">
-    <span class="nav-right-label">Library</span>
-  </button>
-  <button type="button" id="nav-btn-files" class="nav-right-btn" onclick="toggleRightNavDropdown('files')" title="Files">
-    <img src="/static/icon-fg-files.png" class="nav-right-icon" alt="Files">
-    <span class="nav-right-label">Files</span>
-  </button>
-  <button type="button" id="nav-btn-drives" class="nav-right-btn" onclick="toggleRightNavDropdown('drives')" title="Connected Drives">
-    <img src="/static/icon-fg-drives.png" class="nav-right-icon" alt="Drives">
-    <span class="nav-right-label">Drives</span>
-    <span class="nav-drives-badge" id="nav-drives-badge" style="display:none"></span>
-  </button>
-  <button type="button" id="nav-btn-db" class="nav-right-btn" onclick="openDbPanel('audit')" title="RekordBox Maintenance">
-    <img src="/static/icon-fg-rb-tools.png" class="nav-right-icon" alt="DB Maintenance">
-    <span class="nav-right-label">DB Fix</span>
-  </button>
+<!-- ══ Toolbar dropdowns (positioned from workflow rail) ════════════════════ -->
+<div id="dropdown-library" class="folder-dropdown"></div>
+<div id="dropdown-files" class="folder-dropdown"></div>
+<div id="dropdown-drives" class="folder-dropdown"></div>
 
-  <!-- Library dropdown -->
-  <div id="dropdown-library" class="folder-dropdown"></div>
+<!-- Session summary pills — float at bottom-right -->
+<div id="session-pills-container"></div>
 
-  <!-- Files dropdown -->
-  <div id="dropdown-files" class="folder-dropdown"></div>
-
-  <!-- Drives dropdown -->
-  <div id="dropdown-drives" class="folder-dropdown"></div>
-
-  <!-- Session summary pills — stacked at bottom of right toolbar -->
-  <div id="session-pills-container"></div>
+<!-- ══ Health issues modal ══════════════════════════════════════════════════
+     Findings + their smart-handling fixes (fix_hint / fix_action, see
+     static/shared/health.js) are reviewed here instead of inline in the
+     dock, so a long list can't overlap the docked Tag Tracks/tool modal. -->
+<div id="health-modal-backdrop" class="hidden">
+  <div id="health-modal">
+    <div class="settings-header">
+      <strong id="health-modal-badge" class="health-badge"></strong>
+      <h2>Health Issues</h2>
+      <button type="button" class="settings-close" onclick="closeHealthModal()">✕</button>
+    </div>
+    <div class="settings-body">
+      <div id="health-findings-list"></div>
+    </div>
+  </div>
 </div>
 
 <!-- ══ Settings modal ═══════════════════════════════════════════════════════ -->
 <div id="settings-backdrop" class="hidden">
   <div id="settings-modal">
-    
+
     <!-- Header -->
     <div class="settings-header">
-      <img src="/static/icon-logo-fablegear.png" alt="" role="presentation" class="icon-wiz-start">
-      <h2>⚙ Archive &amp; Log Settings</h2>
+      <img src="/static/icon-settings.png" alt="" role="presentation" class="icon-wiz-start">
+      <h2>FableGear Settings</h2>
       <button type="button" class="settings-close" onclick="closeSettings()">✕</button>
     </div>
 
-    <!-- Body -->
+    <!-- Tab bar -->
+    <div class="settings-tabs" id="settings-tabs">
+      <button type="button" class="settings-tab active" data-tab="tab-general" onclick="settingsSwitchTab('tab-general')">General</button>
+      <button type="button" class="settings-tab" data-tab="tab-paths" onclick="settingsSwitchTab('tab-paths')">Paths</button>
+      <button type="button" class="settings-tab" data-tab="tab-archive" onclick="settingsSwitchTab('tab-archive')">Archive</button>
+      <button type="button" class="settings-tab" data-tab="tab-mcp" onclick="settingsSwitchTab('tab-mcp')">AI Agents</button>
+      <button type="button" class="settings-tab" data-tab="tab-help" onclick="settingsSwitchTab('tab-help')">Help</button>
+    </div>
+
+    <!-- Tab panels -->
     <div class="settings-body">
-      <div class="settings-section">
-        <h3>Log &amp; Archive Destination</h3>
-        <div class="settings-radio-group">
-          
-          <label class="settings-radio">
-            <input type="radio" name="archive-mode" value="auto">
-            <div>
-              <div class="settings-radio-label">🟢 Auto — beside the library (recommended)</div>
-              <div class="settings-radio-desc">Creates <code>FableGear Archive/</code> at the same root level as your music folder. Everything is co-located with your library and travels with the drive.</div>
+
+      <!-- ── General ─────────────────────────────────────────────────── -->
+      <div class="settings-tab-panel active" id="tab-general">
+        <div class="settings-section">
+          <h3>About FableGear</h3>
+          <p class="settings-desc">A local Record Room and Chop Shop for Rekordbox libraries. Browse, build, and clean a flawless DJ library — nothing ever leaves your machine.</p>
+
+          <div class="settings-row">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="closeSettings(); if(typeof setFableGearSpace==='function') setFableGearSpace('record');">Open Record Room</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="closeSettings(); if(typeof setFableGearSpace==='function') setFableGearSpace('chop');">Open Chop Shop</button>
+          </div>
+
+          <div class="settings-section-sep">
+            <label class="settings-excl-label">Install Walkthrough</label>
+            <div class="settings-excl-note">Run the full walkthrough again for permissions, file/database locations, archive destination, and MCP setup.</div>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="openInstallWalkthrough()">Open Install Walkthrough</button>
+          </div>
+
+          <div class="settings-section-sep">
+            <label class="settings-excl-label">Updates</label>
+            <div class="settings-excl-note">Check for new versions of FableGear.</div>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="if(typeof fablegearUpdateCheckManual==='function') fablegearUpdateCheckManual(this)">Check for Updates</button>
+          </div>
+
+          <div class="settings-section-sep">
+            <label class="settings-excl-label">
+              🚫 Excluded folder names
+              <span class="settings-excl-hint"> — one per line, folder name only (not full path)</span>
+            </label>
+            <textarea id="settings-excluded-dirs" rows="4"
+                   placeholder="cache&#10;PROCESSING_CACHE&#10;POST_PROCESS_ARCHIVE"></textarea>
+            <div class="settings-excl-note">
+              Folders with these names are skipped during all scans (Tag Tracks, Normalize, Convert, Audit).
             </div>
-          </label>
+          </div>
 
-          <label class="settings-radio">
-            <input type="radio" name="archive-mode" value="custom">
-            <div>
-              <div class="settings-radio-label">🟡 Custom — point and shoot</div>
-              <div class="settings-radio-desc">Direct all logs, savepoints, quarantine files, and reports to any folder you choose. Useful if you want everything on a separate archive drive.</div>
-              <div id="settings-custom-path">
-                <div class="settings-path-row">
-                  <input type="text" id="settings-custom-input" placeholder="/path/to/your/archive/folder">
-                  <button type="button" class="btn btn-secondary btn-xs" onclick="pickSettingsArchiveFolder()">Browse…</button>
-                </div>
-              </div>
+          <div class="settings-section-sep">
+            <label class="settings-excl-label">
+              🎵 AcoustID API key
+              <span class="settings-excl-hint"> — for MusicBrainz metadata enrichment</span>
+            </label>
+            <input type="text" id="settings-acoustid-key" class="settings-path-input"
+                   placeholder="Paste your AcoustID API key" autocomplete="off" spellcheck="false">
+            <div class="settings-excl-note">
+              Enables the “Metadata Enrichment” option in Tag Tracks — fingerprints each file and fills in
+              missing title / artist / album from MusicBrainz. Music data only; nothing else leaves your machine.
+              Free key at acoustid.org/new-application. Leave blank to disable.
             </div>
-          </label>
-
-          <label class="settings-radio">
-            <input type="radio" name="archive-mode" value="none">
-            <div>
-              <div class="settings-radio-label">🔴 Disabled — no logging</div>
-              <div class="settings-radio-desc">FableGear runs without creating any files on disk. Some features will be slower or unavailable — see below.</div>
-            </div>
-          </label>
-
-        </div>
-
-        <!-- Excluded dirs -->
-        <div class="settings-section-sep">
-          <label class="settings-excl-label">
-            🚫 Excluded folder names
-            <span class="settings-excl-hint"> — one per line, folder name only (not full path)</span>
-          </label>
-          <textarea id="settings-excluded-dirs" rows="4"
-                 placeholder="cache&#10;PROCESSING_CACHE&#10;POST_PROCESS_ARCHIVE"></textarea>
-          <div class="settings-excl-note">
-            Folders with these names are skipped during all scans (Tag Tracks, Normalize, Convert, Audit). Use this to exclude nested drive copies, app data, or any non-music folder inside your music root.
-          </div>
-        </div>
-
-        <div class="settings-warnings" id="settings-warnings">
-          <h4>Features affected when logging is disabled</h4>
-          <div class="settings-warn-item">
-            <strong>Tag Tracks → Duplicate Finder:</strong> Tag Tracks normally writes a scan index so the Duplicate Finder can skip files that clearly aren't duplicates. Without it, every file gets fingerprinted every run. On a 10,000+ track library this is the difference between minutes and hours.
-          </div>
-          <div class="settings-warn-item">
-            <strong>Rollback unavailable:</strong> Import, Normalize, Relocate, and Prune make changes that cannot be undone without Savepoints. There is no recovery if something goes wrong.
-          </div>
-          <div class="settings-warn-item">
-            <strong>Triage limited:</strong> Problem files from scans can be Revealed in Finder or sent to Trash, but cannot be moved to Quarantine — that folder won't exist.
-          </div>
-          <div class="settings-warn-item">
-            <strong>Duplicate reports:</strong> CSV reports require a manual destination path each run — there is no default location to save them to.
           </div>
         </div>
       </div>
+
+      <!-- ── Paths ───────────────────────────────────────────────────── -->
+      <div class="settings-tab-panel" id="tab-paths">
+        <div class="settings-section">
+          <h3>File Paths</h3>
+          <p class="settings-desc">These are the key directories FableGear uses. Changes take effect after restart.</p>
+
+          <div class="settings-path-group">
+            <label class="settings-path-label">Music Library Root</label>
+            <div class="settings-path-row">
+              <input type="text" id="settings-music-root" class="settings-path-input" readonly>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="pickSettingsPath('settings-music-root')">Browse…</button>
+            </div>
+          </div>
+
+          <div class="settings-path-group">
+            <label class="settings-path-label">Local Rekordbox DB</label>
+            <div class="settings-path-row">
+              <input type="text" id="settings-local-db" class="settings-path-input" readonly>
+            </div>
+          </div>
+
+          <div class="settings-path-group">
+            <label class="settings-path-label">Device DB</label>
+            <div class="settings-path-row">
+              <input type="text" id="settings-device-db" class="settings-path-input" readonly>
+            </div>
+          </div>
+
+          <div class="settings-path-group">
+            <label class="settings-path-label">Backup Directory</label>
+            <div class="settings-path-row">
+              <input type="text" id="settings-backup-dir" class="settings-path-input" readonly>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="pickSettingsPath('settings-backup-dir')">Browse…</button>
+            </div>
+          </div>
+
+          <div class="settings-path-group">
+            <label class="settings-path-label">Archive Root</label>
+            <div class="settings-path-row">
+              <input type="text" id="settings-archive-root" class="settings-path-input" readonly>
+            </div>
+          </div>
+
+          <div class="settings-path-group">
+            <label class="settings-path-label">Quarantine</label>
+            <div class="settings-path-row">
+              <input type="text" id="settings-quarantine" class="settings-path-input" readonly>
+            </div>
+          </div>
+
+          <div class="settings-path-group">
+            <label class="settings-path-label">Reports</label>
+            <div class="settings-path-row">
+              <input type="text" id="settings-reports" class="settings-path-input" readonly>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Archive ─────────────────────────────────────────────────── -->
+      <div class="settings-tab-panel" id="tab-archive">
+        <div class="settings-section">
+          <h3>Log &amp; Archive Destination</h3>
+          <div class="settings-radio-group">
+
+            <label class="settings-radio">
+              <input type="radio" name="archive-mode" value="auto">
+              <div>
+                <div class="settings-radio-label">🟢 Auto — beside the library (recommended)</div>
+                <div class="settings-radio-desc">Creates <code>FableGear Archive/</code> at the same root level as your music folder.</div>
+              </div>
+            </label>
+
+            <label class="settings-radio">
+              <input type="radio" name="archive-mode" value="custom">
+              <div>
+                <div class="settings-radio-label">🟡 Custom — point and shoot</div>
+                <div class="settings-radio-desc">Direct all logs, savepoints, quarantine files, and reports to any folder you choose.</div>
+                <div id="settings-custom-path">
+                  <div class="settings-path-row">
+                    <input type="text" id="settings-custom-input" placeholder="/path/to/your/archive/folder">
+                    <button type="button" class="btn btn-secondary btn-xs" onclick="pickSettingsArchiveFolder()">Browse…</button>
+                  </div>
+                </div>
+              </div>
+            </label>
+
+            <label class="settings-radio">
+              <input type="radio" name="archive-mode" value="none">
+              <div>
+                <div class="settings-radio-label">🔴 Disabled — no logging</div>
+                <div class="settings-radio-desc">FableGear runs without creating any files on disk. Some features will be slower or unavailable.</div>
+              </div>
+            </label>
+
+          </div>
+
+          <div class="settings-warnings" id="settings-warnings">
+            <h4>Features affected when logging is disabled</h4>
+            <div class="settings-warn-item">
+              <strong>Tag Tracks → Duplicate Finder:</strong> Without a scan index, every file gets fingerprinted every run.
+            </div>
+            <div class="settings-warn-item">
+              <strong>Rollback unavailable:</strong> Import, Normalize, Relocate, and Prune changes cannot be undone without Savepoints.
+            </div>
+            <div class="settings-warn-item">
+              <strong>Triage limited:</strong> Problem files cannot be moved to Quarantine.
+            </div>
+            <div class="settings-warn-item">
+              <strong>Duplicate reports:</strong> CSV reports require a manual destination path each run.
+            </div>
+          </div>
+
+          <div class="settings-section-sep">
+            <label class="settings-excl-label" for="settings-snapshot-cadence">
+              Periodic snapshot cadence
+            </label>
+            <select id="settings-snapshot-cadence" class="settings-path-input">
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Bi-weekly</option>
+              <option value="monthly" selected>Monthly</option>
+              <option value="quarterly">Every 3 months</option>
+            </select>
+            <div class="settings-excl-note">
+              Controls how often FableGear writes a periodic savepoint snapshot in the archive.
+            </div>
+            <label class="settings-radio" style="margin-top:10px">
+              <input type="checkbox" id="settings-snapshot-master-db">
+              <div>
+                <div class="settings-radio-label">Include Rekordbox master.db snapshots</div>
+                <div class="settings-radio-desc">Also save a periodic copy of the local Rekordbox database alongside the savepoint.</div>
+              </div>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── AI Agents (MCP) ─────────────────────────────────────────── -->
+      <div class="settings-tab-panel" id="tab-mcp">
+        <div class="settings-section">
+          <h3>AI Agent Access (MCP)</h3>
+          <p class="settings-desc">Run a local MCP server so AI agents (Claude, Cursor, etc.) can manage your library through natural conversation. Everything stays on your machine.</p>
+          <div id="settings-mcp-container"></div>
+        </div>
+      </div>
+
+      <!-- ── Help / Definitions ──────────────────────────────────────── -->
+      <div class="settings-tab-panel" id="tab-help">
+        <div class="settings-section">
+          <h3>Tool Definitions</h3>
+          <div class="settings-def">
+            <strong>Tag Tracks</strong> — Scans audio files with librosa for BPM and key detection. Writes ID3/Vorbis tags. Optional MusicBrainz enrichment fills in missing title, artist, and album.
+          </div>
+          <div class="settings-def">
+            <strong>Rename</strong> — Cleans filenames by standardizing separators, removing junk characters, and applying artist/title formatting rules. Dry-run mode previews all changes first.
+          </div>
+          <div class="settings-def">
+            <strong>Convert</strong> — Converts between audio formats (FLAC, WAV, AIFF, MP3, AAC) via FFmpeg. Preserves all metadata tags during conversion.
+          </div>
+          <div class="settings-def">
+            <strong>Normalize</strong> — Adjusts loudness to a target LUFS using FFmpeg loudnorm. Previews before/after levels. Does not alter dynamic range.
+          </div>
+          <div class="settings-def">
+            <strong>Organize</strong> — Sorts files into a clean folder structure (Artist/Album or Genre/Artist) based on embedded tags. Moves or copies, never deletes.
+          </div>
+          <div class="settings-def">
+            <strong>Duplicates</strong> — Fingerprints audio content (not just filenames) to find true duplicates. Groups matches by acoustic similarity. You choose which to keep.
+          </div>
+          <div class="settings-def">
+            <strong>Novelty</strong> — Scans external drives for tracks not in your main library. Finds unique music across multiple sources.
+          </div>
+
+          <h3 style="margin-top:18px">Concepts</h3>
+          <div class="settings-def">
+            <strong>Record Room</strong> — Library browser with database and filesystem views. Build playlists, preview tracks, and export to Rekordbox.
+          </div>
+          <div class="settings-def">
+            <strong>Chop Shop</strong> — File maintenance workspace. Every tool that touches files lives here: tag, rename, convert, normalize, organize, dedupe, import, link, and path repair.
+          </div>
+          <div class="settings-def">
+            <strong>Archive</strong> — Automatic logging: savepoints (DB snapshots before writes), quarantine (problem files), and CSV reports. Lives beside your library or wherever you point it.
+          </div>
+          <div class="settings-def">
+            <strong>MCP Server</strong> — Model Context Protocol endpoint that lets AI coding assistants control FableGear tools via structured API calls. Runs on localhost:5002.
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <!-- Footer -->
@@ -388,49 +593,115 @@
 <!-- ══ Welcome modal — permission wizard ════════════════════════════════════ -->
 <div id="welcome-backdrop" class="hidden">
   <div id="welcome-modal">
-    <div class="welcome-header">
-      <img src="/static/icon-logo-fablegear.png" alt="" role="presentation" class="rb-logo-icon">
-      <div class="welcome-header-text">
-        <h2>FableGear</h2>
-        <p>A local Record Room and Chop Shop for Rekordbox libraries.</p>
-      </div>
-      <button type="button" class="welcome-close-btn" onclick="closeWelcome()" aria-label="Close">✕</button>
-    </div>
-
     <!-- What's New + room picker -->
     <div class="welcome-step active fgwin" id="wstep-intro">
       <button type="button" class="fgwin-close" onclick="closeWelcome()" aria-label="Close">✕</button>
-      <div class="fgwin-logo" aria-hidden="true"><img src="/static/FableGear-logo.png" alt=""></div>
       <div class="fgwin-body">
-        <div class="fgwin-mark">FABLE&nbsp;GEAR</div>
-        <p class="fgwin-tag">Your all-in-one local DJ toolkit — browse, build, and clean a flawless Rekordbox library. Nothing ever leaves your machine.</p>
+        <div class="fgwin-mark">FableGear</div>
+        <p class="fgwin-tag">Pick a room to enter. Record Room is for browsing and playlist work; Chop Shop is for tool-driven file and library operations.</p>
         <div class="fgwin-cards">
-          <button type="button" class="fgwin-card rec" onclick="closeWelcome(); if(typeof setFableGearSpace==='function') setFableGearSpace('record');">
-            <div class="fgwin-ct">Record Room</div>
-            <div class="fgwin-cd">Browse, listen &amp; build playlists. Multi-view control, export straight to Rekordbox.</div>
+          <button type="button" class="fgwin-card fgwin-card-record" onclick="closeWelcome(); if(typeof setFableGearSpace==='function') setFableGearSpace('record');" aria-label="Enter Record Room">
+            <img class="fgwin-card-art" src="/static/icon-record-room.png" alt="">
           </button>
-          <button type="button" class="fgwin-card chop" onclick="closeWelcome(); if(typeof setFableGearSpace==='function') setFableGearSpace('chop');">
-            <div class="fgwin-ct">Chop Shop</div>
-            <div class="fgwin-cd">Tag, rename, dedupe, normalize, convert &amp; organize — DJ-ready in seconds.</div>
+          <button type="button" class="fgwin-card fgwin-card-chop" onclick="closeWelcome(); if(typeof setFableGearSpace==='function') setFableGearSpace('chop');" aria-label="Enter Chop Shop">
+            <img class="fgwin-card-art" src="/static/icon-chop-shop.png" alt="">
           </button>
         </div>
         <div class="fgwin-pills">
-          <button type="button" class="fgwin-pill" onclick="if(typeof reopenOnboardingWizard==='function') reopenOnboardingWizard()">Permissions</button>
-          <button type="button" class="fgwin-pill" onclick="if(typeof fablegearUpdateCheck==='function') fablegearUpdateCheck()">Updates</button>
+          <button type="button" class="fgwin-pill" onclick="if(typeof openInstallWalkthrough==='function') openInstallWalkthrough(); else if(typeof reopenOnboardingWizard==='function') reopenOnboardingWizard();">Install Walkthrough</button>
+          <button type="button" class="fgwin-pill" onclick="if(typeof fablegearUpdateCheckManual==='function') fablegearUpdateCheckManual(this)">Updates</button>
           <button type="button" class="fgwin-pill" onclick="closeWelcome(); if(typeof openDbPanel==='function') openDbPanel('audit')">Database</button>
+          <button type="button" class="fgwin-pill mcp-pill" id="mcp-pill" onclick="mcpPillClick()">
+            <span class="mcp-dot" id="mcp-dot"></span> AI Agents
+          </button>
         </div>
         <div class="fgwin-new"><b>What's new</b> · Updates ask first · First-run wizard · Room picker on startup</div>
       </div>
     </div>
 
-    <div class="settings-section-sep">
-      <label class="settings-excl-label">🧭 Setup &amp; permissions</label>
-      <div class="settings-excl-note">
-        Re-open the welcome wizard any time to revisit drive discovery, archive placement, and database permissions.
+  </div>
+</div>
+
+<!-- ══ MCP (AI Agent Access) panel ══════════════════════════════════════════ -->
+<div id="mcp-panel-backdrop" class="hidden">
+  <div id="mcp-panel">
+    <button type="button" class="mcp-panel-close" onclick="closeMcpPanel()" aria-label="Close">✕</button>
+
+    <!-- State 1: Running status -->
+    <div id="mcp-state-running" class="mcp-state hidden">
+      <div class="mcp-panel-header">
+        <span class="mcp-status-dot green"></span>
+        <h3>MCP Server Running</h3>
       </div>
-      <button type="button" class="btn btn-secondary btn-xs settings-reconfigure-btn" onclick="reopenOnboardingWizard()">
-        Re-run setup / permissions
-      </button>
+      <p class="mcp-panel-sub">AI agents can connect to manage your library.</p>
+      <div class="mcp-info-row">
+        <label>Endpoint</label>
+        <code id="mcp-url-display">http://localhost:5002/sse</code>
+        <button type="button" class="mcp-copy-btn" onclick="mcpCopyUrl()">Copy</button>
+      </div>
+      <div class="mcp-info-row">
+        <label>Port</label>
+        <span id="mcp-port-display">5002</span>
+      </div>
+      <div class="mcp-snippet-section">
+        <h4>Quick setup for your AI agent</h4>
+        <div class="mcp-snippet-tabs">
+          <button type="button" class="mcp-tab active" data-client="claude-desktop">Claude Desktop</button>
+          <button type="button" class="mcp-tab" data-client="claude-code">Claude Code</button>
+          <button type="button" class="mcp-tab" data-client="cursor">Cursor</button>
+          <button type="button" class="mcp-tab" data-client="generic">Other</button>
+        </div>
+        <pre id="mcp-snippet-code" class="mcp-snippet-pre"></pre>
+        <button type="button" class="mcp-copy-btn wide" onclick="mcpCopySnippet()">Copy config</button>
+      </div>
+      <div class="mcp-panel-actions">
+        <button type="button" class="btn btn-secondary btn-xs" onclick="mcpStop()">Stop Server</button>
+      </div>
+    </div>
+
+    <!-- State 2: Enabled but stopped -->
+    <div id="mcp-state-stopped" class="mcp-state hidden">
+      <div class="mcp-panel-header">
+        <span class="mcp-status-dot amber"></span>
+        <h3>MCP Server Stopped</h3>
+      </div>
+      <p class="mcp-panel-sub">AI agent access is enabled but the server isn't running.</p>
+      <div class="mcp-panel-actions">
+        <button type="button" class="btn btn-primary btn-sm" onclick="mcpStart()">Start MCP Server</button>
+        <button type="button" class="btn btn-secondary btn-xs" onclick="mcpDisable()">Disable</button>
+      </div>
+    </div>
+
+    <!-- State 3: Not enabled — setup wizard -->
+    <div id="mcp-state-wizard" class="mcp-state hidden">
+      <div class="mcp-panel-header">
+        <h3>AI Agent Access</h3>
+      </div>
+      <p class="mcp-panel-sub">
+        FableGear can run a local MCP server so AI agents (Claude, Cursor, and others)
+        can manage your library on your behalf — auditing, tagging, organizing, and importing
+        tracks through natural conversation.
+      </p>
+      <div class="mcp-wizard-detail">
+        <div class="mcp-wizard-point">
+          <strong>Local &amp; private</strong> — the server runs on your machine. Nothing leaves localhost unless you choose to expose it.
+        </div>
+        <div class="mcp-wizard-point">
+          <strong>You stay in control</strong> — every write operation still requires Rekordbox to be closed and creates an automatic backup.
+        </div>
+        <div class="mcp-wizard-point">
+          <strong>Works with any MCP client</strong> — Claude Desktop, Claude Code, Cursor, Windsurf, and more.
+        </div>
+      </div>
+      <div class="mcp-wizard-options">
+        <label class="mcp-toggle-row">
+          <input type="checkbox" id="mcp-wiz-autostart"> Start automatically when FableGear opens
+        </label>
+      </div>
+      <div class="mcp-panel-actions">
+        <button type="button" class="btn btn-primary btn-sm" onclick="mcpEnableFromWizard()">Enable AI Agent Access</button>
+        <button type="button" class="btn btn-secondary btn-xs" onclick="closeMcpPanel()">Not now</button>
+      </div>
     </div>
 
   </div>
@@ -478,6 +749,8 @@
   <div class="scan-bar-right">
     <span id="scan-bar-title"></span>
     <div id="scan-bar-spinner"></div>
+    <button type="button" class="scan-bar-view-btn" id="deck-toggle-btn"
+            onclick="deckTogglePanel()" title="Show / hide the DJ decks">🎛 Decks</button>
     <button type="button" class="scan-bar-view-btn" onclick="reopenLog()">▸ Output</button>
     <button type="button" class="scan-bar-interrupt-btn" id="scan-bar-interrupt"
             onclick="interruptScan()"
@@ -543,37 +816,44 @@
   <div id="thp-body"></div>
 </aside>
 
+<div id="tool-hover-tip" role="status" aria-live="polite">
+  <div id="tht-title"></div>
+  <div id="tht-body"></div>
+</div>
+
 <!-- ══ FableGear client scripts ═════════════════════════════════════════════
      Sliced from the legacy static/fablegear.js into shared / record_room /
      chop_shop modules. All slices are classic scripts sharing one global
      scope; load order matches the original line order so top-level lets,
      immediate calls, and function hoisting behave identically. -->
-<script src="/static/shared/state.js"></script>
-<script src="/static/shared/file_browser.js"></script>
-<script src="/static/shared/modals.js"></script>
-<script src="/static/shared/settings.js"></script>
-<script src="/static/shared/ui_extras.js"></script>
-<script src="/static/shared/audit.js"></script>
-<script src="/static/shared/updates.js"></script>
-<script src="/static/shared/health.js"></script>
-<script src="/static/shared/drives.js"></script>
-<script src="/static/record_room/library_mode.js"></script>
-<script src="/static/shared/utility.js"></script>
-<script src="/static/shared/scan_bar.js"></script>
-<script src="/static/chop_shop/runners.js"></script>
-<script src="/static/chop_shop/pipeline.js"></script>
-<script src="/static/chop_shop/dedupe.js"></script>
-<script src="/static/shared/info.js"></script>
-<script src="/static/shared/dnd.js"></script>
-<script src="/static/chop_shop/db_rail.js"></script>
-<script src="/static/record_room/library_editor.js"></script>
-<script src="/static/chop_shop/tool_modal.js"></script>
-<script src="/static/record_room/usb_export.js"></script>
-<script src="/static/chop_shop/normalize_preview.js"></script>
-<script src="/static/shared/state_tracker.js"></script>
-<script src="/static/shared/boot.js"></script>
-<script src="/static/shared/staging.js"></script>
-<script src="/static/shared/launcher.js"></script>
+<script src="/static/shared/state.js?v={{ cb }}"></script>
+<script src="/static/shared/file_browser.js?v={{ cb }}"></script>
+<script src="/static/shared/modals.js?v={{ cb }}"></script>
+<script src="/static/shared/settings.js?v={{ cb }}"></script>
+<script src="/static/shared/ui_extras.js?v={{ cb }}"></script>
+<script src="/static/shared/audit.js?v={{ cb }}"></script>
+<script src="/static/shared/updates.js?v={{ cb }}"></script>
+<script src="/static/shared/health.js?v={{ cb }}"></script>
+<script src="/static/shared/drives.js?v={{ cb }}"></script>
+<script type="module" src="/static/record_room/library_mode.js?v={{ cb }}"></script>
+<script src="/static/shared/utility.js?v={{ cb }}"></script>
+<script src="/static/shared/scan_bar.js?v={{ cb }}"></script>
+<script src="/static/chop_shop/runners.js?v={{ cb }}"></script>
+<script src="/static/chop_shop/pipeline.js?v={{ cb }}"></script>
+<script src="/static/chop_shop/dedupe.js?v={{ cb }}"></script>
+<script src="/static/shared/info.js?v={{ cb }}"></script>
+<script src="/static/shared/dnd.js?v={{ cb }}"></script>
+<script src="/static/chop_shop/db_rail.js?v={{ cb }}"></script>
+<script src="/static/record_room/library_editor.js?v={{ cb }}"></script>
+<script src="/static/chop_shop/tool_modal.js?v={{ cb }}"></script>
+<script src="/static/record_room/usb_export.js?v={{ cb }}"></script>
+<script src="/static/record_room/deck.js?v={{ cb }}"></script>
+<script src="/static/chop_shop/normalize_preview.js?v={{ cb }}"></script>
+<script src="/static/shared/state_tracker.js?v={{ cb }}"></script>
+<script src="/static/shared/boot.js?v={{ cb }}"></script>
+<script src="/static/shared/staging.js?v={{ cb }}"></script>
+<script src="/static/shared/undo.js?v={{ cb }}"></script>
+<script src="/static/shared/launcher.js?v={{ cb }}"></script>
 
 <!-- ══ DB Panel ══════════════════════════════════════════════════════════════
      Slide-in 400px panel. Only the active section is visible.               -->
@@ -616,31 +896,35 @@
         <span class="le-title">Record Room</span>
         <!-- Library source mode toggle -->
         <div class="le-mode-toggle" id="le-mode-toggle" role="group" aria-label="Library source">
-          <button type="button" class="le-mode-btn le-mode-active" data-mode="db"
-                  onclick="setLibraryMode('db')" title="Rekordbox DB view">Rekordbox DB</button>
           <button type="button" class="le-mode-btn" data-mode="fs"
-                  onclick="setLibraryMode('fs')" title="Browse all files on disk">Filesystem</button>
+                  onclick="setLibraryMode('fs')" title="All music pooled from every connected drive, regardless of rekordbox">All Music</button>
+          <button type="button" class="le-mode-btn le-mode-active" data-mode="db"
+                  onclick="setLibraryMode('db')" title="Your FableGear library database">Library</button>
           <button type="button" class="le-mode-btn" data-mode="split"
-                  onclick="setLibraryMode('split')" title="3-way comparison: canonical / scattered / unimported">Split View</button>
+                  onclick="setLibraryMode('split')" title="Integrated view: all music + rekordbox + tracks not yet imported">Integrated</button>
         </div>
         <!-- DB source picker (only relevant when mode=db) -->
         <div class="le-db-toggle" id="le-db-toggle" role="group" aria-label="Database source">
-          <button type="button" class="le-db-btn le-db-active" data-db="local"
-                  onclick="setLeDbSource('local')" title="Desktop Rekordbox database">Local DB</button>
+          <button type="button" class="le-db-btn le-db-active" data-db="fablegear"
+                  onclick="setLeDbSource('fablegear')" title="FableGear's own library database">FableGear</button>
+          <button type="button" class="le-db-btn" data-db="local"
+                  onclick="setLeDbSource('local')" title="Desktop Rekordbox database (legacy)">Rekordbox</button>
           <button type="button" class="le-db-btn" data-db="device"
-                  onclick="setLeDbSource('device')" title="Pioneer device database on an external drive">Device DB</button>
+                  onclick="setLeDbSource('device')" title="Pioneer device database on an external drive">Device</button>
+          <button type="button" class="le-db-btn le-sync-btn" id="le-sync-btn"
+                  onclick="leSyncLibrary()" title="Scan the music library into the FableGear database">↻ Sync</button>
+          <span id="le-sync-status" class="le-sync-status"></span>
         </div>
         <div id="le-db-notice" style="display:none"></div>
       </div>
       <div class="le-header-center">
         <input type="text" id="le-search" placeholder="Search tracks…" autocomplete="off">
       </div>
-      <div class="le-header-right">
+      <div class="le-header-right le-header-actions">
         <button type="button" class="le-header-btn" onclick="leStartCreate('playlist')" title="New Playlist">＋ Playlist</button>
         <button type="button" class="le-header-btn" onclick="leStartCreate('folder')" title="New Folder">＋ Folder</button>
         <button type="button" class="le-header-btn" id="le-rename-btn" onclick="leRenameActivePlaylist()" title="Rename selected playlist or folder" disabled>Rename</button>
         <button type="button" class="le-header-btn" id="le-delete-btn" onclick="leDeleteActivePlaylist()" title="Delete selected playlist or folder" disabled>Delete</button>
-        <button type="button" class="le-header-btn" onclick="setFableGearSpace('chop')" title="Open Chop Shop">Chop Shop</button>
         <button type="button" class="le-header-btn le-export-btn" onclick="leOpenExportModal()" title="Export playlists to Pioneer USB drive">⬆ Export to USB</button>
       </div>
     </div>
@@ -752,20 +1036,27 @@
       <!-- Center: Track list (DB + FS mode) / Split view -->
       <div class="le-main" id="le-main">
 
-        <!-- Split view container (3 columns) — hidden unless mode=split -->
+        <!-- Integrated view container (3 libraries) — hidden unless mode=split -->
         <div id="le-split-view" style="display:none">
-          <div class="le-split-col" id="le-split-col-library">
-            <div class="le-split-col-header le-split-green">In Library <span class="le-split-count" id="le-split-cnt-library"></span></div>
-            <div class="le-split-col-list" id="le-split-list-library"></div>
+          <div class="le-split-col" id="le-split-col-fablegear"
+               ondragover="leSplitDragOver(event)" ondragleave="leSplitDragLeave(event)" ondrop="leSplitDropImport(event)">
+            <div class="le-split-col-header le-split-green">FableGear Library <span class="le-split-count" id="le-split-cnt-fablegear"></span></div>
+            <div class="le-split-col-sub">Your database — drop novelty tracks here to import</div>
+            <div class="le-split-col-list" id="le-split-list-fablegear"></div>
           </div>
-          <div class="le-split-col" id="le-split-col-scattered">
-            <div class="le-split-col-header le-split-amber">Scattered <span class="le-split-count" id="le-split-cnt-scattered"></span></div>
-            <div class="le-split-col-list" id="le-split-list-scattered"></div>
+          <div class="le-split-col" id="le-split-col-rekordbox">
+            <div class="le-split-col-header le-split-blue">Rekordbox Library <span class="le-split-count" id="le-split-cnt-rekordbox"></span></div>
+            <div class="le-split-col-sub">Tracks in your rekordbox database</div>
+            <div class="le-split-col-list" id="le-split-list-rekordbox"></div>
           </div>
-          <div class="le-split-col" id="le-split-col-unimported">
-            <div class="le-split-col-header le-split-blue">Not in Rekordbox <span class="le-split-count" id="le-split-cnt-unimported"></span></div>
-            <div class="le-split-list-hint" id="le-split-unimported-hint">Open a folder in Filesystem mode to compare against rekordbox</div>
-            <div class="le-split-col-list" id="le-split-list-unimported"></div>
+          <div class="le-split-col" id="le-split-col-novelty">
+            <div class="le-split-col-header le-split-amber">Novelty <span class="le-split-count" id="le-split-cnt-novelty"></span></div>
+            <div class="le-split-col-sub le-novel-legend">
+              <span class="le-novel-dot le-novel-dot-blue"></span>not in FableGear
+              <span class="le-novel-dot le-novel-dot-yellow"></span>not in Rekordbox
+              <span class="le-novel-dot le-novel-dot-green"></span>in neither
+            </div>
+            <div class="le-split-col-list" id="le-split-list-novelty"></div>
           </div>
         </div>
 
@@ -780,7 +1071,8 @@
           <div class="le-col le-col-dur" onclick="leSortBy('duration')">Time <span class="le-sort-arrow" data-col="duration"></span></div>
           <div class="le-col le-col-date" onclick="leSortBy('date_added')">Added <span class="le-sort-arrow" data-col="date_added"></span></div>
         </div>
-        <div class="le-track-list" id="le-track-list">
+        <div class="le-track-list" id="le-track-list"
+             ondragover="leTrackListDragOver(event)" ondragleave="leTrackListDragLeave(event)" ondrop="leTrackListDrop(event)">
           <div class="le-empty-state" id="le-empty-state">
             <div class="le-empty-music-icon">♫</div>
             <div>Loading library…</div>
@@ -836,6 +1128,9 @@
         <div id="le-export-progress-bar" class="le-export-progress-bar"></div>
       </div>
       <div id="le-export-progress-label" class="le-export-progress-label">Starting…</div>
+      <div id="le-export-audit-action" class="hidden" style="margin-top: 12px; text-align: center;">
+        <button type="button" class="btn btn-neon btn-xs" onclick="leRunExportAudit()">🔍 Verify Exported Drive</button>
+      </div>
     </div>
 
     <!-- Errors -->
@@ -855,7 +1150,7 @@
   <!-- Header -->
   <div class="fablego-header">
     <span class="fablego-title">
-      <img src="/static/icon-fablego.png" class="fablego-title-icon" alt="FableGo"> FableGo
+      <img src="/static/icon-logo-fablegear.png" class="fablego-title-icon" alt="FableGo"> FableGo
     </span>
     <button type="button" class="fablego-close" onclick="closeFableGo()">✕</button>
   </div>
@@ -1030,6 +1325,8 @@
 <!-- Hidden audio element for Library View playback.
      Must be in the DOM so WKWebView (pywebview/macOS) can play it. -->
 <audio id="le-player-audio" preload="none" style="display:none"></audio>
+
+{% include 'partials/record_room/deck.html' %}
 
 </body>
 </html>

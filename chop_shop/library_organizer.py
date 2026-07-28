@@ -22,11 +22,12 @@ Rules
 - For artist folder naming, TPE2 (album artist) is preferred over
   TPE1 (track artist) to avoid "Artist feat. X" folder proliferation.
 - Files without an album tag sit directly in the artist folder.
-- If a destination file already exists with the same size → skip (duplicate).
-- If it exists with a different size → rename with _1, _2, … suffix.
+- If a destination file already exists with the same SHA256 content hash → skip (duplicate).
+- If it exists with a different hash (different content) → rename with _1, _2, … suffix.
 - After all moves, empty directories are pruned bottom-up from source.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -61,9 +62,22 @@ class MoveResult:
     dest:   Path | None
     action: str    # "moved" | "conflict_renamed" | "skipped" | "error" | "dry_run"
     reason: str = ""
+    trash_path: Path | None = None  # set when action=="skipped" and file was trashed
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def _sha256_file(path: Path) -> str | None:
+    """Return the SHA256 hex digest of *path*, or None on any I/O error."""
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return None
+
 
 def _sanitize_folder(name: str, max_len: int = 100) -> str:
     """Strip filesystem-unsafe characters and return a clean folder name."""
@@ -265,16 +279,23 @@ def _resolve_dest(src: Path, dest: Path) -> tuple[Path | None, str]:
 
     action is one of:
       "moved"            — destination is free
-      "skipped"          — same-size file exists (likely duplicate)
-      "conflict_renamed" — different file exists; numbered suffix applied
+      "skipped"          — SHA256-identical file exists (confirmed duplicate)
+      "conflict_renamed" — different content exists; numbered suffix applied
       "error"            — could not find a free slot (extremely unlikely)
     """
     if not dest.exists():
         return dest, "moved"
 
-    # Same size → treat as duplicate, skip
+    # Content-hash comparison — size alone is not a reliable identity check.
+    # Two audio files at the same bitrate/duration can share a byte count while
+    # containing completely different audio data.  Only a full SHA256 match
+    # confirms the file is already there.
+    # Fast pre-filter: different sizes → definitely not a duplicate.
     try:
-        if dest.stat().st_size == src.stat().st_size:
+        if dest.stat().st_size != src.stat().st_size:
+            # Sizes differ — skip directly to conflict-rename.
+            pass
+        elif _sha256_file(dest) == _sha256_file(src):
             return None, "skipped"
     except OSError:
         pass
@@ -291,6 +312,12 @@ def _resolve_dest(src: Path, dest: Path) -> tuple[Path | None, str]:
 
 # ─── Main organizer ───────────────────────────────────────────────────────────
 
+try:
+    from path_guard import forbidden_source_reason as _forbidden_source_reason  # noqa: E402
+except ImportError:  # imported as chop_shop.library_organizer
+    from chop_shop.path_guard import forbidden_source_reason as _forbidden_source_reason  # noqa: E402
+
+
 def organize_library(
     sources: "Path | list[Path]",
     target: Path,
@@ -299,6 +326,9 @@ def organize_library(
     dry_run: bool = True,
     max_workers: int = 1,
     mix_threshold_sec: float = MIX_THRESHOLD_SEC,
+    archive=None,
+    skip_paths: "set[str] | None" = None,
+    on_result=None,
 ) -> list[MoveResult]:
     """
     Scan one or more source directories, compute the canonical destination for
@@ -329,14 +359,32 @@ def organize_library(
         Tracks at or above this duration (seconds) are routed to
         Live Sets & Mixes instead of the normal Artist / Album tree.
         Default 900 = 15 minutes.
+    skip_paths : set[str] | None
+        Absolute paths (as str) to exclude entirely — used by the caller for
+        checkpoint resume (files already moved/copied in an interrupted run).
+    on_result : Callable[[MoveResult], None] | None
+        Invoked once per file right after tallying, so the caller can persist
+        a checkpoint incrementally.
     """
     from scanner import scan_directory
 
     source_list: list[Path] = [sources] if isinstance(sources, Path) else list(sources)
 
+    # ── Source guardrails ─────────────────────────────────────────────────
+    # Assimilate mode moves files out of and prunes folders under EVERY
+    # source root. A source like "/", "/Users", or the home folder makes the
+    # organizer crawl app containers, dev checkouts, and OS internals — it
+    # must only ever be pointed at music locations. Refuse loudly.
+    for s in source_list:
+        err = _forbidden_source_reason(Path(s))
+        if err:
+            raise ValueError(f"Refusing to organize from {s}: {err}")
+
     tracks: list = []
     for s in source_list:
         tracks.extend(list(scan_directory(s)))
+    if skip_paths:
+        tracks = [t for t in tracks if str(t.path) not in skip_paths]
     total  = len(tracks)
     results: list[MoveResult] = []
 
@@ -350,6 +398,17 @@ def organize_library(
     )
 
     done = moved = skipped = conflicts = errors = 0
+
+# Per-run trash directory for SHA256-confirmed duplicates removed in
+# assimilate mode. Created once per run (assimilate + not dry_run) so all
+# workers share the same folder and recovery is one folder per run.
+    _stamp = time.strftime("%Y%m%d_%H%M%S")
+    _dupe_trash_dir = Path.home() / ".Trash" / f"FableGear_OrgDupes_{_stamp}"
+    if not dry_run and mode == "assimilate":
+        # Eagerly create the directory once so all threads share the same
+        # folder and partial-run recovery is simple (one folder per run).
+        _dupe_trash_dir.mkdir(parents=True, exist_ok=True)
+        log.info("Organizer duplicate-trash folder: %s", _dupe_trash_dir)
 
     def _emit() -> None:
         print(
@@ -390,15 +449,25 @@ def organize_library(
         if final is None:
             if action == "skipped":
                 if mode == "assimilate":
-                    # Identical copy confirmed at canonical destination.
-                    # Remove the source so the source tree can be pruned cleanly.
+                    # SHA256-confirmed duplicate at canonical destination.
+                    # Move (not delete) the source into a timestamped trash
+                    # folder so it remains recoverable, and the source tree
+                    # can still be pruned cleanly afterwards.
                     try:
-                        track.path.unlink()
+                        trash_name = track.path.name
+                        trash_target = _dupe_trash_dir / trash_name
+                        if trash_target.exists():
+                            trash_target = _dupe_trash_dir / (
+                                f"{track.path.stem}__{time.time_ns()}{track.path.suffix}"
+                            )
+                        shutil.move(str(track.path), str(trash_target))
                         return MoveResult(src=track.path, dest=dest,
-                                          action="skipped", reason="duplicate removed from source")
+                                          action="skipped",
+                                          reason="duplicate trashed",
+                                          trash_path=trash_target)
                     except Exception as e:
                         return MoveResult(src=track.path, dest=dest,
-                                          action="error", reason=f"unlink failed: {e}")
+                                          action="error", reason=f"trash-move failed: {e}")
                 else:
                     # integrate mode — source is never touched
                     return MoveResult(src=track.path, dest=dest,
@@ -428,6 +497,33 @@ def organize_library(
             skipped += 1
         elif r.action == "error":
             errors += 1
+        # Journal the mutation the moment it lands — an interrupted run must
+        # still leave a complete record of every move it made. (_tally runs on
+        # the result-collection thread, so archive writes are serialized.)
+        if archive is not None and not dry_run and r.dest \
+                and r.action in ("moved", "conflict_renamed"):
+            try:
+                rec = archive.get_content_by_path(str(r.src))
+                if rec and rec.id is not None:
+                    archive.relink_content(rec.id, str(r.dest))
+                archive.log_operation(
+                    "organize", str(r.dest), status="ok",
+                    metadata={"from": str(r.src), "action": r.action, "mode": mode},
+                )
+            except Exception as exc:
+                log.warning("Archive update failed for organize %s: %s", r.src, exc)
+        # Journal duplicate-trashed events too — trash_path is set on the
+        # result so we don't need to parse the reason string.
+        elif archive is not None and not dry_run and r.action == "skipped" \
+                and r.trash_path is not None:
+            try:
+                archive.log_operation(
+                    "organize", str(r.trash_path), status="ok",
+                    metadata={"from": str(r.src), "action": "dupe_trashed",
+                              "mode": mode, "canonical_dest": str(r.dest)},
+                )
+            except Exception as exc:
+                log.warning("Archive update failed for dupe-trash %s: %s", r.src, exc)
 
     _emit()
 
@@ -443,6 +539,8 @@ def organize_library(
                 results.append(r)
                 _tally(r)
                 _emit()
+                if on_result is not None:
+                    on_result(r)
     else:
         for i, track in enumerate(tracks):
             r = _process(track)
@@ -450,12 +548,35 @@ def organize_library(
             results.append(r)
             _tally(r)
             _emit()
+            if on_result is not None:
+                on_result(r)
 
-    # Prune empty directories from all source roots — assimilate mode only.
-    # integrate mode never modifies the source.
+    # Prune ONLY the directories this run emptied (folders we moved or
+    # deleted files out of, plus their ancestors) — assimilate mode only.
+    # Pre-existing empty directories elsewhere under the source are none of
+    # our business. integrate mode never modifies the source.
     if not dry_run and mode == "assimilate":
+        emptied: set = set()
+        for r in results:
+            if r.action in ("moved", "conflict_renamed", "skipped") and r.src:
+                emptied.add(Path(r.src).parent)
         for s in source_list:
-            _prune_empty_dirs(s)
+            _prune_emptied_dirs(s, emptied)
+
+    if archive is not None and not dry_run:
+        if moved:
+            archive.log_operation(
+                "organize_batch",
+                metadata={
+                    "sources": [str(s) for s in source_list],
+                    "target": str(target),
+                    "mode": mode,
+                    "moved": moved,
+                    "skipped": skipped,
+                    "conflicts": conflicts,
+                    "errors": errors,
+                },
+            )
 
     return results
 
@@ -473,18 +594,37 @@ def _is_dir_junk(entry: Path) -> bool:
     return entry.name in _DIR_JUNK or entry.name.startswith("._")
 
 
-def _prune_empty_dirs(root: Path) -> None:
+def _prune_emptied_dirs(root: Path, emptied_dirs: set) -> None:
     """
-    Remove empty source directories bottom-up. A folder counts as empty when the
-    only things left in it are OS-metadata junk (.DS_Store, AppleDouble ._*
-    files, Thumbs.db, …); that junk is deleted so the now-truly-empty folder can
-    be pruned. Folders that still hold real files (cover art, docs, stray audio)
-    are left untouched, and the root itself is never removed.
+    Remove source directories this run emptied, bottom-up.
+
+    Only directories we actually removed files FROM (and, as they empty out,
+    their ancestors up to — never including — the source root) are candidates.
+    A pre-existing empty folder anywhere else under the source is left exactly
+    as we found it: the organizer's cleanup follows its own footprints, it
+    does not sweep the neighbourhood.
+
+    A candidate counts as empty when the only things left in it are
+    OS-metadata junk (.DS_Store, AppleDouble ._* files, Thumbs.db, …); that
+    junk is deleted so the now-truly-empty folder can be pruned. Folders that
+    still hold real files (cover art, docs, stray audio) are left untouched.
     """
-    for dirpath, _dirs, _files in os.walk(root, topdown=False):
-        p = Path(dirpath)
-        if p == root:
+    root = root.resolve(strict=False)
+
+    # Deepest paths first so children empty out before their parents are tried.
+    candidates = sorted(
+        {d.resolve(strict=False) for d in emptied_dirs},
+        key=lambda p: len(p.parts),
+        reverse=True,
+    )
+    seen: set = set()
+    while candidates:
+        p = candidates.pop(0)
+        if p in seen:
             continue
+        seen.add(p)
+        if p == root or root not in p.parents:
+            continue  # never the root itself, never anything outside it
         try:
             entries = list(p.iterdir())
             if any(not _is_dir_junk(e) for e in entries):
@@ -495,6 +635,9 @@ def _prune_empty_dirs(root: Path) -> None:
                 except OSError as exc:
                     log.warning("Could not remove junk file %s: %s", junk, exc)
             p.rmdir()
-            log.info("Pruned empty dir: %s", p)
+            log.info("Pruned emptied dir: %s", p)
+            # The parent may now be empty because of us — consider it next.
+            if p.parent not in seen:
+                candidates.append(p.parent)
         except OSError as exc:
-            log.warning("Could not remove empty dir %s: %s", p, exc)
+            log.warning("Could not remove emptied dir %s: %s", p, exc)

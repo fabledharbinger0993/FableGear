@@ -17,11 +17,11 @@ constants from one config file:
 
 - `MUSIC_ROOT` — one music directory
 - `LOCAL_DB` — one rekordbox database (the working/source DB)
-- `DJMT_DB` — the device DB on the DJ drive
+- `DEVICE_DB` — the device DB on the DJ drive
 
 The library view (`/api/library/...`, `routes_player.py`) sources files from
 that single `MUSIC_ROOT`. But the real library is spread across multiple
-drives (Passport ~4700+ files, the Samsung T7 / CAMAGIG, DJMTGO, etc.). The
+drives (a large USB HDD ~4700+ files, an SSD, a CDJ export drive, etc.). The
 user must manually point `music_root` at one drive and is blind to the rest.
 
 The warnings that started this (backups on the internal drive; archive on a
@@ -35,7 +35,7 @@ drive is home," so its archive/backup logic has no principled place to live.
 2. **Unify the view.** The Record Room "all music library" view lists *every*
    song file across *all* music drives — not one configured location.
 3. **Per-drive, not deduplicated.** Every track is listed **once per drive it
-   exists on**. The same song on Passport and the T7 appears twice. A clear
+   exists on**. The same song on the HDD and the SSD appears twice. A clear
    **visual separator** marks the boundary as you scroll from one drive's
    tracks into the next. The view shows disk reality; it does not try to be
    clever about cross-drive duplicates. (Dedup remains a separate Chop Shop
@@ -140,13 +140,13 @@ drift-prone index.
 
 1. Scan all mounted volumes (reuse `api_library_fs_browse` enumeration).
 2. For each, count audio files **depth-aware** (the shallow 3-level scan
-   undercounts — CAMAGIG showed ~8 at depth 3 but its real library is deeper).
+   undercounts — one drive showed ~8 at depth 3 but its real library is deeper).
    Use a bounded full walk with a generous cap and a progress signal.
 3. Rank by audio-file count (tiebreak: free space, then existing
    `has_pioneer_db`).
 4. Propose the largest as home. **Never auto-commit** — propose in the wizard,
    user confirms or overrides with the Finder-style picker.
-5. Stability caveat: surface mount stability if known (Passport has been
+5. Stability caveat: surface mount stability if known (the HDD has been
    flapping this session). A drive that keeps disconnecting is a poor home
    even if largest — warn, don't block.
 
@@ -169,12 +169,12 @@ From three flat constants to a home-anchored structure. Sketch:
 
 ```
 {
-  "home_drive":        "/Volumes/Passport",        # elected, user-confirmed
+  "home_drive":        "/Volumes/MusicDriveA",     # elected, user-confirmed
   "local_db":          "<home>/.../master.db",     # working DB on/near home
   "device_db":         "...",                       # unchanged (DJ drive)
   "archive_root":      "<home>/FableGear Archive",  # anchored to home
   "backup_dir":        "<archive>/Savepoints",      # under archive, off internal
-  "known_music_drives":["/Volumes/Passport", "/Volumes/CAMAGIG", ...],  # catalog
+  "known_music_drives":["/Volumes/MusicDriveA", "/Volumes/MusicDriveB", ...],  # catalog
 }
 ```
 

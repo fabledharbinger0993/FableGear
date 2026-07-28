@@ -88,6 +88,9 @@ def enqueue(url: str, destination: str, filename: Optional[str] = None,
     Enqueue a download job and return its job_id immediately.
     The download runs in a background daemon thread.
     """
+    if not url or not url.strip().startswith(("http://", "https://")):
+        raise ValueError("URL must start with http:// or https://")
+    url = url.strip()
     job_id = str(uuid.uuid4())
     fmt = fmt if fmt in FORMATS else DEFAULT_FORMAT
 
@@ -321,7 +324,7 @@ def _run(job_id: str) -> None:
     # The time window prevents picking up pre-existing files in the destination.
     if downloaded_path is None:
         audio_exts = {".aiff", ".aif", ".aifc", ".flac", ".wav", ".mp3",
-                      ".m4a", ".m4p", ".mp4", ".m4v", ".ogg", ".opus"}
+                      ".m4a", ".m4p", ".ogg", ".opus"}
         cutoff = time.time() - (time.monotonic() - job_start) - 5  # 5 s grace window
         candidates = sorted(
             [
@@ -359,7 +362,7 @@ def _run(job_id: str) -> None:
         from scanner import extract_metadata       # noqa: PLC0415
         from importer import _import_track         # noqa: PLC0415
         from db_connection import write_db         # noqa: PLC0415
-        from config import DJMT_DB as _DB          # noqa: PLC0415
+        from config import DEVICE_DB as _DB          # noqa: PLC0415
 
         track_info = extract_metadata(downloaded_path)
         if track_info.is_valid:

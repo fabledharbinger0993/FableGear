@@ -10,16 +10,21 @@ Config file schema
 ------------------
 {
   "local_db":        "/Users/name/Library/Pioneer/rekordbox/master.db",
-  "device_db":       "/path/to/drive/PIONEER/Master/master.db",
-  "music_root":      "/path/to/music",
-  "backup_dir":      "/path/to/library/FableGear Archive/Savepoints",
+  "device_db":       "/Volumes/MYDRIVE/PIONEER/Master/master.db",
+  "music_root":      "/Volumes/MYDRIVE/MY MUSIC",
+  "backup_dir":      "/Users/name/.fablegear/backups",
+  "snapshot_cadence": "monthly",
+  "snapshot_include_master_db": false,
   "target_lufs":     -8.0,
   "lufs_tolerance":  0.5,
-  "excluded_dirs":   ["cache", "PROCESSING_CACHE"]
+  "excluded_dirs":   ["Sample Packs", "Podcasts"]
 }
 
 Required keys: local_db, device_db, music_root, backup_dir
 Optional keys: target_lufs, lufs_tolerance, excluded_dirs (filled from DEFAULTS if absent)
+
+The excluded_dirs value above is only a schema example — the shipped default
+(DEFAULTS["excluded_dirs"]) is an empty list.
 
 excluded_dirs: list of folder *names* (not paths) to skip when scanning the music
 root. Useful for non-music directories that live inside the music root, such as
@@ -33,7 +38,7 @@ Public interface
   interactive_setup() -> dict         prompts user, validates, saves, returns cfg
 """
 
-import importlib
+import importlib.util
 import json
 import os
 import platform
@@ -61,9 +66,23 @@ DEFAULTS: dict = {
     "lufs_tolerance":  0.5,
     "archive_mode":        "auto",
     "custom_archive_dir":  "",
+    "snapshot_cadence":    "monthly",
+    "snapshot_include_master_db": False,
     "excluded_dirs":       [],   # extra folder names to skip when scanning music root
-    "acoustid_api_key":    "",   # AcoustID API key for fingerprint lookup
+    # AcoustID application key, registered at acoustid.org to FableGear
+    # itself. AcoustID keys are per-application (not per-user) and meant to
+    # ship with the app, so fingerprint lookup works out of the box. Users
+    # can still substitute their own key in settings or the setup wizard.
+    "acoustid_api_key":    "wAbRWVEfls",
     "mode": "suburban",  # 'rural' (no AI) or 'suburban' (AI enabled)
+}
+
+SNAPSHOT_CADENCE_CHOICES = ("weekly", "biweekly", "monthly", "quarterly")
+SNAPSHOT_CADENCE_SECONDS = {
+    "weekly": 7 * 24 * 60 * 60,
+    "biweekly": 14 * 24 * 60 * 60,
+    "monthly": 30 * 24 * 60 * 60,
+    "quarterly": 90 * 24 * 60 * 60,
 }
 
 # Smart defaults for the setup wizard (platform-aware where relevant)
@@ -72,11 +91,6 @@ _WIZARD_DEFAULTS: dict = {
                   if platform.system() == "Darwin"
                   else str(Path.home() / "AppData/Roaming/Pioneer/rekordbox/master.db"),
     "backup_dir": str(CONFIG_DIR / "backups"),
-}
-
-_AUDIO_EXTS = {
-    ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac", ".m4a", ".m4p", ".mp4", ".m4v",
-    ".ogg", ".opus", ".wma", ".ape", ".mpc", ".mp+", ".wv", ".aac", ".ac3", ".dff", ".dsf",
 }
 
 # Human-readable labels for each key, used in setup prompts and error messages
@@ -97,6 +111,32 @@ class NotConfiguredError(RuntimeError):
     Raised when the config file is missing, unreadable, or incomplete.
     The message is human-readable and always ends with a 'Run: ... setup' hint.
     """
+
+
+def _coerce_bool(value, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def normalize_snapshot_cadence(value: object) -> str:
+    text = str(value or "").strip().lower().replace("-", "")
+    if text in SNAPSHOT_CADENCE_CHOICES:
+        return text
+    return DEFAULTS["snapshot_cadence"]
+
+
+def snapshot_cadence_seconds(value: object) -> int:
+    return SNAPSHOT_CADENCE_SECONDS[normalize_snapshot_cadence(value)]
 
 
 # ─── Core I/O ─────────────────────────────────────────────────────────────────
@@ -192,6 +232,11 @@ def load_user_config() -> dict:
     for key, default in DEFAULTS.items():
         if key not in cfg:
             cfg[key] = default
+    cfg["snapshot_cadence"] = normalize_snapshot_cadence(cfg.get("snapshot_cadence"))
+    cfg["snapshot_include_master_db"] = _coerce_bool(
+        cfg.get("snapshot_include_master_db"),
+        DEFAULTS["snapshot_include_master_db"],
+    )
     # Validate mode
     if cfg.get("mode") not in ("rural", "suburban"):
         cfg["mode"] = "suburban"
@@ -210,6 +255,13 @@ def save_user_config(cfg: dict) -> None:
     # Ensure mode is valid before saving
     if cfg.get("mode") not in ("rural", "suburban"):
         cfg["mode"] = "suburban"
+    cfg["snapshot_cadence"] = normalize_snapshot_cadence(cfg.get("snapshot_cadence"))
+    cfg["snapshot_include_master_db"] = _coerce_bool(
+        cfg.get("snapshot_include_master_db"),
+        DEFAULTS["snapshot_include_master_db"],
+    )
+    for key, default in DEFAULTS.items():
+        cfg.setdefault(key, default)
     content = json.dumps(cfg, indent=2) + "\n"  # POSIX: trailing newline
     fd, tmp_path = tempfile.mkstemp(dir=CONFIG_DIR, prefix=".config_tmp_", suffix=".json")
     try:
@@ -224,66 +276,10 @@ def save_user_config(cfg: dict) -> None:
         raise
 
 
-def archive_root_for_music_root(music_root: str | Path) -> Path:
-    """Return the default FableGear Archive root for a chosen music root."""
-    root = Path(music_root)
-    parent = root.parent
-    if parent == Path("/Volumes") or parent == Path("/"):
-        return root / "FableGear Archive"
-    return parent / "FableGear Archive"
-
-
-def count_audio_files(root: Path, *, max_depth: int | None = None, cap: int | None = 5000) -> int:
-    """Count/estimate audio files under *root*.
-
-    ``max_depth=0`` means root-only; ``None`` is unlimited. If ``cap`` is set,
-    stop once the count reaches the cap (keeps drive discovery responsive).
-    """
-    total = 0
-    try:
-        for walk_root, dirs, files in os.walk(root):
-            depth = len(Path(walk_root).relative_to(root).parts)
-            if max_depth is not None and depth > max_depth:
-                dirs.clear()
-                continue
-            dirs[:] = [d for d in dirs if not d.startswith(".")]
-            for fname in files:
-                if os.path.splitext(fname)[1].lower() in _AUDIO_EXTS:
-                    total += 1
-                    if cap is not None and total >= cap:
-                        return total
-    except (PermissionError, OSError):
-        return total
-    return total
-
-
-def discover_music_roots(mounts: list[Path], *, min_audio_files: int = 5) -> list[dict]:
-    """Describe mounted drives that appear to contain music libraries."""
-    results: list[dict] = []
-    for mount in mounts:
-        audio_count = count_audio_files(mount, max_depth=8)
-        if audio_count < min_audio_files:
-            continue
-        archive_root = archive_root_for_music_root(mount)
-        results.append({
-            "path": str(mount),
-            "label": f"Music on {mount.name}",
-            "volume": mount.name,
-            "audio_count": audio_count,
-            "recommended_archive_root": str(archive_root),
-            "recommended_backup_dir": str(archive_root / "Savepoints"),
-            "recommended_db_root": str(mount),
-            "read_only": not os.access(mount, os.W_OK),
-        })
-    results.sort(key=lambda item: (-item["audio_count"], item.get("volume", "").lower()))
-    if results:
-        results[0]["recommended_home"] = True
-    return results
-
-
 # ─── Dependency validation ────────────────────────────────────────────────────
 #
-# Checked at startup by check_dependencies() and surfaced by `python3 cli.py check`.
+# Checked at startup by check_dependencies() and surfaced at the end of
+# `python3 cli.py setup` (there is no standalone `check` subcommand).
 # Commands that need a missing dep are expected to fail fast with a clear message
 # rather than deep-stack traceback.
 
@@ -476,16 +472,12 @@ def print_dependency_report(results: Optional[List[Dict]] = None) -> bool:
         print("  All dependencies satisfied.")
     else:
         missing = sum(1 for r in results if not r["ok"])
-        print(f"  {missing} missing. Install the above, then re-run: python3 cli.py check")
+        print(f"  {missing} missing. Install the above, then re-run: python3 cli.py setup --update")
     print()
     return all_ok
 
 
 # ─── Setup wizard ─────────────────────────────────────────────────────────────
-
-# NOTE: archive_root_for_music_root() is defined above.
-# Keep a single implementation to avoid accidental divergence (Python will
-# otherwise silently overwrite the earlier definition).
 
 def _prompt(label: str, default: Optional[str] = None, must_exist: bool = False) -> str:
     """
@@ -555,7 +547,7 @@ def interactive_setup(*, update: bool = False) -> dict:
 
     cfg["device_db"] = _prompt(
         "DJ drive database path\n  "
-        "(e.g. /path/to/drive/PIONEER/Master/master.db)",
+        "(e.g. /Volumes/DRIVENAME/PIONEER/Master/master.db)",
         default=existing.get("device_db"),
         must_exist=True,
     )
@@ -570,10 +562,63 @@ def interactive_setup(*, update: bool = False) -> dict:
     cfg["backup_dir"] = _prompt(
         "Backup directory\n  "
         "(created automatically — backups are written here before every write)",
-        default=existing.get("backup_dir")
-                or str(archive_root_for_music_root(cfg["music_root"]) / "Savepoints"),
+        default=existing.get("backup_dir") or _WIZARD_DEFAULTS.get("backup_dir"),
         must_exist=False,  # Will be created on first write — doesn't need to exist yet
     )
+
+    print()
+    print("  Snapshot capture cadence:")
+    cadence_default = normalize_snapshot_cadence(existing.get("snapshot_cadence"))
+    cadence_choice = {
+        "weekly": "1",
+        "biweekly": "2",
+        "monthly": "3",
+        "quarterly": "4",
+    }.get(cadence_default, "3")
+    print("    1. Weekly")
+    print("    2. Bi-weekly")
+    print("    3. Monthly (recommended)")
+    print("    4. Every 3 months")
+    while True:
+        try:
+            raw_cadence = input(f"  → Enter 1-4 [{cadence_choice}]: ").strip() or cadence_choice
+        except (EOFError, KeyboardInterrupt):
+            print("\nSetup cancelled.")
+            sys.exit(0)
+        cadence_map = {
+            "1": "weekly",
+            "2": "biweekly",
+            "3": "monthly",
+            "4": "quarterly",
+        }
+        if raw_cadence in cadence_map:
+            cfg["snapshot_cadence"] = cadence_map[raw_cadence]
+            break
+        print("  ✗  Choose 1, 2, 3, or 4.")
+
+    include_default = _coerce_bool(
+        existing.get("snapshot_include_master_db"),
+        DEFAULTS["snapshot_include_master_db"],
+    )
+    include_hint = "Y" if include_default else "n"
+    while True:
+        try:
+            raw_include = input(
+                f"\n  Include Rekordbox master.db snapshots as part of the archive? [{include_hint}] "
+            ).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nSetup cancelled.")
+            sys.exit(0)
+        if not raw_include:
+            cfg["snapshot_include_master_db"] = include_default
+            break
+        if raw_include in {"y", "yes"}:
+            cfg["snapshot_include_master_db"] = True
+            break
+        if raw_include in {"n", "no"}:
+            cfg["snapshot_include_master_db"] = False
+            break
+        print("  ✗  Please answer yes or no.")
 
     # ── Optional: loudness target ──
     current_lufs = existing.get("target_lufs", DEFAULTS["target_lufs"])
@@ -599,14 +644,37 @@ def interactive_setup(*, update: bool = False) -> dict:
 
     cfg["lufs_tolerance"] = existing.get("lufs_tolerance", DEFAULTS["lufs_tolerance"])
 
+    # ── Optional: AcoustID API key ──
+    current_key = str(
+        existing.get("acoustid_api_key", DEFAULTS["acoustid_api_key"])
+    ).strip()
+    key_hint = "Enter keeps FableGear's built-in key" if current_key == DEFAULTS["acoustid_api_key"] \
+        else "configured — Enter keeps yours"
+    print(
+        f"\n  AcoustID API key  [{key_hint}]\n"
+        "  Used for MusicBrainz metadata enrichment (fills in missing title/\n"
+        "  artist/album from audio fingerprints). FableGear ships with its own\n"
+        "  registered application key — most users should just press Enter.\n"
+        "  To use your own instead: https://acoustid.org/ → 'Register an application'."
+    )
+    try:
+        raw_key = input("  → ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nSetup cancelled.")
+        sys.exit(0)
+    cfg["acoustid_api_key"] = raw_key if raw_key else current_key
 
     # ── Mode selection ──
     print()
     print("  Select FableGear mode:")
     print("    1. Suburban (AI enabled, recommended)")
     print("    2. Rural (no AI, pure toolkit)")
-    mode_choice = ""
-    while mode_choice not in ("1", "2", ""):  # default to 1
+    # Do-while: "" starts outside the accepted set so the prompt always runs
+    # at least once; Enter maps to "1". (The old guard included "" in the
+    # accepted set, so the loop never executed and every setup silently got
+    # mode="rural" without the question ever being shown.)
+    mode_choice = None
+    while mode_choice not in ("1", "2"):
         mode_choice = input("  → Enter 1 or 2 [1]: ").strip() or "1"
     cfg["mode"] = "suburban" if mode_choice == "1" else "rural"
 
@@ -621,6 +689,8 @@ def interactive_setup(*, update: bool = False) -> dict:
     print(f"  Device DB  : {cfg['device_db']}")
     print(f"  Music root : {cfg['music_root']}")
     print(f"  Backup dir : {cfg['backup_dir']}")
+    print(f"  Snapshot cadence : {cfg['snapshot_cadence']}")
+    print(f"  Include master.db : {cfg['snapshot_include_master_db']}")
     print(f"  Target LUFS: {cfg['target_lufs']}")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print()
@@ -637,21 +707,82 @@ def interactive_setup(*, update: bool = False) -> dict:
     return cfg
 
 
-# ── Onboarding scan ───────────────────────────────────────────────────────────
+# ─── Drive and archive discovery helpers ────────────────────────────────────
+
+_AUDIO_EXTS = {
+    ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac", ".m4a", ".m4p",
+    ".ogg", ".opus", ".wma", ".ape", ".mpc", ".mp+", ".wv", ".aac", ".ac3", ".dff", ".dsf",
+}
+
+MCP_PORT_DEFAULT = 5002
+MCP_PORT_RANGE = range(5002, 5011)  # 5002-5010
+
+
+def archive_root_for_music_root(music_root: str | Path) -> Path:
+    """Return the default FableGear Archive root for a chosen music root."""
+    root = Path(music_root)
+    parent = root.parent
+    if parent == Path("/Volumes") or parent == Path("/"):
+        return root / "FableGear Archive"
+    return parent / "FableGear Archive"
+
+
+def count_audio_files(
+    root: Path, *, max_depth: int | None = None, cap: int | None = 5000,
+    timeout: float = 30.0,
+) -> int:
+    """Count or estimate audio files under root."""
+    import time as _time
+
+    total = 0
+    deadline = _time.monotonic() + timeout
+    try:
+        for walk_root, dirs, files in os.walk(root):
+            if _time.monotonic() > deadline:
+                return total
+            depth = len(Path(walk_root).relative_to(root).parts)
+            if max_depth is not None and depth > max_depth:
+                dirs.clear()
+                continue
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for fname in files:
+                if os.path.splitext(fname)[1].lower() in _AUDIO_EXTS:
+                    total += 1
+                    if cap is not None and total >= cap:
+                        return total
+    except (PermissionError, OSError):
+        return total
+    return total
+
+
+def discover_music_roots(mounts: list[Path], *, min_audio_files: int = 5) -> list[dict]:
+    """Describe mounted drives that appear to contain music libraries."""
+    results: list[dict] = []
+    for mount in mounts:
+        audio_count = count_audio_files(mount, max_depth=8)
+        if audio_count < min_audio_files:
+            continue
+        archive_root = archive_root_for_music_root(mount)
+        results.append({
+            "path": str(mount),
+            "label": f"Music on {mount.name}",
+            "volume": mount.name,
+            "audio_count": audio_count,
+            "recommended_archive_root": str(archive_root),
+            "recommended_backup_dir": str(archive_root / "Savepoints"),
+            "recommended_db_root": str(mount),
+            "read_only": not os.access(mount, os.W_OK),
+        })
+    results.sort(key=lambda item: (-item["audio_count"], item.get("volume", "").lower()))
+    if results:
+        results[0]["recommended_home"] = True
+    return results
+
 
 def scan_for_rekordbox_assets() -> dict:
-    """
-    Scan the local machine and all mounted volumes for Rekordbox data.
-
-    Returns a dict with four lists, each item carrying path + mtime + label:
-      local_db     — local Rekordbox master.db candidates
-      device_dbs   — Pioneer device DB candidates on mounted volumes
-      xml_files    — rekordbox.xml / fablegear.xml files found
-      music_roots  — volume roots that appear to contain a music library
-      recommended_music_root / recommended_archive_root / recommended_backup_dir
-                  — the largest detected music library and its FableGear paths
-    """
+    """Scan local machine and mounted volumes for Rekordbox-related assets."""
     import os as _os
+    import time as _time
 
     results: dict = {
         "local_db": [],
@@ -663,7 +794,6 @@ def scan_for_rekordbox_assets() -> dict:
         "recommended_backup_dir": "",
     }
 
-    # ── Local Rekordbox DB ────────────────────────────────────────────────────
     local_candidates = []
     for base in [
         Path.home() / "Library" / "Pioneer" / "rekordbox",
@@ -682,22 +812,31 @@ def scan_for_rekordbox_assets() -> dict:
             })
     results["local_db"] = sorted(local_candidates, key=lambda x: -x["mtime"])
 
-    # ── Mounted volumes ───────────────────────────────────────────────────────
     mounts: list[Path] = []
     volumes_dir = Path("/Volumes")
     if volumes_dir.is_dir():
+        boot_real = _os.path.realpath("/")
         for name in _os.listdir(volumes_dir):
-            if not name.startswith("."):
-                p = volumes_dir / name
-                if p.is_dir():
-                    mounts.append(p)
+            if name.startswith("."):
+                continue
+            p = volumes_dir / name
+            if not p.is_dir():
+                continue
+            try:
+                real = _os.path.realpath(p)
+            except OSError:
+                continue
+            if real == boot_real:
+                continue
+            if name.lower().startswith("com.apple.timemachine"):
+                continue
+            mounts.append(p)
 
     device_dbs: list[dict] = []
     xml_files: list[dict] = []
     seen_xml_paths: set[str] = set()
 
     for mount in mounts:
-        # Pioneer device DB
         candidate_db = mount / "PIONEER" / "Master" / "master.db"
         if candidate_db.exists():
             try:
@@ -711,9 +850,11 @@ def scan_for_rekordbox_assets() -> dict:
                 "volume": mount.name,
             })
 
-        # rekordbox.xml / fablegear.xml — scan up to 4 levels deep
+        xml_deadline = _time.monotonic() + 15
         try:
             for root, dirs, files in _os.walk(mount):
+                if _time.monotonic() > xml_deadline:
+                    break
                 depth = root.replace(str(mount), "").count(_os.sep)
                 if depth > 4:
                     dirs.clear()
@@ -750,3 +891,72 @@ def scan_for_rekordbox_assets() -> dict:
         results["recommended_backup_dir"] = best.get("recommended_backup_dir", "")
 
     return results
+
+
+def generate_mcp_token() -> str:
+    """Generate a 32-byte hex token for MCP bearer auth."""
+    import secrets
+
+    return secrets.token_hex(32)
+
+
+def find_available_mcp_port(preferred: int = MCP_PORT_DEFAULT) -> int:
+    """Return preferred if open; otherwise probe MCP_PORT_RANGE for a free port."""
+    import socket
+
+    ports = ([preferred] if preferred in MCP_PORT_RANGE else []) + list(MCP_PORT_RANGE)
+    for port in ports:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind(("127.0.0.1", port))
+                return port
+            except OSError:
+                continue
+    return preferred
+
+
+def enable_mcp(cfg: dict, *, autostart: bool = False, expose: bool = False) -> dict:
+    """Enable MCP in config, generating token and port when needed."""
+    cfg["mcp_enabled"] = True
+    cfg["mcp_autostart"] = autostart
+    cfg["mcp_expose"] = expose
+    if not cfg.get("mcp_token"):
+        cfg["mcp_token"] = generate_mcp_token()
+    if not cfg.get("mcp_port"):
+        cfg["mcp_port"] = MCP_PORT_DEFAULT
+    cfg["mcp_port"] = find_available_mcp_port(int(cfg["mcp_port"]))
+    return cfg
+
+
+def mcp_config_snippet(client: str, cfg: dict) -> str:
+    """Return a ready-to-paste MCP config snippet for the selected client."""
+    port = cfg.get("mcp_port", MCP_PORT_DEFAULT)
+    token = cfg.get("mcp_token", "")
+    expose = cfg.get("mcp_expose", False)
+
+    if expose and token:
+        url = f"http://localhost:{port}/sse?token={token}"
+    else:
+        url = f"http://localhost:{port}/sse"
+
+    if client in ("claude-desktop", "claude-code"):
+        return json.dumps({"mcpServers": {"fablegear": {"url": url}}}, indent=2)
+    if client == "cursor":
+        return json.dumps(
+            {
+                "mcpServers": {
+                    "fablegear": {
+                        "url": url,
+                        "transport": "sse",
+                    }
+                }
+            },
+            indent=2,
+        )
+
+    return f"MCP Endpoint: {url}"
+
+
+def get_config() -> dict:
+    """Compatibility helper for modules that expect a get_config accessor."""
+    return load_user_config()

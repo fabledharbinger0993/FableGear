@@ -14,6 +14,19 @@ function dismissHealthPanel() {
   document.getElementById('health-panel').style.display = 'none';
 }
 
+function openHealthModal() {
+  _sbFadeBd('health-modal-backdrop', true);
+  const box = document.getElementById('health-modal');
+  void box.offsetWidth; _sbAnim(box, 'sb-modal-in', '.28s');
+}
+function closeHealthModal() {
+  const bd = document.getElementById('health-modal-backdrop');
+  if (!bd || bd.classList.contains('hidden')) return;
+  _sbAnim(document.getElementById('health-modal'), 'sb-modal-out', '.18s', () => {
+    _sbFadeBd('health-modal-backdrop', false);
+  });
+}
+
 function _severityIcon(s) {
   return s === 'critical' ? '🔴' : s === 'warn' ? '🟡' : 'ℹ️';
 }
@@ -22,6 +35,7 @@ function _renderHealthFindings(findings) {
   const panel   = document.getElementById('health-panel');
   const list    = document.getElementById('health-findings-list');
   const badge   = document.getElementById('health-panel-badge');
+  const modalBadge = document.getElementById('health-modal-badge');
   if (!panel || !list) return;
 
   const critical = findings.filter(f => f.severity === 'critical').length;
@@ -29,17 +43,24 @@ function _renderHealthFindings(findings) {
 
   if (!findings.length) {
     panel.style.display = 'none';
+    closeHealthModal();
     return;
   }
 
-  badge.textContent = critical ? `${critical} critical` : `${warn} warning${warn !== 1 ? 's' : ''}`;
-  badge.className   = `health-badge ${critical ? 'health-badge-critical' : 'health-badge-warn'}`;
+  const badgeText  = critical ? `${critical} critical` : `${warn} warning${warn !== 1 ? 's' : ''}`;
+  const badgeClass = `health-badge ${critical ? 'health-badge-critical' : 'health-badge-warn'}`;
+  badge.textContent = badgeText;
+  badge.className   = badgeClass;
+  if (modalBadge) { modalBadge.textContent = badgeText; modalBadge.className = badgeClass; }
 
   list.innerHTML = findings.map(f => `
     <div class="health-finding health-finding-${f.severity}">
       <div class="health-finding-title">${_severityIcon(f.severity)} <strong>${f.title}</strong></div>
       <div class="health-finding-detail">${f.detail}</div>
       ${f.fix_hint ? `<div class="health-finding-hint">↳ ${f.fix_hint}</div>` : ''}
+      ${f.fix_action ? `<div class="health-finding-actions">
+        <button class="btn btn-neon btn-xs" onclick="runHealthFix('${f.id}', '${f.fix_action}')">${f.fix_action_label || 'Run Fix'}</button>
+      </div>` : ''}
     </div>
   `).join('');
 
@@ -84,6 +105,36 @@ function _updateHealthFromStatus(healthSummary) {
   }
 }
 
+
+async function runHealthFix(findingId, action) {
+  const body = { id: findingId, action };
+  if (action === 'move_backup_dir') {
+    let newPath;
+    if (typeof window.pywebview !== 'undefined' && window.pywebview.api?.pick_folder) {
+      newPath = await window.pywebview.api.pick_folder();
+    } else {
+      newPath = prompt('Enter the path for the new backup directory:');
+    }
+    if (!newPath) return;
+    body.path = newPath;
+  }
+  try {
+    const resp = await fetch('/api/health/fix', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      showToast(data.message || 'Fix applied.', 'success');
+      runHealthCheck(true);
+    } else {
+      showToast(data.error || 'Fix failed.', 'error');
+    }
+  } catch (e) {
+    showToast('Could not apply fix: ' + (e.message || e), 'error');
+  }
+}
 
 setInterval(refreshStatus, 6000);
 // Initial status + health check (staggered so health runs after status settles)

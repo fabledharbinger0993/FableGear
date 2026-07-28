@@ -195,6 +195,7 @@ function _typeLabel(steps, step, i) {
 const STEP_REQUIRED_FIELDS = {
   audit:      [],           // paths is optional
   process:    ['paths'],
+  rename:     ['paths'],
   normalize:  ['paths'],
   duplicates: ['paths'],
   prune:      [],           // auto-uses CSV from prior duplicates step
@@ -203,7 +204,7 @@ const STEP_REQUIRED_FIELDS = {
   import:     ['paths'],
   link:       ['paths'],
   organize:   ['sources','target'],
-  novelty:    ['source','dest'],
+  novelty:    ['sources','dest'],
 };
 
 function _stepIsReady(step) {
@@ -263,7 +264,7 @@ function pipeWizBuildConfigs() {
   });
 
   pipelineSteps.forEach((step, i) => {
-    const def   = PIPE_STEPS[step.type] || { name: step.type, icon: '/static/RB_LOGO.png', desc: '' };
+    const def   = PIPE_STEPS[step.type] || { name: step.type, icon: '/static/FableGear-logo.png', desc: '' };
     const label = _typeLabel(pipelineSteps, step, i);
     const ready = _stepIsReady(step);
 
@@ -294,7 +295,7 @@ function pipeWizSelectStep(i) {
 
   const step  = pipelineSteps[i];
   if (!step) return;
-  const def   = PIPE_STEPS[step.type] || { name: step.type, icon: '/static/RB_LOGO.png', desc: '' };
+  const def   = PIPE_STEPS[step.type] || { name: step.type, icon: '/static/FableGear-logo.png', desc: '' };
   const label = _typeLabel(pipelineSteps, step, i);
   const panel = document.getElementById('pipe-wiz-active-cfg');
 
@@ -312,6 +313,12 @@ function pipeWizSelectStep(i) {
   // Wire up all inputs in the panel to update _draftConfig live
   panel.querySelectorAll('input[type=text], input[type=number], select, textarea').forEach(el => {
     el.addEventListener('input', () => {
+      _pipeWizReadDraft(step);
+      _wizUpdateProgress();
+    });
+  });
+  panel.querySelectorAll('input[type=checkbox]').forEach(el => {
+    el.addEventListener('change', () => {
       _pipeWizReadDraft(step);
       _wizUpdateProgress();
     });
@@ -366,8 +373,19 @@ function _pipeWizConfigHTML(step, saved) {
     case 'audit':
       return multiPathRow('paths', 'Music folders (optional)', 'Choose or enter a music folder', false);
 
-    case 'process':
-      return multiPathRow('paths', 'Music folders', 'Choose or enter a music folder') + workersRow(4);
+    case 'process': {
+      const normChecked = saved && saved.no_normalize !== undefined ? !saved.no_normalize : false;
+      return multiPathRow('paths', 'Music folders', 'Choose or enter a music folder') + workersRow(4) + `
+        <div class="pipe-cfg-field">
+          <label class="checkbox-label">
+            <input type="checkbox" data-cfg="normalize" ${normChecked ? 'checked' : ''}>
+            Normalize loudness — re-encodes audio to a target volume
+          </label>
+        </div>`;
+    }
+
+    case 'rename':
+      return multiPathRow('paths', 'Folders to rename', 'Choose or enter a music folder') + workersRow(1);
 
     case 'normalize':
       return multiPathRow('paths', 'Music folders', 'Choose or enter a music folder') + workersRow(4);
@@ -422,8 +440,16 @@ function _pipeWizConfigHTML(step, saved) {
         </div>`;
 
     case 'novelty':
-      return pathRow('source', 'Source drive / folder', 'Choose or enter a source drive') +
+      return multiPathRow('sources', 'Source drive(s) / folder(s)', 'Choose or enter a source drive') +
              pathRow('dest',   'Home library destination', 'Choose or enter a music folder') +
+             `<div class="pipe-cfg-field">
+                <label class="pipe-cfg-label">Comparison mode</label>
+                <select class="pipe-cfg-input" data-cfg="match_mode"
+                        style="background:var(--surface-hi);border:1px solid var(--border-hi);color:var(--text);border-radius:var(--radius);padding:8px 10px;font-size:.84rem;width:100%">
+                  <option value="fingerprint" ${v('match_mode','fingerprint')==='fingerprint'?'selected':''}>Fingerprint confirm (safer)</option>
+                  <option value="filename" ${v('match_mode','fingerprint')==='filename'?'selected':''}>Filename compare only (faster)</option>
+                </select>
+              </div>` +
              workersRow(4);
 
     default:
@@ -442,6 +468,10 @@ function _pipeWizReadDraft(step) {
     if (!el) return [];
     return el.value.split('\n').map(s => s.trim()).filter(Boolean);
   };
+  const getChecked = (field, def = false) => {
+    const el = panel.querySelector(`[data-cfg="${field}"]`);
+    return el ? el.checked : def;
+  };
 
   const draft = {};
   switch (step.type) {
@@ -452,9 +482,12 @@ function _pipeWizReadDraft(step) {
     case 'link':
       draft.paths = getLines('paths'); break;
     case 'process':
-      draft.paths       = getLines('paths');
-      draft.workers     = getN('workers', 1);
-      draft.no_normalize = true; break;
+      draft.paths        = getLines('paths');
+      draft.workers      = getN('workers', 1);
+      draft.no_normalize  = !getChecked('normalize', false); break;
+    case 'rename':
+      draft.paths   = getLines('paths');
+      draft.workers = getN('workers', 1); break;
     case 'normalize':
       draft.paths   = getLines('paths');
       draft.workers = getN('workers', 1); break;
@@ -476,9 +509,10 @@ function _pipeWizReadDraft(step) {
       draft.mode    = get('mode') || 'assimilate';
       draft.workers = getN('workers', 1); break;
     case 'novelty':
-      draft.source  = get('source');
-      draft.dest    = get('dest');
-      draft.workers = getN('workers', 1); break;
+      draft.sources    = getLines('sources');
+      draft.dest       = get('dest');
+      draft.match_mode = get('match_mode') || 'fingerprint';
+      draft.workers    = getN('workers', 1); break;
   }
   step._draftConfig = draft;
   step._config      = draft;  // keep _config in sync for the runner
@@ -537,8 +571,10 @@ function _showToolResumeBanner(toolKey, cardId, resumeFn) {
       <div class="trb-title">Interrupted run — ${ageText}</div>
       <div class="trb-paths">${pathsText}</div>
     </div>
-    <button class="btn btn-neon trb-btn-resume" onclick="_resumeTool('${toolKey}')">Resume</button>
-    <button class="trb-btn-dismiss" title="Dismiss — start fresh" onclick="_dismissToolCkpt('${toolKey}', '${cardId}')">✕</button>`;
+    <button class="btn btn-neon trb-btn-resume" onclick="_resumeTool('${toolKey}')"
+            title="Continue from where this run left off — files already done are skipped">Resume</button>
+    <button class="btn trb-btn-restart" onclick="_restartToolFresh('${toolKey}', '${cardId}')"
+            title="Discard saved progress and reprocess this folder from the beginning">Start Fresh</button>`;
 
   const form = card.querySelector('.card-form');
   if (form) form.prepend(banner);
@@ -551,9 +587,25 @@ function _resumeTool(toolKey) {
   if (ckpt && _toolResumeFns[toolKey]) _toolResumeFns[toolKey](ckpt);
 }
 
-function _dismissToolCkpt(toolKey, cardId) {
+// Frontend checkpoint "toolKey" values that don't match the backend's CLI
+// subcommand/checkpoint-tool name 1:1 — Normalize is process (with BPM/key
+// detection switched off), not a separate CLI tool.
+const _CKPT_BACKEND_TOOL = { normalize: 'process' };
+
+// "Start Fresh": clears the local "interrupted run" banner AND tells the
+// server to discard the saved checkpoint for this tool. Previously this only
+// cleared the browser-side marker, so the *server* checkpoint survived and
+// the next Run silently resumed from stale state anyway — exactly what this
+// button is supposed to prevent.
+async function _restartToolFresh(toolKey, cardId) {
   _clearToolCkpt(toolKey);
   document.getElementById(cardId)?.querySelector('.tool-resume-banner')?.remove();
+  const backendTool = _CKPT_BACKEND_TOOL[toolKey] || toolKey;
+  try {
+    await fetch(`/api/checkpoint/reset?tool=${encodeURIComponent(backendTool)}`, { method: 'POST' });
+  } catch (e) {
+    console.warn('[checkpoint reset] failed:', e);
+  }
 }
 
 function _populatePills(pillsId, paths) {
@@ -567,9 +619,12 @@ function _resumeProcess(ckpt) {
   _populatePills('process-pills', ckpt.paths);
   document.getElementById('process-no-bpm').checked  = !!ckpt.no_bpm;
   document.getElementById('process-no-key').checked  = !!ckpt.no_key;
-  document.getElementById('process-force').checked   = false; // never force on resume
+  const _fb = document.getElementById('process-force-bpm'); if (_fb) _fb.checked = false; // never force on resume
+  const _fk = document.getElementById('process-force-key'); if (_fk) _fk.checked = false;
   const enrich = document.getElementById('process-enrich-tags');
   if (enrich) enrich.checked = !!ckpt.enrich_tags;
+  const norm = document.getElementById('process-normalize');
+  if (norm) norm.checked = !!ckpt.normalize;
   document.getElementById('step-process')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   runProcess();
 }
@@ -622,10 +677,20 @@ function _resumeNovelty(ckpt) {
   _populatePills('novelty-pills', ckpt.sources);
   const d = document.getElementById('novelty-dest');
   if (d && ckpt.dest) d.value = ckpt.dest;
+  const ct = document.getElementById('novelty-copy-to');
+  if (ct && ckpt.copyTo) ct.value = ckpt.copyTo;
   const dr = document.getElementById('novelty-dry-run');
   if (dr) dr.checked = !!ckpt.dryRun;
   document.getElementById('step-novelty')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   runNovelty();
+}
+
+function _resumeRename(ckpt) {
+  _populatePills('rename-pills', ckpt.paths || (ckpt.path ? [ckpt.path] : []));
+  const dr = document.getElementById('rename-dry-run');
+  if (dr) dr.checked = !!ckpt.dryRun;
+  document.getElementById('step-rename')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  runRename();
 }
 
 // ── Init — show banners for any stale checkpoints on page load ───────────────
@@ -636,6 +701,7 @@ function _initToolCheckpoints() {
   _showToolResumeBanner('duplicates', 'step-duplicates', _resumeDuplicates);
   _showToolResumeBanner('organize',   'step-organize',   _resumeOrganize);
   _showToolResumeBanner('novelty',    'step-novelty',    _resumeNovelty);
+  _showToolResumeBanner('rename',     'step-rename',     _resumeRename);
 }
 
 /* ── Pipeline checkpoint: survive interruptions and resume ────────────────── */

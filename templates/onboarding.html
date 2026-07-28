@@ -47,6 +47,35 @@
     .ob-dot.active { background: var(--accent); transform: scale(1.35); }
     .ob-dot.done   { background: var(--accent2); }
 
+    /* ── Persistent Exit control (top-right, always available) ── */
+    .ob-exit {
+      position: fixed;
+      top: 14px;
+      right: 16px;
+      z-index: 101;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      font-size: .78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: rgba(13, 16, 28, 0.7);
+      border: 1px solid var(--border-hi);
+      border-radius: 999px;
+      cursor: pointer;
+      -webkit-app-region: no-drag;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: color .2s, border-color .2s, background .2s;
+    }
+    .ob-exit:hover {
+      color: var(--text);
+      border-color: rgba(255, 80, 80, .55);
+      background: rgba(30, 12, 14, 0.75);
+    }
+    .ob-exit .ob-exit-x { font-size: .95rem; line-height: 1; }
+
     /* ── Step container ── */
     .ob-step { display: none; }
     .ob-step.active {
@@ -95,6 +124,26 @@
     .dep-hint { font-size: .78rem; color: var(--text-dim); font-family: monospace; }
     .dep-ok   { color: #2ecc71; }
     .dep-fail { color: #e74c3c; }
+
+    /* ── Music root picker ── */
+    .ob-music-root-options {
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .ob-music-root-pick {
+      display: flex; flex-direction: column; gap: 2px;
+      width: 100%; text-align: left;
+      background: rgba(255,255,255,.04); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px;
+      cursor: pointer; transition: border-color .15s, background .15s;
+    }
+    .ob-music-root-pick:hover {
+      border-color: var(--accent); background: rgba(255,255,255,.07);
+    }
+    .ob-music-root-pick.selected {
+      border-color: var(--accent); background: rgba(var(--accent-rgb, 100,140,255), .12);
+    }
+    .ob-mr-label { font-size: .85rem; font-weight: 600; color: var(--text); }
+    .ob-mr-path  { font-size: .72rem; font-family: var(--mono, monospace); color: var(--text-dim); }
 
     /* ── Toggle rows ── */
     .toggle-row {
@@ -390,7 +439,26 @@
   </style>
 </head>
 <body>
+
+<!-- Persistent exit / "finish later" control — always available so setup is
+     never a one-way trap. Behavior depends on whether an app already exists
+     behind the wizard (see obExitSetup()). -->
+<div class="ob-exit" id="ob-exit" onclick="obExitSetup()"
+     title="Leave setup — your progress is saved">
+  <span class="ob-exit-x">✕</span>
+  <span id="ob-exit-label">Finish later</span>
+</div>
+
 <div class="ob-wrap">
+
+  <!-- Update banner — shown immediately if a newer release exists -->
+  <div id="ob-update-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:100;
+    background:var(--accent);color:#fff;text-align:center;padding:8px 16px;font-size:.82rem;
+    font-weight:600;cursor:pointer;-webkit-app-region:no-drag"
+    onclick="obUpdateGo()">
+    <span id="ob-update-msg">A new version of FableGear is available.</span>
+    <span style="margin-left:12px;opacity:.8;font-weight:400">Click to update</span>
+  </div>
 
   <div class="ob-notice" id="ob-notice"></div>
 
@@ -400,8 +468,10 @@
     <div class="ob-dot"        id="dot-1"></div>
     <div class="ob-dot"        id="dot-2"></div>
     <div class="ob-dot"        id="dot-3"></div>
-    <div class="ob-dot"        id="dot-4"></div>
-    <div class="ob-dot"        id="dot-5"></div>
+    <div class="ob-dot" id="dot-4"></div>
+    <div class="ob-dot" id="dot-5"></div>
+    <div class="ob-dot" id="dot-6"></div>
+    <div class="ob-dot" id="dot-7"></div>
   </div>
 
   <!-- ══ Step 1: Dependencies ══════════════════════════════════════════════ -->
@@ -537,14 +607,20 @@
 
       <!-- Music root -->
       <div class="ob-card">
-        <div class="ob-card-title">Music library root</div>
-        <div class="path-row">
-          <span class="path-label">Path</span>
-          <input class="path-input" id="inp-music-root" type="text"
-                 placeholder="/Volumes/DJDRIVE/Music">
-          <button class="path-browse" onclick="pickFolder('inp-music-root')">Browse…</button>
-        </div>
+        <div class="ob-card-title">Home library folder</div>
+        <p class="ob-card-hint" style="font-size:.82rem;color:var(--text-muted);margin-bottom:10px;line-height:1.5">
+          Choose the folder that contains your main music library.
+          FableGear will use this as the default source for all tools.
+        </p>
         <div id="music-root-extra"></div>
+        <div class="path-row" style="margin-top:8px">
+          <span class="path-label">Path</span>
+          <input class="path-input" id="inp-music-root" type="text" readonly
+                 placeholder="Select a folder below or browse…"
+                 style="cursor:default;color:var(--text-muted)">
+          <button class="ob-btn ob-btn-primary" style="padding:5px 14px;font-size:.82rem;white-space:nowrap"
+                  onclick="pickFolder('inp-music-root')">Open Finder…</button>
+        </div>
       </div>
 
       <div class="ob-card">
@@ -575,6 +651,25 @@
         </div>
         <div id="archive-root-note" class="path-note"></div>
         <div class="ob-inline-note" id="archive-backup-note"></div>
+        <div class="ob-card" style="margin-top:12px;padding:12px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)">
+          <div class="ob-card-title" style="margin-bottom:8px">Snapshot protection</div>
+          <div class="path-row" style="border-bottom:none;padding:0;margin-bottom:10px">
+            <span class="path-label">Cadence</span>
+            <select class="ob-select" id="inp-snapshot-cadence">
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Bi-weekly</option>
+              <option value="monthly" selected>Monthly</option>
+              <option value="quarterly">Every 3 months</option>
+            </select>
+          </div>
+          <label class="ob-radio" style="padding:0;align-items:flex-start">
+            <input type="checkbox" id="inp-snapshot-master-db" style="margin-top:4px">
+            <div>
+              <strong>Include Rekordbox master.db snapshots</strong>
+              <small>Optional periodic copy of the local Rekordbox database for rollback safety.</small>
+            </div>
+          </label>
+        </div>
       </div>
 
     </div><!-- /scan-results -->
@@ -655,8 +750,78 @@
     </div>
   </section>
 
-  <!-- ══ Step 6: Choose a room ════════════════════════════════════════════ -->
+  <!-- ══ Step 6: AI integration (MCP) — opt-in ═══════════════════════════ -->
   <section class="ob-step" id="step-5">
+    <div class="ob-icon">🤖</div>
+    <h1 class="ob-title">AI integration</h1>
+    <p class="ob-sub">FableGear can run a local MCP server so AI copilots (Claude Code,
+      Claude Desktop, Cursor) can drive your tools — audit, tag, dedupe, organize —
+      from a conversation. It listens on localhost only and is <strong>off by
+      default</strong>. You can change this any time in Settings.</p>
+
+    <div class="ob-card">
+      <div class="ob-card-title">What an AI copilot can do once connected</div>
+      <div class="dep-row"><span class="dep-icon">🩺</span><span class="dep-name">Audit &amp; report</span><span class="dep-hint">Run library health checks and read the results back to you</span></div>
+      <div class="dep-row"><span class="dep-icon">⚙️</span><span class="dep-name">Run tools with your rules</span><span class="dep-hint">Every safety gate still applies — dry-runs, backups, Rekordbox-closed checks</span></div>
+      <div class="dep-row"><span class="dep-icon">📜</span><span class="dep-name">Read job history</span><span class="dep-hint">Checkpoints and past runs from the FableGear archive</span></div>
+    </div>
+
+    <div class="ob-card" id="mcp-snippet-card" style="display:none">
+      <div class="ob-card-title">Paste this into your AI client
+        <select id="mcp-client-pick" onchange="mcpFetchSnippet()" style="margin-left:8px;background:rgba(255,255,255,.06);color:var(--text);border:1px solid rgba(255,255,255,.15);border-radius:6px;padding:2px 6px;font-size:.75rem">
+          <option value="claude-code">Claude Code</option>
+          <option value="claude-desktop">Claude Desktop</option>
+          <option value="cursor">Cursor</option>
+          <option value="generic">Generic MCP</option>
+        </select>
+      </div>
+      <pre id="mcp-snippet" style="white-space:pre-wrap;font-size:.72rem;background:rgba(0,0,0,.35);border-radius:8px;padding:10px;max-height:180px;overflow:auto"></pre>
+      <button class="ob-btn ob-btn-secondary" type="button" onclick="mcpCopySnippet()">Copy snippet</button>
+    </div>
+
+    <div class="ob-actions">
+      <button class="ob-btn ob-btn-secondary" onclick="goToStep(4)">← Back</button>
+      <button class="ob-btn ob-btn-ghost" id="mcp-skip-btn" onclick="mcpSkip()">Not now →</button>
+      <button class="ob-btn ob-btn-primary" id="mcp-enable-btn" onclick="mcpOptIn()">Enable AI integration</button>
+      <button class="ob-btn ob-btn-primary" id="mcp-continue-btn" onclick="goToStep(6)" style="display:none">Continue →</button>
+    </div>
+  </section>
+
+  <!-- ══ Step 7: Build the FableGear library ══════════════════════════════ -->
+  <section class="ob-step" id="step-6">
+    <div class="ob-icon">📀</div>
+    <h1 class="ob-title">Build your FableGear library</h1>
+    <p class="ob-sub">Rekordbox stays untouched — FableGear builds its own database
+      alongside it. Pick the music sources to bring in now (you can add more later
+      from the Record Room).</p>
+
+    <div class="ob-card">
+      <div class="ob-card-title">Discovered music sources</div>
+      <div id="import-source-list"><div class="ob-scanning"><span class="spin"></span>Looking at your drives…</div></div>
+    </div>
+
+    <div class="ob-card" id="import-progress-card" style="display:none">
+      <div class="ob-card-title">Importing into FableGear.db</div>
+      <div class="fg-progress">
+        <div class="fg-progress-ticker">
+          <span id="import-progress-label">Starting…</span>
+          <span class="fg-progress-count" id="import-progress-count"></span>
+        </div>
+        <div class="fg-progress-track is-indeterminate" id="import-progress-track">
+          <div class="fg-progress-fill" id="import-progress-fill"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ob-actions" id="import-actions">
+      <button class="ob-btn ob-btn-secondary" onclick="goToStep(5)">← Back</button>
+      <button class="ob-btn ob-btn-ghost" onclick="goToStep(7)">Skip for now →</button>
+      <button class="ob-btn ob-btn-primary" id="import-start-btn" onclick="importSelectedSources()">Import selected →</button>
+    </div>
+  </section>
+
+  <!-- ══ Step 8: Choose a room ════════════════════════════════════════════ -->
+  <section class="ob-step" id="step-7">
     <div class="ob-icon">✅</div>
     <h1 class="ob-title">You're all set</h1>
     <p class="ob-sub" id="setup-summary">Setup complete. Pick a room to start.</p>
@@ -684,6 +849,75 @@ var scanData    = null;
 var confirmedPaths = {};
 var scanConsent = null;   // null = not asked yet, true = allowed, false = manual paths
 
+// Whether a usable app already exists behind the wizard (set by the server).
+var alreadyConfigured = {{ 'true' if already_configured else 'false' }};
+
+// ── Progress persistence ────────────────────────────────────────────────────────
+// So "finish later" is real: the wizard remembers which step you were on and
+// what you typed, and restores it next launch. Frontend-only (localStorage);
+// nothing is written to the real config until you actually finish a step that
+// saves it. Path input IDs whose values are worth preserving across a restart.
+var OB_PROGRESS_KEY = 'fg_onboarding_progress_v1';
+var OB_SAVED_INPUTS = ['inp-local-db', 'inp-device-db', 'inp-music-root',
+                       'inp-archive-root', 'inp-snapshot-cadence', 'inp-snapshot-master-db'];
+
+function saveOnboardingProgress() {
+  try {
+    var inputs = {};
+    OB_SAVED_INPUTS.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && el.value) inputs[id] = el.value;
+    });
+    localStorage.setItem(OB_PROGRESS_KEY, JSON.stringify({ step: currentStep, inputs: inputs }));
+  } catch (_) { /* private mode / storage disabled — non-fatal, progress just won't persist */ }
+}
+
+function restoreOnboardingProgress() {
+  var saved;
+  try { saved = JSON.parse(localStorage.getItem(OB_PROGRESS_KEY) || 'null'); }
+  catch (_) { saved = null; }
+  if (!saved) return;
+  if (saved.inputs) {
+    Object.keys(saved.inputs).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.value = saved.inputs[id];
+    });
+  }
+  // Only resume onto a real, saved-progress step (>0); step 0 is the default.
+  if (saved.step && saved.step > 0 && saved.step <= 7 && document.getElementById('step-' + saved.step)) {
+    goToStep(saved.step);
+    obNotice('Resumed where you left off. Use “Finish later” (top-right) to step away again anytime.', 'ok');
+  }
+}
+
+function clearOnboardingProgress() {
+  try { localStorage.removeItem(OB_PROGRESS_KEY); } catch (_) { /* non-fatal */ }
+}
+
+// ── Exit / finish-later ─────────────────────────────────────────────────────────
+function obExitSetup() {
+  saveOnboardingProgress();
+  if (alreadyConfigured) {
+    // There's a working app behind the wizard — just go back to it.
+    window.location.href = '/';
+    return;
+  }
+  // First run: no app to return to yet. Offer to quit and resume later.
+  var ok = confirm(
+    "Leave setup for now?\n\n" +
+    "FableGear needs setup finished before you can use it, but your progress " +
+    "is saved — you'll pick up right here next time you open FableGear.\n\n" +
+    "Quit FableGear now?"
+  );
+  if (!ok) return;
+  fetch('/api/quit', { method: 'POST' })
+    .then(function () { document.body.innerHTML =
+      '<div style="display:flex;height:100vh;align-items:center;justify-content:center;' +
+      'font-size:1rem;color:#9fb3c8">You can close this window. FableGear will resume ' +
+      'setup where you left off next time.</div>'; })
+    .catch(function () { obNotice('Could not quit automatically — you can just close the window.', 'warn'); });
+}
+
 // ── Navigation ─────────────────────────────────────────────────────────────────
 function goToStep(n) {
   var prev = document.getElementById('step-' + currentStep);
@@ -702,6 +936,10 @@ function goToStep(n) {
   // Side effects per step
   if (n === 2) prepareScanStep();
   if (n === 3) checkFDA();
+  if (n === 6) prepareImportStep();
+  if (n === 7) _buildSetupSummary();
+
+  saveOnboardingProgress();
 }
 
 // ── Step 1: Dependencies ───────────────────────────────────────────────────────
@@ -967,69 +1205,88 @@ function populateScan(data) {
     document.getElementById('xml-list').innerHTML = xhtml;
   }
 
-  // Music root
+  // Music root — show discovered roots as selectable options, don't auto-pick
   var mc = document.getElementById('music-root-extra');
+  var musicInput = document.getElementById('inp-music-root');
+  musicInput.value = '';
   if (data.music_roots && data.music_roots.length) {
-    var recommendedRoot = data.recommended_music_root || data.music_roots[0].path;
-    document.getElementById('inp-music-root').value = recommendedRoot;
-    if (data.music_roots.length > 1) {
-      var msel = '<select class="ob-select" onchange="document.getElementById(\'inp-music-root\').value=this.value">';
-      data.music_roots.forEach(function(m) {
-        var bits = [m.label];
-        if (m.audio_count) bits.push(m.audio_count + '+ tracks');
-        if (m.read_only) bits.push('read-only');
-        var leader = m.recommended_home ? '★ ' : '';
-        msel += '<option value="' + escAttr(m.path) + '"' + (m.path === recommendedRoot ? ' selected' : '') + '>'
-             + escHtml(leader + bits.join(' - ')) + '</option>';
-      });
-      msel += '</select>';
-      var rec = data.recommended_archive_root
-        ? '<div class="path-note ok">Recommended main library - ' + escHtml(recommendedRoot)
-          + '<br>Archive - ' + escHtml(data.recommended_archive_root)
-          + '<br>Backups - ' + escHtml(data.recommended_backup_dir || '') + '</div>'
-        : '';
-      mc.innerHTML = rec + msel;
-    } else {
-      mc.innerHTML =
-        '<div class="path-note ok">✓ Found on ' + escHtml(data.music_roots[0].volume)
-        + (data.music_roots[0].audio_count ? ' - ' + escHtml(String(data.music_roots[0].audio_count)) + '+ tracks' : '')
-        + '</div>';
-    }
-    var selected = data.music_roots.find(function(m) { return m.path === recommendedRoot; }) || data.music_roots[0];
-    if (selected && selected.read_only) {
-      mc.innerHTML += '<div class="path-note miss">This library is currently read-only - run First Aid in Disk Utility before enabling write tools.</div>'
-        + '<div style="margin-top:8px"><button class="path-browse" type="button" onclick="openDiskUtilityForMusicRoot()">Open Disk Utility - First Aid</button></div>';
-    }
+    var html = '<div class="ob-music-root-options">';
+    data.music_roots.forEach(function(m) {
+      var bits = [m.label];
+      if (m.audio_count) bits.push(m.audio_count + '+ tracks');
+      if (m.read_only) bits.push('read-only');
+      var leader = m.recommended_home ? '★ ' : '';
+      var readOnlyAttr = m.read_only ? ' data-readonly="1"' : '';
+      html += '<button type="button" class="ob-music-root-pick"'
+           + readOnlyAttr
+           + ' onclick="selectMusicRoot(\'' + escAttr(m.path) + '\')">'
+           + '<span class="ob-mr-label">' + escHtml(leader + bits.join(' — ')) + '</span>'
+           + '<span class="ob-mr-path">' + escHtml(m.path) + '</span>'
+           + '</button>';
+    });
+    html += '</div>';
+    mc.innerHTML = html;
   } else {
     mc.innerHTML =
-      '<div class="path-note miss">No music library detected — connect your DJ drive or enter path manually.</div>';
+      '<div class="path-note miss">No music folders detected — use Open Finder to select your library folder.</div>';
   }
   updateArchiveRecommendation();
 }
 
-// Native pickers via pywebview
+// Native pickers via pywebview, falling back to the server-side osascript
+// dialog (/api/pick-file, /api/pick-folder) when window.pywebview isn't
+// present — e.g. the page is open in a plain browser tab rather than the
+// native app window. window.prompt() is not a reliable fallback: WKWebView
+// (and many embedded/automated browser contexts) never surface it, so the
+// button appeared to do nothing.
 function pickFile(inputId) {
   var api = window.pywebview && window.pywebview.api;
-  if (api && api.pick_file) {
-    api.pick_file(['Database files (*.db)', 'All files (*.*)'])
-      .then(function(p) { if (p) document.getElementById(inputId).value = p; });
-  } else {
-    var cur = document.getElementById(inputId).value;
-    var p = window.prompt('Enter file path:', cur);
-    if (p) document.getElementById(inputId).value = p;
-  }
+  var picked = (api && api.pick_file)
+    ? api.pick_file(['Database files (*.db)', 'All files (*.*)'])
+    : fetch('/api/pick-file').then(function(r) { return r.json(); }).then(function(d) { return d.path; });
+  picked.then(function(p) { if (p) document.getElementById(inputId).value = p; })
+    .catch(function(e) { console.warn('[pickFile] picker failed:', e); });
 }
 
 function pickFolder(inputId) {
   var api = window.pywebview && window.pywebview.api;
-  if (api && api.pick_folder) {
-    api.pick_folder()
-      .then(function(p) { if (p) document.getElementById(inputId).value = p; });
-  } else {
-    var cur = document.getElementById(inputId).value;
-    var p = window.prompt('Enter folder path:', cur);
-    if (p) document.getElementById(inputId).value = p;
+  var picked = (api && api.pick_folder)
+    ? api.pick_folder()
+    : fetch('/api/pick-folder').then(function(r) { return r.json(); }).then(function(d) { return d.path; });
+  picked.then(function(p) {
+    if (!p) return;
+    document.getElementById(inputId).value = p;
+    if (inputId === 'inp-music-root') _onMusicRootChosen(p);
+  }).catch(function(e) { console.warn('[pickFolder] picker failed:', e); });
+}
+
+function selectMusicRoot(path) {
+  document.getElementById('inp-music-root').value = path;
+  _onMusicRootChosen(path);
+}
+
+function _onMusicRootChosen(path) {
+  var inp = document.getElementById('inp-music-root');
+  inp.style.color = 'var(--text)';
+  // highlight selected button, deselect others
+  document.querySelectorAll('.ob-music-root-pick').forEach(function(btn) {
+    btn.classList.toggle('selected', btn.getAttribute('onclick').indexOf(path) !== -1);
+  });
+  // check read-only
+  var mc = document.getElementById('music-root-extra');
+  var existing = mc.querySelector('.path-note.miss.readonly-warn');
+  if (existing) existing.remove();
+  var match = scanData && scanData.music_roots
+    ? scanData.music_roots.find(function(m) { return m.path === path; })
+    : null;
+  if (match && match.read_only) {
+    var warn = document.createElement('div');
+    warn.className = 'path-note miss readonly-warn';
+    warn.innerHTML = 'This library is currently read-only — run First Aid in Disk Utility before enabling write tools.'
+      + '<div style="margin-top:8px"><button class="path-browse" type="button" onclick="openDiskUtilityForMusicRoot()">Open Disk Utility — First Aid</button></div>';
+    mc.appendChild(warn);
   }
+  updateArchiveRecommendation();
 }
 
 function confirmPaths() {
@@ -1041,8 +1298,12 @@ function confirmPaths() {
     ? document.getElementById('inp-archive-root').value.trim()
     : _deriveArchiveRoot(musicRoot);
 
-  if (!localDb || !deviceDb || !musicRoot) {
-    obNotice('Please fill in all three paths before continuing.', 'warn');
+  if (!localDb || !deviceDb) {
+    obNotice('Please fill in the database paths before continuing.', 'warn');
+    return;
+  }
+  if (!musicRoot) {
+    obNotice('Select your home library folder — pick one from the list or use Open Finder.', 'warn');
     return;
   }
   if (archiveMode === 'custom' && !archiveRoot) {
@@ -1058,6 +1319,8 @@ function confirmPaths() {
     backup_dir: (scanData && scanData.recommended_music_root === musicRoot && scanData.recommended_backup_dir)
       ? scanData.recommended_backup_dir
       : (archiveRoot ? archiveRoot + '/Savepoints' : ''),
+    snapshot_cadence: document.getElementById('inp-snapshot-cadence').value || 'monthly',
+    snapshot_include_master_db: document.getElementById('inp-snapshot-master-db').checked,
     db_read:  true,
     db_write: true,
     drive_scan: scanConsent === true,
@@ -1119,14 +1382,193 @@ function permDenyRead() {
 // ── Step 5: Write permission ───────────────────────────────────────────────────
 function permGrantWrite() {
   confirmedPaths.db_write = true;
-  _buildSetupSummary();
   goToStep(5);
 }
 
 function permDenyWrite() {
   confirmedPaths.db_write = false;
-  _buildSetupSummary();
   goToStep(5);
+}
+
+// ── Step 6: AI integration (MCP) — strictly opt-in ─────────────────────────────
+// Enabling needs a saved config (the MCP port/token live in config.json), so
+// the choice first persists everything collected so far, then flips MCP on.
+function _saveConfigNow() {
+  return fetch('/api/onboarding/save-config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(confirmedPaths),
+  }).then(function(r) { return r.json(); });
+}
+
+function mcpSkip() {
+  confirmedPaths.mcp_opted_in = false;
+  goToStep(6);
+}
+
+function mcpOptIn() {
+  var btn = document.getElementById('mcp-enable-btn');
+  btn.disabled = true;
+  btn.textContent = 'Enabling…';
+  confirmedPaths.mcp_opted_in = true;
+  _saveConfigNow()
+    .then(function(d) {
+      if (!d.ok) throw new Error(d.error || 'could not save configuration');
+      return fetch('/api/mcp/enable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autostart: true }),
+      }).then(function(r) { return r.json(); });
+    })
+    .then(function(d) {
+      if (!d.ok) throw new Error(d.error || 'could not enable MCP');
+      btn.style.display = 'none';
+      document.getElementById('mcp-skip-btn').style.display = 'none';
+      document.getElementById('mcp-continue-btn').style.display = '';
+      document.getElementById('mcp-snippet-card').style.display = '';
+      mcpFetchSnippet();
+    })
+    .catch(function(e) {
+      confirmedPaths.mcp_opted_in = false;
+      btn.disabled = false;
+      btn.textContent = 'Enable AI integration';
+      obNotice('AI integration failed: ' + e.message, 'error');
+    });
+}
+
+function mcpFetchSnippet() {
+  var client = document.getElementById('mcp-client-pick').value;
+  fetch('/api/mcp/config-snippet?client=' + encodeURIComponent(client))
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      document.getElementById('mcp-snippet').textContent =
+        d.snippet || d.error || 'Snippet unavailable.';
+    })
+    .catch(function() {
+      document.getElementById('mcp-snippet').textContent = 'Snippet unavailable.';
+    });
+}
+
+function mcpCopySnippet() {
+  var text = document.getElementById('mcp-snippet').textContent;
+  navigator.clipboard.writeText(text)
+    .then(function() { obNotice('Snippet copied to clipboard.', ''); })
+    .catch(function() { obNotice('Copy failed — select and copy manually.', 'error'); });
+}
+
+// ── Step 7: Build the FableGear library ────────────────────────────────────────
+// Sources come from the step-2 scan (scanData.music_roots) plus the confirmed
+// home library folder. Nothing imports until the user picks and clicks.
+function prepareImportStep() {
+  var list = document.getElementById('import-source-list');
+  var sources = [];
+  var seen = {};
+  var home = (confirmedPaths.music_root || '').trim();
+  if (home) {
+    sources.push({ path: home, label: 'Home library', audio_count: null, recommended: true });
+    seen[home] = true;
+  }
+  if (scanData && Array.isArray(scanData.music_roots)) {
+    scanData.music_roots.forEach(function(m) {
+      if (seen[m.path]) return;
+      seen[m.path] = true;
+      sources.push({ path: m.path, label: m.label || m.path, audio_count: m.audio_count, recommended: false });
+    });
+  }
+  if (!sources.length) {
+    list.innerHTML = '<div style="font-size:.85rem;color:var(--text-dim)">No sources discovered — allow the drive scan in the library step, or add folders later from the Record Room.</div>';
+    return;
+  }
+  var html = '';
+  sources.forEach(function(s, i) {
+    html += '<label class="dep-row" style="cursor:pointer">'
+      + '<input type="checkbox" class="import-src" value="' + escAttr(s.path) + '"' + (s.recommended ? ' checked' : '') + ' style="accent-color:var(--accent);margin-right:8px">'
+      + '<span class="dep-name">' + escHtml(s.label) + (s.recommended ? ' · recommended' : '') + '</span>'
+      + '<span class="dep-hint">' + escHtml(s.path) + (s.audio_count != null ? ' · ~' + s.audio_count + ' tracks' : '') + '</span>'
+      + '</label>';
+  });
+  list.innerHTML = html;
+}
+
+var _obImportPoll = null;
+
+function importSelectedSources() {
+  var picked = Array.prototype.map.call(
+    document.querySelectorAll('.import-src:checked'),
+    function(el) { return el.value; }
+  );
+  if (!picked.length) { obNotice('Pick at least one source, or Skip for now.', 'error'); return; }
+
+  var startBtn = document.getElementById('import-start-btn');
+  startBtn.disabled = true;
+  startBtn.textContent = 'Importing…';
+  document.getElementById('import-progress-card').style.display = '';
+  var label = document.getElementById('import-progress-label');
+  var count = document.getElementById('import-progress-count');
+  var track = document.getElementById('import-progress-track');
+  var fill  = document.getElementById('import-progress-fill');
+  label.textContent = 'Starting…';
+  count.textContent = '';
+  track.classList.add('is-indeterminate');
+  fill.style.width = '';
+
+  _saveConfigNow()
+    .then(function(d) {
+      if (!d.ok) throw new Error(d.error || 'could not save configuration');
+      return fetch('/api/onboarding/import-sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths: picked }),
+      }).then(function(r) { return r.json(); });
+    })
+    .then(function(d) {
+      if (d.error) throw new Error(d.error);
+      _obImportPoll = setInterval(function() {
+        fetch('/api/onboarding/import-sources/status')
+          .then(function(r) { return r.json(); })
+          .then(function(s) {
+            if (s.running) {
+              if (s.phase === 'importing' && s.total > 0) {
+                track.classList.remove('is-indeterminate');
+                label.textContent = 'Importing…';
+                count.textContent = s.done.toLocaleString() + ' / ' + s.total.toLocaleString();
+                fill.style.width = Math.min(100, (s.done / s.total) * 100) + '%';
+              } else {
+                track.classList.add('is-indeterminate');
+                label.textContent = 'Scanning your library…';
+                count.textContent = '';
+              }
+              return;
+            }
+            clearInterval(_obImportPoll);
+            if (s.error) {
+              track.classList.remove('is-indeterminate');
+              fill.style.width = '100%';
+              label.textContent = '⚠ Import failed';
+              count.textContent = s.error;
+              startBtn.disabled = false;
+              startBtn.textContent = 'Retry import →';
+              return;
+            }
+            var r = s.result || {};
+            confirmedPaths._imported_summary =
+              (r.new_files || 0) + ' new · ' + (r.updated_files || 0) + ' updated · '
+              + (r.skipped_files || 0) + ' already known' + ((r.error_files || 0) ? ' · ' + r.error_files + ' errors' : '');
+            track.classList.remove('is-indeterminate');
+            fill.style.width = '100%';
+            label.textContent = '✓ Done';
+            count.textContent = confirmedPaths._imported_summary;
+            startBtn.style.display = 'none';
+            setTimeout(function() { goToStep(7); }, 1200);
+          })
+          .catch(function() {});
+      }, 700);
+    })
+    .catch(function(e) {
+      startBtn.disabled = false;
+      startBtn.textContent = 'Import selected →';
+      obNotice('Import failed: ' + e.message, 'error');
+    });
 }
 
 function _buildSetupSummary() {
@@ -1137,6 +1579,18 @@ function _buildSetupSummary() {
     : r
     ? '⚠ Read-only — write tools locked. Enable them any time via Settings.'
     : '⚠ Limited mode — database tools unavailable until access is granted.'
+  msg += confirmedPaths.mcp_opted_in
+    ? ' AI integration is ON (localhost MCP).'
+    : ' AI integration is off — enable it any time in Settings.';
+  if (confirmedPaths.snapshot_cadence) {
+    msg += ' Snapshots: ' + confirmedPaths.snapshot_cadence + '.';
+    if (confirmedPaths.snapshot_include_master_db) {
+      msg += ' Includes master.db.';
+    }
+  }
+  if (confirmedPaths._imported_summary) {
+    msg += ' FableGear library seeded: ' + confirmedPaths._imported_summary + '.';
+  }
   document.getElementById('setup-summary').textContent = msg;
 }
 
@@ -1150,6 +1604,9 @@ function launch(area) {
   .then(function(r) { return r.json(); })
   .then(function(d) {
     if (d.ok) {
+      // Setup finished — clear the saved-progress draft so a future wizard
+      // visit (e.g. reconfigure) starts clean rather than resuming a stale step.
+      clearOnboardingProgress();
       window.location.replace(area === 'chop' ? '/?space=chop' : '/?space=record');
     } else {
       obNotice('Could not save configuration: ' + (d.error || 'unknown error'), 'error');
@@ -1178,10 +1635,85 @@ function escHtml(s) {
 }
 function escAttr(s) { return escHtml(s); }
 
+// ── Update check (runs before anything else) ────────────────────────────────
+var _obUpdateData = null;
+
+function obUpdateCheck() {
+  fetch('/api/update/status')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data.update_available) return;
+      _obUpdateData = data;
+      var msg = data.latest_version
+        ? 'FableGear ' + data.latest_version + ' is available'
+        : 'A new version of FableGear is available';
+      document.getElementById('ob-update-msg').textContent = msg;
+      document.getElementById('ob-update-banner').style.display = '';
+    })
+    .catch(function() {});
+}
+
+function obUpdateGo() {
+  if (!_obUpdateData) return;
+  if (!_obUpdateData.is_git_install) {
+    var url = _obUpdateData.download_url || _obUpdateData.release_url;
+    if (url) window.open(url, '_blank', 'noopener');
+    return;
+  }
+  var banner = document.getElementById('ob-update-banner');
+  banner.style.cursor = 'default';
+  banner.onclick = null;
+  document.getElementById('ob-update-msg').textContent = 'Updating — pulling latest release…';
+  fetch('/api/update/apply', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d || !d.ok) {
+        document.getElementById('ob-update-msg').textContent =
+          'Update failed — ' + (d && d.error ? d.error : 'try again later');
+        return;
+      }
+      document.getElementById('ob-update-msg').textContent =
+        'Restarting FableGear — page will reload automatically…';
+      _obWaitForReload();
+    })
+    .catch(function() {
+      document.getElementById('ob-update-msg').textContent =
+        'Could not reach the server — try again later';
+    });
+}
+
+function _obWaitForReload() {
+  var attempts = 0;
+  var poll = setInterval(function() {
+    attempts++;
+    if (attempts > 30) { clearInterval(poll); return; }
+    fetch('/api/update/status')
+      .then(function() { clearInterval(poll); window.location.reload(); })
+      .catch(function() {});
+  }, 2000);
+}
+
+// Fire the check immediately, and again after 10s in case the server's
+// background checker hasn't finished its GitHub call yet.
+obUpdateCheck();
+setTimeout(obUpdateCheck, 10000);
+
 // ── Boot ───────────────────────────────────────────────────────────────────────
 document.getElementById('inp-music-root').addEventListener('change', updateArchiveRecommendation);
 document.getElementById('inp-archive-root').addEventListener('change', updateArchiveRecommendation);
+
+// The exit control reads "Exit setup" for a configured user (there's a working
+// app to return to) and "Finish later" for a first-run user (there isn't).
+if (alreadyConfigured) document.getElementById('ob-exit-label').textContent = 'Exit setup';
+
+// Persist path edits as they happen so a mid-step exit keeps them too.
+OB_SAVED_INPUTS.forEach(function (id) {
+  var el = document.getElementById(id);
+  if (el) el.addEventListener('change', saveOnboardingProgress);
+});
+
 checkDeps();
+restoreOnboardingProgress();
 </script>
 </body>
 </html>

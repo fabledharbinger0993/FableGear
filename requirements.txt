@@ -13,7 +13,9 @@
 flask>=3.0
 flask-sock>=0.7
 flask-limiter>=3.5
-# Web framework — routes, SSE streaming, JSON responses, rate limiting
+werkzeug>=3.0
+# Web framework — routes, SSE streaming, JSON responses, rate limiting.
+# werkzeug is a Flask dependency but is imported directly in app.py.
 
 waitress>=3.0
 # Production WSGI server (Automator-safe: no stdout bleed unlike dev server)
@@ -35,9 +37,6 @@ pyloudnorm==0.1.1
 soundfile>=0.12.1
 # Audio file I/O used by pyloudnorm and normalisation verification
 
-sounddevice>=0.4.6
-# Audio playback used by the preview/monitoring feature in app.py
-
 psutil>=5.9
 # System info: disk partitions and usage for the drives panel in app.py
 
@@ -48,8 +47,9 @@ yt-dlp>=2024.1
 # Audio download from Bandcamp, Beatport, Soundcloud, and direct URLs.
 # Requires ffmpeg (already a system dep) for post-download format conversion.
 
-qrcode[svg]>=7.4
-# QR code generation for the FableGo pairing panel (inline SVG, no Pillow needed).
+qrcode>=7.4
+# QR code generation for the FableGo pairing panel (SVG output is built in;
+# the old [svg] extra was removed in qrcode 8.x). No Pillow needed.
 
 mcp>=1.0
 # Anthropic Model Context Protocol SDK — used by mcp_server.py to expose
@@ -59,6 +59,9 @@ mcp>=1.0
 pywebview>=5.0
 # Native OS window (WKWebView on macOS) — replaces the browser launch step.
 # Enables real drag-and-drop path delivery and a proper .app experience.
+
+pytest>=8.0
+# Test runner for the tests/ suite (run: python -m pytest tests/)
 
 # PyQt5 removed — splash_player.py was dead code, never invoked by launch.sh
 # pyinstaller removed — build-only tool, see requirements_build.txt

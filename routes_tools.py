@@ -38,6 +38,7 @@ from helpers import (
     mark_step_complete,
     list_running_managed_subprocesses,
     terminate_managed_subprocesses,
+    api_error_from_exc,
 )
 
 bp = Blueprint("tools", __name__)
@@ -70,7 +71,7 @@ _PREVIEW_LOCK: threading.Lock = threading.Lock()
 
 _PREVIEW_AUDIO_EXTS = {
     ".aiff", ".aif", ".aifc", ".wav", ".flac", ".mp3",
-    ".m4a", ".m4p", ".mp4", ".m4v", ".alac", ".ogg", ".opus",
+    ".m4a", ".m4p", ".alac", ".ogg", ".opus",
 }
 _PREVIEW_MIN_DUR: int = 120     # track must be ≥ 2 min
 _PREVIEW_MAX_SCAN: int = 40     # cap random sample for large folders
@@ -149,7 +150,7 @@ def _load_duplicate_cache(csv_path: Path, *, include_db: bool = True) -> dict:
     if include_db:
         try:
             from db_connection import read_db  # noqa: PLC0415
-            from config import DJMT_DB as _DB  # noqa: PLC0415
+            from config import DEVICE_DB as _DB  # noqa: PLC0415
             with read_db(_DB) as db:
                 groups = load_report(csv_path, db)
         except Exception as db_exc:
@@ -229,6 +230,8 @@ def api_process():
     no_key = request.args.get("no_key") == "1"
     no_normalize = request.args.get("no_normalize") == "1"
     force = request.args.get("force") == "1"
+    force_bpm = request.args.get("force_bpm") == "1"
+    force_key = request.args.get("force_key") == "1"
     enrich_tags = request.args.get("enrich_tags") == "1"
     smart_skip = request.args.get("smart_skip", "1") == "1"
 
@@ -247,6 +250,10 @@ def api_process():
         cmd.append("--no-normalize")
     if force:
         cmd.append("--force")
+    if force_bpm:
+        cmd.append("--force-bpm")
+    if force_key:
+        cmd.append("--force-key")
     if enrich_tags:
         cmd.append("--enrich-tags")
     if request.args.get("dry_run") == "1":
@@ -254,21 +261,13 @@ def api_process():
     workers = request.args.get("workers", "").strip()
     if workers and workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
-    pause = request.args.get("pause", "").strip()
-    if pause:
-        try:
-            if float(pause) > 0:
-                cmd += ["--pause", pause]
-        except ValueError:
-            pass
-
     checkpoint_action = request.args.get("checkpoint_action", "").strip()
     if checkpoint_action in ("resume", "reset"):
         cmd += ["--checkpoint-action", checkpoint_action]
 
     if (
         smart_skip
-        and not force
+        and not force and not force_bpm and not force_key
         and no_normalize
         and not enrich_tags
         and (detect_bpm or detect_key)
@@ -340,7 +339,7 @@ def api_pipeline():
     if not raw_steps:
         return jsonify({"error": "steps list is required"}), 400
 
-    _WRITE_STEP_TYPES = {"import", "link", "relocate", "prune"}
+    _WRITE_STEP_TYPES = {"import", "link", "relocate", "prune", "rename"}
     if not dry_run and any(s.get("type") in _WRITE_STEP_TYPES for s in raw_steps):
         err = _require_rb_closed()
         if err:
@@ -402,6 +401,19 @@ def api_pipeline():
             if dry_run:
                 cmd.append("--dry-run")
 
+        elif stype == "rename":
+            paths = cfg.get("paths") or [cfg.get("path", "")]
+            if isinstance(paths, str):
+                paths = [paths]
+            cmd = [sys.executable, str(CLI_PATH), "rename", paths[0]]
+            for extra in paths[1:]:
+                if extra:
+                    cmd += ["--also-scan", extra]
+            if not dry_run:
+                cmd.append("--no-dry-run")
+            if cfg.get("workers", 1) > 1:
+                cmd += ["--workers", str(cfg["workers"])]
+
         elif stype == "duplicates":
             paths = cfg.get("paths") or [cfg.get("path", "")]
             if isinstance(paths, str):
@@ -416,12 +428,23 @@ def api_pipeline():
             cmd = [sys.executable, str(CLI_PATH), "prune"]
             if not dry_run:
                 cmd.append("--no-dry-run")
-            # CSV path (from the preceding duplicates step) is appended by
-            # _stream_pipeline as the trailing positional argument.
-            built.append({"name": name, "cmd": cmd, "needs_csv": True})
+            # CSV path: gated (one-step-per-request) mode sends it explicitly as
+            # config.csv; AUTO mode omits it and _stream_pipeline appends the
+            # report path captured from the preceding duplicates step.
+            explicit_csv = str(cfg.get("csv", "")).strip()
+            if explicit_csv:
+                cmd.append(explicit_csv)
+                built.append({"name": name, "cmd": cmd})
+            else:
+                built.append({"name": name, "cmd": cmd, "needs_csv": True})
             continue
 
         elif stype == "convert":
+            if dry_run:
+                # convert has no preview mode in the CLI — refusing beats
+                # silently transcoding files during a "dry run".
+                return jsonify({"error": "Step 'Convert Format' has no preview mode — "
+                                         "remove it from this dry run, or run the pipeline live."}), 400
             paths = cfg.get("paths") or [cfg.get("path", "")]
             if isinstance(paths, str):
                 paths = [paths]
@@ -434,6 +457,11 @@ def api_pipeline():
                 cmd += ["--workers", str(cfg["workers"])]
 
         elif stype == "relocate":
+            if dry_run:
+                # relocate has no preview mode in the CLI — refusing beats
+                # silently rewriting DB paths during a "dry run".
+                return jsonify({"error": "Step 'Fix Broken Paths' (relocate) has no preview mode — "
+                                         "remove it from this dry run, or run the pipeline live."}), 400
             cmd = [sys.executable, str(CLI_PATH), "relocate",
                    cfg.get("old_root", ""), cfg.get("new_root", "")]
 
@@ -467,6 +495,8 @@ def api_pipeline():
             for extra in paths[1:]:
                 if extra:
                     cmd += ["--also-scan", extra]
+            if dry_run:
+                cmd.append("--dry-run")
 
         elif stype == "novelty":
             sources = cfg.get("sources") or [cfg.get("source", "")]
@@ -477,6 +507,9 @@ def api_pipeline():
             for extra in sources[1:]:
                 if extra:
                     cmd += ["--also-scan", extra]
+            match_mode = str(cfg.get("match_mode", "fingerprint")).strip().lower()
+            if match_mode in ("fingerprint", "filename"):
+                cmd += ["--match-mode", match_mode]
             if not dry_run:
                 cmd.append("--no-dry-run")
             if cfg.get("workers", 1) > 1:
@@ -529,6 +562,7 @@ def api_organize():
     checkpoint_action = request.args.get("checkpoint_action", "").strip()
     if checkpoint_action in ("resume", "reset"):
         cmd += ["--checkpoint-action", checkpoint_action]
+
     library_root = _get_library_root(request, "target")
     return _sse_response(cmd, library_root=library_root, step_name="organize")
 
@@ -568,8 +602,17 @@ def api_novelty():
     for extra in sources[1:]:
         cmd += ["--also-scan", extra]
 
+    copy_to = request.args.get("copy_to", "").strip()
+    if copy_to:
+        cmd += ["--copy-to", copy_to]
+
     if request.args.get("no_dry_run") == "1":
         cmd.append("--no-dry-run")
+
+    match_mode = request.args.get("match_mode", "fingerprint").strip().lower()
+    if match_mode not in ("fingerprint", "filename"):
+        return jsonify({"error": "match_mode must be fingerprint or filename"}), 400
+    cmd += ["--match-mode", match_mode]
 
     workers = request.args.get("workers", "1").strip()
     if workers.isdigit() and int(workers) > 1:
@@ -578,6 +621,7 @@ def api_novelty():
     checkpoint_action = request.args.get("checkpoint_action", "").strip()
     if checkpoint_action in ("resume", "reset"):
         cmd += ["--checkpoint-action", checkpoint_action]
+
     library_root = _get_library_root(request, "dest")
     return _sse_response(cmd, library_root=library_root, step_name="novelty")
 
@@ -586,9 +630,13 @@ def api_novelty():
 
 @bp.route("/api/run/rename")
 def api_rename():
-    path = request.args.get("path", "").strip()
-    if not path:
-        return jsonify({"error": "path is required"}), 400
+    paths = [p.strip() for p in request.args.getlist("path") if p.strip()]
+    if not paths:
+        single = request.args.get("path", "").strip()
+        if single:
+            paths = [single]
+    if not paths:
+        return jsonify({"error": "at least one path is required"}), 400
 
     live_run = request.args.get("no_dry_run") == "1"
     if live_run:
@@ -596,7 +644,9 @@ def api_rename():
         if err:
             return err
 
-    cmd = [sys.executable, str(CLI_PATH), "rename", path]
+    cmd = [sys.executable, str(CLI_PATH), "rename", paths[0]]
+    for extra in paths[1:]:
+        cmd += ["--also-scan", extra]
 
     if live_run:
         cmd.append("--no-dry-run")
@@ -608,7 +658,8 @@ def api_rename():
     checkpoint_action = request.args.get("checkpoint_action", "").strip()
     if checkpoint_action in ("resume", "reset"):
         cmd += ["--checkpoint-action", checkpoint_action]
-    library_root = path
+
+    library_root = paths[0]
     return _sse_response(cmd, library_root=library_root, step_name="rename")
 
 
@@ -756,6 +807,31 @@ def api_checkpoint_check():
         return jsonify({"exists": False, "error": str(exc)}), 200
 
 
+@bp.route("/api/checkpoint/reset", methods=["POST"])
+def api_checkpoint_reset():
+    """
+    Discard every saved checkpoint for a tool — the server-side half of
+    "Start Fresh". Clearing only the browser's localStorage banner (what the
+    UI previously did on its own) left the actual ~/.fablegear/checkpoints
+    file in place, so the next run silently resumed from stale state anyway.
+
+    Query params:
+      tool — tool name: duplicates, process, convert, organize, novelty, rename
+    """
+    try:
+        from checkpoint import reset_all  # noqa: PLC0415
+    except ImportError:
+        return jsonify({"ok": False, "error": "checkpoint module not available"}), 200
+
+    tool = request.args.get("tool", "").strip()
+    valid_tools = {"duplicates", "process", "convert", "organize", "novelty", "rename"}
+    if tool not in valid_tools:
+        return jsonify({"error": f"tool must be one of: {', '.join(sorted(valid_tools))}"}), 400
+
+    removed = reset_all(tool)
+    return jsonify({"ok": True, "tool": tool, "removed": removed})
+
+
 # ── Duplicates ────────────────────────────────────────────────────────────────
 
 @bp.route("/api/run/duplicates")
@@ -773,6 +849,10 @@ def api_duplicates():
         ], exit_code=1)
 
     cmd = [sys.executable, str(CLI_PATH), "duplicates"] + paths
+    # Tier select: quick = instant cached-hash match, deep = acoustic fpcalc (default).
+    scan_mode = request.args.get("scan_mode", "").strip().lower()
+    if scan_mode in ("quick", "deep"):
+        cmd += ["--scan-mode", scan_mode]
     workers = request.args.get("workers", "").strip()
     if workers and workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
@@ -787,13 +867,8 @@ def api_duplicates():
                 cmd += ["--fuzzy-threshold", f"{ft:.2f}"]
         except ValueError:
             pass
-    pause = request.args.get("pause", "").strip()
-    if pause:
-        try:
-            if float(pause) > 0:
-                cmd += ["--pause", pause]
-        except ValueError:
-            pass
+    # Resume/reset an interrupted scan (cli.py --checkpoint-action; preflight
+    # via /api/checkpoint/check tells the UI whether a checkpoint exists).
     checkpoint_action = request.args.get("checkpoint_action", "").strip()
     if checkpoint_action in ("resume", "reset"):
         cmd += ["--checkpoint-action", checkpoint_action]
@@ -837,7 +912,7 @@ def api_prune_stage():
             }
         return jsonify({"token": token, "keeper_map_size": len(keeper_map)})
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 @bp.route("/api/duplicates/load")
@@ -877,7 +952,7 @@ def api_duplicates_load():
         })
 
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 @bp.route("/api/duplicates/remove-paths")
@@ -891,7 +966,7 @@ def api_duplicates_remove_paths():
     try:
         cached = _load_duplicate_cache(csv_path, include_db=False)
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
     return jsonify({
         "remove_paths": cached["remove_paths"],
@@ -930,7 +1005,7 @@ def api_open_file():
             )
         return jsonify({"ok": True})
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 @bp.route("/api/run/prune")
@@ -1004,11 +1079,16 @@ def api_run_prune():
 
             from pruner import prune_files  # noqa: PLC0415
             from db_connection import write_db  # noqa: PLC0415
-            from config import DJMT_DB as _DJMT_DB, LOCAL_DB as _LOCAL_DB  # noqa: PLC0415
+            from config import DEVICE_DB as _DEVICE_DB, LOCAL_DB as _LOCAL_DB  # noqa: PLC0415
 
             # Use the device DB (Pioneer drive) when it's mounted — that's where
-            # the actual library lives. Fall back to LOCAL_DB only if DJMT_DB is absent.
-            _prune_db_path = _DJMT_DB if (_DJMT_DB and _DJMT_DB.exists()) else _LOCAL_DB
+            # the actual library lives. Fall back to LOCAL_DB only if DEVICE_DB is absent.
+            _prune_db_path = _DEVICE_DB if (_DEVICE_DB and _DEVICE_DB.exists()) else _LOCAL_DB
+
+            from helpers import get_archive, get_archive_error  # noqa: PLC0415
+            _fg_archive = get_archive()
+            if _fg_archive is None:
+                log_q.put(("line", f"[WARN] FableGear archive unavailable — this prune will not be recorded ({get_archive_error() or 'unknown'})"))
 
             summary = {}
             with write_db(_prune_db_path) as db:
@@ -1019,6 +1099,7 @@ def api_run_prune():
                     permanent=permanent,
                     keeper_map=keeper_map,
                     should_cancel=_PRUNE_CANCEL_EVENT.is_set,
+                    archive=_fg_archive,
                 )
 
             if summary.get("cancelled"):

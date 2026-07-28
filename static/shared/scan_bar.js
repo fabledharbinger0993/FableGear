@@ -41,10 +41,10 @@ function updateScanBar(p) {
     return;
   }
   document.getElementById('sb-scanned-wrap').style.display = 'none';
-  document.getElementById('sb-remaining').textContent = p.remaining.toLocaleString();
-  document.getElementById('sb-clean').textContent     = p.clean.toLocaleString();
-  document.getElementById('sb-edited').textContent    = p.edited.toLocaleString();
-  document.getElementById('sb-errors').textContent    = p.errors.toLocaleString();
+  document.getElementById('sb-remaining').textContent = (p.remaining ?? 0).toLocaleString();
+  document.getElementById('sb-clean').textContent     = (p.clean ?? 0).toLocaleString();
+  document.getElementById('sb-edited').textContent    = (p.edited ?? 0).toLocaleString();
+  document.getElementById('sb-errors').textContent    = (p.errors ?? 0).toLocaleString();
   document.getElementById('sb-warnings').textContent  = scanWarnings.toLocaleString();
   if (p.quarantined > 0) {
     document.getElementById('sb-quarantined').textContent = p.quarantined.toLocaleString();
@@ -205,8 +205,16 @@ function toggleLog() {
 /* ── SSE runner ────────────────────────────────────────────────────────────── */
 function runCommand(url, logTitle, onDone, useBar = true, showPrefilter = false) {
   if (isRunning) {
-    showToast('A tool is already running — wait for it to finish or click Interrupt.', 'warning');
-    return;
+    // Stale lock — no active SSE connection means the prior run ended without cleanup
+    if (!activeSource || activeSource.readyState === EventSource.CLOSED) {
+      activeSource = null;
+      isRunning = false;
+      setSpinner(false);
+      setAllButtons(false);
+    } else {
+      showToast('A tool is already running — wait for it to finish or click Interrupt.', 'warning');
+      return;
+    }
   }
   initLog(logTitle);
   showScanBar(logTitle);

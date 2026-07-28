@@ -45,8 +45,11 @@ class HealthFinding:
     auto_fixable: bool = False     # safe to fix without user input
     auto_fix_fn: Callable | None = field(default=None, repr=False)
 
+    fix_action: str = ""               # machine-readable action ID for UI fix button
+    fix_action_label: str = ""         # label for the fix button
+
     def as_dict(self) -> dict:
-        return {
+        d = {
             "id":           self.id,
             "severity":     self.severity,
             "title":        self.title,
@@ -54,6 +57,10 @@ class HealthFinding:
             "fix_hint":     self.fix_hint,
             "auto_fixable": self.auto_fixable,
         }
+        if self.fix_action:
+            d["fix_action"] = self.fix_action
+            d["fix_action_label"] = self.fix_action_label or "Run Fix"
+        return d
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -354,6 +361,8 @@ def _check_backup_same_volume() -> HealthFinding | None:
                     "Move the backup directory to a separate drive. "
                     "Update backup_dir in ~/.fablegear/config.json."
                 ),
+                fix_action="move_backup_dir",
+                fix_action_label="Move Backups to Another Drive",
             )
     except Exception:
         pass
@@ -396,8 +405,26 @@ def _check_backup_dir_missing() -> HealthFinding | None:
         if backup_path.exists():
             return None
 
+        # Walk up to find an existing ancestor to check writability
+        check = backup_path
+        while not check.exists() and check != check.parent:
+            check = check.parent
+        volume_readonly = check.exists() and _is_readonly_mount(check)
+
         def _create_backup_dir():
             backup_path.mkdir(parents=True, exist_ok=True)
+
+        if volume_readonly:
+            return HealthFinding(
+                id="backup_dir_missing",
+                severity="warn",
+                title="Backup directory does not exist yet",
+                detail=f"{backup_path} has not been created. Backups will fail until it exists.",
+                fix_hint=(
+                    "The target volume is read-only — cannot create the directory automatically. "
+                    "Move backups to a writable drive via Settings → Paths, or fix the volume permissions."
+                ),
+            )
 
         return HealthFinding(
             id="backup_dir_missing",
@@ -407,10 +434,39 @@ def _check_backup_dir_missing() -> HealthFinding | None:
             fix_hint="This will be created automatically when a backup is first needed.",
             auto_fixable=True,
             auto_fix_fn=_create_backup_dir,
+            fix_action="create_backup_dir",
+            fix_action_label="Create Backup Directory Now",
         )
     except Exception:
         pass
     return None
+
+
+def _check_archive_available() -> HealthFinding | None:
+    """The FableGear archive is the shared memory every tool logs to and
+    reads from. If it cannot open, tool runs silently leave no record —
+    surface that as a warn finding instead of letting the wiring rot."""
+    try:
+        from fablegear_database.database import (  # noqa: PLC0415
+            FableGearDatabase, LibraryNotInitializedError,
+        )
+        # Read-only probe: a library that simply hasn't been built yet is not a
+        # fault, and the startup health check must never create it as a side
+        # effect — that is the user's explicit import/onboarding action.
+        try:
+            FableGearDatabase(create=False)  # validates schema + writability if present
+        except LibraryNotInitializedError:
+            return None
+        return None
+    except Exception as exc:
+        return HealthFinding(
+            id="archive_unavailable",
+            severity="warn",
+            title="FableGear archive is unavailable",
+            detail=f"The shared tool database could not be opened ({type(exc).__name__}: {exc}). "
+                   "Tool runs are NOT being recorded and cross-tool reports are disabled.",
+            fix_hint="Check the archive location on the Settings page, and that the drive holding it is mounted and writable.",
+        )
 
 
 def _check_db_symlink() -> HealthFinding | None:
@@ -451,6 +507,7 @@ def run_health_checks() -> list[HealthFinding]:
         _check_free_space,
         _check_backup_dir_missing,
         _check_db_symlink,
+        _check_archive_available,
     ]
     multi_checks = [
         _check_cloud_sync,

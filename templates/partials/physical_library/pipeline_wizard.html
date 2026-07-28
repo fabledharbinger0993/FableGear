@@ -37,39 +37,39 @@
           <button type="button" onclick="pipelineLoadRecommended()" class="btn-pipe-load-recommended">★ Load recommended order</button>
 
           <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('audit')" title="DB snapshot + full physical filesystem scan">
-            <img src="/static/icon-audit.png" class="pipe-action-icon" alt="Library Audit">
+            <img src="/static/icon-settings.png" class="pipe-action-icon" alt="Library Audit">
             <span class="pipe-action-text"><strong>Library Audit</strong><span>DB snapshot + physical filesystem inventory</span></span>
           </button>
           <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('process')" title="Write BPM and Key tags into every file">
-            <img src="/static/icon-tag.png" class="pipe-action-icon" alt="Tag Tracks">
+            <img src="/static/icon-track-tagger.png" class="pipe-action-icon" alt="Tag Tracks">
             <span class="pipe-action-text"><strong>Tag Tracks</strong><span>Writes BPM and musical key into each file</span></span>
           </button>
+          <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('rename')" title="Clean filenames using embedded track metadata">
+            <img src="/static/icon-renamer.png" class="pipe-action-icon" alt="Rename Files">
+            <span class="pipe-action-text"><strong>Rename Files</strong><span>Cleans file names from metadata tags</span></span>
+          </button>
           <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('duplicates')" title="Find identical recordings no matter how they're named">
-            <img src="/static/icon-find-duplicate.png" class="pipe-action-icon" alt="Find Duplicates">
+            <img src="/static/icon-deduper.png" class="pipe-action-icon" alt="Find Duplicates">
             <span class="pipe-action-text"><strong>Find Duplicates</strong><span>Scans for files that are the same recording</span></span>
           </button>
           <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('prune')" title="Remove the copies confirmed in Find Duplicates">
-            <img src="/static/icon-prune.png" class="pipe-action-icon" alt="Prune Duplicates">
+            <img src="/static/icon-deduper.png" class="pipe-action-icon" alt="Prune Duplicates">
             <span class="pipe-action-text"><strong>Prune Duplicates</strong><span>Remove copies found by Find Duplicates</span></span>
           </button>
           <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('relocate')" title="Update RekordBox after files have moved">
-            <img src="/static/icon-move.png" class="pipe-action-icon" alt="Fix Broken Paths">
+            <img src="/static/icon-settings.png" class="pipe-action-icon" alt="Fix Broken Paths">
             <span class="pipe-action-text"><strong>Fix Broken Paths</strong><span>Update RekordBox after files have moved</span></span>
           </button>
           <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('import')" title="Add new audio files into the RekordBox database">
-            <img src="/static/icon-import.png" class="pipe-action-icon" alt="Import Tracks">
+            <img src="/static/icon-queue.png" class="pipe-action-icon" alt="Import Tracks">
             <span class="pipe-action-text"><strong>Import Tracks</strong><span>Add new audio files to RekordBox database</span></span>
           </button>
           <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('link')" title="Link imported tracks to playlists by folder name">
-            <img src="/static/icon-link.png" class="pipe-action-icon" alt="Link Playlists">
+            <img src="/static/icon-settings.png" class="pipe-action-icon" alt="Link Playlists">
             <span class="pipe-action-text"><strong>Link Playlists</strong><span>Connect tracks to playlists by folder name</span></span>
           </button>
-          <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('normalize')" title="Re-encode tracks that are too loud or too quiet">
-            <img src="/static/icon-normalize.png" class="pipe-action-icon" alt="Balance Loudness">
-            <span class="pipe-action-text"><strong>Balance Loudness</strong><span>Brings every track to the same volume level</span></span>
-          </button>
           <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('convert')" title="Change every file to your chosen audio format">
-            <img src="/static/icon-convert.png" class="pipe-action-icon" alt="Convert Format">
+            <img src="/static/icon-converter.png" class="pipe-action-icon" alt="Convert Format">
             <span class="pipe-action-text"><strong>Convert Format</strong><span>Changes files to AIFF, MP3, WAV, or FLAC</span></span>
           </button>
           <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('organize')" title="Move files into Artist / Album / Track folders">
@@ -100,7 +100,7 @@
       </div>
 
       <div id="pipe-recommended-note" class="hidden">
-        <strong>Why this order?</strong> Tag first so BPM/key are ready for duplicate detection. Find duplicates before deleting. Prune after reviewing. Relocate so DB paths are correct. Organize once clean. Normalize last.
+        <strong>Why this order?</strong> Tag first so metadata is ready. Rename early so filenames are clean before duplicate detection. Find duplicates before deleting. Prune after reviewing. Relocate so DB paths are correct. Organize once clean. Normalize last.
       </div>
 
 
@@ -170,7 +170,7 @@
           </div>
           <button type="button" class="btn btn-neon" id="wiz-run-btn" onclick="pipeWizRun()"
                  >
-            <img src="/static/icon-start-wizard.png" class="pipe-gate-icon-btn" alt="">
+            <img src="/static/icon-settings.png" class="pipe-gate-icon-btn" alt="">
             Run Pipeline
           </button>
         </div>

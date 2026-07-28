@@ -29,8 +29,28 @@ function _showRetryOption() {
     row.style.display = 'none';
     const cb = document.getElementById('process-retry-errored');
     if (cb) cb.checked = false;
+    _syncProcessRetryDisabled();
   }
 }
+
+// Retry mode hardcodes --force --no-normalize server-side, so the per-effect
+// force / normalize checkboxes have no effect while it's on — disable them so
+// that's obvious instead of letting them silently do nothing.
+function _syncProcessRetryDisabled() {
+  const checked = !!document.getElementById('process-retry-errored')?.checked;
+  ['process-normalize', 'process-force-bpm', 'process-force-key'].forEach(id => {
+    const cb = document.getElementById(id);
+    if (cb) cb.disabled = checked;
+  });
+}
+
+function _initProcessRetryToggle() {
+  const retryCb = document.getElementById('process-retry-errored');
+  if (!retryCb) return;
+  retryCb.addEventListener('change', _syncProcessRetryDisabled);
+  _syncProcessRetryDisabled();
+}
+document.addEventListener('DOMContentLoaded', _initProcessRetryToggle);
 
 /* ── Individual command runners ────────────────────────────────────────────── */
 
@@ -104,16 +124,20 @@ function _doRunProcess(paths) {
   paths.forEach(path => p.append('path', path));
   if (document.getElementById('process-no-bpm').checked)  p.set('no_bpm', '1');
   if (document.getElementById('process-no-key').checked)  p.set('no_key', '1');
-  if (document.getElementById('process-force').checked)   p.set('force',  '1');
+  if (document.getElementById('process-force-bpm')?.checked) p.set('force_bpm', '1');
+  if (document.getElementById('process-force-key')?.checked) p.set('force_key', '1');
   if (document.getElementById('process-enrich-tags')?.checked) p.set('enrich_tags', '1');
-  p.set('no_normalize', '1');
+  // Normalize is now user-controlled: only skip it when the box is unchecked.
+  if (!document.getElementById('process-normalize')?.checked) p.set('no_normalize', '1');
   const el = document.getElementById('process-result');
   if (el) el.classList.add('hidden');
   _saveToolCkpt('process', {
     paths,
     no_bpm:      document.getElementById('process-no-bpm').checked,
     no_key:      document.getElementById('process-no-key').checked,
-    force:       document.getElementById('process-force').checked,
+    force_bpm:   document.getElementById('process-force-bpm')?.checked || false,
+    force_key:   document.getElementById('process-force-key')?.checked || false,
+    normalize:   document.getElementById('process-normalize')?.checked || false,
     enrich_tags: document.getElementById('process-enrich-tags')?.checked || false,
   });
   document.getElementById('step-process')?.querySelector('.tool-resume-banner')?.remove();
@@ -254,19 +278,26 @@ function runDuplicates() {
   if (!paths.length) { _flashNeedsInput('dupes-pills'); showToast('Add at least one music folder first.', 'warning'); return; }
   const p = new URLSearchParams();
   paths.forEach(path => p.append('path', path));
-  const workers = document.getElementById('dupes-workers')?.value || '4';
-  if (parseInt(workers) > 1) p.set('workers', workers);
-  // Match mode
-  const matchMode = document.querySelector('input[name="dupes-match-mode"]:checked')?.value || 'exact';
-  if (matchMode !== 'exact') p.set('match_mode', matchMode);
-  // Fuzzy threshold (only relevant when fuzzy or all)
-  if (matchMode === 'fuzzy' || matchMode === 'all') {
-    const thresholdPct = parseInt(document.getElementById('fuzzy-threshold')?.value || '85');
-    p.set('fuzzy_threshold', (thresholdPct / 100).toFixed(2));
+  // Tier: quick = instant cached-hash match; deep = acoustic fpcalc.
+  const scanMode = document.querySelector('input[name="dupes-scan-mode"]:checked')?.value || 'quick';
+  p.set('scan_mode', scanMode);
+  let matchMode = 'exact';
+  if (scanMode === 'deep') {
+    const workers = document.getElementById('dupes-workers')?.value || '4';
+    if (parseInt(workers) > 1) p.set('workers', workers);
+    matchMode = document.querySelector('input[name="dupes-match-mode"]:checked')?.value || 'exact';
+    if (matchMode !== 'exact') p.set('match_mode', matchMode);
+    // Fuzzy threshold (only relevant when fuzzy or all)
+    if (matchMode === 'fuzzy' || matchMode === 'all') {
+      const thresholdPct = parseInt(document.getElementById('fuzzy-threshold')?.value || '85');
+      p.set('fuzzy_threshold', (thresholdPct / 100).toFixed(2));
+    }
   }
-  _saveToolCkpt('duplicates', { paths, workers, matchMode });
+  _saveToolCkpt('duplicates', { paths, scanMode, matchMode });
   document.getElementById('step-duplicates')?.querySelector('.tool-resume-banner')?.remove();
-  const title = 'Find Duplicates — Acoustic Fingerprinting';
+  const title = scanMode === 'quick'
+    ? 'Find Duplicates — Quick (exact copies)'
+    : 'Find Duplicates — Deep (acoustic fingerprint)';
   runCommand(`/api/run/duplicates?${p}`, title, (exitCode) => {
     if (exitCode === 0) {
       _clearToolCkpt('duplicates');
@@ -292,6 +323,14 @@ function _initMatchModeUI() {
 }
 document.addEventListener('DOMContentLoaded', _initMatchModeUI);
 
+// Show/hide the Deep (acoustic) options based on the Quick vs Deep scan tier.
+function _dupesUpdateScanMode() {
+  const mode = document.querySelector('input[name="dupes-scan-mode"]:checked')?.value || 'quick';
+  const deep = document.getElementById('dupes-deep-options');
+  if (deep) deep.style.display = (mode === 'deep') ? '' : 'none';
+}
+document.addEventListener('DOMContentLoaded', _dupesUpdateScanMode);
+
 function runConvert() {
   const paths = getFolderPaths('convert-pills');
   const format = document.getElementById('convert-format').value.trim();
@@ -310,20 +349,21 @@ function runConvert() {
 /* ── Pipeline Builder ──────────────────────────────────────────────────────── */
 
 const PIPE_STEPS = {
-  audit:      { name: 'Library Audit',      icon: '/static/icon-audit.png',          desc: 'DB snapshot + physical filesystem inventory' },
-  process:    { name: 'Tag Tracks',         icon: '/static/icon-tag.png',            desc: 'Write BPM and Key into each file' },
-  duplicates: { name: 'Find Duplicates',    icon: '/static/icon-find-duplicate.png', desc: 'Scan for files that are the same recording' },
-  prune:      { name: 'Prune Duplicates',   icon: '/static/icon-prune.png',          desc: 'Remove copies found by Find Duplicates' },
-  relocate:   { name: 'Fix Broken Paths',   icon: '/static/icon-move.png',           desc: 'Update RekordBox after files have moved' },
-  import:     { name: 'Import Tracks',      icon: '/static/icon-import.png',         desc: 'Add new audio files to RekordBox database' },
-  link:       { name: 'Link Playlists',     icon: '/static/icon-link.png',           desc: 'Connect tracks to playlists by folder name' },
-  normalize:  { name: 'Balance Loudness',   icon: '/static/icon-normalize.png',      desc: 'Bring every track to the same volume' },
-  convert:    { name: 'Convert Format',     icon: '/static/icon-convert.png',        desc: 'Change files to AIFF, MP3, WAV, or FLAC' },
+  audit:      { name: 'Library Audit',      icon: '/static/icon-settings.png',          desc: 'DB snapshot + physical filesystem inventory' },
+  process:    { name: 'Tag Tracks',         icon: '/static/icon-track-tagger.png',   desc: 'Write BPM and Key into each file' },
+  rename:     { name: 'Rename Files',       icon: '/static/icon-renamer.png',        desc: 'Clean filenames using embedded metadata' },
+  duplicates: { name: 'Find Duplicates',    icon: '/static/icon-deduper.png',        desc: 'Scan for files that are the same recording' },
+  prune:      { name: 'Prune Duplicates',   icon: '/static/icon-deduper.png',          desc: 'Remove copies found by Find Duplicates' },
+  relocate:   { name: 'Fix Broken Paths',   icon: '/static/icon-settings.png',           desc: 'Update RekordBox after files have moved' },
+  import:     { name: 'Import Tracks',      icon: '/static/icon-queue.png',         desc: 'Add new audio files to RekordBox database' },
+  link:       { name: 'Link Playlists',     icon: '/static/icon-settings.png',           desc: 'Connect tracks to playlists by folder name' },
+  normalize:  { name: 'Balance Loudness',   icon: '/static/icon-normalizer.png',     desc: 'Bring every track to the same volume' },
+  convert:    { name: 'Convert Format',     icon: '/static/icon-converter.png',      desc: 'Change files to AIFF, MP3, WAV, or FLAC' },
   organize:   { name: 'Organize Library',   icon: '/static/icon-organizer.png',      desc: 'Move files into Artist / Album / Track' },
   novelty:    { name: 'Novelty Scan',       icon: '/static/icon-novelty.png',        desc: 'Copy unique tracks from source to home library' },
 };
 
-const RECOMMENDED = ['process','duplicates','prune','relocate','import','link','organize'];
+const RECOMMENDED = ['process','rename','duplicates','prune','relocate','import','link','organize'];
 
 let pipelineSteps = [];   // [{id, type}]
 let pipeUid = 0;
@@ -344,18 +384,23 @@ function runNovelty() {
   }
   const sources = getFolderPaths('novelty-pills');
   const dest    = document.getElementById('novelty-dest').value.trim();
+  const copyTo  = document.getElementById('novelty-copy-to')?.value.trim() || '';
   const dryRun  = document.getElementById('novelty-dry-run').checked;
+  const matchMode = document.getElementById('novelty-match-mode')?.value || 'fingerprint';
   if (!sources.length) { _flashNeedsInput('novelty-pills'); showToast('Add at least one source drive or folder.', 'warning'); return; }
-  if (!dest)           { _flashNeedsInput('novelty-dest'); showToast('Enter a destination library path.', 'warning'); return; }
+  if (!dest)           { _flashNeedsInput('novelty-dest'); showToast('Enter a home library path to compare against.', 'warning'); return; }
   const p = new URLSearchParams();
   sources.forEach(source => p.append('source', source));
   p.set('dest', dest);
+  if (copyTo) p.set('copy_to', copyTo);
+  p.set('match_mode', matchMode);
   if (!dryRun) p.set('no_dry_run', '1');
+  const copyTargetLabel = copyTo || dest;
   const label = dryRun
     ? 'Novelty Scan — Dry Run (nothing will be copied)'
-    : 'Novelty Scan — Copying novel tracks to destination';
+    : `Novelty Scan — Copying novel tracks to ${copyTargetLabel}`;
   if (!dryRun) {
-    _saveToolCkpt('novelty', { sources, dest, dryRun: false });
+    _saveToolCkpt('novelty', { sources, dest, copyTo, dryRun: false });
     document.getElementById('step-novelty')?.querySelector('.tool-resume-banner')?.remove();
   }
   runCommand(`/api/run/novelty?${p}`, label,
@@ -380,25 +425,27 @@ function runRename() {
   const paths = getFolderPaths('rename-pills');
   const dryRun = document.getElementById('rename-dry-run').checked;
   if (!paths.length) { _flashNeedsInput('rename-pills'); showToast('Add a folder to rename files in.', 'warning'); return; }
-  if (paths.length > 1) {
-    showToast(`Rename processes one folder at a time — using "${paths[0].split('/').pop()}".`, 'neutral');
-  }
-  if (!dryRun) {
+  if (!dryRun && paths.length === 1) {
     runRenameWithPreflight(paths[0]);
     return;
   }
-  _executeRename(paths[0], true);
+  if (!dryRun && paths.length > 1) {
+    showToast('Multiple folders selected: running rename across all selected folders (preflight skipped).', 'neutral');
+  }
+  _executeRename(paths, dryRun);
 }
 
-function _executeRename(path, dryRun) {
+function _executeRename(pathOrPaths, dryRun) {
+  const paths = Array.isArray(pathOrPaths) ? pathOrPaths : [pathOrPaths];
   const p = new URLSearchParams();
-  p.set('path', path);
+  paths.forEach(path => p.append('path', path));
   if (!dryRun) p.set('no_dry_run', '1');
+  const pathLabel = paths.length > 1 ? ` (${paths.length} folders)` : '';
   const label = dryRun
-    ? 'Rename Files — Dry Run (preview only)'
-    : 'Rename Files — Cleaning file names';
+    ? `Rename Files — Dry Run${pathLabel} (preview only)`
+    : `Rename Files — Cleaning file names${pathLabel}`;
   if (!dryRun) {
-    _saveToolCkpt('rename', { path, dryRun: false });
+    _saveToolCkpt('rename', { path: paths[0], paths, dryRun: false });
     document.getElementById('step-rename')?.querySelector('.tool-resume-banner')?.remove();
   }
   runCommand(`/api/run/rename?${p}`, label,

@@ -6,9 +6,11 @@ Regression tests for two Chop Shop / Organize behaviours:
    *repaired* — collapsed and/or truncated — not passed through to a move that
    fails with ENAMETOOLONG.
 
-2. Source folders left holding only OS-metadata junk (.DS_Store, AppleDouble
-   ._* files, Thumbs.db, …) must be pruned in assimilate mode; folders that
-   still hold real files must be left alone.
+2. Source folders THIS RUN EMPTIED that are left holding only OS-metadata
+   junk (.DS_Store, AppleDouble ._* files, Thumbs.db, …) must be pruned in
+   assimilate mode; folders that still hold real files must be left alone —
+   and folders the run never touched are never pruned at all (see
+   tests/test_organizer_scope.py for the footprint contract).
 
 Run from the repo root:
     python3 -m pytest tests/test_library_organizer_cleanup.py -v
@@ -24,7 +26,7 @@ from chop_shop.library_organizer import (  # noqa: E402
     _MAX_NAME_BYTES,
     _collapse_repeats,
     _normalize_artist,
-    _prune_empty_dirs,
+    _prune_emptied_dirs,
     _sanitize_filename,
 )
 
@@ -95,44 +97,52 @@ def test_unsafe_characters_stripped():
     assert "/" not in _sanitize_filename("AC/DC - Thunder.mp3")
 
 
-# ── _prune_empty_dirs ────────────────────────────────────────────────────────
+# ── _prune_emptied_dirs (footprint-scoped) ───────────────────────────────────
+# Pruning applies only to directories the run emptied (passed explicitly).
 
-def test_folder_with_only_ds_store_is_pruned(tmp_path):
+def test_emptied_folder_with_only_ds_store_is_pruned(tmp_path):
     d = tmp_path / "Old Album"
     d.mkdir()
     (d / ".DS_Store").write_bytes(b"\x00")
-    _prune_empty_dirs(tmp_path)
+    _prune_emptied_dirs(tmp_path, {d})
     assert not d.exists()
 
 
-def test_folder_with_appledouble_junk_is_pruned(tmp_path):
+def test_emptied_folder_with_appledouble_junk_is_pruned(tmp_path):
     d = tmp_path / "Mixes"
     d.mkdir()
     (d / "._leftover").write_bytes(b"\x00")
     (d / "Thumbs.db").write_bytes(b"\x00")
-    _prune_empty_dirs(tmp_path)
+    _prune_emptied_dirs(tmp_path, {d})
     assert not d.exists()
 
 
-def test_folder_with_real_file_is_kept(tmp_path):
+def test_emptied_folder_with_real_file_is_kept(tmp_path):
     d = tmp_path / "Has Art"
     d.mkdir()
     (d / ".DS_Store").write_bytes(b"\x00")
     (d / "cover.jpg").write_bytes(b"img")
-    _prune_empty_dirs(tmp_path)
+    _prune_emptied_dirs(tmp_path, {d})
     assert d.exists()
     assert (d / "cover.jpg").exists()
 
 
-def test_nested_empty_dirs_pruned_bottom_up(tmp_path):
+def test_emptied_nested_dirs_pruned_bottom_up(tmp_path):
     deep = tmp_path / "Artist" / "Album"
     deep.mkdir(parents=True)
     (deep / ".DS_Store").write_bytes(b"\x00")
-    _prune_empty_dirs(tmp_path)
-    assert not (tmp_path / "Artist").exists()   # both levels pruned
+    _prune_emptied_dirs(tmp_path, {deep})
+    assert not (tmp_path / "Artist").exists()   # ancestor emptied by us → pruned
+
+
+def test_untouched_empty_folder_is_never_pruned(tmp_path):
+    bystander = tmp_path / "app_scratch"
+    bystander.mkdir()
+    _prune_emptied_dirs(tmp_path, set())
+    assert bystander.exists()
 
 
 def test_root_itself_never_removed(tmp_path):
     (tmp_path / ".DS_Store").write_bytes(b"\x00")
-    _prune_empty_dirs(tmp_path)
+    _prune_emptied_dirs(tmp_path, {tmp_path})
     assert tmp_path.exists()

@@ -68,3 +68,29 @@ static/index.html
 
 # Runtime log
 fablegear.log
+
+# Legacy icon pack files (replaced by canonical icon set)
+static/RB_LOGO.png
+static/icon-audit.png
+static/icon-convert.png
+static/icon-fablego.png
+static/icon-fg-drives.png
+static/icon-fg-files.png
+static/icon-fg-library.png
+static/icon-fg-rb-tools.png
+static/icon-filename.png
+static/icon-find-duplicate.png
+static/icon-folder.png
+static/icon-import.png
+static/icon-interrupt-plus-stop-wizard.png
+static/icon-link.png
+static/icon-move.png
+static/icon-normalize.png
+static/icon-prune.png
+static/icon-restart-from-interrupt.png
+static/icon-restart-step.png
+static/icon-skip-to-next-step.png
+static/icon-start-wizard.png
+static/icon-tag.png
+static/icon-track.png
+static/icon-welcome-info.png

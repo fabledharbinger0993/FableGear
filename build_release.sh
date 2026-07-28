@@ -38,23 +38,49 @@ mkdir -p "$APP_PATH/Contents/MacOS"
 mkdir -p "$APP_PATH/Contents/Resources"
 
 # ── Write the launcher shell script ───────────────────────────────────────────
-cat > "$APP_PATH/Contents/MacOS/FableGear" << LAUNCHER
+cat > "$APP_PATH/Contents/MacOS/FableGear" << 'LAUNCHER'
 #!/bin/bash
 # FableGear bootstrap launcher
 # First run: clones the repo. Every run: hands off to launch.sh.
+# Uses open -a Terminal (Launch Services) — no Automation permission required.
 
-PARENT_DIR="\$HOME/FableGear"
-INSTALL_DIR="\$PARENT_DIR/FableGear"
-REPO_URL="$REPO_URL"
+# ── Escape Rosetta ────────────────────────────────────────────────────────
+# Launch Services can run this script-app translated (x86_64) — observed in
+# the wild as a launcher stuck inside Rosetta runtime routines forever: the
+# Dock icon bounces, launch.sh never runs, and no window ever appears. It
+# also makes `uname -m` lie to launch.sh's arch check. If we're translated
+# on Apple Silicon, re-exec natively before doing anything else.
+if [ "$(/usr/sbin/sysctl -in sysctl.proc_translated 2>/dev/null)" = "1" ]; then
+  exec /usr/bin/arch -arm64 /bin/bash "$0" "$@"
+fi
 
-if [ -d "\$INSTALL_DIR/.git" ]; then
-  # Already installed — hand off to launch.sh (handles git pull + server start)
-  bash "\$INSTALL_DIR/launch.sh"
+INSTALL_DIR="$HOME/FableGear"
+REPO_URL="https://github.com/fabledharbinger0993/FableGear.git"
+
+if [ -d "$INSTALL_DIR/.git" ]; then
+  # Detach: launch.sh can legitimately take minutes (dependency install,
+  # release update) — running it synchronously keeps this process alive,
+  # which macOS renders as the Dock icon bouncing the whole time. Hand off
+  # and exit so the icon settles immediately; launch.sh owns the rest.
+  nohup /bin/bash "$INSTALL_DIR/launch.sh" >/dev/null 2>&1 &
 else
-  # First install — open Terminal so the user can see clone + setup progress
-  CLONE_CMD="mkdir -p '\$PARENT_DIR' && git clone '\$REPO_URL' '\$INSTALL_DIR' && bash '\$INSTALL_DIR/launch.sh'"
-  osascript -e "tell application \"Terminal\" to do script \"\$CLONE_CMD\""
-  osascript -e "tell application \"Terminal\" to activate"
+  SETUP_SCRIPT="$(mktemp /tmp/fablegear-install.XXXXXX.sh)"
+  cat > "$SETUP_SCRIPT" << 'INNER'
+#!/bin/bash
+INSTALL_DIR="$HOME/FableGear"
+REPO_URL="https://github.com/fabledharbinger0993/FableGear.git"
+echo ""
+echo "  Installing FableGear..."
+echo ""
+if [ -d "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR/.git" ]; then
+  echo "  $INSTALL_DIR exists but is not a git repo — backing up to ${INSTALL_DIR}.bak"
+  mv "$INSTALL_DIR" "${INSTALL_DIR}.bak"
+fi
+git clone "$REPO_URL" "$INSTALL_DIR" && bash "$INSTALL_DIR/launch.sh"
+rm -f "$0"
+INNER
+  chmod +x "$SETUP_SCRIPT"
+  open -a Terminal "$SETUP_SCRIPT"
 fi
 LAUNCHER
 chmod +x "$APP_PATH/Contents/MacOS/FableGear"
@@ -84,6 +110,11 @@ cat > "$APP_PATH/Contents/Info.plist" << PLIST
   <string>${VERSION#v}</string>
   <key>LSMinimumSystemVersion</key>
   <string>12.0</string>
+  <key>LSArchitecturePriority</key>
+  <array>
+    <string>arm64</string>
+    <string>x86_64</string>
+  </array>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSAppleEventsUsageDescription</key>
@@ -112,7 +143,10 @@ if [[ -f "$ICON_SRC" ]]; then
 fi
 
 # ── Package into FableGear.zip ─────────────────────────────────────────────────
+# Remove any existing archive first — `zip` UPDATES an existing file in place
+# rather than replacing it, which can leak stale bundle contents into a release.
 ZIP_PATH="$(pwd)/$ZIP_NAME"
+rm -f "$ZIP_PATH"
 (cd "$BUILD_DIR" && zip -qr "$ZIP_PATH" "$APP_NAME")
 echo "  ✓ Packaged → $ZIP_PATH"
 rm -rf "$BUILD_DIR"

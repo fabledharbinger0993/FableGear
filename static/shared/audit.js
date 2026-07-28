@@ -65,6 +65,8 @@ async function interruptScan() {
       return;
     }
     appendLog(data?.message || '⏸ Interrupt signal sent — waiting for process to exit…', 'warn');
+    // If SSE doesn't close within 5s, force-reset so the UI isn't stuck
+    setTimeout(() => { if (isRunning) _forceResetRunState(); }, 5000);
   } catch(e) {
     appendLog('[ERROR] Could not send interrupt signal.', 'error');
     btn.textContent = '⏸ Interrupt'; btn.disabled = false;
@@ -106,5 +108,15 @@ async function emergencyStop() {
     appendLog('[ERROR] Could not send kill signal.', 'error');
     btn.textContent = '⚡ Emergency Stop'; btn.disabled = false;
   }
+  // Force-reset UI state — the SSE stream may never fire done/error after a kill
+  _forceResetRunState();
+}
+
+function _forceResetRunState() {
+  if (activeSource) { activeSource.close(); activeSource = null; }
+  isRunning = false;
+  setSpinner(false);
+  setAllButtons(false);
+  finishScanBar();
 }
 

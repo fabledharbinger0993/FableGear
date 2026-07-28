@@ -6,7 +6,24 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV="$SCRIPT_DIR/venv"
 SENTINEL="$SCRIPT_DIR/.fablegear_ready"
+FAILED="$SCRIPT_DIR/.fablegear_failed"
 LOG="$SCRIPT_DIR/fablegear.log"
+
+# ── Single-launcher lock ──────────────────────────────────────────────────
+# The .app hands off to this script detached, so an impatient double-click
+# could start two launchers racing through pip installs and git updates at
+# once. mkdir is atomic: second instance bails out silently. A lock older
+# than 30 minutes is from a dead launcher — take it over.
+LOCK_DIR="$SCRIPT_DIR/.launch_lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  if [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then
+    rmdir "$LOCK_DIR" 2>/dev/null
+    mkdir "$LOCK_DIR" 2>/dev/null || exit 0
+  else
+    exit 0
+  fi
+fi
+trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT
 
 # ── Locate Homebrew (works on both Apple Silicon and Intel) ───────────────
 _brew() {
@@ -38,13 +55,19 @@ _setup_needed() {
 # progress. Solution: open a new Terminal window running setup.sh and poll
 # for the sentinel file before proceeding.
 if _setup_needed; then
-  rm -f "$SENTINEL"   # clear any stale sentinel
+  rm -f "$SENTINEL" "$FAILED"   # clear any stale sentinels from a prior run
   # open -a Terminal runs the script via Launch Services — no Automation
   # permission required (unlike osascript "tell application Terminal do script")
   open -a Terminal "$SCRIPT_DIR/setup.sh"
-  # Wait for setup.sh to touch the sentinel (max 40 min, polls every 2 s)
+  # Wait for setup.sh to touch the ready sentinel (max 40 min, polls every 2 s).
+  # setup.sh writes the FAILED sentinel on any error exit so we can bail
+  # immediately instead of hanging out the full 40-minute timeout.
   _waited=0
   until [ -f "$SENTINEL" ]; do
+    if [ -f "$FAILED" ]; then
+      echo "FableGear: setup failed — see the setup window for details" >&2
+      exit 1
+    fi
     sleep 2
     _waited=$((_waited + 2))
     if [ $_waited -ge 2400 ]; then
@@ -67,6 +90,14 @@ fi
 # ── Activate venv ─────────────────────────────────────────────────────────
 source "$VENV/bin/activate"
 
+# ── Ensure core dependencies are installed ────────────────────────────────
+# setup.sh handles first-run, but cloned repos or manual venv resets can
+# leave the venv without packages. Reinstall BOTH the UI deps (Flask, Waitress,
+# pywebview — without which no window ever appears) and the library deps.
+# Quick no-op when everything is current.
+pip install --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1
+pip install --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
+
 # ── Update to the latest RELEASE (skip in dev mode) ──────────────────────
 # Release-gated: tracks GitHub's "latest release" tag, same endpoint the
 # in-app update_checker.py uses, so the launcher and the UI always agree.
@@ -80,6 +111,9 @@ if [ ! -f "$SCRIPT_DIR/.dev" ]; then
     | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
   CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
   if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "$CURRENT_TAG" ]; then
+    # Best-effort heads-up: an update can take minutes and everything below
+    # is silenced, so without this the only user feedback is a missing window.
+    osascript -e "display notification \"Updating to $LATEST_TAG — the window will open when ready\" with title \"FableGear\"" >/dev/null 2>&1 &
     if git merge-base --is-ancestor HEAD "$LATEST_TAG" 2>/dev/null; then
       echo "FableGear: updating ${CURRENT_TAG:-untagged} -> $LATEST_TAG" >> "$LOG"
       PREV_HEAD=$(git rev-parse HEAD)
@@ -89,13 +123,38 @@ if [ ! -f "$SCRIPT_DIR/.dev" ]; then
           :
         else
           echo "FableGear: dependency install failed after update; rolling back" >> "$LOG"
-          git reset --hard "$PREV_HEAD" >> "$LOG" 2>&1
+          if git diff --quiet && git diff --cached --quiet; then
+            git reset --hard "$PREV_HEAD" >> "$LOG" 2>&1
+          else
+            echo "FableGear: skipped rollback because local changes are present" >> "$LOG"
+          fi
         fi
       else
         echo "FableGear: fast-forward to $LATEST_TAG failed; staying on ${CURRENT_TAG:-current}" >> "$LOG"
       fi
+    elif git merge-base --is-ancestor "$LATEST_TAG" HEAD 2>/dev/null; then
+      # HEAD is a DESCENDANT of the latest tag — i.e. ahead of the release
+      # (a dev checkout, or a build not yet tagged). Never downgrade; leave it.
+      echo "FableGear: HEAD is ahead of $LATEST_TAG; staying on current build" >> "$LOG"
     else
-      echo "FableGear: release $LATEST_TAG is not a forward update from current HEAD; skipping" >> "$LOG"
+      # HEAD is neither an ancestor nor a descendant of the latest tag — the
+      # clone has genuinely DIVERGED (left on an old branch, or files edited
+      # outside git), so a fast-forward is impossible and the install would
+      # otherwise be stuck on stale code forever. A release install (no .dev)
+      # must track the release line, so realign hard to the tag. Any local
+      # changes are stashed first (recoverable via `git stash list`), never
+      # silently discarded.
+      echo "FableGear: clone diverged from $LATEST_TAG; realigning to the release" >> "$LOG"
+      if ! git diff --quiet || ! git diff --cached --quiet; then
+        git stash push -u -m "fablegear-auto-$(git rev-parse --short HEAD)" >> "$LOG" 2>&1 || true
+      fi
+      if git reset --hard "$LATEST_TAG" >> "$LOG" 2>&1; then
+        pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1
+        pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
+        echo "FableGear: realigned to $LATEST_TAG" >> "$LOG"
+      else
+        echo "FableGear: could not realign to $LATEST_TAG; staying on ${CURRENT_TAG:-current}" >> "$LOG"
+      fi
     fi
   fi
 fi

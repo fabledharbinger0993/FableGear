@@ -27,6 +27,7 @@ from helpers import (
     mark_step_complete,
     _register_active_process,
     _unregister_active_process,
+    api_error_from_exc,
 )
 
 bp = Blueprint("rekordbox", __name__)
@@ -119,12 +120,18 @@ def api_relocate():
     if not old_roots or not new:
         return jsonify({"error": "old_root and new_root are required"}), 400
 
-    # Validate paths are absolute to prevent argument injection into cli.py
-    if not Path(new).is_absolute():
-        return jsonify({"error": "new_root must be an absolute path"}), 400
-    invalid = [r for r in old_roots if not Path(r).is_absolute()]
+    # Validate paths: must be absolute, resolved, no null bytes or shell metacharacters
+    _FORBIDDEN = frozenset('\x00;|&`$(){}[]!#~')
+    def _safe_path(p: str) -> bool:
+        return Path(p).is_absolute() and not any(c in p for c in _FORBIDDEN)
+
+    if not _safe_path(new):
+        return jsonify({"error": "new_root must be a safe absolute path"}), 400
+    new = str(Path(new).resolve())
+    invalid = [r for r in old_roots if not _safe_path(r)]
     if invalid:
-        return jsonify({"error": "old_root values must be absolute paths"}), 400
+        return jsonify({"error": "old_root values must be safe absolute paths"}), 400
+    old_roots = [str(Path(r).resolve()) for r in old_roots]
 
     library_root = _get_library_root(request, "new_root")
 
@@ -207,7 +214,7 @@ def api_audit_path_roots():
             "has_dead_roots": report.has_dead_roots,
         })
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_error_from_exc(exc)
 
 
 # ── Dead File Scan ────────────────────────────────────────────────────────────
@@ -221,6 +228,53 @@ def api_dead_files():
     for extra in paths[1:]:
         cmd += ["--also-scan", extra]
     return _sse_response(cmd, library_root=paths[0], step_name="dead-files")
+
+
+# ── Rekordbox Dedupe ─────────────────────────────────────────────────────────
+
+@bp.route("/api/run/rekordbox-dedupe")
+def api_rekordbox_dedupe():
+    dry_run = request.args.get("no_dry_run") != "1"
+    if not dry_run:
+        err = _require_rb_closed()
+        if err:
+            return err
+
+    cmd = [sys.executable, str(CLI_PATH), "rekordbox-dedupe"]
+
+    db_path = request.args.get("db_path", "").strip()
+    if db_path:
+        cmd += ["--db-path", db_path]
+
+    output = request.args.get("output", "").strip()
+    if output:
+        cmd += ["--output", output]
+
+    workers = request.args.get("workers", "").strip()
+    if workers and workers.isdigit() and int(workers) > 1:
+        cmd += ["--workers", workers]
+
+    match_mode = request.args.get("match_mode", "").strip()
+    if match_mode in ("exact", "fuzzy", "tags", "all"):
+        cmd += ["--match-mode", match_mode]
+
+    fuzzy_threshold = request.args.get("fuzzy_threshold", "").strip()
+    if fuzzy_threshold:
+        try:
+            ft = float(fuzzy_threshold)
+            if 0.0 < ft < 1.0:
+                cmd += ["--fuzzy-threshold", f"{ft:.2f}"]
+        except ValueError:
+            pass
+
+    if not dry_run:
+        cmd.append("--no-dry-run")
+
+    if request.args.get("permanent") == "1":
+        cmd.append("--permanent")
+
+    library_root = db_path or "rekordbox"
+    return _sse_response(cmd, library_root=library_root, step_name="rekordbox-dedupe")
 
 
 # ── Pioneer DB migration ──────────────────────────────────────────────────────
@@ -238,3 +292,36 @@ def api_migrate_pioneer_db():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ── Export Audit ──────────────────────────────────────────────────────────────
+
+@bp.route("/api/run/export-audit")
+def api_export_audit():
+    mount = request.args.get("mount", "").strip()
+    if not mount:
+        return jsonify({"error": "mount is required"}), 400
+        
+    cmd = [sys.executable, str(CLI_PATH), "export-audit", mount]
+    return _sse_response(cmd, library_root=mount, step_name="export-audit")
+
+
+# ── Bidirectional Sync ────────────────────────────────────────────────────────
+
+@bp.route("/api/run/bidirectional-sync")
+def api_bidirectional_sync():
+    dry_run = request.args.get("dry_run") == "1"
+    if not dry_run:
+        err = _require_rb_closed()
+        if err:
+            return err
+
+    cmd = [sys.executable, str(CLI_PATH), "rekordbox-sync"]
+    db_path = request.args.get("db_path", "").strip()
+    if db_path:
+        cmd += ["--db-path", db_path]
+    if not dry_run:
+        cmd.append("--no-dry-run")
+
+    library_root = db_path or "rekordbox"
+    return _sse_response(cmd, library_root=library_root, step_name="rekordbox-sync")

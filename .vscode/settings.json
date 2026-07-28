@@ -21,13 +21,12 @@
 	"htmlhint.options": {
 		"inline-style-disabled": false
 	},
-	"python-envs.defaultEnvManager": "ms-python.python:conda",
+	"python-envs.defaultEnvManager": "ms-python.python:venv",
 	"python-envs.defaultPackageManager": "ms-python.python:conda",
 	"cSpell.words": [
 		"APPLESCRIPT",
 		"bitrates",
 		"Chromaprint",
-		"DJMT",
 		"flac",
 		"Hotcue",
 		"kbps",
@@ -54,5 +53,11 @@
 	// `dupe.offsetWidth` reflow trick are intentional. SonarLint flags these
 	// as stylistic warnings that don't apply to our local-only desktop app.
 	// Exclude the whole tree from SonarLint to silence the noise.
-	"sonarlint.analysisExcludesStandalone": "static/**/*.js,static/**/*.css,static/**/*.html"
+	"sonarlint.analysisExcludesStandalone": "static/**/*.js,static/**/*.css,static/**/*.html",
+	"files.autoSave": "afterDelay",
+	"editor.defaultFormatter": "ms-python.python",
+	"chat.agent.maxRequests": 10,
+	"editor.formatOnPaste": true,
+	"editor.accessibilityPageSize": 10000,
+	"npm.enableRunFromFolder": true
 }

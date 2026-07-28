@@ -4,7 +4,7 @@
       <div class="card-icon"><img src="/static/icon-novelty.png" alt="Novelty Scanner"></div>
       <div class="card-meta">
         <div class="card-title">Novelty Scanner — Capture Unique Tracks from Any Drive</div>
-        <div class="card-blurb">Scans a source drive for tracks that don't exist anywhere in your home library and copies every one of them across. When in doubt, it copies. Use this to safely rescue one-of-a-kind recordings from backup drives before anything gets lost.</div>
+        <div class="card-blurb">Scans a source drive for tracks that don't exist anywhere in your home library and copies every one of them across. When in doubt, it copies. Compares against your real home library but can copy new finds to a separate folder of your choosing, so they stay easy to review instead of landing mixed in with everything else. Use this to safely rescue one-of-a-kind recordings from backup drives before anything gets lost.</div>
       </div>
       <span class="risk-badge safe">SAFE</span>
     </div>
@@ -42,17 +42,39 @@
         <div class="folder-pills" id="novelty-pills"></div>
       </div>
       <div class="field compact-drop-field">
-        <label>Destination (Home Library)</label>
+        <label>Compare Against (Home Library)</label>
         <div class="folder-zone" id="novelty-dest-zone">
           <div class="folder-zone-hint">
-            <strong>⤵ Drop destination folder here</strong>
+            <strong>⤵ Drop your home library folder here</strong>
             or type a path and press Enter
           </div>
           <div class="folder-zone-input-row">
-            <input type="text" class="folder-zone-text" id="novelty-dest" placeholder="Choose or enter a music folder">
+            <input type="text" class="folder-zone-text" id="novelty-dest" placeholder="Choose or enter your real music folder">
             <button class="folder-zone-browse" type="button" onclick="pickPathFor('novelty-dest')">Browse…</button>
           </div>
         </div>
+        <div class="field-hint">A track already found here is skipped as "already owned."</div>
+      </div>
+      <div class="field compact-drop-field">
+        <label>Copy Novel Tracks To <span class="field-hint-inline">(optional — defaults to the folder above)</span></label>
+        <div class="folder-zone" id="novelty-copy-to-zone">
+          <div class="folder-zone-hint">
+            <strong>⤵ Drop a folder here</strong>
+            or type a path and press Enter
+          </div>
+          <div class="folder-zone-input-row">
+            <input type="text" class="folder-zone-text" id="novelty-copy-to" placeholder="Leave blank to copy into the folder above">
+            <button class="folder-zone-browse" type="button" onclick="pickPathFor('novelty-copy-to')">Browse…</button>
+          </div>
+        </div>
+        <div class="field-hint">Keeps new finds segregated for review instead of mixing them straight into your compared-against library.</div>
+      </div>
+      <div class="field">
+        <label for="novelty-match-mode">Comparison mode</label>
+        <select id="novelty-match-mode">
+          <option value="fingerprint" selected>Fingerprint confirm (safer)</option>
+          <option value="filename">Filename compare only (faster)</option>
+        </select>
       </div>
       <div class="field">
         <div class="checkbox-row">

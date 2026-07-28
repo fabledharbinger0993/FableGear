@@ -29,9 +29,11 @@ permissions) is logged and also falls through to fuzzy rather than crashing.
 
 Fuzzy index note: stem-only keys mean track.mp3 and track.aiff share the
 key "track". A format conversion that preserves the stem will match at 1.0
-similarity. If two files in new_root share a stem, the last one encountered
-during the walk wins in the fuzzy index — a collision warning is logged when
-this occurs.
+similarity. If two files in new_root share a stem, the collision is resolved
+deterministically (not by filesystem walk order): the higher format-tier
+file wins (pruner.FORMAT_TIER — e.g. .aiff outranks .mp3), and ties within
+the same tier fall back to the lexicographically smaller path. A collision
+warning is logged either way, naming the winner and the reason.
 
 Public interface:
     relocate_directory(old_root, new_root, db) -> list[RelocationResult]
@@ -43,12 +45,27 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 from typing import Literal, TYPE_CHECKING
 import json
 
 from pyrekordbox import Rekordbox6Database
 
-from config import AUDIO_EXTENSIONS, BATCH_SIZE, SKIP_DIRS, SKIP_PREFIXES
+from config import (
+    ARCHIVE_CHUNK_SIZE as _ARCHIVE_CHUNK_SIZE,
+    AUDIO_EXTENSIONS,
+    BATCH_SIZE,
+    PROGRESS_ITEM_INTERVAL as _PROGRESS_ITEM_INTERVAL,
+    PROGRESS_MIN_SECONDS as _PROGRESS_MIN_SECONDS,
+    SKIP_DIRS,
+    SKIP_PREFIXES,
+)
+# Format-quality ranking, reused from pruner.py's FORMAT_TIER so relocator's
+# fuzzy-collision tie-break agrees with the same "higher = better" ordering
+# duplicate-pruning uses elsewhere. pruner.py's module-level imports are
+# stdlib-only (csv/logging/shutil/dataclasses/datetime/pathlib/typing) so
+# this import carries no mutagen/CSV runtime cost.
+from pruner import FORMAT_TIER as _FORMAT_PREFERENCE
 
 if TYPE_CHECKING:
     # DjmdContent is an ORM row type from pyrekordbox's SQLAlchemy models.
@@ -130,25 +147,57 @@ def build_hash_index(files: list[Path]) -> dict[str, Path]:
     return index
 
 
+def _fuzzy_collision_winner(a: Path, b: Path) -> tuple[Path, Path, str]:
+    """
+    Resolve a fuzzy-index stem collision between two paths deterministically.
+
+    Returns (winner, loser, reason). Higher format tier (better quality, per
+    pruner.FORMAT_TIER) wins. When both candidates share a tier — true
+    duplicates in the same format, with no quality signal to break the tie —
+    the lexicographically smaller path wins. Both rules are properties of
+    the paths themselves, not of iteration order, so the outcome is the same
+    regardless of which file the walk visits first or which argument order
+    is passed in.
+    """
+    tier_a = _FORMAT_PREFERENCE.get(a.suffix.lower(), 0)
+    tier_b = _FORMAT_PREFERENCE.get(b.suffix.lower(), 0)
+    if tier_a != tier_b:
+        return (a, b, "higher format tier") if tier_a > tier_b else (b, a, "higher format tier")
+    winner, loser = (a, b) if str(a) <= str(b) else (b, a)
+    return winner, loser, "path-sorted tie-break (same format tier)"
+
+
 def build_fuzzy_index(files: list[Path]) -> dict[str, Path]:
     """
     Build a dict mapping lowercase filename stem → Path.
     Stem-only comparison avoids false mismatches from format conversions
     (e.g. track.mp3 → track.aiff shares stem "track" — will match at 1.0).
 
-    If two files share a stem, the last one encountered wins and a warning
-    is logged. This is intentional: the fuzzy index is a best-effort fallback,
-    and stem collisions are rare in well-organized DJ libraries.
+    Stem collisions are common after a format-conversion batch (e.g. an
+    mp3→aiff pass that leaves both copies on disk with the same stem), so
+    the winner must not depend on filesystem walk order — that would let a
+    relocate run point a DB row at a different file on every run with no
+    actual change on disk. On collision, the file with the higher format
+    tier (pruner.FORMAT_TIER — higher tier = higher quality, e.g. .aiff
+    outranks .mp3) wins deterministically. If both candidates share a tier
+    (true duplicates in the same format), the lexicographically smaller
+    path wins — a stable, order-independent fallback. Either way a warning
+    is logged naming the winner and the reason.
     """
     index: dict[str, Path] = {}
     for p in files:
         key = p.stem.lower()
-        if key in index:
-            log.warning(
-                "Fuzzy index stem collision: %r — keeping %s, dropping %s",
-                key, index[key].name, p.name,
-            )
-        index[key] = p
+        incumbent = index.get(key)
+        if incumbent is None:
+            index[key] = p
+            continue
+
+        winner, loser, reason = _fuzzy_collision_winner(incumbent, p)
+        log.warning(
+            "Fuzzy index stem collision: %r — keeping %s over %s (%s)",
+            key, winner.name, loser.name, reason,
+        )
+        index[key] = winner
     return index
 
 
@@ -298,9 +347,12 @@ def relocate_directory(
     old_root: Path,
     new_root: Path,
     db: Rekordbox6Database,
+    archive=None,
+    only_missing: bool = True,
 ) -> list[RelocationResult]:
     """
-    Batch-update FolderPath for all DjmdContent rows under old_root.
+    Batch-update FolderPath for DjmdContent rows under old_root whose files
+    are broken (missing on disk).
 
     Parameters
     ----------
@@ -314,6 +366,13 @@ def relocate_directory(
     db : Rekordbox6Database
         Open write session (write_db()). Backup and process check are
         enforced by write_db() before this function is called.
+    only_missing : bool
+        When True (default), only rows whose FolderPath no longer resolves
+        to a file on disk are candidates — tracks whose files are present
+        and healthy are never touched. Pass False only for a deliberate
+        mid-migration repoint where both copies exist and every row under
+        old_root really should move (the hash strategy is most reliable in
+        that scenario, since the original is still available to hash).
 
     Returns
     -------
@@ -323,7 +382,7 @@ def relocate_directory(
     if not new_root.is_dir():
         raise ValueError(f"new_root does not exist or is not a directory: {new_root}")
 
-    old_root_str = str(old_root)
+    old_root_str = str(old_root).rstrip(os.sep) + os.sep
     try:
         all_content = db.get_content().all()
         affected = [
@@ -333,6 +392,21 @@ def relocate_directory(
     except Exception as e:
         log.error("Failed to fetch content rows: %s", e)
         return []
+
+    if only_missing:
+        matched = len(affected)
+        affected = [c for c in affected if not Path(c.FolderPath).exists()]
+        log.info(
+            "Scoped to broken paths: %d of %d rows under %s are missing on disk "
+            "(%d healthy rows left untouched)",
+            len(affected), matched, old_root, matched - len(affected),
+        )
+        if matched and not affected:
+            log.info(
+                "All %d rows under %s resolve to files on disk — nothing to fix.",
+                matched, old_root,
+            )
+            return []
 
     if not affected:
         log.warning(
@@ -355,21 +429,60 @@ def relocate_directory(
 
     results: list[RelocationResult] = []
     batch_count = 0
+    succeeded_count = 0
+    not_found_count = 0
+    failed_count = 0
     total_affected = len(affected)
+    last_progress_emit = monotonic()
 
     def _emit_reloc_progress(processed: int) -> None:
-        succeeded = sum(1 for r in results if r.success)
-        not_found = sum(1 for r in results if r.strategy == "not_found")
-        failed    = sum(1 for r in results if not r.success and r.strategy != "not_found")
         print(
             "FABLEGEAR_PROGRESS: " + json.dumps({
+                "done":      processed,
+                "total":     total_affected,
                 "remaining": total_affected - processed,
-                "clean":     not_found,
-                "edited":    succeeded,
-                "errors":    failed,
+                "clean":     not_found_count,
+                "edited":    succeeded_count,
+                "errors":    failed_count,
             }),
             flush=True,
         )
+
+    # Archive infrastructure is set up before the loop so that each
+    # successful relocation is journaled the moment master.db is updated,
+    # not in a single block after the full loop.  An interrupted run that
+    # has already committed N batches to master.db will still have a complete
+    # audit trail for those N batches.
+    pending_relinks: list[tuple[int, str]] = []
+    pending_logs: list[tuple[str, str, str, None, dict[str, str]]] = []
+
+    def _flush_archive_chunk() -> None:
+        if archive is None or (not pending_relinks and not pending_logs):
+            return
+        try:
+            if pending_relinks:
+                if hasattr(archive, "bulk_relink_content"):
+                    archive.bulk_relink_content(pending_relinks, chunk_size=_ARCHIVE_CHUNK_SIZE)
+                else:
+                    for rec_id, new_path in pending_relinks:
+                        archive.relink_content(rec_id, new_path)
+            if pending_logs:
+                if hasattr(archive, "bulk_log_operations"):
+                    archive.bulk_log_operations(pending_logs, chunk_size=_ARCHIVE_CHUNK_SIZE)
+                else:
+                    for op_type, file_path, status, error_message, metadata in pending_logs:
+                        archive.log_operation(
+                            op_type,
+                            file_path,
+                            status=status,
+                            error_message=error_message,
+                            metadata=metadata,
+                        )
+        except Exception as exc:
+            log.warning("Archive batch update failed: %s", exc)
+        finally:
+            pending_relinks.clear()
+            pending_logs.clear()
 
     for i, content_row in enumerate(affected):
         result = _relocate_one(
@@ -383,10 +496,39 @@ def relocate_directory(
         results.append(result)
 
         if result.success:
+            succeeded_count += 1
             batch_count += 1
+        elif result.strategy == "not_found":
+            not_found_count += 1
+        else:
+            failed_count += 1
 
-        if (i + 1) % 20 == 0:
-            _emit_reloc_progress(i + 1)
+        # Journal this relocation immediately — before the next DB batch
+        # commit, so the archive always reflects what has been committed.
+        if archive is not None and result.success and result.new_path is not None:
+            old_path = str(result.original_path)
+            new_path = str(result.new_path)
+            try:
+                rec = archive.get_content_by_path(old_path)
+                if rec and rec.id is not None:
+                    pending_relinks.append((int(rec.id), new_path))
+                pending_logs.append(
+                    ("relocate", new_path, "ok", None,
+                     {"from": old_path, "strategy": result.strategy})
+                )
+                # Defer flushing until after the corresponding Rekordbox DB batch commit,
+                # so the archive never records "ok" for changes that might roll back.
+            except Exception as exc:
+                log.warning("Archive update failed for relocate %s: %s", old_path, exc)
+
+        processed = i + 1
+        now = monotonic()
+        if (
+            processed % _PROGRESS_ITEM_INTERVAL == 0
+            and (now - last_progress_emit) >= _PROGRESS_MIN_SECONDS
+        ):
+            _emit_reloc_progress(processed)
+            last_progress_emit = now
 
         if batch_count >= BATCH_SIZE:
             try:
@@ -397,16 +539,23 @@ def relocate_directory(
                 log.exception("Batch commit failed — rolling back")
                 db.rollback()
                 raise
+            # Flush archive only after a successful DB commit so a rolled-back
+            # commit cannot produce phantom successful relocation entries.
+            _flush_archive_chunk()
 
     # Final commit for remaining tail
     if batch_count > 0:
         try:
             db.commit()
             log.info("Final commit: %d relocations", batch_count)
+            _flush_archive_chunk()
         except Exception:
             log.exception("Final commit failed — rolling back")
             db.rollback()
             raise
+
+    # Flush any archive entries that haven't been written yet
+    _flush_archive_chunk()
 
     by_strategy: dict[str, int] = {}
     for r in results:
@@ -419,6 +568,19 @@ def relocate_directory(
         by_strategy.get("not_found", 0),
     )
 
+    _emit_reloc_progress(total_affected)  # final emit — ensures UI reflects 100%
+
+    if archive is not None:
+        archive.log_operation(
+            "relocate_batch",
+            metadata={
+                "old_root": str(old_root),
+                "new_root": str(new_root),
+                "total": len(results),
+                **by_strategy,
+            },
+        )
+
     return results
 
 
@@ -429,7 +591,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     sys.path.insert(0, ".")
 
-    from config import DJMT_DB, MUSIC_ROOT
+    from config import DEVICE_DB, MUSIC_ROOT
     from db_connection import read_db
 
     # ── Part 1: hash and fuzzy index build test (no DB needed) ──
@@ -449,7 +611,7 @@ if __name__ == "__main__":
 
     # ── Part 2: dry-run match test (read-only DB) ──
     print("\n=== Match strategy dry-run (read-only) ===")
-    with read_db(DJMT_DB) as db:
+    with read_db(DEVICE_DB) as db:
         all_content = db.get_content().all()
         sample = [
             c for c in all_content

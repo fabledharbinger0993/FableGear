@@ -6,15 +6,15 @@
 #   curl -fsSL https://raw.githubusercontent.com/fabledharbinger0993/FableGear/main/install.sh | bash
 #
 # What it does:
-#   1. Clones FableGear to ~/FableGear/FableGear  (or pulls if already installed)
+#   1. Clones FableGear to ~/FableGear  (or updates if already installed)
 #   2. Hands off to launch.sh which handles dependencies, venv, and first launch
 #   3. On first launch, offers to add FableGear to your Dock natively
 
 set -euo pipefail
 
 REPO_URL="https://github.com/fabledharbinger0993/FableGear.git"
-PARENT_DIR="$HOME/FableGear"
-INSTALL_DIR="$PARENT_DIR/FableGear"
+INSTALL_DIR="$HOME/FableGear"
+FRESH_INSTALL=0
 
 # ── Colour output helpers ──────────────────────────────────────────────────
 _green() { printf '\033[0;32m%s\033[0m\n' "$*"; }
@@ -35,12 +35,46 @@ fi
 
 # ── Clone or update ───────────────────────────────────────────────────────
 if [ -d "$INSTALL_DIR/.git" ]; then
-    _blue "FableGear already installed — pulling latest..."
-    git -C "$INSTALL_DIR" pull --ff-only
+    _blue "FableGear already installed — updating..."
+    git -C "$INSTALL_DIR" fetch origin --tags --quiet
+    # A plain --ff-only pull hard-fails (and aborts this script under set -e)
+    # if the existing clone has diverged — e.g. it was left on an old branch
+    # or files were edited outside git. Recover by realigning to origin/main,
+    # stashing any local changes first so nothing is silently discarded.
+    if ! git -C "$INSTALL_DIR" pull --ff-only origin main; then
+        _blue "Clone has diverged — realigning to origin/main (local changes stashed)..."
+        if ! git -C "$INSTALL_DIR" diff --quiet || ! git -C "$INSTALL_DIR" diff --cached --quiet; then
+            git -C "$INSTALL_DIR" stash push -u -m "fablegear-install-$(git -C "$INSTALL_DIR" rev-parse --short HEAD)" || true
+        fi
+        git -C "$INSTALL_DIR" checkout main 2>/dev/null || git -C "$INSTALL_DIR" checkout -B main origin/main
+        git -C "$INSTALL_DIR" reset --hard origin/main
+    fi
 else
+    # git clone refuses to write into a non-empty directory, and set -e turns
+    # that refusal into a bare "fatal:" git error with no recovery — back up
+    # whatever's there first, same as the .app bootstrap launcher does.
+    if [ -d "$INSTALL_DIR" ]; then
+        _blue "$INSTALL_DIR exists but isn't a git repo — backing up to ${INSTALL_DIR}.bak"
+        mv "$INSTALL_DIR" "${INSTALL_DIR}.bak"
+    fi
     _blue "Cloning FableGear to $INSTALL_DIR ..."
-    mkdir -p "$PARENT_DIR"
     git clone "$REPO_URL" "$INSTALL_DIR"
+    FRESH_INSTALL=1
+fi
+
+# ── Fresh install onboarding gate ────────────────────────────────────────
+# Reset setup state on brand-new installs so first app open always runs
+# the onboarding walkthrough (permissions + library/file-location setup).
+if [ "$FRESH_INSTALL" -eq 1 ]; then
+    mkdir -p "$HOME/.fablegear"
+    cat > "$HOME/.fablegear/fablegear-state.json" <<'EOF'
+{
+  "setup_complete": false,
+  "db_read": null,
+  "db_write": null,
+  "drive_scan": false
+}
+EOF
 fi
 
 # ── First-run setup (run inline here so the user sees progress) ──────────

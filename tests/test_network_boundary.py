@@ -127,9 +127,9 @@ def test_lan_static_assets_public(client):
     assert _hit(client, "/static/fablegear.css", LAN).status_code == 200
 
 
-def test_lan_bearer_escape_hatch_reaches_handler(client):
+def test_lan_bearer_does_not_bypass_non_mobile_boundary(client):
     r = _hit(client, "/api/cancel", LAN, method="POST", token=TEST_TOKEN)
-    assert r.status_code != 403   # boundary passed; handler decides the rest
+    assert r.status_code == 403
 
 
 def test_onboarding_save_config_defaults_backup_to_archive_savepoints(client):
@@ -146,11 +146,135 @@ def test_onboarding_save_config_defaults_backup_to_archive_savepoints(client):
 
     cfg = json.loads((Path(os.environ["HOME"]) / ".fablegear" / "config.json").read_text())
     assert cfg["backup_dir"] == "/Volumes/MainLibrary/FableGear Archive/Savepoints"
+    assert cfg["snapshot_cadence"] == "monthly"
+    assert cfg["snapshot_include_master_db"] is False
+
+
+def test_onboarding_save_config_persists_and_normalizes_snapshot_options(client):
+    music_root = "/Volumes/MainLibrary/Music Library"
+    r = client.post("/api/onboarding/save-config", json={
+        "local_db": "/tmp/local.db",
+        "device_db": "/tmp/device.db",
+        "music_root": music_root,
+        "db_read": True,
+        "db_write": False,
+        "snapshot_cadence": "  Weekly  ",  # mixed whitespace — should normalize to "weekly"
+        "snapshot_include_master_db": "yes",  # string bool — should coerce to True
+    })
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+    cfg = json.loads((Path(os.environ["HOME"]) / ".fablegear" / "config.json").read_text())
+    assert cfg["backup_dir"] == "/Volumes/MainLibrary/FableGear Archive/Savepoints"
+    assert cfg["snapshot_cadence"] == "weekly"
+    assert cfg["snapshot_include_master_db"] is True
 
 
 def test_api_config_uses_archive_reports_path(client):
     data = _hit(client, "/api/config", LOOPBACK).get_json()
     assert data["reports"].endswith("/FableGear Archive/Reports")
+    assert data["snapshot_cadence"] == "monthly"
+    assert data["snapshot_include_master_db"] is False
+
+
+def test_api_settings_persists_snapshot_options(client):
+    r = client.post("/api/settings", json={
+        "archive_mode": "custom",
+        "custom_archive_dir": "/Volumes/MainLibrary/Archives",
+        "snapshot_cadence": "weekly",
+        "snapshot_include_master_db": True,
+        "excluded_dirs": [],
+        "acoustid_api_key": "",
+    })
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+    cfg = json.loads((Path(os.environ["HOME"]) / ".fablegear" / "config.json").read_text())
+    assert cfg["archive_mode"] == "custom"
+    assert cfg["custom_archive_dir"] == "/Volumes/MainLibrary/Archives"
+    assert cfg["snapshot_cadence"] == "weekly"
+    assert cfg["snapshot_include_master_db"] is True
+
+
+@pytest.mark.parametrize(
+    "input_cadence, expected_cadence",
+    [
+        ("Monthly", "monthly"),       # case normalization
+        ("monthly ", "monthly"),      # trimming whitespace
+        ("bi-weekly", "biweekly"),    # hyphen stripped → "biweekly"
+        ("never", "monthly"),         # invalid falls back to default
+    ],
+)
+def test_api_settings_normalizes_snapshot_cadence(client, input_cadence, expected_cadence):
+    r = client.post(
+        "/api/settings",
+        json={
+            "archive_mode": "custom",
+            "custom_archive_dir": "/Volumes/MainLibrary/Archives",
+            "snapshot_cadence": input_cadence,
+            "snapshot_include_master_db": False,
+            "excluded_dirs": [],
+            "acoustid_api_key": "",
+        },
+    )
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+    cfg = json.loads((Path(os.environ["HOME"]) / ".fablegear" / "config.json").read_text())
+    assert cfg["snapshot_cadence"] == expected_cadence
+    assert cfg["snapshot_include_master_db"] is False
+
+
+@pytest.mark.parametrize(
+    "input_value, expected_bool",
+    [
+        ("yes", True),
+        ("YES", True),
+        ("no", False),
+        ("No", False),
+        (1, True),
+        (0, False),
+        (True, True),
+        (False, False),
+        (None, False),  # falls back to default False
+    ],
+)
+def test_api_settings_coerces_snapshot_include_master_db(client, input_value, expected_bool):
+    r = client.post(
+        "/api/settings",
+        json={
+            "archive_mode": "custom",
+            "custom_archive_dir": "/Volumes/MainLibrary/Archives",
+            "snapshot_cadence": "monthly",
+            "snapshot_include_master_db": input_value,
+            "excluded_dirs": [],
+            "acoustid_api_key": "",
+        },
+    )
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+    cfg = json.loads((Path(os.environ["HOME"]) / ".fablegear" / "config.json").read_text())
+    assert cfg["snapshot_cadence"] == "monthly"
+    assert cfg["snapshot_include_master_db"] is expected_bool
+
+
+def test_api_error_contract_is_sanitized(client, monkeypatch):
+    import audit as _audit  # noqa: PLC0415
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("/Users/dj/Secrets/rekordbox/master.db exploded")
+
+    monkeypatch.setattr(_audit, "find_dead_roots", _boom)
+
+    resp = _hit(client, "/api/audit/path-roots", LOOPBACK)
+    data = resp.get_json()
+
+    assert resp.status_code == 500
+    assert data["ok"] is False
+    assert data["error"] == "internal_error"
+    assert data["message"] == "Something went wrong."
+    assert "Secrets" not in json.dumps(data)
 
 
 # ── Dead-file scanner: fail loud on unreadable DB ────────────────────────────

@@ -40,8 +40,11 @@ Safety contract:
 import argparse
 import importlib
 import json
+import logging
+import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -87,7 +90,6 @@ except RuntimeError as _e:
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 REPO_DIR = Path(__file__).parent
-_CLI = REPO_DIR / "cli.py"
 
 # ── Job dispatcher init ────────────────────────────────────────────────────────
 _checkpoints_dir: Optional[Path] = None
@@ -180,34 +182,6 @@ def _dep_gate(tool: str, scope: str, force: bool = False) -> Optional[str]:
         f"for scope='{scope or '<global>'}'. Run '{prereq}' first, or pass "
         f"force=True to bypass this check."
     )
-
-
-def _run_cli(*args: str, timeout: int = 600) -> str:
-    """
-    Invoke cli.py with the given arguments.
-    Returns combined stdout+stderr as a single string.
-    All of cli.py's safety guards (Rekordbox check, DB backup, etc.) apply.
-    """
-    cmd = [sys.executable, str(_CLI), *args]
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=str(REPO_DIR),
-        )
-        output = (result.stdout + result.stderr).strip()
-        if result.returncode != 0:
-            return f"Command failed (exit {result.returncode}).\n\n{output}"
-        return output or "Completed successfully."
-    except subprocess.TimeoutExpired:
-        return (
-            f"Operation timed out after {timeout}s. "
-            "Large libraries may need more time — try again with a smaller folder."
-        )
-    except Exception as exc:
-        return f"Failed to launch FableGear CLI: {exc}"
 
 
 # ── MCP server definition ──────────────────────────────────────────────────────
@@ -411,6 +385,7 @@ def find_duplicates(
     match_mode: str = "exact",
     workers: int = 1,
     force: bool = False,
+    quick_mode: bool = False,
 ) -> str:
     """
     Scan the library for acoustically identical files using Chromaprint
@@ -428,6 +403,9 @@ def find_duplicates(
         workers:     Parallel fingerprinting workers. Default 1.
                      Increase to 2–4 on fast SSDs; keep at 1 on external drives.
         force:       Bypass the audit_library dependency gate. Default False.
+        quick_mode:  When True, run an INSTANT byte-identical scan from the
+                     cached database hashes (no fpcalc). Much faster; finds exact
+                     copies only. Default False (acoustic fingerprint scan).
     """
     if err := _cfg_gate():
         return err
@@ -447,6 +425,8 @@ def find_duplicates(
         "--workers",
         str(workers),
     ]
+    if quick_mode:
+        cli_args += ["--scan-mode", "quick"]
     return job_dispatcher.dispatch(
         tool="find_duplicates",
         cli_args=cli_args,
@@ -918,7 +898,289 @@ def get_job_output(job_id: str, max_chars: int = 0) -> str:
     return json.dumps(record, indent=2)
 
 
-# ── Entry point ────────────────────────────────────────────────────────────────
+# ─── Dev-mode tools (registered only when .dev sentinel or FABLEGEAR_DEV=1) ──
+
+_DEV_MODE = (REPO_DIR / ".dev").exists() or os.environ.get("FABLEGEAR_DEV") == "1"
+_log = logging.getLogger("fablegear.mcp_server")
+
+if _DEV_MODE:
+    _log.info("Dev mode active — registering diagnostic tools")
+
+    @mcp.tool()
+    def get_health_report() -> str:
+        """
+        [DEV] Deep introspection of FableGear state: tool dependency chain
+        status, checkpoint integrity, config validation, known failure modes.
+        """
+        sections = []
+
+        # Config
+        cfg = _get_config()
+        if cfg:
+            sections.append("Config: OK")
+            for k in ("local_db", "device_db", "music_root", "backup_dir"):
+                p = Path(str(cfg.get(k, "")))
+                exists = p.exists() if str(p) else False
+                sections.append(f"  {k}: {p} ({'exists' if exists else 'MISSING'})")
+        else:
+            sections.append(f"Config: FAILED — {_CONFIG_ERROR or 'not configured'}")
+
+        # Rekordbox state
+        try:
+            rb = rekordbox_is_running()
+            sections.append(f"Rekordbox running: {'YES' if rb else 'No'}")
+        except Exception as e:
+            sections.append(f"Rekordbox check failed: {e}")
+
+        # Dependency chain checkpoint status
+        sections.append("\nDependency chain checkpoints:")
+        music_root = _effective_music_root()
+        for tool_name in ("audit_library", "find_duplicates", "tag_tracks",
+                          "rename_files", "organize_library", "import_to_rekordbox",
+                          "link_playlists"):
+            cp = job_dispatcher.find_checkpoint(tool_name, music_root)
+            status = f"completed ({cp.get('completed_at', '?')})" if cp else "MISSING"
+            sections.append(f"  {tool_name}: {status}")
+
+        # Job dispatcher state
+        all_jobs = job_dispatcher.list_all()
+        by_state = {}
+        for j in all_jobs:
+            by_state.setdefault(j["state"], []).append(j["tool"])
+        sections.append(f"\nJobs this session: {len(all_jobs)}")
+        for state, tools in sorted(by_state.items()):
+            sections.append(f"  {state}: {len(tools)} ({', '.join(tools[:5])})")
+
+        return "\n".join(sections)
+
+    @mcp.tool()
+    def get_tool_manifest() -> str:
+        """
+        [DEV] Structured dump of every registered MCP tool — name, parameters,
+        dependency gates, and current gate status.
+        """
+        manifest = []
+        music_root = _effective_music_root()
+        for tool_name, prereq in _DEPENDENCY_MAP.items():
+            cp = job_dispatcher.find_checkpoint(prereq, music_root)
+            manifest.append({
+                "tool": tool_name,
+                "requires": prereq,
+                "gate_satisfied": cp is not None,
+            })
+        gateless = [t for t in ("audit_library", "scan_novelty", "get_library_status",
+                                "get_drive_status", "configure_paths", "relocate_tracks",
+                                "get_job_status", "list_jobs", "check_checkpoint",
+                                "get_job_history", "get_job_output")
+                    if t not in _DEPENDENCY_MAP]
+        for t in gateless:
+            manifest.append({"tool": t, "requires": None, "gate_satisfied": True})
+        return json.dumps(manifest, indent=2)
+
+    @mcp.tool()
+    def replay_job(job_id: str) -> str:
+        """
+        [DEV] Re-run a completed job from history with the same CLI args.
+        Returns the new job_id for polling.
+        """
+        record = job_dispatcher.get_status(job_id.strip())
+        if record is None:
+            hist = job_dispatcher.get_output(job_id.strip())
+            if hist:
+                record = hist
+        if record is None:
+            return f"No job found with id '{job_id}'."
+
+        cli_args = record.get("cli_args")
+        tool = record.get("tool")
+        scope = record.get("scope", "")
+        if not cli_args or not tool:
+            return f"Job '{job_id}' has no cli_args or tool name — cannot replay."
+
+        return job_dispatcher.dispatch(
+            tool=tool,
+            cli_args=cli_args,
+            scope=scope,
+        )
+
+    @mcp.tool()
+    def get_logs(lines: int = 100, pattern: str = "") -> str:
+        """
+        [DEV] Tail the FableGear app log. Returns the last N lines,
+        optionally filtered by a grep pattern.
+        """
+        import re as _re  # noqa: PLC0415
+        log_file = REPO_DIR / "fablegear.log"
+        if not log_file.exists():
+            return "No log file found."
+        try:
+            all_lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
+            if pattern:
+                try:
+                    rx = _re.compile(pattern, _re.IGNORECASE)
+                    all_lines = [l for l in all_lines if rx.search(l)]
+                except _re.error:
+                    all_lines = [l for l in all_lines if pattern.lower() in l.lower()]
+            tail = all_lines[-lines:]
+            return "\n".join(tail) if tail else "(no matching lines)"
+        except Exception as e:
+            return f"Error reading log: {e}"
+
+    @mcp.tool()
+    def run_test_suite(test_path: str = "") -> str:
+        """
+        [DEV] Run the FableGear test suite and return results.
+        Optionally pass a specific test file or pattern.
+        """
+        cmd = [sys.executable, "-m", "pytest", "-v", "--tb=short"]
+        if test_path.strip():
+            resolved = (REPO_DIR / test_path.strip()).resolve()
+            if not str(resolved).startswith(str(REPO_DIR.resolve())):
+                return "test_path must be within the FableGear repository."
+            cmd.append(str(resolved))
+        else:
+            cmd.append(str(REPO_DIR / "tests"))
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,
+                cwd=str(REPO_DIR),
+            )
+            return (result.stdout + result.stderr).strip() or "Tests completed (no output)."
+        except subprocess.TimeoutExpired:
+            return "Test suite timed out after 300s."
+        except Exception as e:
+            return f"Failed to run tests: {e}"
+
+
+# ─── Embedded server (started by main.py) ────────────────────────────────────
+
+_mcp_thread: Optional[threading.Thread] = None
+_mcp_running = threading.Event()
+_mcp_port: Optional[int] = None
+_mcp_host: Optional[str] = None
+
+
+def _make_token_auth_app(app, token: str):
+    """Wrap a Starlette/ASGI app with bearer token auth middleware."""
+    from starlette.requests import Request  # noqa: PLC0415
+    from starlette.responses import JSONResponse  # noqa: PLC0415
+
+    async def middleware(scope, receive, send):
+        if scope["type"] == "http":
+            req = Request(scope, receive)
+            # Allow health check without auth
+            if req.url.path == "/health":
+                await app(scope, receive, send)
+                return
+            # Check bearer token in header or query param
+            auth = req.headers.get("authorization", "")
+            query_token = req.query_params.get("token", "")
+            if auth == f"Bearer {token}" or query_token == token:
+                await app(scope, receive, send)
+                return
+            resp = JSONResponse(
+                {"error": "Unauthorized — include Bearer token or ?token= query param"},
+                status_code=401,
+            )
+            await resp(scope, receive, send)
+            return
+        # Non-HTTP scopes (lifespan, etc.) pass through
+        await app(scope, receive, send)
+
+    return middleware
+
+
+def start_embedded(
+    host: str = "127.0.0.1",
+    port: int = 5002,
+    token: str = "",
+) -> bool:
+    """Start the MCP SSE server in a daemon thread.
+
+    Called by main.py during app startup. Returns True if the server
+    started successfully, False otherwise.
+    """
+    global _mcp_thread, _mcp_port, _mcp_host
+
+    if _mcp_running.is_set():
+        _log.info("MCP server already running on %s:%d", _mcp_host, _mcp_port)
+        return True
+
+    _mcp_port = port
+    _mcp_host = host
+
+    def _run():
+        try:
+            import uvicorn  # noqa: PLC0415
+
+            app = mcp.sse_app()
+
+            # Wrap with token auth if binding to all interfaces
+            if host != "127.0.0.1" and token:
+                app = _make_token_auth_app(app, token)
+
+            _mcp_running.set()
+            _log.info("MCP SSE server starting on %s:%d (dev=%s)", host, port, _DEV_MODE)
+
+            uvicorn.run(
+                app,
+                host=host,
+                port=port,
+                log_level="warning",
+            )
+        except Exception:
+            _log.exception("MCP server failed to start")
+            _mcp_running.clear()
+
+    _mcp_thread = threading.Thread(target=_run, daemon=True, name="fablegear-mcp")
+    _mcp_thread.start()
+
+    # Brief wait to confirm startup
+    import time  # noqa: PLC0415
+    time.sleep(0.5)
+    if not _mcp_thread.is_alive():
+        _mcp_running.clear()
+        _log.error("MCP server thread died immediately")
+        return False
+
+    return True
+
+
+def stop_embedded() -> bool:
+    """Signal the MCP server to stop. Returns True if it was running."""
+    global _mcp_thread
+    if not _mcp_running.is_set():
+        return False
+    _mcp_running.clear()
+    # uvicorn doesn't have a clean shutdown from another thread;
+    # since the thread is a daemon, it dies with the process.
+    # For manual stop, we signal and let it wind down.
+    _mcp_thread = None
+    _mcp_port_val = _mcp_port
+    _log.info("MCP server stop requested (port %s)", _mcp_port_val)
+    return True
+
+
+def is_running() -> bool:
+    """Return True if the embedded MCP server is currently running."""
+    return _mcp_running.is_set() and _mcp_thread is not None and _mcp_thread.is_alive()
+
+
+def get_embedded_status() -> dict:
+    """Return current embedded MCP server status."""
+    return {
+        "running": is_running(),
+        "host": _mcp_host,
+        "port": _mcp_port,
+        "dev_mode": _DEV_MODE,
+        "url": f"http://{_mcp_host}:{_mcp_port}/sse" if is_running() else None,
+    }
+
+
+# ── Entry point (standalone mode) ────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -927,8 +1189,9 @@ def main() -> None:
         epilog=(
             "Examples:\n"
             "  python3 mcp_server.py                    # stdio (Claude Desktop, Cursor)\n"
-            "  python3 mcp_server.py --transport sse    # SSE on port 8765\n"
+            "  python3 mcp_server.py --transport sse    # SSE on port 5002\n"
             "  python3 mcp_server.py --transport sse --port 9000\n"
+            "  python3 mcp_server.py --embedded         # SSE, read config for port/host\n"
         ),
     )
     parser.add_argument(
@@ -940,8 +1203,13 @@ def main() -> None:
     parser.add_argument(
         "--port",
         type=int,
-        default=8765,
-        help="Port number for SSE transport. (default: 8765)",
+        default=5002,
+        help="Port number for SSE transport. (default: 5002)",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Bind address. Use 0.0.0.0 for network access. (default: 127.0.0.1)",
     )
     args = parser.parse_args()
 

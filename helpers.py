@@ -31,6 +31,91 @@ from mutagen import File as MutagenFile
 from pioneer_export_validator import validate_export_paths, validate_copied_file_exists
 
 
+def api_error_response(
+    message: str,
+    *,
+    status: int = 500,
+    code: str = "internal_error",
+    details: str | None = None,
+):
+    payload = {
+        "ok": False,
+        "error": code,
+        "message": message,
+    }
+    if details:
+        payload["details"] = details
+    
+    # Use Flask's jsonify when available and in context
+    # Fall back to simple JSON if outside Flask context
+    try:
+        from flask import jsonify as _jsonify
+        return _jsonify(payload), status
+    except (ImportError, RuntimeError):
+        # Create a simple tuple that can be converted to response later
+        # This is a fallback for cases where Flask context is not available
+        import json
+        return (json.dumps(payload), status, {"Content-Type": "application/json"})
+
+
+def api_error_from_exc(exc: Exception, *, status: int = 500, code: str = "internal_error"):
+    # Only include debug details when running in Flask debug mode
+    # Safely handle cases where we're not in a Flask context
+    detail = None
+    try:
+        # Use a local import to avoid circular import issues
+        # and access current_app only if we can do so safely
+        from flask import current_app
+        # Try to get debug mode - if this fails, we're not in a context
+        detail = str(exc) if current_app.debug else None
+    except (RuntimeError, ImportError, AttributeError):
+        # Not in a Flask application context - default to no debug info
+        detail = None
+    return api_error_response(
+        "Something went wrong.",
+        status=status,
+        code=code,
+        details=detail,
+    )
+
+
+def _is_user_mount(mountpoint: str) -> bool:
+    if sys.platform == "darwin":
+        return mountpoint.startswith("/Volumes/") or mountpoint == "/Volumes"
+    if sys.platform.startswith("win"):
+        return (
+            len(mountpoint) == 3
+            and mountpoint[1] == ":"
+            and mountpoint[2] in ("/", "\\")
+            and mountpoint[0].upper() not in ("A", "B")
+        )
+    return mountpoint.startswith("/media/") or mountpoint.startswith("/mnt/")
+
+
+def get_connected_volumes() -> list[dict]:
+    """Return connected user volumes with stable name/path fields."""
+    try:
+        import psutil  # noqa: PLC0415
+    except Exception:
+        return []
+
+    volumes: list[dict] = []
+    try:
+        for part in psutil.disk_partitions():
+            mountpoint = part.mountpoint
+            if not _is_user_mount(mountpoint):
+                continue
+            name = mountpoint.rstrip("/\\") if sys.platform.startswith("win") else Path(mountpoint).name
+            volumes.append({
+                "name": name or mountpoint,
+                "path": mountpoint,
+            })
+    except Exception:
+        return []
+
+    return volumes
+
+
 # ── Resource root — handles both dev and PyInstaller bundle ──────────────────
 
 _REPO_ROOT = Path(
@@ -47,6 +132,41 @@ for _p in (str(_REPO_ROOT), str(_REPO_ROOT / "chop_shop")):
 
 REPO_ROOT: Path = _REPO_ROOT
 CLI_PATH: Path = REPO_ROOT / "cli.py"  # sentinel string, not a file path — frozen bundles match argv[1].endswith('cli.py') in main.py; do not 'fix' this
+
+
+# ── FableGear archive (shared tool database) ─────────────────────────────────
+
+_ARCHIVE = None
+_ARCHIVE_ERROR: str | None = None
+_archive_lock: threading.Lock = threading.Lock()
+
+
+def get_archive():
+    """Open (once) the FableGear archive for in-process tool calls.
+
+    Returns None when unavailable — but never silently: the failure reason is
+    kept in get_archive_error() and logged at WARNING, because a missing
+    archive means tool runs leave no record in fg_processing_log.
+    """
+    global _ARCHIVE, _ARCHIVE_ERROR
+    with _archive_lock:
+        if _ARCHIVE is None and _ARCHIVE_ERROR is None:
+            try:
+                from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
+                _ARCHIVE = FableGearDatabase()
+            except Exception as exc:
+                _ARCHIVE_ERROR = f"{type(exc).__name__}: {exc}"
+                import logging  # noqa: PLC0415
+                logging.getLogger(__name__).warning(
+                    "FableGear archive unavailable — in-process tool runs will NOT be recorded: %s",
+                    _ARCHIVE_ERROR,
+                )
+        return _ARCHIVE
+
+
+def get_archive_error() -> str | None:
+    """The reason the archive failed to open, or None if it opened (or wasn't tried)."""
+    return _ARCHIVE_ERROR
 
 
 # ── Flask extensions (lazy-init; app.py calls .init_app(app)) ────────────────
@@ -668,6 +788,8 @@ def _stream(
     This is the fix for the _sse_response bug where _stream was called but
     never defined in the original monolithic app.py.
     """
+    if not cmd or cmd[0] != sys.executable:
+        raise ValueError(f"_stream only launches Python subprocesses, got: {cmd[0] if cmd else '(empty)'}")
     request_id = str(uuid.uuid4())
     exit_code = 0
 
@@ -913,6 +1035,8 @@ def _stream_pipeline(steps: list[dict]):
     for idx, step in enumerate(steps, 1):
         name = step["name"]
         cmd = list(step["cmd"])
+        if not cmd or cmd[0] != sys.executable:
+            raise ValueError(f"_stream_pipeline only launches Python subprocesses, got: {cmd[0] if cmd else '(empty)'}")
 
         if step.get("needs_csv") and last_report_path:
             cmd.append(last_report_path)

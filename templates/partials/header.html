@@ -8,30 +8,24 @@
 
   <!-- Primary nav icons -->
   <nav class="lp-nav" aria-label="Left panel navigation">
-    <button type="button" class="lp-btn active" id="lp-record-room-btn" onclick="setFableGearSpace('record')" title="Record Room">
-      <img src="/static/icon-fg-library.png" alt="" class="lp-icon" aria-hidden="true">
-      <span class="lp-label">Record</span>
+    <!-- Swap slot: shows the OTHER room's button so it acts as a "go to" toggle -->
+    <button type="button" class="lp-btn" id="lp-record-room-btn" onclick="setFableGearSpace('record')" title="Record Room" style="display:none">
+      <img src="/static/icon-record-room.png" alt="" class="lp-icon" aria-hidden="true">
+      <span class="lp-label">Record<br>Room</span>
     </button>
     <button type="button" class="lp-btn" id="lp-chop-shop-btn" onclick="setFableGearSpace('chop')" title="Chop Shop">
-      <img src="/static/icon-fg-tools.png" alt="" class="lp-icon" aria-hidden="true">
-      <span class="lp-label">Chop</span>
+      <img src="/static/icon-chop-shop.png" alt="" class="lp-icon" aria-hidden="true">
+      <span class="lp-label">Chop<br>Shop</span>
     </button>
+
     <button type="button" class="lp-btn" id="lp-staging-btn" onclick="toggleStagingPanel()" title="Staging Queue — tracks to work on">
-      <img src="/static/icon-fg-rb-tools.png" alt="" class="lp-icon" aria-hidden="true">
+      <img src="/static/icon-queue.png" alt="" class="lp-icon" aria-hidden="true">
       <span class="lp-label">Queue</span>
       <span class="staging-nav-badge" id="staging-nav-badge" style="display:none">0</span>
     </button>
-    <button type="button" class="lp-btn" onclick="openFableGearLauncher()" title="Welcome &amp; Permissions">
-      <img src="/static/icon-welcome-info.png" alt="" class="lp-icon" aria-hidden="true">
-      <span class="lp-label">Welcome</span>
-    </button>
-    <button type="button" class="lp-btn" onclick="openSiteKey()" title="Site Key / Definitions">
-      <img src="/static/icon-site-key.png" alt="" class="lp-icon" aria-hidden="true">
-      <span class="lp-label">Key</span>
-    </button>
-    <button type="button" class="lp-btn" onclick="replaySplash()" title="Replay intro">
-      <img src="/static/icon-rekki.png" alt="" class="lp-icon" aria-hidden="true">
-      <span class="lp-label">Rekki</span>
+    <button type="button" class="lp-btn" onclick="openSettings()" title="Settings, Paths, MCP, Help">
+      <img src="/static/icon-settings.png" alt="" class="lp-icon" aria-hidden="true">
+      <span class="lp-label">Settings</span>
     </button>
   </nav>
 
@@ -43,7 +37,7 @@
     <button type="button" class="lp-btn lp-drives-hdr" title="Connected Drives"
             aria-controls="drive-list" aria-expanded="false" aria-haspopup="true"
             onclick="toggleDriveList()">
-      <img src="/static/icon-fg-drives.png" alt="" class="lp-icon" aria-hidden="true">
+      <img src="/static/icon-drives.png" alt="" class="lp-icon" aria-hidden="true">
       <span class="lp-label">Drives</span>
     </button>
     <div id="drive-list" tabindex="-1" role="group" aria-label="Connected drives"></div>
@@ -57,13 +51,17 @@
       <span class="lp-glyph">▸</span>
       <span class="lp-label">Log</span>
     </button>
-    <button type="button" class="lp-btn" id="fg-booth-btn" onclick="fgToggleBooth()" title="Booth Mode — red-shift for dark booths (⌘⇧B)">
-      <span class="lp-icon" aria-hidden="true" style="font-size:18px;line-height:24px">🔴</span>
-      <span class="lp-label">Booth</span>
+    <button type="button" class="lp-btn" id="undo-wizard-btn" onclick="toggleUndoPanel()" title="Undo Wizard — restore savepoints, recover pruned files">
+      <span class="lp-glyph">↺</span>
+      <span class="lp-label">Undo</span>
     </button>
-    <button type="button" class="lp-btn" onclick="openSettings()" title="Settings">
-      <span class="lp-glyph">⚙</span>
-      <span class="lp-label">Settings</span>
+    <button type="button" class="lp-btn" id="fg-booth-btn" onclick="fgToggleBooth()" title="Studio Lighting — red-shift for dark booths (⌘⇧B)">
+      <img src="/static/icon-studio.png" alt="" class="lp-icon" aria-hidden="true">
+      <span class="lp-label">Studio</span>
+    </button>
+    <button type="button" class="lp-btn" onclick="replaySplash()" title="Replay intro video">
+      <img src="/static/icon-splash-video.png" alt="" class="lp-icon" aria-hidden="true">
+      <span class="lp-label">Splash</span>
     </button>
   </div>
 

@@ -28,7 +28,7 @@ function toggleRightNavDropdown(type) {
   
   // Open this one
   dropdown.classList.add('visible');
-  btn.classList.add('active');
+  btn.classList.add('dropdown-open');
   _activeDropdown = type;
   
   // Load content based on type
@@ -48,7 +48,7 @@ function closeRightNavDropdown() {
   const btn = document.getElementById(`nav-btn-${_activeDropdown}`);
   
   if (dropdown) dropdown.classList.remove('visible');
-  if (btn) btn.classList.remove('active');
+  if (btn) btn.classList.remove('dropdown-open');
   
   _activeDropdown = null;
 }
@@ -71,15 +71,14 @@ function _makeDropdownIcon(src) {
 // Click outside to close dropdown
 document.addEventListener('click', (e) => {
   if (!_activeDropdown) return;
-  
-  const navBar = document.getElementById('nav-bar-right');
+
+  const rail = document.getElementById('workflow-rail');
   const dropdown = document.getElementById(`dropdown-${_activeDropdown}`);
-  
-  if (!navBar || !dropdown) return;
-  
-  // Don't close if clicking inside nav bar or dropdown
-  if (navBar.contains(e.target) || dropdown.contains(e.target)) return;
-  
+
+  if (!dropdown) return;
+
+  if ((rail && rail.contains(e.target)) || dropdown.contains(e.target)) return;
+
   closeRightNavDropdown();
 });
 
@@ -96,7 +95,7 @@ function loadLibraryFolders(dropdown) {
       }
       dropdown.replaceChildren();
       roots.forEach(p => {
-        const icon = p.type === 'folder' ? '/static/icon-folder.png' : '/static/icon-fg-library.png';
+        const icon = p.type === 'folder' ? '/static/icon-drives.png' : '/static/icon-record-room.png';
         const div = document.createElement('div');
         div.className = 'folder-item';
         div.appendChild(_makeDropdownIcon(icon));
@@ -120,7 +119,7 @@ function loadLibraryFolders(dropdown) {
 function _appendFileBrowserShortcut(dropdown, label) {
   const item = document.createElement('div');
   item.className = 'folder-item';
-  item.appendChild(_makeDropdownIcon('/static/icon-fg-files.png'));
+  item.appendChild(_makeDropdownIcon('/static/icon-queue.png'));
   const span = document.createElement('span');
   span.textContent = label;
   item.appendChild(span);
@@ -141,7 +140,7 @@ function loadFileBrowserFolders(dropdown) {
       vols.forEach(v => {
         const item = document.createElement('div');
         item.className = 'folder-item';
-        item.appendChild(_makeDropdownIcon('/static/icon-folder.png'));
+        item.appendChild(_makeDropdownIcon('/static/icon-drives.png'));
 
         const name = document.createElement('span');
         name.textContent = v.name || v.mountpoint || 'Drive';
@@ -150,7 +149,7 @@ function loadFileBrowserFolders(dropdown) {
         if (v.has_pioneer_db) {
           const badge = document.createElement('span');
           badge.className = 'drives-item-pill drives-pill-pioneer';
-          badge.style.fontSize = '10px';
+          badge.style.fontSize = '20px';
           badge.style.marginLeft = '4px';
           badge.textContent = 'Pioneer';
           item.appendChild(badge);
@@ -186,7 +185,7 @@ async function fbNavigateTo(path) {
 
   let data;
   try {
-    const url = path ? `/api/fs/list?path=${encodeURIComponent(path)}` : '/api/fs/list';
+    const url = path ? `/api/fs/list?audio_only=1&path=${encodeURIComponent(path)}` : '/api/fs/list?audio_only=1';
     const res = await fetch(url);
     if (!res.ok) throw new Error(await res.text());
     data = await res.json();
@@ -223,10 +222,10 @@ async function fbNavigateTo(path) {
 
     const img = document.createElement('img');
     img.alt = '';
-    img.src = entry.is_dir   ? '/static/icon-folder.png'
-            : entry.is_audio ? '/static/icon-track.png'
-            :                  '/static/icon-fg-library.png';
-    img.onerror = () => { img.onerror = null; img.src = '/static/icon-fg-library.png'; };
+    img.src = entry.is_dir   ? '/static/icon-drives.png'
+            : entry.is_audio ? '/static/icon-track-tagger.png'
+            :                  '/static/icon-record-room.png';
+    img.onerror = () => { img.onerror = null; img.src = '/static/icon-record-room.png'; };
 
     const nameEl = document.createElement('span');
     nameEl.className = 'fb-item-name';

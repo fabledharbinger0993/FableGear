@@ -72,6 +72,35 @@ async function fablegearUpdateCheck() {
   }
 }
 
+/* Manual "Check for Updates" (Settings button). Unlike the silent automatic
+   check above, this one is LOUD both ways: it forces a live check
+   (?refresh=1) and always announces the outcome — up to date, update found,
+   or the exact failure. */
+async function fablegearUpdateCheckManual(btn) {
+  const label = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+  try {
+    const res  = await fetch('/api/update/status?refresh=1');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) {
+      showToast(`Update check failed — ${data.error || res.statusText || 'server error'}. Are you online?`, 'error');
+      return;
+    }
+    if (data.update_available) {
+      _rkbUpdateData = data;
+      _rkbModalShown = true;
+      _rkbShowUpdateModal(data);
+      return;
+    }
+    const cur = data.current_version ? ` — FableGear ${data.current_version} is the latest` : '';
+    showToast(`You're up to date${cur}.`, 'success');
+  } catch (e) {
+    showToast(`Update check failed — ${e.message || 'could not reach the server'}. Are you online?`, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
+}
+
 function _rkbShowUpdateModal(data) {
   const latest  = data.latest_version || 'a newer version';
   const current = data.current_version;

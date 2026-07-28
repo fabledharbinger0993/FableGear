@@ -1,20 +1,66 @@
 /* ════════════════════════════════════════════════════════════════════════
-   FableGear — record_room / library_mode
-   Auto-extracted from static/fablegear.js by scripts/split_fablegear_js.py
-   Loaded as a classic script; shares one global scope with the other slices.
-   Original source lines: 1389-1686
+   FableGear — record_room / library_mode (Hardened)
    ──────────────────────────────────────────────────────────────────────── */
 
-/* ─────────────────────────────────────────────────────────────────────────── */
-/* ── Library source mode: DB / Filesystem / Split ───────────────────────── */
+// This module is loaded before some classic scripts. Keep mode state on
+// window so module/classic ordering never throws ReferenceError.
+function _leGetState(key, fallback) {
+  if (window[key] === undefined) window[key] = fallback;
+  return window[key];
+}
 
-let _leMode           = 'db';     // 'db' | 'fs' | 'split'
-let _leFsCurrentPath  = null;     // current browsed path in filesystem mode
-let _leDbSource       = 'local';  // 'local' | 'device' — which Rekordbox DB to load
+function _leSetState(key, value) {
+  window[key] = value;
+  return value;
+}
+
+// Helper: Securely creates a row element
+function _leCreateRowElement(t, col, type = 'track') {
+    const div = document.createElement('div');
+    div.className = `le-split-track le-split-track-${col}`;
+    div.dataset.path = t.file_path || t.path || '';
+
+    const title = document.createElement('span');
+    title.className = 'le-split-title';
+    title.textContent = t.title || t.filename || t.file_path || '—';
+    div.appendChild(title);
+
+    if (t.artist || t.bpm || t.drive_name) {
+        const meta = document.createElement('span');
+        meta.className = 'le-split-meta';
+        const drive = t.drive_name ? `${t.drive_name} · ` : '';
+        meta.textContent = `${drive}${t.artist || ''}${t.bpm ? ' · ' + t.bpm + ' BPM' : ''}`;
+        div.appendChild(meta);
+    }
+    
+    // Novelty rows: membership color coding + drag-to-import + stage button.
+    // blue = missing from FableGear · yellow = missing from Rekordbox ·
+    // green = in neither database.
+    if (type === 'novelty') {
+        const inFg = !!t.in_fablegear;
+        const inRb = !!t.in_rekordbox;
+        div.classList.add(
+            (!inFg && !inRb) ? 'le-novel-green' : (!inFg ? 'le-novel-blue' : 'le-novel-yellow')
+        );
+        div.draggable = true;
+        div.addEventListener('dragstart', (ev) => {
+            ev.dataTransfer.setData('application/x-fablegear-novelty', t.path || '');
+            ev.dataTransfer.effectAllowed = 'copy';
+        });
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'le-stage-btn le-split-stage';
+        btn.textContent = '+Q';
+        btn.title = 'Add to the staging queue';
+        btn.onclick = () => stagingAddPath(t.path);
+        div.appendChild(btn);
+    }
+    return div;
+}
 
 function setLibraryMode(mode, fsRootPath = null) {
-  _leMode = mode;
-  if (fsRootPath) _leFsCurrentPath = fsRootPath;
+  _leSetState('_leMode', mode);
+  if (fsRootPath) _leSetState('_leFsCurrentPath', fsRootPath);
 
   // Update toggle buttons
   document.querySelectorAll('.le-mode-btn').forEach(b => {
@@ -39,7 +85,7 @@ function setLibraryMode(mode, fsRootPath = null) {
     if (splitView)   splitView.style.display  = 'none';
     if (statusBar)   statusBar.style.display  = '';
     // Reload from rekordbox if not yet loaded
-    if (!_leTracksLoaded) leLoadLibrary();
+    if (!_leGetState('_leTracksLoaded', false)) leLoadLibrary();
 
   } else if (mode === 'fs') {
     if (filterBar)   filterBar.style.display = 'none';
@@ -49,7 +95,7 @@ function setLibraryMode(mode, fsRootPath = null) {
     if (trackList)   trackList.style.display  = '';
     if (splitView)   splitView.style.display  = 'none';
     if (statusBar)   statusBar.style.display  = '';
-    leFsBrowse(_leFsCurrentPath);
+    leFsBrowse(_leGetState('_leFsCurrentPath', null));
 
   } else if (mode === 'split') {
     if (filterBar)   filterBar.style.display = 'none';
@@ -64,14 +110,15 @@ function setLibraryMode(mode, fsRootPath = null) {
 }
 
 function _leStageFsCurrentFolder() {
-  if (_leFsCurrentPath && typeof stagingAddPath === 'function') {
-    stagingAddPath(_leFsCurrentPath);
+  const currentPath = _leGetState('_leFsCurrentPath', null);
+  if (currentPath && typeof stagingAddPath === 'function') {
+    stagingAddPath(currentPath);
   }
 }
 
 function setLeDbSource(source) {
-  if (source !== 'local' && source !== 'device') return;
-  _leDbSource = source;
+  if (source !== 'fablegear' && source !== 'local' && source !== 'device') return;
+  _leSetState('_leDbSource', source);
   document.querySelectorAll('.le-db-btn').forEach(b => {
     b.classList.toggle('le-db-active', b.dataset.db === source);
   });
@@ -84,9 +131,41 @@ function setLeDbSource(source) {
     notice.style.display = source === 'device' ? '' : 'none';
   }
   // Reload library data with the new source
-  _leTracksLoaded = false;
-  if (_leMode === 'db') leLoadLibrary();
+  _leSetState('_leTracksLoaded', false);
+  if (_leGetState('_leMode', 'db') === 'db') leLoadLibrary();
 }
+
+// FableGear's own database is the default Record Room source.
+_leGetState('_leDbSource', 'fablegear');
+
+// Sync the FableGear database against the music library, then reload.
+async function leSyncLibrary() {
+  const btn = document.getElementById('le-sync-btn');
+  const status = document.getElementById('le-sync-status');
+  if (btn) { btn.disabled = true; btn.textContent = '↻ Syncing…'; }
+  try {
+    const r = await fetch('/api/library/db/sync', { method: 'POST' });
+    if (r.status === 409) { if (status) status.textContent = 'sync already running…'; }
+    const poll = setInterval(async () => {
+      const j = await (await fetch('/api/library/db/sync-status')).json();
+      if (status) {
+        status.textContent = j.running
+          ? (j.phase === 'processing' ? `processing ${j.done}/${j.total}…` : j.phase + '…')
+          : (j.error ? ('error: ' + j.error)
+             : (j.result ? `+${j.result.imported_new} new · ${j.result.imported_updated} updated · ${j.result.moved} moved` : 'done'));
+      }
+      if (!j.running) {
+        clearInterval(poll);
+        if (btn) { btn.disabled = false; btn.textContent = '↻ Sync'; }
+        setLeDbSource('fablegear');  // reload from refreshed DB
+      }
+    }, 700);
+  } catch (e) {
+    if (status) status.textContent = 'sync failed: ' + e.message;
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Sync'; }
+  }
+}
+window.leSyncLibrary = leSyncLibrary;
 
 /* ── Filesystem browse mode ──────────────────────────────────────────────── */
 
@@ -97,10 +176,10 @@ async function leFsBrowse(path) {
   trackList.innerHTML = '<div class="le-empty-state"><div class="le-empty-music-icon">⏳</div><div>Loading…</div></div>';
   if (folderList) folderList.innerHTML = '';
 
-  // Always request recursive=1 so clicking any folder surfaces all nested tracks.
+  // Keep browsing shallow by default so users can navigate folders deliberately.
   const base = path
-    ? `/api/library/fs-browse?path=${encodeURIComponent(path)}&recursive=1`
-    : '/api/library/fs-browse?recursive=1';
+    ? `/api/library/fs-browse?path=${encodeURIComponent(path)}`
+    : '/api/library/fs-browse';
 
   let data;
   try {
@@ -112,7 +191,7 @@ async function leFsBrowse(path) {
     return;
   }
 
-  _leFsCurrentPath = data.path;
+  _leSetState('_leFsCurrentPath', data.path);
 
   // ── Platform volume root — render drive picker cards ───────────────────
   if (data.is_volumes_root) {
@@ -255,6 +334,11 @@ function _playFsTrack(streamUrl, triggerBtn) {
                    document.getElementById('audio-player');
 
   if (playerEl && playerEl.tagName === 'AUDIO') {
+    // Single audio focus: silence any performance deck and release the library
+    // inline-preview's row ownership before this filesystem track takes over the
+    // shared audio element.
+    window.deckPauseAll?.();
+    window.leClearInlinePreview?.();
     // Stop other play buttons
     document.querySelectorAll('.fs-play-btn').forEach(b => b.textContent = '▶');
     if (triggerBtn) triggerBtn.textContent = '⏸';
@@ -269,77 +353,178 @@ function _playFsTrack(streamUrl, triggerBtn) {
 
 /* ── Split view ──────────────────────────────────────────────────────────── */
 
-async function leLoadSplitView(fsScanPath = null) {
-  const listLibrary    = document.getElementById('le-split-list-library');
-  const listScattered  = document.getElementById('le-split-list-scattered');
-  const listUnimported = document.getElementById('le-split-list-unimported');
-  const cntLib  = document.getElementById('le-split-cnt-library');
-  const cntScat = document.getElementById('le-split-cnt-scattered');
-  const cntUnim = document.getElementById('le-split-cnt-unimported');
-  const hint    = document.getElementById('le-split-unimported-hint');
+async function leLoadSplitView() {
+  const lists = {
+      fg: document.getElementById('le-split-list-fablegear'),
+      rb: document.getElementById('le-split-list-rekordbox'),
+      novel: document.getElementById('le-split-list-novelty')
+  };
+  const cntFg = document.getElementById('le-split-cnt-fablegear');
+  const cntRb = document.getElementById('le-split-cnt-rekordbox');
+  const cntNovel = document.getElementById('le-split-cnt-novelty');
 
-  [listLibrary, listScattered, listUnimported].forEach(el => {
-    if (el) el.innerHTML = '<div class="le-split-loading">⏳ Loading…</div>';
-  });
+  Object.values(lists).forEach(el => { if (el) el.textContent = '⏳ Scanning drives…'; });
 
-  const scanParam = fsScanPath || _leFsCurrentPath || '';
-  const url = `/api/library/split-data${scanParam ? '?fs_path=' + encodeURIComponent(scanParam) : ''}`;
-
-  let data;
   try {
-    const res = await fetch(url);
+    const res = await fetch('/api/library/split-data');
     if (!res.ok) throw new Error(await res.text());
-    data = await res.json();
+    const data = await res.json();
+
+    // Update Counts
+    if (cntFg) cntFg.textContent = `(${data.fablegear_count})`;
+    if (cntRb) cntRb.textContent = `(${data.rekordbox_count})`;
+    if (cntNovel) cntNovel.textContent = data.truncated
+      ? `(${data.novelty_count} of ~${data.fs_scanned.toLocaleString()} scanned)`
+      : `(${data.novelty_count})`;
+
+    // Secure Render Helper
+    const render = (container, items, type, emptyMsg, errMsg) => {
+        if (!container) return;
+        container.innerHTML = '';
+        if (errMsg) { container.textContent = `⚠ ${errMsg}`; return; }
+        if (!items || items.length === 0) {
+            container.textContent = emptyMsg;
+            return;
+        }
+        items.forEach(t => container.appendChild(_leCreateRowElement(t, type, type)));
+    };
+
+    render(lists.fg, data.fablegear, 'fablegear',
+           'FableGear database is empty — sync your library or drop tracks here', data.fablegear_error);
+    render(lists.rb, data.rekordbox, 'rekordbox', 'No tracks found', data.rekordbox_error);
+    render(lists.novel, data.novelty, 'novelty', 'Both databases know every file on disk ✓', null);
+
   } catch (e) {
-    [listLibrary, listScattered, listUnimported].forEach(el => {
-      if (el) el.innerHTML = `<div class="le-split-err">⚠ ${e.message}</div>`;
+    Object.values(lists).forEach(el => { if (el) el.textContent = `⚠ ${e.message}`; });
+  }
+}
+
+/* ── Drag novelty tracks onto the FableGear column to import them ─────────── */
+function leSplitDragOver(ev) {
+  if (![...ev.dataTransfer.types].includes('application/x-fablegear-novelty')) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'copy';
+  ev.currentTarget.classList.add('le-split-drop-hot');
+}
+
+function leSplitDragLeave(ev) {
+  ev.currentTarget.classList.remove('le-split-drop-hot');
+}
+
+async function leSplitDropImport(ev) {
+  ev.preventDefault();
+  ev.currentTarget.classList.remove('le-split-drop-hot');
+  const path = ev.dataTransfer.getData('application/x-fablegear-novelty');
+  if (!path) return;
+  try {
+    const res = await fetch('/api/library/db/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths: [path] }),
     });
-    return;
+    const stats = await res.json();
+    if (!res.ok) throw new Error(stats.error || res.statusText);
+    if (typeof showToast === 'function') {
+      const what = stats.new_files ? 'imported' : (stats.updated_files ? 'updated' : 'already in the database');
+      showToast(`${path.split('/').pop()} ${what}.`, 'success');
+    }
+    leLoadSplitView();
+  } catch (e) {
+    if (typeof showToast === 'function') showToast(`Import failed: ${e.message}`, 'error');
   }
+}
 
-  // In-library column
-  if (cntLib)  cntLib.textContent  = `(${data.in_library_count})`;
-  if (listLibrary) {
-    listLibrary.innerHTML = (data.in_library || []).length === 0
-      ? '<div class="le-split-empty">No tracks</div>'
-      : (data.in_library || []).map(t => _leSplitTrackRow(t, 'library')).join('');
-  }
+/* ── Drag a track from the file browser (or novelty list) onto the open
+   library view to import it — and add it to the active playlist if one is
+   selected. Covers the gap where dropping a file-browser item onto an open
+   playlist previously did nothing: no drop zone anywhere accepted the file
+   browser's plain-path drag format except the Integrated view's novelty
+   column, which only imports (it never adds to whatever playlist you had
+   open, since Integrated view has no concept of "the active playlist"). */
+function _leDragPathFromEvent(ev) {
+  const dt = ev.dataTransfer;
+  if (!dt) return null;
+  const novelty = dt.getData('application/x-fablegear-novelty');
+  if (novelty) return novelty;
+  const plain = dt.getData('text/plain');
+  if (plain && plain.startsWith('/')) return plain;
+  return null;
+}
 
-  // Scattered column
-  if (cntScat) cntScat.textContent = `(${data.scattered_count})`;
-  if (listScattered) {
-    const rows = (data.scattered || []).map(item => {
-      if (item.type === 'folder_header') {
-        return `<div class="le-split-folder-hdr">📁 ${_esc(item.path)} <span class="le-split-fhdr-count">${item.count}</span></div>`;
+function _leDragHasImportablePath(ev) {
+  // getData() is only readable on drop, not dragover — type presence is all
+  // we can check here, same restriction leSplitDragOver already works around.
+  const types = [...(ev.dataTransfer?.types || [])];
+  return types.includes('application/x-fablegear-novelty') || types.includes('text/plain');
+}
+
+function leTrackListDragOver(ev) {
+  if (_leGetState('_leMode', 'db') !== 'db') return;
+  if (!_leDragHasImportablePath(ev)) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'copy';
+  ev.currentTarget.classList.add('le-split-drop-hot');
+}
+
+function leTrackListDragLeave(ev) {
+  ev.currentTarget.classList.remove('le-split-drop-hot');
+}
+
+async function leTrackListDrop(ev) {
+  ev.preventDefault();
+  ev.currentTarget.classList.remove('le-split-drop-hot');
+  if (_leGetState('_leMode', 'db') !== 'db') return;
+  const path = _leDragPathFromEvent(ev);
+  if (!path) return;
+
+  const playlistId   = typeof _leActivePlaylistId   !== 'undefined' ? _leActivePlaylistId   : null;
+  const playlistName = typeof _leActivePlaylistName !== 'undefined' ? _leActivePlaylistName : '';
+
+  try {
+    const res = await fetch('/api/library/db/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths: [path] }),
+    });
+    const stats = await res.json();
+    if (!res.ok) throw new Error(stats.error || res.statusText);
+    const what = stats.new_files ? 'Imported' : (stats.updated_files ? 'Updated' : 'Already in your library');
+    const contentId = stats.content_ids && stats.content_ids[path];
+
+    if (playlistId && contentId) {
+      const addRes = await fetch(`/api/library/playlists/${playlistId}/tracks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ track_id: contentId }),
+      });
+      const addData = await addRes.json().catch(() => ({}));
+      if (typeof showToast === 'function') {
+        if (addRes.ok && addData.added > 0) {
+          showToast(`${what} · added to "${playlistName}".`, 'success');
+        } else if (addRes.ok) {
+          showToast(`${what} · already in "${playlistName}".`, 'info');
+        } else {
+          showToast(`${what}, but could not add to "${playlistName}": ${addData.error || 'unknown error'}`, 'error');
+        }
       }
-      return _leSplitTrackRow(item, 'scattered');
-    }).join('');
-    listScattered.innerHTML = rows || '<div class="le-split-empty">None — all tracks are in library root</div>';
-  }
-
-  // Unimported column
-  if (cntUnim) cntUnim.textContent = `(${data.unimported_count})`;
-  if (listUnimported) {
-    if (hint) hint.style.display = data.unimported_count > 0 || scanParam ? 'none' : '';
-    listUnimported.innerHTML = (data.unimported || []).length === 0
-      ? (scanParam ? '<div class="le-split-empty">All files in this folder are in rekordbox ✓</div>'
-                   : '<div class="le-split-empty">Browse a folder in Filesystem mode first</div>')
-      : (data.unimported || []).map(t => `
-          <div class="le-split-track le-split-unimported-row">
-            <span class="le-split-title">${_esc(t.title)}</span>
-            <span class="le-split-meta">${_esc(t.filename)}</span>
-          </div>
-        `).join('');
+    } else if (typeof showToast === 'function') {
+      showToast(`${what} into your library.` + (playlistId ? '' : ' Open a playlist to add it there too.'), 'success');
+    }
+    await leLoadLibrary();
+  } catch (e) {
+    if (typeof showToast === 'function') showToast(`Import failed: ${e.message}`, 'error');
   }
 }
 
-function _leSplitTrackRow(t, col) {
-  const label = t.title || t.file_path || t.filename || '—';
-  const meta  = t.artist ? `${t.artist}${t.bpm ? ' · ' + t.bpm + ' BPM' : ''}` : (t.bpm ? t.bpm + ' BPM' : '');
-  return `
-    <div class="le-split-track le-split-track-${col}">
-      <span class="le-split-title" title="${_escAttr(t.file_path || '')}"> ${_esc(label)}</span>
-      ${meta ? `<span class="le-split-meta">${_esc(meta)}</span>` : ''}
-    </div>
-  `;
-}
+// Expose functions to the global window object for HTML onclick handlers
+window.setLibraryMode = setLibraryMode;
+window.leFsBrowse = leFsBrowse;
+window.setLeDbSource = setLeDbSource;
+window.leLoadSplitView = leLoadSplitView;
+window._leStageFsCurrentFolder = _leStageFsCurrentFolder;
+window.leSplitDragOver = leSplitDragOver;
+window.leSplitDragLeave = leSplitDragLeave;
+window.leSplitDropImport = leSplitDropImport;
+window.leTrackListDragOver = leTrackListDragOver;
+window.leTrackListDragLeave = leTrackListDragLeave;
+window.leTrackListDrop = leTrackListDrop;

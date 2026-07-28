@@ -44,6 +44,22 @@ for _p in (str(_ROOT), str(_ROOT / 'chop_shop')):
 # Tell app.py where to find templates and static when bundled
 os.environ.setdefault('FABLEGEAR_ROOT', str(_ROOT))
 
+# ── PATH augmentation (Dock/Finder launches don't inherit shell PATH) ────────
+# macOS launches this via LaunchServices (Dock icon, double-clicked .app) as
+# often as it does via launch.sh in a Terminal. LaunchServices never sources
+# .zshrc/.bash_profile, so it hands the process a bare PATH
+# (/usr/bin:/bin:/usr/sbin:/sbin) that doesn't include Homebrew's bin dirs.
+# shutil.which("ffmpeg") / ("fpcalc") then return None even though the
+# binaries are genuinely installed, and the onboarding wizard reports them
+# as missing every time the app is opened from the Dock instead of a shell.
+if sys.platform == 'darwin':
+    _brew_bins = ('/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', '/usr/local/sbin')
+    _path_parts = os.environ.get('PATH', '').split(os.pathsep)
+    for _bin in _brew_bins:
+        if os.path.isdir(_bin) and _bin not in _path_parts:
+            _path_parts.append(_bin)
+    os.environ['PATH'] = os.pathsep.join(_path_parts)
+
 # ── Server config ─────────────────────────────────────────────────────────────
 # Bind to all interfaces so Tailscale (and LAN) can reach the mobile API.
 # The desktop UI still opens via localhost; the mobile API uses the Tailscale IP.
@@ -67,7 +83,10 @@ def _start_server() -> None:
     serve(flask_app, host=_HOST, port=_PORT, threads=16)
 
 
-def _wait_for_server(retries: int = 40, delay: float = 0.15) -> bool:
+def _wait_for_server(retries: int = 200, delay: float = 0.15) -> bool:
+    # 200 × 0.15s = 30s ceiling. A cold first launch (PyInstaller unpack, or the
+    # first import of librosa/numpy/flask in a fresh venv) can take well over the
+    # old 6s budget; exiting early there looked identical to "the app didn't open."
     for _ in range(retries):
         if _server_running():
             return True
@@ -101,7 +120,7 @@ class _Api:
             return None
         types = tuple(file_types) if file_types else ('All files (*.*)',)
         result = self._window.create_file_dialog(
-            webview.FileDialog.OPEN_DIALOG,
+            webview.FileDialog.OPEN,
             allow_multiple=False,
             file_types=types,
         )
@@ -133,6 +152,19 @@ if __name__ == '__main__':
         cli.main()
         sys.exit(0)
 
+    # ── Single-instance guard ─────────────────────────────────────────────
+    # OS-level exclusive lock; released automatically on process exit/crash.
+    # Placed AFTER the frozen-CLI dispatch above so bundled CLI subprocesses
+    # (which re-enter this binary) are never blocked by the guard.
+    from single_instance import acquire as _acquire_single_instance, lock_path as _si_lock_path
+    if not _acquire_single_instance():
+        print(
+            'FableGear is already running — switch to the existing window. '
+            f'(instance lock: {_si_lock_path()})',
+            file=sys.stderr,
+        )
+        sys.exit(0)
+
     started_server_here = False
     if not _server_running():
         started_server_here = True
@@ -141,29 +173,69 @@ if __name__ == '__main__':
             print('FableGear: server failed to start', file=sys.stderr)
             sys.exit(1)
 
+    # ── MCP server (AI agent access) ─────────────────────────────────────────
+    try:
+        from user_config import load_user_config, find_available_mcp_port
+        _cfg = load_user_config()
+        if _cfg.get('mcp_enabled') and _cfg.get('mcp_autostart'):
+            from mcp_server import start_embedded as _start_mcp
+            _mcp_port = _cfg.get('mcp_port', 5002)
+            _mcp_port = find_available_mcp_port(_mcp_port)
+            _mcp_host = '0.0.0.0' if _cfg.get('mcp_expose') else '127.0.0.1'
+            _mcp_token = _cfg.get('mcp_token', '')
+            if _start_mcp(host=_mcp_host, port=_mcp_port, token=_mcp_token):
+                print(f'FableGear: MCP server started on {_mcp_host}:{_mcp_port}')
+            else:
+                print('FableGear: MCP server failed to start', file=sys.stderr)
+    except Exception as _mcp_err:
+        print(f'FableGear: MCP autostart skipped — {_mcp_err}', file=sys.stderr)
+
     # Splash: play intro video on every launch if the file exists
     _splash_video = _ROOT / 'static' / 'fablegear-splash.mp4'
     start_url = f'http://127.0.0.1:{_PORT}/splash' if _splash_video.exists() else _LOCAL_URL
 
-    import webview
+    # The native window is the only visible surface. If anything here throws
+    # (pywebview import, WKWebView init, create_window), a fire-and-forget
+    # launch would just vanish with no window and no clue. Catch it, log a
+    # clear message to the log, and fall back to opening the already-running
+    # server in the default browser so the user still gets a working app.
+    try:
+        import webview
 
-    _api = _Api()
+        _api = _Api()
 
-    window = webview.create_window(
-        title='FableGear',
-        url=start_url,
-        width=1400,
-        height=900,
-        min_size=(900, 600),
-        resizable=True,
-        frameless=True,
-        background_color='#07070f',
-        js_api=_api,
-    )
+        window = webview.create_window(
+            title='FableGear',
+            url=start_url,
+            width=1400,
+            height=900,
+            min_size=(900, 600),
+            resizable=True,
+            frameless=True,
+            background_color='#07070f',
+            js_api=_api,
+        )
 
-    _api._window = window
+        _api._window = window
 
-    webview.start(debug=False)
+        webview.start(debug=False)
+    except Exception as _win_err:
+        import traceback
+        import webbrowser
+        print(f'FableGear: native window failed to open — {_win_err}', file=sys.stderr)
+        print(f'FableGear: falling back to your browser at {_LOCAL_URL}', file=sys.stderr)
+        traceback.print_exc()
+        try:
+            webbrowser.open(_LOCAL_URL)
+        except Exception:
+            pass
+        # Keep the (daemon) server thread alive so the browser tab keeps working
+        # instead of the process exiting immediately and killing the server.
+        try:
+            while _server_running():
+                time.sleep(2)
+        except KeyboardInterrupt:
+            pass
 
     if started_server_here:
         try:

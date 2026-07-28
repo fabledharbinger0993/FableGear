@@ -30,6 +30,7 @@ import time
 import urllib.request
 import urllib.error
 import json
+import ssl
 from datetime import datetime
 from pathlib import Path
 
@@ -63,22 +64,24 @@ def check_now() -> dict:
     Returns the new status dict.
     """
     log.info("update_checker: checking for FableGear updates …")
+    
+    # 1. Update local git knowledge
+    script_dir = Path(__file__).parent
+    subprocess.run(["git", "fetch", "--tags"], cwd=script_dir, capture_output=True)
 
+    # 2. Get local version once
     current_version, is_git = _local_version()
 
     try:
-        req  = urllib.request.Request(
-            _GITHUB_API,
-            headers={"Accept": "application/vnd.github+json",
-                     "User-Agent": "FableGear-update-checker/1.0"},
-        )
-        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT) as resp:
-            data = json.loads(resp.read())
+        # 3. Fetch remote info
+        data = _fetch_latest_release()
 
         latest_tag  = data.get("tag_name", "")
         release_url = data.get("html_url", "")
 
+        # 4. Compare
         update_available = _is_newer(latest_tag, current_version, is_git)
+        # ... rest of the cache update logic
 
         _update_cache(
             update_available=update_available,
@@ -113,11 +116,68 @@ def check_now() -> dict:
     return get_status()
 
 
+def _fetch_latest_release() -> dict:
+    req = urllib.request.Request(
+        _GITHUB_API,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "FableGear-update-checker/1.0",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT) as resp:
+            return json.loads(resp.read())
+    except urllib.error.URLError as exc:
+        reason = str(getattr(exc, "reason", exc))
+        if "CERTIFICATE_VERIFY_FAILED" not in reason:
+            raise
+
+    # macOS Python environments sometimes miss system trust roots; retry with
+    # certifi's CA bundle if available.
+    try:
+        import certifi  # type: ignore
+        ctx = ssl.create_default_context(cafile=certifi.where())
+        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT, context=ctx) as resp:
+            return json.loads(resp.read())
+    except Exception:
+        raise
+
+
 def get_status() -> dict:
     """Return the last cached status (never blocks)."""
     with _lock:
         return dict(_status)
 
+
+# ── Addition ─────────────────────────────────────────────────────────────────
+
+def _is_newer(latest_tag: str, current: str | None, is_git: bool) -> bool:
+    if not latest_tag:
+        return False
+
+    if not is_git:
+        return bool(current) and _is_semver_tag(current) and _is_semver_tag(latest_tag) \
+            and _semver_gt(latest_tag, current)
+
+    if not current:
+        return False
+
+    # Authoritative: does HEAD already contain the release commit?
+    git_answer = _local_tag_is_current(latest_tag)
+    if git_answer is True:
+        return False
+    if git_answer is False:
+        return True
+
+    # REWRITE: If we don't know the ancestry, compare tags directly 
+    # if both are semver, OR assume latest is newer if local is just a SHA.
+    if _is_semver_tag(latest_tag):
+        if _is_semver_tag(current):
+            return _semver_gt(latest_tag, current)
+        return True # Remote is a version, local is just a SHA/unknown -> Update!
+
+    return False
 
 # ── Internals ─────────────────────────────────────────────────────────────────
 

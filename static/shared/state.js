@@ -21,8 +21,15 @@ function setFableGearSpace(space) {
 
   document.body.classList.toggle('fg-space-record', nextSpace === 'record');
   document.body.classList.toggle('fg-space-chop', nextSpace === 'chop');
-  document.getElementById('lp-record-room-btn')?.classList.toggle('active', nextSpace === 'record');
-  document.getElementById('lp-chop-shop-btn')?.classList.toggle('active', nextSpace === 'chop');
+  const rrBtn = document.getElementById('lp-record-room-btn');
+  const csBtn = document.getElementById('lp-chop-shop-btn');
+  if (rrBtn && csBtn) {
+    // Show the button for the OTHER room so it acts as a "go to" toggle
+    rrBtn.style.display = nextSpace === 'chop' ? '' : 'none';
+    csBtn.style.display = nextSpace === 'record' ? '' : 'none';
+    rrBtn.classList.toggle('active', false);
+    csBtn.classList.toggle('active', false);
+  }
 
   const recordRoom = document.getElementById('library-editor-overlay');
   requestAnimationFrame(() => {
