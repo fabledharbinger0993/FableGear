@@ -353,7 +353,9 @@ class PushReport:
     total_crates: int = 0
     skipped_existing: int = 0        # name already in the live library
     crates_planned: int = 0          # would be / were created
-    crates_no_match: int = 0         # no track resolvable in the live collection
+    crates_no_match: int = 0         # zero tracks resolvable in the live collection
+    crates_too_small: int = 0        # resolved some, but fewer than min_tracks
+    crates_junk_filtered: int = 0    # Rekordbox auto-generated report/scratch crate
     links_planned: int = 0           # track links to add
     unresolved_placements: int = 0   # tracks not in the live collection (need import)
     created_folder_id: Optional[str] = None
@@ -361,6 +363,25 @@ class PushReport:
     written: bool = False
     detail: str = ""
     sample: List = field(default_factory=list)  # (name, link_count) preview
+
+    @property
+    def crates_filtered(self) -> int:
+        """Total crates dropped for hygiene reasons (not created)."""
+        return (self.skipped_existing + self.crates_no_match +
+                self.crates_too_small + self.crates_junk_filtered)
+
+    def hygiene_summary(self) -> str:
+        """Human-readable breakdown of why crates were filtered out."""
+        parts = []
+        if self.crates_junk_filtered:
+            parts.append(f"{self.crates_junk_filtered} junk/auto-generated")
+        if self.crates_too_small:
+            parts.append(f"{self.crates_too_small} below min-tracks")
+        if self.crates_no_match:
+            parts.append(f"{self.crates_no_match} with no tracks in the live collection")
+        if self.skipped_existing:
+            parts.append(f"{self.skipped_existing} already in the library")
+        return "; ".join(parts) if parts else "none"
 
 
 def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str] = None,
@@ -391,7 +412,8 @@ def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str
         plan = []  # (name, [content_id, ...])
         for cr in crates:
             if _AUTO_JUNK.search(cr.name or ""):
-                continue  # Rekordbox auto-generated report/scratch playlist
+                rep.crates_junk_filtered += 1  # Rekordbox auto-generated scratch crate
+                continue
             if skip_existing and cr.name in existing:
                 rep.skipped_existing += 1
                 continue
@@ -404,9 +426,13 @@ def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str
                         ids.append(cid)
                 else:
                     rep.unresolved_placements += 1
-            if len(ids) < min_tracks:
-                # de-clutter: drop tiny package playlists (or fully unresolved)
+            if not ids:
+                # nothing in this crate exists in the live collection yet
                 rep.crates_no_match += 1
+                continue
+            if len(ids) < min_tracks:
+                # de-clutter: drop tiny package playlists below the threshold
+                rep.crates_too_small += 1
                 continue
             plan.append((cr.name, ids))
             rep.crates_planned += 1
@@ -416,9 +442,11 @@ def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str
                       sorted(plan, key=lambda x: len(x[1]), reverse=True)[:15]]
 
         if dry_run:
-            rep.detail = (f"DRY RUN — would create {rep.crates_planned} crate(s), "
-                          f"{rep.links_planned} link(s); skip {rep.skipped_existing} existing; "
-                          f"{rep.unresolved_placements} placement(s) need import first")
+            rep.detail = (
+                f"DRY RUN — of {rep.total_crates} recovered crate(s): would create "
+                f"{rep.crates_planned} ({rep.links_planned} link(s)); "
+                f"filtered {rep.crates_filtered} [{rep.hygiene_summary()}]; "
+                f"{rep.unresolved_placements} placement(s) need import first")
             return rep
 
         # ── WRITE ── nest under one folder; commit per crate (bounded, survives
@@ -460,7 +488,8 @@ def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str
         rep.created_playlist_ids = created
         rep.written = True
         rep.detail = (f"WROTE {rep.crates_planned} crate(s), {rep.links_planned} link(s) "
-                      f"under folder {folder_name!r}")
+                      f"under folder {folder_name!r}; filtered {rep.crates_filtered} "
+                      f"[{rep.hygiene_summary()}]")
         return rep
     finally:
         db.close()

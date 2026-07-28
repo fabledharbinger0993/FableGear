@@ -1338,8 +1338,11 @@ def cmd_push_rekordbox(args: argparse.Namespace) -> None:
         log.info("Target: %s", rep.target)
         log.info("Recovered crates: %d", rep.total_crates)
         log.info("  would CREATE : %d crate(s), %d track link(s)", rep.crates_planned, rep.links_planned)
-        log.info("  would SKIP   : %d (name already in your library)", rep.skipped_existing)
-        log.info("  no match     : %d crate(s) with no track in the current collection", rep.crates_no_match)
+        log.info("  filtered out : %d crate(s) total —", rep.crates_filtered)
+        log.info("      junk/auto : %d (Rekordbox report/scratch crates)", rep.crates_junk_filtered)
+        log.info("      too small : %d (below --min-tracks)", rep.crates_too_small)
+        log.info("      no match  : %d (no track in the current collection)", rep.crates_no_match)
+        log.info("      existing  : %d (name already in your library)", rep.skipped_existing)
         log.info("  need import  : %d placement(s) whose files aren't in the collection yet", rep.unresolved_placements)
         for name, n in rep.sample:
             log.info("      [%5d]  %s", n, name)
