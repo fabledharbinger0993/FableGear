@@ -53,6 +53,41 @@ _MULTI_SPACE  = re.compile(r' {2,}')
 # Matches one or more  <1-2 digits><A|B>  groups followed by a dash separator.
 _KEY_PREFIX = re.compile(r'^(?:\d{1,2}[ABab]\s+)*\d{1,2}[ABab]\s*[-–]\s*')
 
+# Tag-cleaning helpers used to derive folder names for the choosable schemes.
+# Dual import so this works whether loaded as `library_organizer` (chop_shop on
+# sys.path) or as `chop_shop.library_organizer`.
+try:
+    from tag_cleaning import clean_value, clean_artist  # noqa: E402
+except ImportError:  # pragma: no cover
+    from chop_shop.tag_cleaning import clean_value, clean_artist  # noqa: E402
+
+# Grouping keys the Organize tool can build a folder hierarchy from, and the
+# default (backward-compatible) Artist / Album layout.
+SCHEME_KEYS   = ("label", "artist", "album", "title", "genre", "year", "filetype")
+DEFAULT_SCHEME = ("artist", "album")
+
+
+def parse_scheme(spec) -> tuple[str, ...]:
+    """Normalize a ``--by`` spec into a validated tuple of scheme keys.
+
+    Accepts a slash-nested string (``"label/artist"``), a list, or ``None``
+    (→ the default Artist/Album layout). Raises ``ValueError`` on any key not in
+    ``SCHEME_KEYS`` so a typo fails loudly instead of silently mis-filing.
+    """
+    if not spec:
+        return DEFAULT_SCHEME
+    keys = spec.split("/") if isinstance(spec, str) else list(spec)
+    keys = [k.strip().lower() for k in keys if k and str(k).strip()]
+    if not keys:
+        return DEFAULT_SCHEME
+    bad = [k for k in keys if k not in SCHEME_KEYS]
+    if bad:
+        raise ValueError(
+            f"Unknown organize key(s): {', '.join(bad)}. "
+            f"Choose from: {', '.join(SCHEME_KEYS)} (slash-nested, e.g. label/artist)."
+        )
+    return tuple(keys)
+
 
 # ─── Result type ──────────────────────────────────────────────────────────────
 
@@ -236,41 +271,81 @@ def _year_str(path: Path, tagged_year: int | None) -> str:
         return "Unknown Year"
 
 
+def _scheme_level(key: str, src: Path, track, merge_map: dict | None = None) -> str | None:
+    """Cleaned folder name for one scheme *key*, or ``None`` when the track has
+    no usable value for it (the caller drops the level or routes to Orphans).
+
+    Values are run through :mod:`tag_cleaning`, so a label that is really a URL,
+    a Camelot key mis-tagged as the artist, or an ``unknown`` sentinel becomes
+    ``None`` instead of a junk folder.
+    """
+    if key == "filetype":
+        ft = track.file_type or (src.suffix.lstrip(".").upper() or None)
+        return ft.upper() if ft else None
+    if key == "year":
+        return _year_str(src, track.year)  # never None — falls back to file mtime
+
+    if key == "artist":
+        # Normalize away Camelot prefixes, then fall back to filename parsing.
+        raw = _folder_artist(src) or track.artist
+        artist = _normalize_artist(raw) if raw else None
+        if not artist or not artist.strip():
+            # "Artist - Title.mp3", stripping Pioneer _PN suffixes / leading nums.
+            stem = re.sub(r'_PN\s*\d*$', '', src.stem, flags=re.IGNORECASE).strip()
+            stem = re.sub(r'^\d+[\s.\-]+', '', stem).strip()
+            if ' - ' in stem:
+                cand = stem.split(' - ', 1)[0].strip()
+                artist = _normalize_artist(cand) if cand else None
+        artist = clean_artist(artist) if artist else None
+        return _sanitize_folder(artist) if artist and artist.strip() else None
+
+    # label / album / title / genre — tag-derived, cleaned.
+    raw = {
+        "label": getattr(track, "label", None),
+        "album": track.album,
+        "title": track.title,
+        "genre": track.genre,
+    }.get(key)
+    val = clean_value(key, raw, merge_map=merge_map)
+    return _sanitize_folder(val) if val else None
+
+
 def _canonical_dest(
     src: Path,
     target: Path,
     track,
     threshold: float,
+    *,
+    scheme: "tuple[str, ...]" = DEFAULT_SCHEME,
+    merge_map: dict | None = None,
 ) -> Path:
-    """Compute the canonical destination path for a track (no I/O performed)."""
-    year  = _year_str(src, track.year)
+    """Compute the destination path for a track under the chosen grouping
+    *scheme* (no I/O performed).
+
+    The first scheme key is the primary bucket: a track with no usable value
+    there is routed to Orphaned Tracks. Missing values for secondary keys
+    collapse that level away — ``label/artist`` with no artist tag becomes
+    ``target/Label/track`` rather than ``target/Label/Unknown/track``.
+    """
     fname = _sanitize_filename(src.name)
 
-    # Long-form content (mixes, live sets, radio shows)
+    # Long-form content (mixes, live sets, radio shows) always lands in one
+    # place — a two-hour set has no meaningful artist/label/album.
     if track.duration_seconds is not None and track.duration_seconds >= threshold:
-        return target / MIX_FOLDER / year / fname
+        return target / MIX_FOLDER / _year_str(src, track.year) / fname
 
-    # Resolve artist for folder naming (normalize away any key prefixes)
-    raw_artist = _folder_artist(src) or track.artist
-    artist = _normalize_artist(raw_artist) if raw_artist else None
+    levels: list[str] = []
+    for i, key in enumerate(scheme):
+        val = _scheme_level(key, src, track, merge_map=merge_map)
+        if val:
+            levels.append(val)
+        elif i == 0:
+            return target / ORPHAN_FOLDER / _year_str(src, track.year) / fname
+        # secondary key with no value: collapse this level away
 
-    # No artist from tags — try filename-based extraction as last resort.
-    # Handles "Artist - Title.mp3" and strips Pioneer _PN suffixes.
-    if not artist or not artist.strip():
-        stem = re.sub(r'_PN\s*\d*$', '', src.stem, flags=re.IGNORECASE).strip()
-        stem = re.sub(r'^\d+[\s.\-]+', '', stem).strip()
-        if ' - ' in stem:
-            candidate = stem.split(' - ', 1)[0].strip()
-            artist = _normalize_artist(candidate) if candidate else None
-
-    if not artist or not artist.strip():
-        return target / ORPHAN_FOLDER / year / fname
-
-    # Normal: Artist / Album / Track  or  Artist / Track
-    artist_dir = _sanitize_folder(artist)
-    if track.album and track.album.strip():
-        return target / artist_dir / _sanitize_folder(track.album) / fname
-    return target / artist_dir / fname
+    if not levels:
+        return target / ORPHAN_FOLDER / _year_str(src, track.year) / fname
+    return target.joinpath(*levels, fname)
 
 
 def _resolve_dest(src: Path, dest: Path) -> tuple[Path | None, str]:
@@ -329,6 +404,8 @@ def organize_library(
     archive=None,
     skip_paths: "set[str] | None" = None,
     on_result=None,
+    scheme: "str | list[str] | tuple[str, ...] | None" = None,
+    merge_map: dict | None = None,
 ) -> list[MoveResult]:
     """
     Scan one or more source directories, compute the canonical destination for
@@ -368,6 +445,8 @@ def organize_library(
     """
     from scanner import scan_directory
 
+    scheme_keys = parse_scheme(scheme)  # validates; raises ValueError on typo
+
     source_list: list[Path] = [sources] if isinstance(sources, Path) else list(sources)
 
     # ── Source guardrails ─────────────────────────────────────────────────
@@ -393,8 +472,9 @@ def organize_library(
         return results
 
     log.info(
-        "Organizing %d files  sources=%s  target=%s  mode=%s  dry_run=%s  workers=%d",
-        total, [str(s) for s in source_list], target, mode, dry_run, max_workers,
+        "Organizing %d files  sources=%s  target=%s  by=%s  mode=%s  dry_run=%s  workers=%d",
+        total, [str(s) for s in source_list], target, "/".join(scheme_keys),
+        mode, dry_run, max_workers,
     )
 
     done = moved = skipped = conflicts = errors = 0
@@ -425,7 +505,8 @@ def organize_library(
         )
 
     def _process(track) -> MoveResult:
-        dest = _canonical_dest(track.path, target, track, mix_threshold_sec)
+        dest = _canonical_dest(track.path, target, track, mix_threshold_sec,
+                               scheme=scheme_keys, merge_map=merge_map)
 
         # Already in the right place (in-place reorganisation with correct structure)
         if track.path.resolve() == dest.resolve():

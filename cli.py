@@ -11,7 +11,7 @@ Commands:
     relocate    Batch-update paths for moved/renamed files
     duplicates  Find acoustically identical files via Chromaprint
     process     Detect BPM/key and normalise loudness on audio files
-    organize    Consolidate files into Artist / Album / Track hierarchy
+    organize    Consolidate files into a choosable hierarchy (--by label, artist, …)
     rename      Rename files to clean titles based on metadata
     convert     Convert audio files to a target format
 
@@ -2766,15 +2766,24 @@ def cmd_convert(args: argparse.Namespace) -> None:
 
 
 def cmd_organize(args: argparse.Namespace) -> None:
-    """Consolidate audio files into Artist / Album / Track hierarchy."""
+    """Consolidate audio files into a choosable folder hierarchy (default: Artist / Album)."""
     from pathlib import Path
-    from library_organizer import organize_library
+    from library_organizer import organize_library, parse_scheme
 
     primary = Path(args.source)
     extra   = [Path(p) for p in (getattr(args, "also_scan", None) or [])]
     sources = [primary] + extra
     target  = Path(args.target)
     mode    = getattr(args, "mode", "assimilate")
+
+    # Choosable grouping scheme (default: Artist / Album). A typo fails loudly.
+    try:
+        scheme_keys = parse_scheme(getattr(args, "by", None))
+    except ValueError as exc:
+        log.error("%s", exc)
+        print(f"[ERROR] {exc}", flush=True)
+        sys.exit(2)
+    scheme_label = " / ".join(k.capitalize() for k in scheme_keys)
 
     for s in sources:
         if not s.is_dir():
@@ -2851,6 +2860,7 @@ def cmd_organize(args: argparse.Namespace) -> None:
                 archive=archive,
                 skip_paths=ckpt_done_paths or None,
                 on_result=_on_organize_result,
+                scheme=scheme_keys,
             )
         except ValueError as exc:
             # Source guardrail tripped (system root / home folder / app data).
@@ -2866,9 +2876,9 @@ def cmd_organize(args: argparse.Namespace) -> None:
         root_lines = [f"{len(root_results)} files scanned."]
         if root_moved:
             root_lines.append(
-                f"{root_moved} files would be {action_past} into Artist / Album / Track folders."
+                f"{root_moved} files would be {action_past} into {scheme_label} folders."
                 if dry_run else
-                f"{root_moved} files were {action_past} into Artist / Album / Track folders."
+                f"{root_moved} files were {action_past} into {scheme_label} folders."
             )
         if root_skipped:
             root_lines.append(f"{root_skipped} were already at the destination — left alone.")
@@ -2902,7 +2912,7 @@ def cmd_organize(args: argparse.Namespace) -> None:
             f"Mode: {mode_note}",
         ]
         if moved:
-            lines.append(f"  {moved} would be {action_past} into Artist / Album / Track folders.")
+            lines.append(f"  {moved} would be {action_past} into {scheme_label} folders.")
         if skipped:
             lines.append(f"  {skipped} are exact copies already at the destination — they'd be skipped.")
         if conflicts:
@@ -2913,7 +2923,7 @@ def cmd_organize(args: argparse.Namespace) -> None:
     else:
         lines = ["Done organizing.", ""]
         if moved:
-            lines.append(f"{moved} files were {action_verb} into Artist / Album / Track folders.")
+            lines.append(f"{moved} files were {action_verb} into {scheme_label} folders.")
         if skipped:
             lines.append(f"{skipped} were already at the destination — left alone.")
         if conflicts:
@@ -3838,12 +3848,22 @@ Examples:
     # ── organize ──
     p_organize = sub.add_parser(
         "organize",
-        help="Consolidate files into Artist / Album / Track hierarchy",
+        help="Consolidate files into a choosable folder hierarchy (default: Artist / Album)",
     )
     p_organize.add_argument(
         "source",
         metavar="SOURCE",
         help="Directory to scan for audio files",
+    )
+    p_organize.add_argument(
+        "--by",
+        metavar="KEYS",
+        default=None,
+        help="Grouping scheme as slash-nested keys (default: artist/album). "
+             "Keys: label, artist, album, title, genre, year, filetype. "
+             "Examples: --by label   --by label/artist   --by genre/artist   --by filetype. "
+             "Tag values are cleaned (URLs, junk, Camelot-in-artist dropped); a track with no "
+             "value for the first key goes to Orphaned Tracks.",
     )
     p_organize.add_argument(
         "target",
