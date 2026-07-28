@@ -1189,7 +1189,8 @@ def cmd_recover_playlists(args: argparse.Namespace) -> None:
 
     db = FableGearDatabase()
     log.info("Scanning %d source location(s) for exported crates…", len(sources))
-    report = R.recover(sources, database=db, strategy=getattr(args, "strategy", "richest"))
+    report = R.recover(sources, database=db, strategy=getattr(args, "strategy", "richest"),
+                       merge_numbered=getattr(args, "merge_duplicates", False))
 
     min_resolved = int(getattr(args, "min_resolved", 1))
     keep = [c for c in report.crates
@@ -1222,23 +1223,42 @@ def cmd_recover_playlists(args: argparse.Namespace) -> None:
         return
 
     # ── Guarded write: everything under one removable folder ──
+    # --replace: remove any prior "Recovered …" folders first (their crates are
+    # a subset of this run). Delete children then the folder itself.
+    if getattr(args, "replace", False):
+        for pl in db.list_playlists():
+            if pl.get("type") == "folder" and str(pl.get("name", "")).startswith("Recovered"):
+                for child in db.get_playlist(pl["id"]).get("children", []) if db.get_playlist(pl["id"]) else []:
+                    db.delete_playlist(child["id"])
+                db.delete_playlist(pl["id"])
+                log.info("Removed prior recovery folder %r (id=%s)", pl.get("name"), pl.get("id"))
+
     folder_name = f"Recovered {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     folder_id = db.create_playlist(folder_name, playlist_type="folder")
     created = [folder_id]
     crates_written = links_written = 0
     for c in keep:
         try:
+            # dedupe resolved tracks within the crate, preserve order
+            ids, seen = [], set()
+            for t in c.tracks:
+                if t.content_id is not None and t.content_id not in seen:
+                    seen.add(t.content_id)
+                    ids.append(t.content_id)
+            if not ids:
+                continue
             pid = db.create_playlist(c.name, parent_id=folder_id)
             created.append(pid)
             crates_written += 1
-            for t in c.tracks:
-                if t.content_id is None:
-                    continue
-                try:
-                    if db.add_song(pid, t.content_id):
-                        links_written += 1
-                except Exception:  # noqa: BLE001
-                    pass
+            # bulk insert — one executemany per crate instead of 5 queries/track
+            with db.transaction() as conn:
+                cur = conn.cursor()
+                cur.executemany(
+                    "INSERT INTO fg_playlist_song (playlist_id, content_id, track_number) VALUES (?,?,?)",
+                    [(pid, cid, i) for i, cid in enumerate(ids, 1)],
+                )
+                cur.execute("UPDATE fg_playlist SET track_count = ? WHERE id = ?", (len(ids), pid))
+            links_written += len(ids)
         except Exception as exc:  # noqa: BLE001 — one bad crate must not abort
             log.warning("  crate %r failed: %s", c.name, exc)
     try:
@@ -3300,6 +3320,10 @@ Examples:
                        help="Rebuild the recovered crates into the archive (default: dry-run)")
     p_rec.add_argument("--strategy", choices=["richest"], default="richest",
                        help="Union strategy when a crate appears on multiple sticks")
+    p_rec.add_argument("--merge-duplicates", action="store_true", dest="merge_duplicates",
+                       help="Collapse Rekordbox '(N)' duplicate-name crates into one each")
+    p_rec.add_argument("--replace", action="store_true",
+                       help="Delete any prior 'Recovered …' folders before writing this run")
     p_rec.add_argument("--min-resolved", type=int, default=1, dest="min_resolved",
                        help="Only rebuild crates with at least this many resolved tracks")
     p_rec.add_argument("--report", default=None, help="Write the full crate list to this file")

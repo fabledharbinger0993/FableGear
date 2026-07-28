@@ -30,10 +30,14 @@ Public interface:
 """
 import logging
 import os
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
+
+# Trailing Rekordbox duplicate-name suffix, e.g. "best of house (2)" / "  (3)".
+_NUM_SUFFIX = re.compile(r"\s*\(\d+\)\s*$")
 
 log = logging.getLogger(__name__)
 
@@ -261,19 +265,29 @@ def read_crates(source: ExportSource) -> List[RecoveredCrate]:
 
 # ── Union ──────────────────────────────────────────────────────────────────
 
-def union_crates(crates: List[RecoveredCrate], strategy: str = "richest") -> List[RecoveredCrate]:
+def union_crates(crates: List[RecoveredCrate], strategy: str = "richest",
+                 merge_numbered: bool = False) -> List[RecoveredCrate]:
     """Combine crates sharing a normalised name. 'richest': base on the version
     with the most tracks, then union in any track (by CrateTrack.key) that other
-    versions have and the base lacks, appended in their original order."""
+    versions have and the base lacks, appended in their original order.
+
+    merge_numbered: also collapse Rekordbox '(N)' duplicate-name suffixes, so
+    'best of house (3)' unions into 'best of house'. The kept display name is
+    the suffix-free one."""
+    def group_key(c: RecoveredCrate) -> str:
+        n = c.norm_name
+        return _NUM_SUFFIX.sub("", n).strip() if merge_numbered else n
+
     by_name: Dict[str, List[RecoveredCrate]] = {}
     for c in crates:
-        by_name.setdefault(c.norm_name, []).append(c)
+        by_name.setdefault(group_key(c), []).append(c)
 
     out: List[RecoveredCrate] = []
     for _norm, versions in by_name.items():
         versions.sort(key=lambda c: len(c.tracks), reverse=True)
         base = versions[0]
-        merged = RecoveredCrate(name=base.name, tracks=list(base.tracks),
+        base_name = _NUM_SUFFIX.sub("", base.name).strip() if merge_numbered else base.name
+        merged = RecoveredCrate(name=base_name or base.name, tracks=list(base.tracks),
                                 sources=list(base.sources))
         seen = {t.key for t in merged.tracks}
         for other in versions[1:]:
@@ -325,7 +339,8 @@ def resolve_against_archive(crates: List[RecoveredCrate], database) -> Resolutio
     return stats
 
 
-def recover(roots, database=None, strategy: str = "richest") -> RecoveryReport:
+def recover(roots, database=None, strategy: str = "richest",
+            merge_numbered: bool = False) -> RecoveryReport:
     """Full read-only recovery: scan → read → union → (optionally) resolve."""
     report = RecoveryReport()
     report.sources = find_export_sources(roots)
@@ -335,7 +350,7 @@ def recover(roots, database=None, strategy: str = "richest") -> RecoveryReport:
             all_crates.extend(read_crates(src))
         except Exception as exc:  # noqa: BLE001 — one bad source must not abort
             report.notes.append(f"{src.path}: {exc}")
-    report.crates = union_crates(all_crates, strategy=strategy)
+    report.crates = union_crates(all_crates, strategy=strategy, merge_numbered=merge_numbered)
     if database is not None:
         report.resolution = resolve_against_archive(report.crates, database)
     return report
