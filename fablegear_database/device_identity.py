@@ -25,8 +25,8 @@ Two files, two very different confidence levels:
     A tiny (160-byte) device/DJ profile file. Directly inspected (hex
     dump) on a real device: a header of unknown-but-fixed meaning, then a
     16-byte slot at a fixed offset holding a null-terminated ASCII display
-    name ("Cameron Guthrie\\x00" on the real sample, 15 characters + the
-    terminator), then zero padding to the full 160 bytes. This is
+    name (a 15-character owner name plus the terminator on the real
+    sample), then zero padding to the full 160 bytes. This is
     understood well enough to regenerate: the name slot's location and
     width are directly observed, and every other byte is preserved
     unchanged from the working sample. The 16-byte width is kept FIXED
@@ -110,7 +110,7 @@ def write_rbfltr(pioneer_root: Path) -> Path:
     return target
 
 
-def write_dj_profile(pioneer_root: Path, display_name: str = "Fabled Guthrie") -> Path:
+def write_dj_profile(pioneer_root: Path, display_name: str = "FableGear") -> Path:
     """
     Write PIONEER/djprofile.nxs with display_name in the observed 16-byte
     name slot, preserving every other byte from a real working sample.
@@ -125,10 +125,10 @@ def write_dj_profile(pioneer_root: Path, display_name: str = "Fabled Guthrie") -
     pioneer_root : Path
         The PIONEER/ directory root (i.e. target_root/PIONEER).
     display_name : str
-        Name to show in the device's DJ profile slot. Defaults to a
-        Fabled-branded name ("Fabled Guthrie", 14 characters — fits the
-        15-character limit; "Fabled Harbinger" does not, at 16) rather
-        than leaving the real sample's original owner name in place.
+        Name to show in the device's DJ profile slot. Defaults to
+        "FableGear" (9 characters — well within the 15-character slot)
+        rather than leaving the real sample's original owner name in
+        place. Set your own with the CLI's --dj-name.
 
     Returns
     -------

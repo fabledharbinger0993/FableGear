@@ -139,13 +139,13 @@ def scan_dead_files(
     Parameters
     ----------
     roots:        Directories to scan for audio files.
-    db_paths:     Database files to check against. Defaults to LOCAL_DB + DJMT_DB.
+    db_paths:     Database files to check against. Defaults to LOCAL_DB + DEVICE_DB.
     progress_cb:  Optional callback(scanned, total) called periodically.
     """
     _guard_sources(roots, "the dead-file scanner")
     if db_paths is None:
-        from config import LOCAL_DB, DJMT_DB
-        db_paths = [p for p in (LOCAL_DB, DJMT_DB) if p is not None]
+        from config import LOCAL_DB, DEVICE_DB
+        db_paths = [p for p in (LOCAL_DB, DEVICE_DB) if p is not None]
 
     result = DeadFileScanResult(
         db_paths_used=[str(p) for p in db_paths if p.exists()],

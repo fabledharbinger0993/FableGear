@@ -384,20 +384,23 @@ function runNovelty() {
   }
   const sources = getFolderPaths('novelty-pills');
   const dest    = document.getElementById('novelty-dest').value.trim();
+  const copyTo  = document.getElementById('novelty-copy-to')?.value.trim() || '';
   const dryRun  = document.getElementById('novelty-dry-run').checked;
   const matchMode = document.getElementById('novelty-match-mode')?.value || 'fingerprint';
   if (!sources.length) { _flashNeedsInput('novelty-pills'); showToast('Add at least one source drive or folder.', 'warning'); return; }
-  if (!dest)           { _flashNeedsInput('novelty-dest'); showToast('Enter a destination library path.', 'warning'); return; }
+  if (!dest)           { _flashNeedsInput('novelty-dest'); showToast('Enter a home library path to compare against.', 'warning'); return; }
   const p = new URLSearchParams();
   sources.forEach(source => p.append('source', source));
   p.set('dest', dest);
+  if (copyTo) p.set('copy_to', copyTo);
   p.set('match_mode', matchMode);
   if (!dryRun) p.set('no_dry_run', '1');
+  const copyTargetLabel = copyTo || dest;
   const label = dryRun
     ? 'Novelty Scan — Dry Run (nothing will be copied)'
-    : 'Novelty Scan — Copying novel tracks to destination';
+    : `Novelty Scan — Copying novel tracks to ${copyTargetLabel}`;
   if (!dryRun) {
-    _saveToolCkpt('novelty', { sources, dest, dryRun: false });
+    _saveToolCkpt('novelty', { sources, dest, copyTo, dryRun: false });
     document.getElementById('step-novelty')?.querySelector('.tool-resume-banner')?.remove();
   }
   runCommand(`/api/run/novelty?${p}`, label,

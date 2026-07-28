@@ -29,6 +29,8 @@ if str(REPO_ROOT / "chop_shop") not in sys.path:
 
 from pyrekordbox import Rekordbox6Database
 from pyrekordbox.db6 import tables as rb_tables
+
+from rekordbox_meta_support import relaxed_rekordbox_nullability
 from sqlalchemy import create_engine
 
 from relocator import relocate_directory
@@ -41,11 +43,9 @@ def db(tmp_path):
     engine = create_engine(f"sqlite:///{db_path}")
     # Relax the ORM's inferred NOT NULLs to match real-world master.db data
     # shapes (see tests/test_pruner_associations.py for the full rationale).
-    for table in rb_tables.Base.metadata.tables.values():
-        for column in table.columns:
-            if not column.primary_key:
-                column.nullable = True
-    rb_tables.Base.metadata.create_all(engine)
+    # The helper restores the shared metadata so the mutation can't leak.
+    with relaxed_rekordbox_nullability():
+        rb_tables.Base.metadata.create_all(engine)
     engine.dispose()
 
     handle = Rekordbox6Database(path=str(db_path), unlock=False)

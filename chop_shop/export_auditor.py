@@ -289,7 +289,7 @@ def audit_export(mount_root: PathLike, archive=None) -> ExportAuditReport:
     Parameters
     ----------
     mount_root : str or Path
-        Mount point of the drive to audit (e.g. ``/Volumes/GIGSTICK``).
+        Mount point of the drive to audit (e.g. ``/Volumes/DJ_USB``).
     archive : FableGearDatabase, optional
         When provided, findings are persisted via ``log_operation`` /
         ``bulk_log_operations``. When ``None``, the audit still runs and

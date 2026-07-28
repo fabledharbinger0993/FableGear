@@ -51,8 +51,8 @@ def test_forbidden_sources_are_refused(bad):
 
 
 @pytest.mark.parametrize("ok", [
-    "/Volumes/CAMAGIG",
-    "/Volumes/Passport/DJMT_Library",
+    "/Volumes/MUSIC_DRIVE",
+    "/Volumes/BACKUP/DJ Library",
     "HOME/Music/DJ Library",
     "HOME/Downloads/new tracks",
 ])

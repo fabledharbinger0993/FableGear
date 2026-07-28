@@ -327,6 +327,8 @@ def organize_library(
     max_workers: int = 1,
     mix_threshold_sec: float = MIX_THRESHOLD_SEC,
     archive=None,
+    skip_paths: "set[str] | None" = None,
+    on_result=None,
 ) -> list[MoveResult]:
     """
     Scan one or more source directories, compute the canonical destination for
@@ -357,6 +359,12 @@ def organize_library(
         Tracks at or above this duration (seconds) are routed to
         Live Sets & Mixes instead of the normal Artist / Album tree.
         Default 900 = 15 minutes.
+    skip_paths : set[str] | None
+        Absolute paths (as str) to exclude entirely — used by the caller for
+        checkpoint resume (files already moved/copied in an interrupted run).
+    on_result : Callable[[MoveResult], None] | None
+        Invoked once per file right after tallying, so the caller can persist
+        a checkpoint incrementally.
     """
     from scanner import scan_directory
 
@@ -375,6 +383,8 @@ def organize_library(
     tracks: list = []
     for s in source_list:
         tracks.extend(list(scan_directory(s)))
+    if skip_paths:
+        tracks = [t for t in tracks if str(t.path) not in skip_paths]
     total  = len(tracks)
     results: list[MoveResult] = []
 
@@ -529,6 +539,8 @@ def organize_library(
                 results.append(r)
                 _tally(r)
                 _emit()
+                if on_result is not None:
+                    on_result(r)
     else:
         for i, track in enumerate(tracks):
             r = _process(track)
@@ -536,6 +548,8 @@ def organize_library(
             results.append(r)
             _tally(r)
             _emit()
+            if on_result is not None:
+                on_result(r)
 
     # Prune ONLY the directories this run emptied (folders we moved or
     # deleted files out of, plus their ancestors) — assimilate mode only.

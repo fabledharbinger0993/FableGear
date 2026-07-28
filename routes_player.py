@@ -298,10 +298,10 @@ def _enumerate_drive_audio(
 # ── Library track routes ──────────────────────────────────────────────────────
 
 def _resolve_db(db_param):
-    """Return the DB path for a ?db= query param.  'device' → DJMT_DB, else LOCAL_DB."""
-    from config import LOCAL_DB, DJMT_DB  # noqa: PLC0415
-    if db_param and str(db_param).lower() in ("device", "djmt"):
-        return DJMT_DB
+    """Return the DB path for a ?db= query param.  'device' → DEVICE_DB, else LOCAL_DB."""
+    from config import LOCAL_DB, DEVICE_DB  # noqa: PLC0415
+    if db_param and str(db_param).lower() in ("device",):
+        return DEVICE_DB
     return LOCAL_DB
 
 
@@ -381,7 +381,7 @@ def api_library_tracks():
     source = (request.args.get("db") or "").lower()
 
     # The Rekordbox databases remain reachable as explicit, demoted sources.
-    if source in ("local", "device", "djmt"):
+    if source in ("local", "device"):
         from db_connection import read_db  # noqa: PLC0415
         _DB = _resolve_db(source)
         try:
@@ -791,6 +791,17 @@ def api_library_db_import():
                 )
             except Exception as exc:
                 log.warning("Failed to record import in transaction history: %s", exc)
+        # Callers that need to chain a follow-up action (e.g. add the freshly
+        # imported track to a playlist right after a drag-drop) need the
+        # content_id — import_paths() only returns counts, so look each path
+        # back up. Cheap: one indexed query per path, and this route only ever
+        # handles a handful of drag-dropped files at a time.
+        content_ids = {}
+        for p in paths:
+            record = db.get_content_by_path(p)
+            if record is not None and record.id is not None:
+                content_ids[p] = record.id
+        stats["content_ids"] = content_ids
         return jsonify(stats)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -904,7 +915,7 @@ def api_library_track_stream(track_id):
     source = (request.args.get("db") or "").lower()
 
     # FableGear DB: numeric IDs, default source
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         try:
             db = _fablegear_db()  # read-only: None when the library isn't built yet
             rec = db.get_content_by_id(int(track_id)) if db else None
@@ -943,13 +954,89 @@ def api_library_track_stream(track_id):
         return jsonify({"error": str(exc)}), 500
 
 
+# ── Hot cues / loops (Record Room deck performance state) ─────────────────────
+#
+# Backed by fg_cue, which already exists and is exercised by the Rekordbox
+# bidirectional sync path (fablegear_database/rekordbox_sync.py) — these routes
+# are the first thing to expose it to the deck UI itself. Only FableGear-native
+# tracks (numeric content_id) are supported: a Rekordbox-sourced track's hot
+# cues/loops live in Rekordbox's own database, not fg_cue, and writing to that
+# is out of scope here.
+#
+# kind: 0 = Memory cue, 1 = Hot cue, 2 = Loop, 3 = Active loop (mirrors fg_cue).
+# slot: 0-3 for hot cues (Record Room ships 4 pads/deck, not Rekordbox's 8 —
+# matches the "not too busy" sizing call in the performance-mode audit).
+
+def _cues_db_and_content(track_id):
+    """Resolve track_id to (db, content_id), or (None, None) if unsupported/missing."""
+    try:
+        content_id = int(track_id)
+    except (ValueError, TypeError):
+        return None, None
+    db = _fablegear_db()
+    if db is None or db.get_content_by_id(content_id) is None:
+        return None, None
+    return db, content_id
+
+
+@bp.route("/api/library/tracks/<track_id>/cues")
+def api_library_track_cues(track_id):
+    """List hot cues + loops for a FableGear-native track. Empty list for any
+    track this doesn't support (Rekordbox-sourced, or library not built)."""
+    db, content_id = _cues_db_and_content(track_id)
+    if db is None:
+        return jsonify([])
+    try:
+        return jsonify([c.to_dict() for c in db.get_cues_for_content(content_id)])
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/library/tracks/<track_id>/cues", methods=["POST"])
+def api_library_track_cues_set(track_id):
+    """
+    Set or clear one hot-cue/loop slot. Body:
+      {"kind": 1, "slot": 0, "in_msec": 5230, "out_msec": null,
+       "color": "#ff9d42", "comment": null}
+    Omit / pass null for in_msec to clear that (kind, slot) pair instead.
+    Every other cue for this track is left untouched — read-modify-write
+    around bulk_upsert_cues, which the DB layer only offers as a full replace.
+    """
+    db, content_id = _cues_db_and_content(track_id)
+    if db is None:
+        return jsonify({"error": "hot cues are only supported for FableGear-native tracks with a built library"}), 404
+
+    body = request.get_json(force=True, silent=True) or {}
+    kind = body.get("kind")
+    slot = body.get("slot")
+    if kind not in (0, 1, 2, 3):
+        return jsonify({"error": "kind must be 0 (memory), 1 (hotcue), 2 (loop), or 3 (active loop)"}), 400
+
+    from fablegear_database.database import CueRecord  # noqa: PLC0415
+    try:
+        existing = db.get_cues_for_content(content_id)
+        kept = [c for c in existing if not (c.kind == kind and c.slot == slot)]
+        if body.get("in_msec") is not None:
+            kept.append(CueRecord(
+                kind=kind, slot=slot,
+                in_msec=int(body["in_msec"]),
+                out_msec=int(body["out_msec"]) if body.get("out_msec") is not None else None,
+                color=body.get("color"),
+                comment=body.get("comment"),
+            ))
+        db.bulk_upsert_cues(content_id, kept)
+        return jsonify({"ok": True, "cues": [c.to_dict() for c in kept]})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @bp.route("/api/library/playlists", methods=["GET"])
 def api_library_playlists():
     source = (request.args.get("db") or "").lower()
     # FableGear-native playlists are the default Record Room source (they hold
     # the user's own library). Rekordbox databases stay reachable as demoted,
     # explicit sources.
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db()  # read-only: None when the library isn't built yet
         if fg is None:
             return jsonify([])
@@ -959,7 +1046,7 @@ def api_library_playlists():
             return jsonify({"error": str(exc)}), 500
 
     from db_connection import read_db  # noqa: PLC0415
-    _DB = _resolve_db(source)  # 'device' → DJMT_DB, everything else → LOCAL_DB
+    _DB = _resolve_db(source)  # 'device' → DEVICE_DB, everything else → LOCAL_DB
     if not _DB or not os.path.exists(_DB):
         return jsonify([])  # no Rekordbox DB yet → empty tree, never an error
 
@@ -986,7 +1073,7 @@ def api_library_create_playlist():
     if node_type not in {"playlist", "folder"}:
         return jsonify({"error": "type must be playlist or folder"}), 400
 
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db(create=True)  # creating a playlist is an explicit write
         try:
             pid = fg.create_playlist(name, parent_id=parent_id or None, playlist_type=node_type)
@@ -1022,7 +1109,7 @@ def api_library_create_playlist():
 @bp.route("/api/library/playlists/<playlist_id>/tracks")
 def api_library_playlist_tracks(playlist_id):
     source = (request.args.get("db") or "").lower()
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db()
         if fg is None:
             return jsonify([])
@@ -1072,7 +1159,7 @@ def api_library_add_tracks_to_playlist(playlist_id):
         return jsonify({"error": "track_ids required"}), 400
 
     source = (request.args.get("db") or data.get("db") or "").lower()
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db()
         if fg is None or fg.get_playlist(playlist_id) is None:
             return jsonify({"error": "Playlist not found"}), 404
@@ -1147,7 +1234,7 @@ def api_library_rename_playlist(playlist_id):
         return jsonify({"error": "name required"}), 400
 
     source = (request.args.get("db") or data.get("db") or "").lower()
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db()
         if fg is None or fg.get_playlist(playlist_id) is None:
             return jsonify({"error": "Playlist not found"}), 404
@@ -1174,7 +1261,7 @@ def api_library_delete_playlist(playlist_id):
     from config import LOCAL_DB as _DB  # noqa: PLC0415
 
     source = (request.args.get("db") or "").lower()
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db()
         if fg is None or fg.get_playlist(playlist_id) is None:
             return jsonify({"error": "Playlist not found"}), 404
@@ -1210,7 +1297,7 @@ def api_library_remove_tracks_from_playlist(playlist_id):
         return jsonify({"error": "track_ids required"}), 400
 
     source = (request.args.get("db") or data.get("db") or "").lower()
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db()
         if fg is None or fg.get_playlist(playlist_id) is None:
             return jsonify({"error": "Playlist not found"}), 404
@@ -1266,7 +1353,7 @@ def api_library_reorder_playlist_tracks(playlist_id):
     track_ids = [str(t).strip() for t in track_ids if str(t).strip()]
 
     source = (request.args.get("db") or data.get("db") or "").lower()
-    if source not in ("local", "device", "djmt"):
+    if source not in ("local", "device"):
         fg = _fablegear_db()
         if fg is None or fg.get_playlist(playlist_id) is None:
             return jsonify({"error": "Playlist not found"}), 404

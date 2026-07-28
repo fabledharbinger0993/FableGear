@@ -202,6 +202,37 @@ class Checkpoint:
             log.warning("Could not remove checkpoint: %s", exc)
 
 
+def reset_all(tool: str) -> int:
+    """
+    Delete every saved checkpoint for *tool*, regardless of which roots/config
+    produced it.
+
+    Used by the "Start Fresh" UI action: the frontend only knows the tool
+    name, not the exact config dict the CLI subprocess derived internally
+    (e.g. process's {bpm, key, normalize, enrich} from several flags) — so it
+    can't reconstruct the same hash key a single-checkpoint reset would need.
+    A user hitting "Start Fresh" only ever has one interrupted run of a given
+    tool in mind; wiping every checkpoint under that tool's directory is the
+    simple, unambiguous action that actually matches their intent.
+
+    Returns the number of checkpoint files removed.
+    """
+    tool_dir = _CHECKPOINT_BASE / tool
+    if not tool_dir.is_dir():
+        return 0
+    removed = 0
+    for entry in tool_dir.iterdir():
+        if entry.is_file() and (entry.suffix == ".gz" or entry.suffix == ".json"):
+            try:
+                entry.unlink()
+                removed += 1
+            except Exception as exc:
+                log.warning("Could not remove checkpoint %s: %s", entry, exc)
+    if removed:
+        log.info("Reset %d checkpoint(s) for %s", removed, tool)
+    return removed
+
+
 # ── Flask-side helper ─────────────────────────────────────────────────────────
 
 def check_checkpoint(tool: str, roots: list, config: dict | None = None) -> dict:

@@ -44,6 +44,22 @@ for _p in (str(_ROOT), str(_ROOT / 'chop_shop')):
 # Tell app.py where to find templates and static when bundled
 os.environ.setdefault('FABLEGEAR_ROOT', str(_ROOT))
 
+# ── PATH augmentation (Dock/Finder launches don't inherit shell PATH) ────────
+# macOS launches this via LaunchServices (Dock icon, double-clicked .app) as
+# often as it does via launch.sh in a Terminal. LaunchServices never sources
+# .zshrc/.bash_profile, so it hands the process a bare PATH
+# (/usr/bin:/bin:/usr/sbin:/sbin) that doesn't include Homebrew's bin dirs.
+# shutil.which("ffmpeg") / ("fpcalc") then return None even though the
+# binaries are genuinely installed, and the onboarding wizard reports them
+# as missing every time the app is opened from the Dock instead of a shell.
+if sys.platform == 'darwin':
+    _brew_bins = ('/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', '/usr/local/sbin')
+    _path_parts = os.environ.get('PATH', '').split(os.pathsep)
+    for _bin in _brew_bins:
+        if os.path.isdir(_bin) and _bin not in _path_parts:
+            _path_parts.append(_bin)
+    os.environ['PATH'] = os.pathsep.join(_path_parts)
+
 # ── Server config ─────────────────────────────────────────────────────────────
 # Bind to all interfaces so Tailscale (and LAN) can reach the mobile API.
 # The desktop UI still opens via localhost; the mobile API uses the Tailscale IP.
@@ -104,7 +120,7 @@ class _Api:
             return None
         types = tuple(file_types) if file_types else ('All files (*.*)',)
         result = self._window.create_file_dialog(
-            webview.FileDialog.OPEN_DIALOG,
+            webview.FileDialog.OPEN,
             allow_multiple=False,
             file_types=types,
         )

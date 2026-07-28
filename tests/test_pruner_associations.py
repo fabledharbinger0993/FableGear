@@ -8,7 +8,7 @@ deleting a duplicate's djmdContent row without re-threading these tables
 first leaves orphaned rows behind — Rekordbox will never surface them again.
 These tests exercise the fix against a real (unencrypted) pyrekordbox-schema
 SQLite database, not mocks, so a wrong ORM assumption fails loudly here
-instead of on Cameron's live 246k-track library.
+instead of on a user's live multi-hundred-thousand-track library.
 """
 
 import sys
@@ -27,6 +27,8 @@ from pyrekordbox import Rekordbox6Database
 from pyrekordbox.db6 import tables as rb_tables
 from sqlalchemy import create_engine, text
 
+from rekordbox_meta_support import relaxed_rekordbox_nullability
+
 import pruner
 
 
@@ -39,17 +41,15 @@ def db(tmp_path):
     # infer NOT NULL for nearly every column — a stricter constraint than the
     # real master.db actually enforces (pyrekordbox writes routinely leave
     # most descriptive fields as NULL). Relax nullability so the test schema
-    # matches real-world data shapes instead of the ORM's default inference.
-    for table in rb_tables.Base.metadata.tables.values():
-        for column in table.columns:
-            if not column.primary_key:
-                column.nullable = True
-    rb_tables.Base.metadata.create_all(engine)
+    # matches real-world data shapes; the helper restores the shared metadata
+    # afterward so the mutation can't leak into later tests.
+    with relaxed_rekordbox_nullability():
+        rb_tables.Base.metadata.create_all(engine)
     engine.dispose()
 
     # djmdCloudExportSongPlaylist and djmdRecommendLike have no ORM model in
     # pyrekordbox 0.4.4, so pruner.py talks to them via raw SQL — create them
-    # by hand to match the real live-schema columns found on Cameron's library.
+    # by hand to match the real live-schema columns found on a production library.
     engine = create_engine(f"sqlite:///{db_path}")
     with engine.begin() as conn:
         conn.execute(text(

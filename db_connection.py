@@ -30,8 +30,8 @@ log = logging.getLogger(__name__)
 
 def _get_config():
     """Lazily import config constants. Raises RuntimeError if not configured."""
-    from config import BACKUP_DIR, DJMT_DB, LOCAL_DB  # noqa: PLC0415
-    return BACKUP_DIR, DJMT_DB, LOCAL_DB
+    from config import BACKUP_DIR, DEVICE_DB, LOCAL_DB  # noqa: PLC0415
+    return BACKUP_DIR, DEVICE_DB, LOCAL_DB
 
 # ─── Process detection ────────────────────────────────────────────────────────
 
@@ -96,7 +96,7 @@ def _backup_db(db_path: Path) -> Path:
     Returns the path of the backup file.
     Raises RuntimeError if the source file doesn't exist.
     """
-    BACKUP_DIR, DJMT_DB, LOCAL_DB = _get_config()
+    BACKUP_DIR, DEVICE_DB, LOCAL_DB = _get_config()
     if not db_path.exists():
         # Give a friendly hint if it looks like a drive-mount issue
         parts = db_path.parts
@@ -134,7 +134,7 @@ def open_db(
     Parameters
     ----------
     db_path : Path, optional
-        Path to the database file. Defaults to DJMT_DB.
+        Path to the database file. Defaults to DEVICE_DB.
     write : bool
         If True, creates a backup and checks that Rekordbox is not running
         before yielding. Set False for read-only operations.
@@ -151,7 +151,7 @@ def open_db(
     RuntimeError
         If write=True and backup creation fails.
     """
-    BACKUP_DIR, DJMT_DB, LOCAL_DB = _get_config()
+    BACKUP_DIR, DEVICE_DB, LOCAL_DB = _get_config()
     target = db_path or LOCAL_DB
 
     lock_acquired = False
@@ -215,7 +215,7 @@ def write_db(db_path: Path | None = None) -> Generator[Rekordbox6Database, None,
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(message)s")
 
-    _, DJMT_DB, _ = _get_config()
+    _, DEVICE_DB, _ = _get_config()
     print(f"Rekordbox running: {rekordbox_is_running()}")
 
     print("\n--- Read-only test ---")
@@ -226,6 +226,6 @@ if __name__ == "__main__":
         print(f"  Tracks    : {n_tracks}")
 
     print("\n--- Backup test (no actual write) ---")
-    backup = _backup_db(DJMT_DB)
+    backup = _backup_db(DEVICE_DB)
     print(f"  Backup written to: {backup}")
     print("\nAll checks passed.")

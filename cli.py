@@ -392,7 +392,7 @@ def cmd_dead_files(args: argparse.Namespace) -> None:
             log.error("PATH is not a directory: %s", root)
             sys.exit(1)
 
-    db_paths = None  # defaults to LOCAL_DB + DJMT_DB
+    db_paths = None  # defaults to LOCAL_DB + DEVICE_DB
 
     total_found = [0]
     total_files = [0]
@@ -608,6 +608,42 @@ def cmd_relocate(args: argparse.Namespace) -> None:
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     _emit_report("\n".join(lines), "Relocate", f"relocate_{timestamp}.txt")
+
+
+def _get_checkpoint(tool: str, roots, args, config: dict | None = None):
+    """Build a Checkpoint for tool+roots+config, honoring --checkpoint-action.
+
+    Shared by every long-running per-file command (process, convert, organize,
+    rename, novelty — duplicates uses its own richer variant below since it
+    also restores in-memory fingerprint maps, not just a completed-count).
+
+    reset clears any prior state and starts over; the default (resume) lets
+    the caller pick up exactly where an interrupted run stopped by slicing
+    its file list at saved["completed"]. Returns None if the checkpoint
+    module or file is unavailable — callers must proceed unconditionally
+    (no resume support) rather than fail when that happens.
+    """
+    try:
+        from checkpoint import Checkpoint  # noqa: PLC0415
+    except ImportError:
+        return None
+    try:
+        ckpt = Checkpoint(tool, [str(r) for r in roots], config or {})
+        action = getattr(args, "checkpoint_action", None) or "resume"
+        if action == "reset":
+            ckpt.reset()
+            log.info("Checkpoint reset — starting %s from the beginning.", tool)
+        elif ckpt.exists():
+            info = ckpt.info()
+            log.info(
+                "Found checkpoint from %s (%s/%s done) — resuming. "
+                "Pass --checkpoint-action reset to start over.",
+                info.get("saved_at", "?"), info.get("completed", "?"), info.get("total", "?"),
+            )
+        return ckpt
+    except Exception as exc:
+        log.warning("Checkpoint unavailable (%s) — running without resume support.", exc)
+        return None
 
 
 def _duplicates_checkpoint(roots, args):
@@ -977,13 +1013,13 @@ def cmd_prune(args: argparse.Namespace) -> None:
     # Operate on the device DB when the Pioneer drive is mounted, else local —
     # same selection the interactive prune endpoint uses.
     try:
-        from FableGear.config import DJMT_DB as _DJMT_DB  # noqa: PLC0415
+        from FableGear.config import DEVICE_DB as _DEVICE_DB  # noqa: PLC0415
     except ImportError:
         try:
-            from config import DJMT_DB as _DJMT_DB        # noqa: PLC0415
+            from config import DEVICE_DB as _DEVICE_DB        # noqa: PLC0415
         except Exception:
-            _DJMT_DB = None
-    db_path = _DJMT_DB if (_DJMT_DB and _DJMT_DB.exists()) else LOCAL_DB
+            _DEVICE_DB = None
+    db_path = _DEVICE_DB if (_DEVICE_DB and _DEVICE_DB.exists()) else LOCAL_DB
 
     # Load + rank the report (read-only connection flags DB-referenced files).
     try:
@@ -1068,7 +1104,7 @@ def cmd_prune(args: argparse.Namespace) -> None:
 
 
 def _resolve_active_db_path(cli_db_path: str | None = None) -> Path:
-    """Return the DB path to operate on (explicit override > DJMT > LOCAL)."""
+    """Return the DB path to operate on (explicit override > DEVICE > LOCAL)."""
     if cli_db_path:
         candidate = Path(cli_db_path).expanduser()
         if not candidate.exists():
@@ -1077,15 +1113,15 @@ def _resolve_active_db_path(cli_db_path: str | None = None) -> Path:
         return candidate
 
     try:
-        from FableGear.config import DJMT_DB as _DJMT_DB  # noqa: PLC0415
+        from FableGear.config import DEVICE_DB as _DEVICE_DB  # noqa: PLC0415
     except ImportError:
         try:
-            from config import DJMT_DB as _DJMT_DB  # noqa: PLC0415
+            from config import DEVICE_DB as _DEVICE_DB  # noqa: PLC0415
         except Exception:
-            _DJMT_DB = None
+            _DEVICE_DB = None
 
-    if _DJMT_DB and _DJMT_DB.exists():
-        return _DJMT_DB
+    if _DEVICE_DB and _DEVICE_DB.exists():
+        return _DEVICE_DB
     if LOCAL_DB is None:
         log.error("No Rekordbox database path available")
         sys.exit(1)
@@ -1144,7 +1180,7 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
     log.info("Writing OneLibrary export to: %s", target)
 
     device_name = getattr(args, "device_name", "") or "FableGear"
-    dj_name = getattr(args, "dj_name", "") or "Fabled Guthrie"
+    dj_name = getattr(args, "dj_name", "") or "FableGear"
 
     fg_db = FableGearDatabase()
     try:
@@ -1442,6 +1478,33 @@ def cmd_process(args: argparse.Namespace) -> None:
         except Exception:
             _quarantine_dir = specific_paths[0].parent / "QUARANTINE"
 
+        # Checkpoint: only when this retry-mode entry is the Smart Skip
+        # pre-filter's own recursion (args._smart_skip_roots is set by that
+        # block just before it calls cmd_process() again) — a genuine
+        # explicit "retry these specific files" call (process-retry route)
+        # never sets this and must always reprocess exactly what it's given.
+        _smart_skip_origin_roots = getattr(args, "_smart_skip_roots", None)
+        ckpt = None
+        ckpt_done_paths: set[str] = set()
+        if _smart_skip_origin_roots:
+            ckpt_roots = [r for r, _count in _smart_skip_origin_roots]
+            ckpt = _get_checkpoint("process", ckpt_roots, args, {
+                "bpm": detect_bpm, "key": detect_key, "normalize": normalise,
+                "enrich": bool(getattr(args, "enrich_tags", False)),
+                "force": bool(getattr(args, "force", False)),
+            })
+            if ckpt is not None:
+                saved = ckpt.load()
+                if saved:
+                    ckpt_done_paths = set(saved.get("done_paths", []))
+                    if ckpt_done_paths:
+                        before = len(specific_paths)
+                        specific_paths = [p for p in specific_paths if str(p) not in ckpt_done_paths]
+                        log.info(
+                            "Resuming: %d/%d files already done per checkpoint, skipping those.",
+                            before - len(specific_paths), before,
+                        )
+
         log.info(
             "Retry mode: processing %d specific file(s) — BPM:%s KEY:%s NORMALIZE:%s FORCE:%s",
             len(specific_paths), detect_bpm, detect_key, normalise, args.force,
@@ -1450,6 +1513,7 @@ def cmd_process(args: argparse.Namespace) -> None:
         all_results = []
         total = len(specific_paths)
         done = clean = errors = edited = tags_written = bpm_key_written = quarantined = enriched = 0
+        _ckpt_save_counter = 0
 
         for i, path in enumerate(specific_paths, start=1):
             if not path.exists():
@@ -1468,6 +1532,8 @@ def cmd_process(args: argparse.Namespace) -> None:
                 log.info("[%d/%d] %s  ✗ %s", i, total, path.name, "; ".join(r.errors))
             else:
                 log.info("[%d/%d] %s", i, total, path.name)
+                if ckpt is not None:
+                    ckpt_done_paths.add(str(path))
 
             if is_corrupt(r):
                 quarantine_file(r, _quarantine_dir)
@@ -1483,6 +1549,11 @@ def cmd_process(args: argparse.Namespace) -> None:
                 clean += 1
             done += 1
 
+            if ckpt is not None:
+                _ckpt_save_counter += 1
+                if _ckpt_save_counter % 25 == 0:
+                    ckpt.save({"done_paths": sorted(ckpt_done_paths), "completed": len(ckpt_done_paths)})
+
             print(
                 "FABLEGEAR_PROGRESS: " + _json.dumps({
                     "done": done, "total": total, "remaining": total - done,
@@ -1493,6 +1564,10 @@ def cmd_process(args: argparse.Namespace) -> None:
                 flush=True,
             )
             all_results.append(r)
+
+        # Clean completion of the Smart Skip retry pass — clear the checkpoint.
+        if ckpt is not None:
+            ckpt.reset()
 
         # Build root_sections from smart-skip metadata if available,
         # otherwise fall back to a single entry for retry mode.
@@ -1616,11 +1691,40 @@ def cmd_process(args: argparse.Namespace) -> None:
     except Exception:
         _quarantine_dir = roots[0].parent / "QUARANTINE"
 
+    # Checkpoint: remember which files were cleanly processed (no errors) so
+    # an interrupted run can resume without redoing BPM/key detection or —
+    # more importantly — re-normalising files that were already normalised.
+    ckpt = _get_checkpoint("process", roots, args, {
+        "bpm": detect_bpm, "key": detect_key, "normalize": normalise,
+        "enrich": bool(args.enrich_tags), "force": bool(args.force),
+    })
+    ckpt_done_paths: set[str] = set()
+    if ckpt is not None:
+        saved = ckpt.load()
+        if saved:
+            ckpt_done_paths = set(saved.get("done_paths", []))
+
+    _ckpt_save_counter = 0
+
+    def _on_result(r) -> None:
+        nonlocal _ckpt_save_counter
+        if ckpt is None:
+            return
+        if r.ok and not r.errors:
+            ckpt_done_paths.add(str(r.path))
+        _ckpt_save_counter += 1
+        if _ckpt_save_counter % 25 == 0:
+            ckpt.save({"done_paths": sorted(ckpt_done_paths), "completed": len(ckpt_done_paths)})
+
     all_results = []
     root_sections: list[tuple[Path, str]] = []
     for index, root in enumerate(roots, start=1):
         _log_root_step("Process", root, index, len(roots))
         try:
+            already_done = 0
+            if ckpt_done_paths:
+                from scanner import scan_directory  # noqa: PLC0415
+                already_done = len([1 for t in scan_directory(root) if str(t.path) in ckpt_done_paths])
             results = process_directory(
                 root,
                 detect_bpm=detect_bpm,
@@ -1632,12 +1736,14 @@ def cmd_process(args: argparse.Namespace) -> None:
                 max_workers=max(1, args.workers),
                 quarantine_dir=_quarantine_dir,
                 enrich_tags=args.enrich_tags,
+                skip_paths=ckpt_done_paths or None,
+                on_result=_on_result,
             )
             all_results.extend(results)
             # Persist this root's analysis immediately — a multi-drive run
             # interrupted on drive 3 must keep drives 1-2 in the archive.
             _persist_process_results(results, _archive())
-            root_total = len(results)
+            root_total = len(results) + already_done
             root_bpm_written = sum(1 for r in results if r.bpm_written)
             root_key_written = sum(1 for r in results if r.key_written)
             root_normalised = sum(1 for r in results if r.normalised)
@@ -1646,6 +1752,8 @@ def cmd_process(args: argparse.Namespace) -> None:
             root_skipped_bpm = sum(1 for r in results if r.skipped_bpm)
             root_skipped_key = sum(1 for r in results if r.skipped_key)
             root_lines = [f"{root_total} files were analyzed."]
+            if already_done:
+                root_lines.append(f"{already_done} already done per checkpoint — skipped.")
             if detect_bpm:
                 root_lines.append(
                     f"BPM written: {root_bpm_written}.{f' {root_skipped_bpm} already had one.' if root_skipped_bpm else ''}"
@@ -1664,6 +1772,10 @@ def cmd_process(args: argparse.Namespace) -> None:
         except Exception:
             log.exception("Processing failed for %s", root)
             sys.exit(1)
+
+    # Clean completion — clear the checkpoint so the next run starts fresh.
+    if ckpt is not None:
+        ckpt.reset()
 
     total = len(all_results)
     bpm_written = sum(1 for r in all_results if r.bpm_written)
@@ -1839,6 +1951,25 @@ def cmd_convert(args: argparse.Namespace) -> None:
         log.warning("No audio files found")
         return
 
+    # ── Checkpoint: resume by path (not index) — directory listing order
+    # isn't guaranteed stable run to run, so a saved index-slice could skip
+    # the wrong files. A completed-paths set is order-independent instead.
+    ckpt = _get_checkpoint("convert", roots, args, {"format": target_format})
+    ckpt_done_paths: set[str] = set()
+    if ckpt is not None:
+        saved = ckpt.load()
+        if saved:
+            ckpt_done_paths = set(saved.get("done_paths", []))
+            if ckpt_done_paths:
+                log.info(
+                    "Resuming: %d/%d files already converted, skipping those.",
+                    len(ckpt_done_paths), total,
+                )
+
+    def _save_ckpt_now() -> None:
+        if ckpt is not None:
+            ckpt.save({"done_paths": sorted(ckpt_done_paths), "completed": len(ckpt_done_paths), "total": total})
+
     done = 0
     converted_count = 0   # files actually converted   → footer "edited"
     skipped_count = 0     # nothing to do (already the target, or target exists) → footer "clean"
@@ -1905,6 +2036,19 @@ def cmd_convert(args: argparse.Namespace) -> None:
         root_errors = 0
         root_total = len(tracks)
 
+        # Checkpoint resume: files already recorded as done in a previous run
+        # are skipped outright — no restat, no ffmpeg invocation — rather than
+        # re-scanned and re-classified as "already converted" every time.
+        already_done = [t for t in tracks if str(t.path) in ckpt_done_paths]
+        to_process = [t for t in tracks if str(t.path) not in ckpt_done_paths]
+        if already_done:
+            done += len(already_done)
+            skipped_count += len(already_done)
+            root_skipped += len(already_done)
+            log.info("%d file(s) already converted per checkpoint — skipped.", len(already_done))
+            _emit_progress()
+        tracks = to_process
+
         if max_workers > 1:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
                 futures = {ex.submit(_convert_one, track): track for track in tracks}
@@ -1918,15 +2062,19 @@ def cmd_convert(args: argparse.Namespace) -> None:
                     if kind == "converted":
                         converted_count += 1
                         root_converted += 1
+                        ckpt_done_paths.add(str(futures[future].path))
                         log.info("✓ %s: %s", name, msg)
                     elif kind == "skipped":
                         skipped_count += 1
                         root_skipped += 1
+                        ckpt_done_paths.add(str(futures[future].path))
                         log.info("• %s: %s", name, msg)
                     else:
                         error_count += 1
                         root_errors += 1
                         log.error("✗ %s: %s", name, msg)
+                    if done % 25 == 0:
+                        _save_ckpt_now()
                     _emit_progress()
         else:
             for track_index, track in enumerate(tracks, start=1):
@@ -1938,15 +2086,19 @@ def cmd_convert(args: argparse.Namespace) -> None:
                 if kind == "converted":
                     converted_count += 1
                     root_converted += 1
+                    ckpt_done_paths.add(str(track.path))
                     log.info("✓ %s: %s", track.path.name, msg)
                 elif kind == "skipped":
                     skipped_count += 1
                     root_skipped += 1
+                    ckpt_done_paths.add(str(track.path))
                     log.info("• %s: %s", track.path.name, msg)
                 else:
                     error_count += 1
                     root_errors += 1
                     log.error("✗ %s: %s", track.path.name, msg)
+                if done % 25 == 0:
+                    _save_ckpt_now()
                 _emit_progress()
 
         root_lines = [f"{root_converted} of {root_total} files converted to {target_format.upper()}."]
@@ -1957,6 +2109,12 @@ def cmd_convert(args: argparse.Namespace) -> None:
         else:
             root_lines.append("No errors.")
         root_sections.append((root, "\n".join(root_lines)))
+
+    # Clean completion (every root's file list fully processed) — clear the
+    # checkpoint so the next run starts fresh rather than finding a stale
+    # "resume" state for what is, from here on, a finished job.
+    if ckpt is not None:
+        ckpt.reset()
 
     if _fg_archive is not None and converted_count:
         try:
@@ -2038,6 +2196,31 @@ def cmd_organize(args: argparse.Namespace) -> None:
         [str(s) for s in sources], target, mode, dry_run, max_workers, threshold / 60,
     )
 
+    # Checkpoint: only for live runs — a dry run touches nothing, so there's
+    # nothing to resume and re-running it in full is cheap and expected.
+    ckpt = None
+    ckpt_done_paths: set[str] = set()
+    if not dry_run:
+        ckpt = _get_checkpoint("organize", sources, args, {
+            "target": str(target), "mode": mode,
+        })
+        if ckpt is not None:
+            saved = ckpt.load()
+            if saved:
+                ckpt_done_paths = set(saved.get("done_paths", []))
+
+    _ckpt_save_counter = 0
+
+    def _on_organize_result(r) -> None:
+        nonlocal _ckpt_save_counter
+        if ckpt is None:
+            return
+        if r.action in ("moved", "conflict_renamed", "skipped"):
+            ckpt_done_paths.add(str(r.src))
+        _ckpt_save_counter += 1
+        if _ckpt_save_counter % 25 == 0:
+            ckpt.save({"done_paths": sorted(ckpt_done_paths), "completed": len(ckpt_done_paths)})
+
     results = []
     root_sections: list[tuple[Path, str]] = []
     for index, source in enumerate(sources, start=1):
@@ -2050,6 +2233,8 @@ def cmd_organize(args: argparse.Namespace) -> None:
                 max_workers=max_workers,
                 mix_threshold_sec=threshold,
                 archive=archive,
+                skip_paths=ckpt_done_paths or None,
+                on_result=_on_organize_result,
             )
         except ValueError as exc:
             # Source guardrail tripped (system root / home folder / app data).
@@ -2076,6 +2261,10 @@ def cmd_organize(args: argparse.Namespace) -> None:
         if root_errors:
             root_lines.append(f"{root_errors} files had errors — check the log above.")
         root_sections.append((source, "\n".join(root_lines)))
+
+    # Clean completion — clear the checkpoint so the next run starts fresh.
+    if ckpt is not None:
+        ckpt.reset()
 
     moved     = sum(1 for r in results if r.action in ("moved", "dry_run", "conflict_renamed"))
     skipped   = sum(1 for r in results if r.action == "skipped")
@@ -2143,6 +2332,8 @@ def cmd_novelty(args: argparse.Namespace) -> None:
     extra   = [Path(p) for p in (getattr(args, "also_scan", None) or [])]
     sources = [primary] + extra
     dest    = Path(args.dest)
+    copy_to_arg = getattr(args, "copy_to", None)
+    copy_to = Path(copy_to_arg) if copy_to_arg else None
     dry_run = not args.no_dry_run
     match_mode = getattr(args, "match_mode", "fingerprint")
 
@@ -2156,6 +2347,12 @@ def cmd_novelty(args: argparse.Namespace) -> None:
         except OSError as e:
             log.error("Cannot create destination %s: %s", dest, e)
             sys.exit(1)
+    if copy_to is not None and not copy_to.is_dir():
+        try:
+            copy_to.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            log.error("Cannot create copy-to folder %s: %s", copy_to, e)
+            sys.exit(1)
 
     max_workers = max(1, getattr(args, "workers", 1))
 
@@ -2167,8 +2364,9 @@ def cmd_novelty(args: argparse.Namespace) -> None:
     archive = _archive() if dry_run else _require_archive("novelty")
 
     log.info(
-        "Novel scan  sources=%s  dest=%s  dry_run=%s  workers=%d  match_mode=%s",
-        [str(s) for s in sources], dest, dry_run, max_workers, match_mode,
+        "Novel scan  sources=%s  compare_against=%s  copy_to=%s  dry_run=%s  "
+        "workers=%d  match_mode=%s",
+        [str(s) for s in sources], dest, copy_to or dest, dry_run, max_workers, match_mode,
     )
 
     total_src = 0
@@ -2178,15 +2376,44 @@ def cmd_novelty(args: argparse.Namespace) -> None:
     aggregate_errors = []
     root_sections: list[tuple[Path, str]] = []
     verb = "would be copied" if dry_run else "copied"
+    copy_target_label = str(copy_to) if copy_to is not None else str(dest)
+
+    # Checkpoint: only for live runs — a dry run touches nothing, so there's
+    # nothing to resume and re-running it in full is cheap and expected.
+    ckpt = None
+    ckpt_done_paths: set[str] = set()
+    if not dry_run:
+        ckpt = _get_checkpoint("novelty", sources, args, {
+            "dest": str(dest), "copy_to": str(copy_to) if copy_to else "", "match_mode": match_mode,
+        })
+        if ckpt is not None:
+            saved = ckpt.load()
+            if saved:
+                ckpt_done_paths = set(saved.get("done_paths", []))
+
+    _ckpt_save_counter = 0
+
+    def _on_novelty_result(r) -> None:
+        nonlocal _ckpt_save_counter
+        if ckpt is None:
+            return
+        if r.action in ("copied", "dry_run", "skipped"):
+            ckpt_done_paths.add(str(r.path))
+        _ckpt_save_counter += 1
+        if _ckpt_save_counter % 25 == 0:
+            ckpt.save({"done_paths": sorted(ckpt_done_paths), "completed": len(ckpt_done_paths)})
 
     for index, source in enumerate(sources, start=1):
         _log_root_step("Novelty", source, index, len(sources))
         root_result = scan_novel(
             [source], dest,
+            copy_to=copy_to,
             dry_run=dry_run,
             max_workers=max_workers,
             match_mode=match_mode,
             archive=archive,
+            skip_paths=ckpt_done_paths or None,
+            on_result=_on_novelty_result,
         )
         total_src += root_result.total_src
         dest_index_size = max(dest_index_size, root_result.dest_index_size)
@@ -2199,15 +2426,19 @@ def cmd_novelty(args: argparse.Namespace) -> None:
         root_errors = len(root_result.errors)
         root_lines = [
             f"{root_result.total_src} tracks scanned on source.",
-            f"Destination index: {root_result.dest_index_size} tracks.",
+            f"Compared against: {root_result.dest_index_size} tracks in {dest}.",
         ]
         if root_novel:
-            root_lines.append(f"{root_novel} novel tracks {verb} to destination.")
+            root_lines.append(f"{root_novel} novel tracks {verb} to {copy_target_label}.")
         if root_present:
             root_lines.append(f"{root_present} tracks confirmed already present — skipped.")
         if root_errors:
             root_lines.append(f"{root_errors} errors — check log above.")
         root_sections.append((source, "\n".join(root_lines)))
+
+    # Clean completion — clear the checkpoint so the next run starts fresh.
+    if ckpt is not None:
+        ckpt.reset()
 
     class _AggregateNoveltyResult:
         pass
@@ -2229,12 +2460,12 @@ def cmd_novelty(args: argparse.Namespace) -> None:
         "Novel Track Scan complete.",
         "",
         f"{result.total_src} tracks scanned on source.",
-        f"Destination index: {result.dest_index_size} tracks.",
+        f"Compared against: {result.dest_index_size} tracks in {dest}.",
         f"Comparison mode: {match_mode}.",
         "",
     ]
     if novel:
-        lines.append(f"  {novel} novel tracks {verb} to destination.")
+        lines.append(f"  {novel} novel tracks {verb} to {copy_target_label}.")
     if present:
         lines.append(f"  {present} tracks confirmed already present — skipped.")
     if errors:
@@ -2275,6 +2506,29 @@ def cmd_rename(args: argparse.Namespace) -> None:
         [str(r) for r in roots], dry_run, max_workers,
     )
 
+    # Checkpoint: only for live runs — a dry run touches nothing, so there's
+    # nothing to resume and re-running it in full is cheap and expected.
+    ckpt = None
+    ckpt_done_paths: set[str] = set()
+    if not dry_run:
+        ckpt = _get_checkpoint("rename", roots, args, {})
+        if ckpt is not None:
+            saved = ckpt.load()
+            if saved:
+                ckpt_done_paths = set(saved.get("done_paths", []))
+
+    _ckpt_save_counter = 0
+
+    def _on_rename_result(r) -> None:
+        nonlocal _ckpt_save_counter
+        if ckpt is None:
+            return
+        if r.action in ("renamed", "no_change", "collision_numbered", "quarantined"):
+            ckpt_done_paths.add(str(r.original_path))
+        _ckpt_save_counter += 1
+        if _ckpt_save_counter % 25 == 0:
+            ckpt.save({"done_paths": sorted(ckpt_done_paths), "completed": len(ckpt_done_paths)})
+
     results = []
     root_sections: list[tuple[Path, str]] = []
 
@@ -2282,7 +2536,10 @@ def cmd_rename(args: argparse.Namespace) -> None:
         if dry_run:
             for index, root in enumerate(roots, start=1):
                 _log_root_step("Rename", root, index, len(roots))
-                root_results = rename_directory(root, db=None, dry_run=True, max_workers=max_workers, archive=_archive())
+                root_results = rename_directory(
+                    root, db=None, dry_run=True, max_workers=max_workers, archive=_archive(),
+                    skip_paths=ckpt_done_paths or None, on_result=_on_rename_result,
+                )
                 results.extend(root_results)
                 root_renamed = sum(1 for r in root_results if r.action == "renamed")
                 root_skipped = sum(1 for r in root_results if r.action == "no_change")
@@ -2306,7 +2563,10 @@ def cmd_rename(args: argparse.Namespace) -> None:
             with write_db(LOCAL_DB) as db:
                 for index, root in enumerate(roots, start=1):
                     _log_root_step("Rename", root, index, len(roots))
-                    root_results = rename_directory(root, db=db, dry_run=False, max_workers=max_workers, archive=archive)
+                    root_results = rename_directory(
+                        root, db=db, dry_run=False, max_workers=max_workers, archive=archive,
+                        skip_paths=ckpt_done_paths or None, on_result=_on_rename_result,
+                    )
                     results.extend(root_results)
                     root_renamed = sum(1 for r in root_results if r.action == "renamed")
                     root_skipped = sum(1 for r in root_results if r.action == "no_change")
@@ -2328,6 +2588,10 @@ def cmd_rename(args: argparse.Namespace) -> None:
     except Exception:
         log.exception("Rename failed")
         sys.exit(1)
+
+    # Clean completion — clear the checkpoint so the next run starts fresh.
+    if ckpt is not None:
+        ckpt.reset()
 
     total = len(results)
     renamed = sum(1 for r in results if r.action == "renamed")
@@ -2413,7 +2677,7 @@ Examples:
         "usb-inspect",
         help="Read-only check of a Pioneer export drive (DeviceSQL + OneLibrary)",
     )
-    p_usb.add_argument("mount", help="Mount point of the drive, e.g. /Volumes/GIGSTICK")
+    p_usb.add_argument("mount", help="Mount point of the drive, e.g. /Volumes/DJ_USB")
     p_usb.set_defaults(func=cmd_usb_inspect)
 
     p_anlz = sub.add_parser(
@@ -2441,7 +2705,7 @@ Examples:
         "export-audit",
         help="Read-only Phase B deep audit of a mounted Pioneer export tree (writes to the FableGear archive)",
     )
-    p_export_audit.add_argument("mount", help="Mount point of the drive, e.g. /Volumes/GIGSTICK")
+    p_export_audit.add_argument("mount", help="Mount point of the drive, e.g. /Volumes/DJ_USB")
     p_export_audit.set_defaults(func=cmd_export_audit)
 
     p_audit = sub.add_parser("audit", help="Read-only library health check")
@@ -2583,7 +2847,7 @@ Examples:
     p_rb_dupes.add_argument(
         "--db-path",
         metavar="PATH",
-        help="Explicit Rekordbox DB path (default: DJMT_DB when mounted, else LOCAL_DB)",
+        help="Explicit Rekordbox DB path (default: DEVICE_DB when mounted, else LOCAL_DB)",
     )
     p_rb_dupes.add_argument(
         "--output", "-o",
@@ -2670,7 +2934,7 @@ Examples:
     p_onelib.add_argument(
         "--dj-name",
         default="",
-        help="DJ profile display name for djprofile.nxs (default: Fabled Guthrie)",
+        help="DJ profile display name for djprofile.nxs (default: FableGear)",
     )
     p_onelib.add_argument(
         "--no-identity-files",
@@ -2781,6 +3045,14 @@ Examples:
         dest="smart_skip",
         help="Before processing, filter out files that already have all requested tags. Faster re-runs when most files are already complete.",
     )
+    p_process.add_argument(
+        "--checkpoint-action",
+        choices=["resume", "reset"],
+        default="resume",
+        dest="checkpoint_action",
+        help="resume (default): continue an interrupted run from its checkpoint. "
+             "reset: discard the checkpoint and start from the beginning.",
+    )
     p_process.set_defaults(func=cmd_process)
 
     # ── convert ──
@@ -2807,6 +3079,14 @@ Examples:
         type=int,
         default=1,
         help="Parallel ffmpeg workers for conversion (default: 1)",
+    )
+    p_convert.add_argument(
+        "--checkpoint-action",
+        choices=["resume", "reset"],
+        default="resume",
+        dest="checkpoint_action",
+        help="resume (default): continue an interrupted conversion from its checkpoint. "
+             "reset: discard the checkpoint and start from the beginning.",
     )
     p_convert.set_defaults(func=cmd_convert)
 
@@ -2862,6 +3142,14 @@ Examples:
             "integrate: copy files to target only — source drive is never modified."
         ),
     )
+    p_organize.add_argument(
+        "--checkpoint-action",
+        choices=["resume", "reset"],
+        default="resume",
+        dest="checkpoint_action",
+        help="resume (default): continue an interrupted organize run from its checkpoint. "
+             "reset: discard the checkpoint and start from the beginning.",
+    )
     p_organize.set_defaults(func=cmd_organize)
 
     # ── novelty ───────────────────────────────────────────────────────────────
@@ -2877,7 +3165,17 @@ Examples:
     p_novelty.add_argument(
         "dest",
         metavar="DEST",
-        help="Home library root to copy novel tracks into",
+        help="Home library root to compare source tracks against",
+    )
+    p_novelty.add_argument(
+        "--copy-to",
+        metavar="PATH",
+        dest="copy_to",
+        default=None,
+        help="Where confirmed-novel tracks are copied. Defaults to DEST "
+             "(the old single-folder behavior) when omitted — pass this to "
+             "keep new finds segregated in their own folder while still "
+             "comparing against the real home library.",
     )
     p_novelty.add_argument(
         "--no-dry-run",
@@ -2905,6 +3203,14 @@ Examples:
         choices=["fingerprint", "filename"],
         default="fingerprint",
         help="fingerprint: metadata pre-filter + fingerprint confirmation (default). filename: match by normalized filename only (faster, less strict).",
+    )
+    p_novelty.add_argument(
+        "--checkpoint-action",
+        choices=["resume", "reset"],
+        default="resume",
+        dest="checkpoint_action",
+        help="resume (default): continue an interrupted novelty scan from its checkpoint. "
+             "reset: discard the checkpoint and start from the beginning.",
     )
     p_novelty.set_defaults(func=cmd_novelty)
 
@@ -2938,6 +3244,14 @@ Examples:
         type=int,
         default=1,
         help="Parallel workers (default: 1)",
+    )
+    p_rename.add_argument(
+        "--checkpoint-action",
+        choices=["resume", "reset"],
+        default="resume",
+        dest="checkpoint_action",
+        help="resume (default): continue an interrupted rename run from its checkpoint. "
+             "reset: discard the checkpoint and start from the beginning.",
     )
     p_rename.set_defaults(func=cmd_rename)
 

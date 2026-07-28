@@ -12,7 +12,7 @@ array, the page/row-group index, and the tracks table row layout.
 
 Header layout (DEMONSTRATED — matches usb_inspector.py's
 ``_check_devicesql`` and the real numbers recorded in
-``docs/format_samples/DJMTGO_inspection.md``: page size 4096, 20 tables,
+``docs/format_samples/usb_format_inspection.md``: page size 4096, 20 tables,
 610,304 bytes):
 
     4 zero bytes + page_size:u32le + num_tables:u32le + next_unused_page:u32le

@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
 from fablegear_database.database import FableGearDatabase, ContentRecord, CueRecord, BeatGridRecord
 from fablegear_database.schema import DatabaseConfig
 from fablegear_database.rekordbox_sync import RekordboxSyncAdapter
+from rekordbox_meta_support import relaxed_rekordbox_nullability
 
 
 @pytest.fixture
@@ -26,14 +27,12 @@ def rdb_path(tmp_path):
     """Creates a mock unencrypted Rekordbox master.db with correct schema."""
     db_path = tmp_path / "master.db"
     engine = create_engine(f"sqlite:///{db_path}")
-    
-    # Relax nullability constraints to match real world
-    for table in rb_tables.Base.metadata.tables.values():
-        for column in table.columns:
-            if not column.primary_key:
-                column.nullable = True
-                
-    rb_tables.Base.metadata.create_all(engine)
+
+    # Relax nullability so the partial menu-item / device inserts below don't
+    # trip NOT NULL. The metadata is process-global; relaxed_rekordbox_nullability
+    # scopes and restores the mutation so it can't leak into later tests.
+    with relaxed_rekordbox_nullability():
+        rb_tables.Base.metadata.create_all(engine)
     engine.dispose()
     
     # Add menu item and device required by pyrekordbox add_content
@@ -70,7 +69,7 @@ def rdb_path(tmp_path):
     handle.session.add(device)
     handle.session.commit()
     handle.close()
-    
+
     return db_path
 
 
@@ -295,3 +294,4 @@ def test_sync_dry_run_safety(fg_db, rdb_path, tmp_path):
     content = rdb.get_content(FolderPath=str(track_file)).first()
     assert content is None
     rdb.close()
+

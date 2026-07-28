@@ -72,6 +72,49 @@ def test_generate_filename_uses_hyphen_separator(monkeypatch):
     assert renamer._generate_filename("Artist", "Title", ".mp3") == "Artist - Title.mp3"
 
 
+def test_generate_filename_includes_genuine_album(monkeypatch):
+    renamer = _load_renamer_module(monkeypatch)
+    assert renamer._generate_filename(
+        "Daft Punk", "Around the World", ".mp3", album="Homework"
+    ) == "Daft Punk - Homework - Around the World.mp3"
+
+
+def test_generate_filename_drops_album_that_prefixes_title(monkeypatch):
+    """A single sold as its own 'album' — album is a leading run of the title —
+    must not render the doubled 'Snow Day - Snow Day (Rain Day Remix)'."""
+    renamer = _load_renamer_module(monkeypatch)
+    assert renamer._generate_filename(
+        "Justin Martin", "Snow Day (Rain Day Remix)", ".mp3", album="Snow Day"
+    ) == "Justin Martin - Snow Day (Rain Day Remix).mp3"
+
+
+def test_generate_filename_drops_album_when_title_prefixes_it(monkeypatch):
+    """Redundancy is symmetric: album 'Snow Day EP' against title 'Snow Day'."""
+    renamer = _load_renamer_module(monkeypatch)
+    assert renamer._generate_filename(
+        "Artist", "Snow Day", ".mp3", album="Snow Day EP"
+    ) == "Artist - Snow Day.mp3"
+
+
+def test_generate_filename_drops_album_equal_to_artist(monkeypatch):
+    renamer = _load_renamer_module(monkeypatch)
+    assert renamer._generate_filename(
+        "Artist", "Track", ".mp3", album="Artist"
+    ) == "Artist - Track.mp3"
+
+
+def test_generate_filename_keeps_album_sharing_only_partial_prefix(monkeypatch):
+    """A split single ('I Like the Way / Stepping Out') shares a leading phrase
+    with the title but adds real info — neither is a full prefix of the other,
+    so the album stays."""
+    renamer = _load_renamer_module(monkeypatch)
+    out = renamer._generate_filename(
+        "Kaskade", "I Like The Way (Extended Mix)", ".mp3",
+        album="I Like the Way Stepping Out",
+    )
+    assert out == "Kaskade - I Like the Way Stepping Out - I Like The Way (Extended Mix).mp3"
+
+
 # Distinct words (no repeats) so _normalize_artist_text's dedup pass — which
 # collapses a string that's the same phrase repeated — never fires and
 # shortens these back down before the length fix even gets exercised.

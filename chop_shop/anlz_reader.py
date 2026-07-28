@@ -17,7 +17,7 @@ The tag chain is walked BY HAND, not through pyrekordbox/construct: CDJ-3000
 used for every file type instead of splitting the implementation between a
 library path and a hand-rolled ``.2EX`` path.
 
-Decode depth by tag (see ``docs/format_samples/DJMTGO_inspection.md`` and
+Decode depth by tag (see ``docs/format_samples/usb_format_inspection.md`` and
 ``docs/dual_format_export.md`` for the evidence each of these rests on):
 
   DEMONSTRATED (full field decode, byte layout confirmed against real
@@ -222,7 +222,7 @@ def _decode_pqtz(data: bytes, tag: AnlzTagInfo) -> List[BeatGridEntry]:
 def _decode_waveform_header(data: bytes, tag: AnlzTagInfo) -> WaveformTagInfo:
     """PWV6/PWV7/PWVC header fields — counts only, no pixel decode.
 
-    Layout confirmed against ``docs/format_samples/DJMTGO_inspection.md``:
+    Layout confirmed against ``docs/format_samples/usb_format_inspection.md``:
     12-byte generic prefix, then up to two u32be fields (``len_entry_bytes``,
     ``len_entries``) filling the rest of ``len_header``, then raw entry bytes
     filling the rest of ``len_tag``. PWVC's header is too short to carry

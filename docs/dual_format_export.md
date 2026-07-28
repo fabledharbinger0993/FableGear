@@ -49,7 +49,7 @@ stick from each device family and commit the (sanitized) reports to
 persists through `FableGearDatabase.log_operation` / `bulk_log_operations`.
 
 What's demonstrated (byte layout confirmed against
-`docs/format_samples/DJMTGO_inspection.md`'s real numbers, not guessed):
+`docs/format_samples/usb_format_inspection.md`'s real numbers, not guessed):
 ANLZ `PPTH` (embedded path) and `PQTZ` (full beat grid) decode; `PWV6` /
 `PWV7` / `PWVC` (3-band waveform) header fields decode (pixel data itself is
 intentionally not interpreted); the DeviceSQL PDB's full file header
@@ -98,7 +98,7 @@ What's still open, and deliberately NOT faked:
   so `anlz_reader.py` records their presence and tag size and stops there
   rather than inventing field offsets.
 - **No real hardware binaries are committed.** `docs/format_samples/`
-  contains only the `DJMTGO_inspection.md` report (redacted), not the
+  contains only the `usb_format_inspection.md` report (redacted), not the
   underlying `.DAT`/`.EXT`/`.2EX`/`.pdb` settings files themselves.
   Every parser's unit tests run against synthetic, spec-derived byte
   buffers (clearly labeled as such in each test file) — they verify the

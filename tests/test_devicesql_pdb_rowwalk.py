@@ -191,7 +191,7 @@ def test_read_pdb_recovers_synthetic_track_row(tmp_path):
         album_id=0,
         key_id=0,
         title=_short_string("Test Track"),
-        file_path=_long_string("/Contents/DJMTGO/Artist/Test Track.mp3"),
+        file_path=_long_string("/Contents/Music/Artist/Test Track.mp3"),
         anlz_path=_short_string("/PIONEER/USBANLZ/P000/00000001"),
     )
     pdb_path = tmp_path / "export.pdb"
@@ -207,7 +207,7 @@ def test_read_pdb_recovers_synthetic_track_row(tmp_path):
     assert track.track_id == 555
     assert track.bpm == 128.0
     assert track.title == "Test Track"
-    assert track.drive_relative_path == "/Contents/DJMTGO/Artist/Test Track.mp3"
+    assert track.drive_relative_path == "/Contents/Music/Artist/Test Track.mp3"
     assert track.anlz_folder_path == "/PIONEER/USBANLZ/P000/00000001"
     # Deliberately unresolved this phase — see module docstring.
     assert track.artist is None

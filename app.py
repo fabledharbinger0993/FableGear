@@ -59,6 +59,10 @@ app = Flask(
 @app.errorhandler(Exception)
 def _handle_unexpected_exception(exc):
     if request.path.startswith("/api/"):
+        import logging as _logging  # noqa: PLC0415
+        _logging.getLogger(__name__).exception(
+            "Unhandled exception on %s %s", request.method, request.path
+        )
         return api_error_from_exc(exc)
     raise exc
 
@@ -458,7 +462,7 @@ def api_config():
     from helpers import _current_fablegear_mode, _backup_dir  # noqa: PLC0415
     try:
         from config import (  # noqa: PLC0415
-            DJMT_DB, LOCAL_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
+            DEVICE_DB, LOCAL_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
             BACKUP_DIR, ARCHIVE_ENABLED, SNAPSHOT_CADENCE, SNAPSHOT_INCLUDE_MASTER_DB,
             _archive_mode, _custom_archive,
         )
@@ -468,7 +472,7 @@ def api_config():
         return jsonify({
             "music_root":       str(MUSIC_ROOT),
             "local_db":         str(LOCAL_DB),
-            "djmt_db":          str(DJMT_DB),
+            "device_db":        str(DEVICE_DB),
             "backup_dir":       str(BACKUP_DIR),
             "archive_root":     str(ARCHIVE_ROOT),
             "quarantine":       str(QUARANTINE_DIR),
@@ -487,7 +491,7 @@ def api_config():
         current_mode = _current_fablegear_mode()
         return jsonify({
             "music_root":      "",
-            "djmt_db":         "",
+            "device_db":       "",
             "backup_dir":      str(_backup_dir()),
             "archive_root":    "",
             "quarantine":      "",
@@ -785,6 +789,27 @@ def api_pick_folder():
             )
             if result.returncode == 0:
                 return jsonify({"path": result.stdout.strip().rstrip("/")})
+        except Exception:
+            pass
+    return jsonify({"path": None})
+
+
+@app.route("/api/pick-file")
+def api_pick_file():
+    """Open the native file-chooser dialog. macOS uses osascript; other platforms
+    rely on pywebview's js_api.pick_file() called directly from the frontend.
+
+    Used as the fallback when the page isn't running inside the pywebview native
+    window (e.g. a plain browser tab), where window.pywebview is never defined.
+    """
+    if _SYSTEM == "Darwin":
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", "POSIX path of (choose file)"],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode == 0:
+                return jsonify({"path": result.stdout.strip()})
         except Exception:
             pass
     return jsonify({"path": None})
@@ -1449,6 +1474,7 @@ def api_onboarding_import_sources():
 
 
 @app.route("/api/onboarding/import-sources/status")
+@limiter.exempt
 def api_onboarding_import_sources_status():
     return jsonify(_OB_IMPORT)
 

@@ -38,7 +38,7 @@ def test_write_dj_profile_default_is_fabled_branded(tmp_path):
     assert len(data) == _DJPROFILE_TOTAL_SIZE
     assert data[:0x20] == _DJPROFILE_HEADER  # header preserved exactly
     name = data[0x20:0x30].split(b"\x00", 1)[0].decode("ascii")
-    assert name == "Fabled Guthrie"
+    assert name == "FableGear"
 
 
 def test_write_dj_profile_custom_name(tmp_path):
@@ -51,7 +51,7 @@ def test_write_dj_profile_custom_name(tmp_path):
 
 
 def test_write_dj_profile_long_name_truncates_without_raising(tmp_path):
-    path = write_dj_profile(tmp_path / "PIONEER", display_name="A Very Long Fabled Harbinger Name Indeed")
+    path = write_dj_profile(tmp_path / "PIONEER", display_name="A Very Long DJ Name That Exceeds The Slot")
     data = path.read_bytes()
     assert len(data) == _DJPROFILE_TOTAL_SIZE  # file size never changes
     name_slot = data[0x20:0x30]
