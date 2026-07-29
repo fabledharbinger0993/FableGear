@@ -129,7 +129,21 @@ export of the same playlist set, then hardware-test on the OMNIS-DUO.
 Risk: hidden integrity fields (hashes, version stamps). The diff harness
 exists precisely to surface them.
 
-## Phase D — Write DeviceSQL (hard, the summit)
+## Phase D — Write DeviceSQL (hard, the summit) — ⏸️ DEFERRED INDEFINITELY
+
+**Superseded by hardware evidence, 2026-07-29.** A FableGear-exported stick —
+OneLibrary-only by construction, since no DeviceSQL writer exists — loaded and
+played on a **CDJ-3000 without issues**. The premise that CDJ-3000-era hardware
+requires `export.pdb` does not hold. See `docs/HARDWARE_TEST_ONELIBRARY.md`.
+
+This removes the largest remaining item on the independence track. Independence
+is now gated on **analysis quality** (FableGear's own beat grids reach the
+player), not on file formats.
+
+Revisit Phase D only if a concrete device family is found to require it —
+older 2000NXS2-era gear is the most likely candidate, and is untested.
+
+The original plan is retained below for that contingency.
 
 From-scratch PDB writing is the hardest step. Two strategies, in order:
 
