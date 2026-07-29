@@ -273,6 +273,11 @@ def _measure_lufs(path: Path) -> tuple[float, float | None] | None:
         return None
 
 
+# Below this, applying gain isn't worth a full re-encode: the change is
+# inaudible, and on a lossy format the rewrite costs a generation of quality.
+_MIN_GAIN_DB: float = 0.1
+
+
 def _capped_gain_db(
     lufs: float,
     true_peak: float | None,
@@ -281,15 +286,25 @@ def _capped_gain_db(
 ) -> float:
     """
     dB of gain to reach *target* LUFS, capped so the true peak can never cross
-    *ceiling*. Only a boost (positive gain) is capped — an attenuation can't
-    push the peak up, so it passes through unchanged. Falls back to the
-    uncapped gain when true_peak is unknown, rather than blocking
-    normalisation outright.
+    *ceiling*. Falls back to the uncapped gain when true_peak is unknown,
+    rather than blocking normalisation outright.
+
+    A requested boost is clamped to [0, want]: it may be reduced to whatever
+    headroom exists, but it must never invert into an attenuation. Most
+    commercial masters already peak above a -1.0 dBTP ceiling, so an
+    unclamped `min(want, ceiling - true_peak)` would go negative and quietly
+    turn "make this louder" into "make this quieter, and re-encode it" —
+    lossy generation loss for no benefit. When there is no headroom the
+    honest answer is 0.0 (nothing safe to do), and the caller skips the
+    rewrite entirely.
+
+    An attenuation (want < 0) passes through unchanged — lowering level can't
+    push a peak up.
     """
     want = target - lufs
     if true_peak is None or want <= 0:
         return want
-    return min(want, ceiling - true_peak)
+    return max(0.0, min(want, ceiling - true_peak))
 
 
 # ─── Normalisation ────────────────────────────────────────────────────────────
@@ -869,14 +884,28 @@ def process_file(
                     "under %.1f dBTP (measured %.1f dBTP)",
                     requested_db, gain_db, path.name, TRUE_PEAK_CEILING_DBTP, true_peak,
                 )
-            log.info("Normalising %s: %.1f LUFS → %.1f (gain: %+.1f dB)",
-                     path.name, lufs, TARGET_LUFS, gain_db)
-            if _normalise_file(path, gain_db):
-                after = _measure_lufs(path)
-                result.loudness_after = after[0] if after is not None else None
-                result.normalised = True
+            if abs(gain_db) < _MIN_GAIN_DB:
+                # No headroom to move into. Rewriting the file to apply ~0 dB
+                # would re-encode it (lossy generation loss on MP3) for no
+                # audible change, so leave it alone and say why.
+                result.skipped_loudness = True
+                log.info(
+                    "Loudness unchanged for %s: at %.1f LUFS it needs %+.1f dB to "
+                    "reach %.1f, but true peak is already %.1f dBTP — no headroom "
+                    "under the %.1f dBTP ceiling. Needs a limiter to go louder.",
+                    path.name, lufs, requested_db, TARGET_LUFS,
+                    true_peak if true_peak is not None else float("nan"),
+                    TRUE_PEAK_CEILING_DBTP,
+                )
             else:
-                result.errors.append("normalisation failed")
+                log.info("Normalising %s: %.1f LUFS → %.1f (gain: %+.1f dB)",
+                         path.name, lufs, TARGET_LUFS, gain_db)
+                if _normalise_file(path, gain_db):
+                    after = _measure_lufs(path)
+                    result.loudness_after = after[0] if after is not None else None
+                    result.normalised = True
+                else:
+                    result.errors.append("normalisation failed")
 
     # ── MusicBrainz enrichment ──
     if enrich_tags:

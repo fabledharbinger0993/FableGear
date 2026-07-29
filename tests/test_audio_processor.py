@@ -33,23 +33,33 @@ def _require_ffmpeg() -> None:
         pytest.skip("ffmpeg not installed — skipping audio-fixture test")
 
 
-def _quiet_but_hot_mp3(tmp_path: Path) -> Path:
-    """A track shaped like the failure case: low integrated loudness (mostly
-    quiet) but a true peak near 0 dBFS (brief full-scale bursts) — the crest
-    factor of ordinary percussive/dynamic music, not a pathological edge case.
-    Measured ~-17 LUFS / ~-3.1 dBTP; naive gain to -8 LUFS would want +9 dB,
-    which would drive the true peak to roughly +5.9 dBFS.
-    """
+def _burst_mp3(tmp_path: Path, name: str, burst: float, floor: float) -> Path:
+    """A 1 kHz burst train: brief loud transients over a quiet bed. This is the
+    crest factor of ordinary percussive music — low integrated loudness with a
+    much higher peak — not a pathological edge case."""
     _require_ffmpeg()
-    p = tmp_path / "quiet_but_hot.mp3"
+    p = tmp_path / name
     subprocess.run(
         ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
-         "-i", "aevalsrc='if(lt(mod(t,0.5),0.015),"
-                "0.99*sin(2*PI*1000*t),0.05*sin(2*PI*1000*t))':s=44100:d=10",
+         "-i", f"aevalsrc='if(lt(mod(t,0.5),0.015),"
+                f"{burst}*sin(2*PI*1000*t),{floor}*sin(2*PI*1000*t))':s=44100:d=10",
          "-codec:a", "libmp3lame", "-b:a", "320k", str(p)],
         check=True, capture_output=True,
     )
     return p
+
+
+def _quiet_with_headroom_mp3(tmp_path: Path) -> Path:
+    """Quiet, and peaking well below the ceiling: ~-24 LUFS / ~-6.9 dBTP.
+    Wants +16 dB to reach target but only ~+5.9 dB of headroom exists, so the
+    boost must be capped — the case that proves capping still normalises."""
+    return _burst_mp3(tmp_path, "quiet_with_headroom.mp3", 0.45, 0.02)
+
+
+def _quiet_but_hot_mp3(tmp_path: Path) -> Path:
+    """Quiet but already at the ceiling: ~-17 LUFS / ~-0.1 dBTP. Wants +9 dB
+    with negative headroom — the case that must be skipped, not attenuated."""
+    return _burst_mp3(tmp_path, "quiet_but_hot.mp3", 0.99, 0.05)
 
 
 # ── _capped_gain_db: pure arithmetic ────────────────────────────────────────
@@ -88,28 +98,74 @@ def test_boost_landing_exactly_on_ceiling_is_not_further_reduced():
     assert gain == pytest.approx(1.0)           # want == headroom exactly
 
 
+# ── the cap must not invert a boost into an attenuation ─────────────────────
+#
+# Most commercial masters already peak ABOVE a -1.0 dBTP ceiling, so
+# `ceiling - true_peak` is negative for them. A cap written as a bare
+# min(want, headroom) goes negative and silently turns "make this louder"
+# into "make this quieter, and re-encode it" — lossy generation loss for no
+# benefit. These pin the clamp at zero.
+
+@pytest.mark.parametrize("lufs,tp", [
+    (-12.8, -0.17),   # real measured values from a DJ library
+    (-12.9, -0.09),
+    (-10.1, 0.07),    # peak already over full scale
+    (-9.4, -0.51),
+])
+def test_boost_never_inverts_to_attenuation_when_peak_exceeds_ceiling(lufs, tp):
+    want = -8.0 - lufs
+    assert want > 0                              # a boost really was requested
+    gain = ap._capped_gain_db(lufs, tp, target=-8.0, ceiling=-1.0)
+    assert gain == pytest.approx(0.0)            # clamped to "do nothing"
+    assert gain >= 0.0                           # and never negative
+
+
+def test_no_headroom_skips_the_rewrite_entirely(tmp_path):
+    """A real file with no headroom must be left byte-for-byte alone — not
+    re-encoded to apply a ~0 dB change, which on MP3 costs a generation of
+    quality for no audible benefit."""
+    _require_ffmpeg()
+    path = _quiet_but_hot_mp3(tmp_path)
+
+    lufs, tp = ap._measure_lufs(path)
+    assert lufs < config.TARGET_LUFS - config.LUFS_TOLERANCE   # a boost is wanted
+    assert tp > config.TRUE_PEAK_CEILING_DBTP                  # but no headroom exists
+    before_bytes = path.read_bytes()
+
+    result = ap.process_file(path, detect_bpm=False, detect_key=False, normalise=True)
+
+    assert result.ok
+    assert result.skipped_loudness
+    assert not result.normalised
+    assert path.read_bytes() == before_bytes     # bit-identical
+
+
 # ── end-to-end: the real bug, on real audio ─────────────────────────────────
 
 def test_normalise_never_drives_true_peak_past_ceiling(tmp_path):
-    """Runs the actual process_file loudness path against a real quiet-but-hot
-    MP3 and re-measures the *output* file's true peak independently. Before
-    the fix this reliably clipped (~+5.9 dBFS out of a -1.0 dBTP ceiling)."""
+    """Runs the actual process_file loudness path against a real file that
+    wants far more gain than it has headroom for, and re-measures the *output*
+    file's true peak independently. Before the fix the full +16 dB was applied
+    and the output clipped hard."""
     _require_ffmpeg()
-    path = _quiet_but_hot_mp3(tmp_path)
+    path = _quiet_with_headroom_mp3(tmp_path)
 
     before = ap._measure_lufs(path)
     assert before is not None
     lufs_before, peak_before = before
-    assert lufs_before < config.TARGET_LUFS - config.LUFS_TOLERANCE
-    assert peak_before > config.TRUE_PEAK_CEILING_DBTP  # already hotter than the ceiling
+    naive_gain = config.TARGET_LUFS - lufs_before
+    assert naive_gain > 0
+    # The unguarded gain would have driven the peak past full scale.
+    assert peak_before + naive_gain > 0.0
 
     result = ap.process_file(
         path, detect_bpm=False, detect_key=False, normalise=True,
     )
     assert result.ok
-    assert result.normalised
+    assert result.normalised            # capping still normalises, just less
 
     after = ap._measure_lufs(path)
     assert after is not None
-    _, peak_after = after
-    assert peak_after <= config.TRUE_PEAK_CEILING_DBTP + 0.3  # small ffmpeg measurement tolerance
+    lufs_after, peak_after = after
+    assert peak_after <= config.TRUE_PEAK_CEILING_DBTP + 0.3  # ffmpeg measurement tolerance
+    assert lufs_after > lufs_before                            # it did get louder
