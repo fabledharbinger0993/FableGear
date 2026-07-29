@@ -374,13 +374,54 @@ function _pipeWizConfigHTML(step, saved) {
       return multiPathRow('paths', 'Music folders (optional)', 'Choose or enter a music folder', false);
 
     case 'process': {
-      const normChecked = saved && saved.no_normalize !== undefined ? !saved.no_normalize : false;
+      const bpmMode = v('bpm_mode', 'passive');
+      const keyMode = v('key_mode', 'passive');
+      const normalizeLegacy = saved && saved.no_normalize !== undefined ? (saved.no_normalize ? 'off' : 'passive') : '';
+      const normalizeMode = v('normalize_mode', normalizeLegacy || 'off');
+      const enrichMode = v('enrich_mode', 'off');
+      const renameMode = v('rename_mode', 'off');
       return multiPathRow('paths', 'Music folders', 'Choose or enter a music folder') + workersRow(4) + `
-        <div class="pipe-cfg-field">
-          <label class="checkbox-label">
-            <input type="checkbox" data-cfg="normalize" ${normChecked ? 'checked' : ''}>
-            Normalize loudness — re-encodes audio to a target volume
-          </label>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 14px">
+          <div class="pipe-cfg-field">
+            <label class="pipe-cfg-label">BPM mode</label>
+            <select class="pipe-cfg-input" data-cfg="bpm_mode">
+              <option value="passive" ${bpmMode === 'passive' ? 'selected' : ''}>Passive</option>
+              <option value="aggressive" ${bpmMode === 'aggressive' ? 'selected' : ''}>Aggressive</option>
+              <option value="off" ${bpmMode === 'off' ? 'selected' : ''}>Off</option>
+            </select>
+          </div>
+          <div class="pipe-cfg-field">
+            <label class="pipe-cfg-label">Key mode</label>
+            <select class="pipe-cfg-input" data-cfg="key_mode">
+              <option value="passive" ${keyMode === 'passive' ? 'selected' : ''}>Passive</option>
+              <option value="aggressive" ${keyMode === 'aggressive' ? 'selected' : ''}>Aggressive</option>
+              <option value="off" ${keyMode === 'off' ? 'selected' : ''}>Off</option>
+            </select>
+          </div>
+          <div class="pipe-cfg-field">
+            <label class="pipe-cfg-label">Normalize mode</label>
+            <select class="pipe-cfg-input" data-cfg="normalize_mode">
+              <option value="off" ${normalizeMode === 'off' ? 'selected' : ''}>Off</option>
+              <option value="passive" ${normalizeMode === 'passive' ? 'selected' : ''}>Passive</option>
+              <option value="aggressive" ${normalizeMode === 'aggressive' ? 'selected' : ''}>Aggressive</option>
+            </select>
+          </div>
+          <div class="pipe-cfg-field">
+            <label class="pipe-cfg-label">MusicBrainz mode</label>
+            <select class="pipe-cfg-input" data-cfg="enrich_mode">
+              <option value="off" ${enrichMode === 'off' ? 'selected' : ''}>Off</option>
+              <option value="passive" ${enrichMode === 'passive' ? 'selected' : ''}>Passive</option>
+              <option value="aggressive" ${enrichMode === 'aggressive' ? 'selected' : ''}>Aggressive</option>
+            </select>
+          </div>
+          <div class="pipe-cfg-field">
+            <label class="pipe-cfg-label">Rename mode</label>
+            <select class="pipe-cfg-input" data-cfg="rename_mode">
+              <option value="off" ${renameMode === 'off' ? 'selected' : ''}>Off</option>
+              <option value="passive" ${renameMode === 'passive' ? 'selected' : ''}>Passive</option>
+              <option value="aggressive" ${renameMode === 'aggressive' ? 'selected' : ''}>Aggressive</option>
+            </select>
+          </div>
         </div>`;
     }
 
@@ -484,7 +525,12 @@ function _pipeWizReadDraft(step) {
     case 'process':
       draft.paths        = getLines('paths');
       draft.workers      = getN('workers', 1);
-      draft.no_normalize  = !getChecked('normalize', false); break;
+      draft.bpm_mode = get('bpm_mode') || 'passive';
+      draft.key_mode = get('key_mode') || 'passive';
+      draft.normalize_mode = get('normalize_mode') || 'off';
+      draft.enrich_mode = get('enrich_mode') || 'off';
+      draft.rename_mode = get('rename_mode') || 'off';
+      break;
     case 'rename':
       draft.paths   = getLines('paths');
       draft.workers = getN('workers', 1); break;
@@ -617,14 +663,16 @@ function _populatePills(pillsId, paths) {
 // ── Resume functions — restore form state and re-run ─────────────────────────
 function _resumeProcess(ckpt) {
   _populatePills('process-pills', ckpt.paths);
-  document.getElementById('process-no-bpm').checked  = !!ckpt.no_bpm;
-  document.getElementById('process-no-key').checked  = !!ckpt.no_key;
-  const _fb = document.getElementById('process-force-bpm'); if (_fb) _fb.checked = false; // never force on resume
-  const _fk = document.getElementById('process-force-key'); if (_fk) _fk.checked = false;
-  const enrich = document.getElementById('process-enrich-tags');
-  if (enrich) enrich.checked = !!ckpt.enrich_tags;
-  const norm = document.getElementById('process-normalize');
-  if (norm) norm.checked = !!ckpt.normalize;
+  const bpmMode = document.getElementById('process-bpm-mode');
+  if (bpmMode) bpmMode.value = ckpt.bpm_mode || 'passive';
+  const keyMode = document.getElementById('process-key-mode');
+  if (keyMode) keyMode.value = ckpt.key_mode || 'passive';
+  const enrichMode = document.getElementById('process-enrich-mode');
+  if (enrichMode) enrichMode.value = ckpt.enrich_mode || 'off';
+  const normalizeMode = document.getElementById('process-normalize-mode');
+  if (normalizeMode) normalizeMode.value = ckpt.normalize_mode || 'off';
+  const renameMode = document.getElementById('process-rename-mode');
+  if (renameMode) renameMode.value = ckpt.rename_mode || 'off';
   document.getElementById('step-process')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   runProcess();
 }
@@ -1157,4 +1205,3 @@ function runOrganize() {
     }
   });
 }
-

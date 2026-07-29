@@ -1245,9 +1245,12 @@ class FableGearDatabase:
 
     def get_content_with_relations(self, content_ids: Optional[List[int]] = None) -> List[ContentRecord]:
         """
-        Fetch multiple ContentRecords along with all their related cues and beatgrids
-        using only 3 optimized database queries (preventing N+1 roundtrips).
-        If content_ids is None, fetches all records.
+        Fetch multiple ContentRecords along with all their related cues and beatgrids.
+        IDs are processed in chunks of 500 to stay within SQLite's host-parameter
+        limit; each chunk issues 1 content query plus 1 cue query and 1 beatgrid
+        query, so the total number of queries scales with ceil(N / 500) rather than
+        being a fixed count. This still prevents N+1 roundtrips.
+        If content_ids is None, fetches all records in a single pass.
         """
         # Chunking to avoid SQLite host parameter limits — applies to every
         # IN (...) here, including the fg_content fetch itself: an explicit

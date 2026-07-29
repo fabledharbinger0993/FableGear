@@ -752,6 +752,8 @@ def process_file(
     force: bool = False,
     force_bpm: bool = False,
     force_key: bool = False,
+    force_normalize: bool = False,
+    force_enrich: bool = False,
     enrich_tags: bool = False,
     fix_octaves: bool = False,
 ) -> ProcessResult:
@@ -844,7 +846,7 @@ def process_file(
         result.loudness_before = lufs
         if lufs is None:
             result.errors.append("loudness measurement failed")
-        elif abs(lufs - TARGET_LUFS) <= LUFS_TOLERANCE:
+        elif (not force_normalize) and abs(lufs - TARGET_LUFS) <= LUFS_TOLERANCE:
             result.skipped_loudness = True
         else:
             gain_db = TARGET_LUFS - lufs
@@ -858,9 +860,10 @@ def process_file(
 
     # ── MusicBrainz enrichment ──
     if enrich_tags:
-        meta = _enrich_from_acoustid(path, force=force)
+        enrich_force = force or force_enrich
+        meta = _enrich_from_acoustid(path, force=enrich_force)
         if meta:
-            written_fields = _write_enriched_tags(path, meta, force=force)
+            written_fields = _write_enriched_tags(path, meta, force=enrich_force)
             if written_fields:
                 result.enrich_written = True
                 result.mb_recording_id = meta.get("recording_id")
@@ -880,6 +883,8 @@ def process_directory(
     force: bool = False,
     force_bpm: bool = False,
     force_key: bool = False,
+    force_normalize: bool = False,
+    force_enrich: bool = False,
     enrich_tags: bool = False,
     fix_octaves: bool = False,
     max_workers: int = 1,
@@ -1032,6 +1037,8 @@ def process_directory(
             force=force,
             force_bpm=force_bpm,
             force_key=force_key,
+            force_normalize=force_normalize,
+            force_enrich=force_enrich,
             enrich_tags=enrich_tags,
             fix_octaves=fix_octaves,
         )

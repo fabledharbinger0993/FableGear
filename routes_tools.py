@@ -226,36 +226,63 @@ def api_process():
     if not paths:
         return jsonify({"error": "path is required"}), 400
 
-    no_bpm = request.args.get("no_bpm") == "1"
-    no_key = request.args.get("no_key") == "1"
-    no_normalize = request.args.get("no_normalize") == "1"
+    bpm_mode = (request.args.get("bpm_mode") or "").strip().lower()
+    key_mode = (request.args.get("key_mode") or "").strip().lower()
+    normalize_mode = (request.args.get("normalize_mode") or "").strip().lower()
+    enrich_mode = (request.args.get("enrich_mode") or "").strip().lower()
+    rename_mode = (request.args.get("rename_mode") or "").strip().lower()
     force = request.args.get("force") == "1"
     force_bpm = request.args.get("force_bpm") == "1"
     force_key = request.args.get("force_key") == "1"
+    no_bpm = request.args.get("no_bpm") == "1"
+    no_key = request.args.get("no_key") == "1"
+    no_normalize = request.args.get("no_normalize") == "1"
     enrich_tags = request.args.get("enrich_tags") == "1"
     smart_skip = request.args.get("smart_skip", "1") == "1"
 
-    detect_bpm = not no_bpm
-    detect_key = not no_key
+    # Backward-compatible coercion from legacy booleans when explicit modes
+    # are not supplied by the client.
+    if bpm_mode not in {"off", "passive", "aggressive"}:
+        if no_bpm:
+            bpm_mode = "off"
+        elif force or force_bpm:
+            bpm_mode = "aggressive"
+        else:
+            bpm_mode = "passive"
+    if key_mode not in {"off", "passive", "aggressive"}:
+        if no_key:
+            key_mode = "off"
+        elif force or force_key:
+            key_mode = "aggressive"
+        else:
+            key_mode = "passive"
+    if normalize_mode not in {"off", "passive", "aggressive"}:
+        normalize_mode = "off" if no_normalize else "passive"
+    if enrich_mode not in {"off", "passive", "aggressive"}:
+        enrich_mode = "passive" if enrich_tags else "off"
+    if rename_mode not in {"off", "passive", "aggressive"}:
+        rename_mode = "off"
+
+    detect_bpm = bpm_mode != "off"
+    detect_key = key_mode != "off"
+    if (
+        bpm_mode == "off"
+        and key_mode == "off"
+        and normalize_mode == "off"
+        and enrich_mode == "off"
+        and rename_mode == "off"
+    ):
+        return jsonify({"error": "All tagger modes are Off — enable at least one effect."}), 400
 
     cmd = [sys.executable, str(CLI_PATH), "process", paths[0]]
     for extra in paths[1:]:
         cmd += ["--also-scan", extra]
 
-    if no_bpm:
-        cmd.append("--no-bpm")
-    if no_key:
-        cmd.append("--no-key")
-    if no_normalize:
-        cmd.append("--no-normalize")
+    cmd += ["--bpm-mode", bpm_mode, "--key-mode", key_mode]
+    cmd += ["--normalize-mode", normalize_mode, "--enrich-mode", enrich_mode]
+    cmd += ["--rename-mode", rename_mode]
     if force:
         cmd.append("--force")
-    if force_bpm:
-        cmd.append("--force-bpm")
-    if force_key:
-        cmd.append("--force-key")
-    if enrich_tags:
-        cmd.append("--enrich-tags")
     if request.args.get("dry_run") == "1":
         cmd.append("--dry-run")
     workers = request.args.get("workers", "").strip()
@@ -267,9 +294,11 @@ def api_process():
 
     if (
         smart_skip
-        and not force and not force_bpm and not force_key
-        and no_normalize
-        and not enrich_tags
+        and bpm_mode == "passive"
+        and key_mode == "passive"
+        and normalize_mode == "off"
+        and enrich_mode == "off"
+        and rename_mode == "off"
         and (detect_bpm or detect_key)
     ):
         roots = [Path(p) for p in paths]
@@ -303,17 +332,22 @@ def api_process_retry():
     tf.close()
 
     placeholder_root = str(Path(paths[0]).parent)
+    bpm_mode = str(body.get("bpm_mode", "passive")).strip().lower()
+    key_mode = str(body.get("key_mode", "passive")).strip().lower()
+    if bpm_mode not in {"off", "passive", "aggressive"}:
+        bpm_mode = "passive"
+    if key_mode not in {"off", "passive", "aggressive"}:
+        key_mode = "passive"
+
     cmd = [
         sys.executable, str(CLI_PATH),
         "process", placeholder_root,
         "--no-normalize",
         "--force",
         "--paths-file", tf.name,
+        "--bpm-mode", bpm_mode,
+        "--key-mode", key_mode,
     ]
-    if body.get("no_bpm"):
-        cmd.append("--no-bpm")
-    if body.get("no_key"):
-        cmd.append("--no-key")
 
     library_root = str(Path(paths[0]).parent)
     return _sse_response(
@@ -381,10 +415,36 @@ def api_pipeline():
             for extra in paths[1:]:
                 if extra:
                     cmd += ["--also-scan", extra]
-            if cfg.get("no_bpm"):       cmd.append("--no-bpm")
-            if cfg.get("no_key"):       cmd.append("--no-key")
-            if cfg.get("no_normalize"): cmd.append("--no-normalize")
-            if cfg.get("force"):        cmd.append("--force")
+            bpm_mode = str(cfg.get("bpm_mode", "")).strip().lower()
+            key_mode = str(cfg.get("key_mode", "")).strip().lower()
+            normalize_mode = str(cfg.get("normalize_mode", "")).strip().lower()
+            enrich_mode = str(cfg.get("enrich_mode", "")).strip().lower()
+            rename_mode = str(cfg.get("rename_mode", "off")).strip().lower()
+            if bpm_mode not in {"off", "passive", "aggressive"}:
+                if cfg.get("no_bpm"):
+                    bpm_mode = "off"
+                elif cfg.get("force") or cfg.get("force_bpm"):
+                    bpm_mode = "aggressive"
+                else:
+                    bpm_mode = "passive"
+            if key_mode not in {"off", "passive", "aggressive"}:
+                if cfg.get("no_key"):
+                    key_mode = "off"
+                elif cfg.get("force") or cfg.get("force_key"):
+                    key_mode = "aggressive"
+                else:
+                    key_mode = "passive"
+            if normalize_mode not in {"off", "passive", "aggressive"}:
+                normalize_mode = "off" if cfg.get("no_normalize", False) else "passive"
+            if enrich_mode not in {"off", "passive", "aggressive"}:
+                enrich_mode = "passive" if cfg.get("enrich_tags", False) else "off"
+            if rename_mode not in {"off", "passive", "aggressive"}:
+                rename_mode = "off"
+            cmd += ["--bpm-mode", bpm_mode, "--key-mode", key_mode]
+            cmd += ["--normalize-mode", normalize_mode, "--enrich-mode", enrich_mode]
+            cmd += ["--rename-mode", rename_mode]
+            if cfg.get("force"):
+                cmd.append("--force")
             if cfg.get("workers", 1) > 1:
                 cmd += ["--workers", str(cfg["workers"])]
             if dry_run:                 cmd.append("--dry-run")

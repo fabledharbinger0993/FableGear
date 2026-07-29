@@ -263,7 +263,11 @@ async function leFsBrowse(path) {
   }
 
   const truncMsg = data.truncated
-    ? `<div class="le-fs-truncated">Showing first ${tracks.length} of ${data.track_count.toLocaleString()} tracks — navigate into a subfolder for a focused view</div>`
+    ? `<div class="le-fs-truncated">${
+        data.track_count > tracks.length
+          ? `Showing first ${tracks.length} of ${data.track_count.toLocaleString()} tracks`
+          : `Showing first ${tracks.length} tracks`
+      } — navigate into a subfolder for a focused view</div>`
     : '';
 
   const rows = tracks.map((t, i) => _leFsTrackRow(t, i)).join('');

@@ -78,6 +78,19 @@ def _hit(client, path, addr, method="GET", token=None):
     return fn(path, environ_overrides={"REMOTE_ADDR": addr}, headers=headers)
 
 
+def _setup_state_file() -> Path:
+    return Path(os.environ["HOME"]) / ".fablegear" / "fablegear-state.json"
+
+
+def _write_setup_state(*, setup_complete, db_read=None, db_write=None, drive_scan=False):
+    _setup_state_file().write_text(json.dumps({
+        "setup_complete": setup_complete,
+        "db_read": db_read,
+        "db_write": db_write,
+        "drive_scan": drive_scan,
+    }))
+
+
 # ── Loopback: unchanged behavior ─────────────────────────────────────────────
 
 def test_loopback_ui_page_allowed(client):
@@ -130,6 +143,52 @@ def test_lan_static_assets_public(client):
 def test_lan_bearer_does_not_bypass_non_mobile_boundary(client):
     r = _hit(client, "/api/cancel", LAN, method="POST", token=TEST_TOKEN)
     assert r.status_code == 403
+
+
+def test_root_redirects_to_onboarding_when_setup_incomplete(client):
+    _write_setup_state(setup_complete=False, db_read=None, db_write=None)
+    r = _hit(client, "/", LOOPBACK)
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/onboarding")
+
+
+def test_onboarding_redirects_home_when_setup_complete_unless_reconfigure(client):
+    _write_setup_state(setup_complete=True, db_read=True, db_write=True)
+
+    normal = _hit(client, "/onboarding", LOOPBACK)
+    assert normal.status_code == 302
+    assert normal.headers["Location"].endswith("/")
+
+    reconfigure = _hit(client, "/onboarding?reconfigure=1", LOOPBACK)
+    assert reconfigure.status_code == 200
+
+
+def test_setup_status_includes_gate_reason_for_incomplete_state(client):
+    _write_setup_state(setup_complete=False, db_read=False, db_write=False)
+    data = _hit(client, "/api/setup-status", LOOPBACK).get_json()
+    assert data["setup_complete"] is False
+    assert data["gate_reason"] == "setup_incomplete"
+
+
+def test_setup_gate_logs_and_falls_back_when_config_check_fails(client, monkeypatch, caplog):
+    import user_config as _user_config  # noqa: PLC0415
+
+    _write_setup_state(setup_complete=True, db_read=True, db_write=True)
+
+    def _boom():
+        raise RuntimeError("config check exploded")
+
+    monkeypatch.setattr(_user_config, "config_exists", _boom)
+
+    status = _hit(client, "/api/setup-status", LOOPBACK).get_json()
+    assert status["setup_complete"] is False
+    assert status["gate_reason"] == "config_check_failed"
+
+    with caplog.at_level("ERROR"):
+        r = _hit(client, "/", LOOPBACK)
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/onboarding")
+    assert any("Setup gate check failed while reading config state" in rec.getMessage() for rec in caplog.records)
 
 
 def test_onboarding_save_config_defaults_backup_to_archive_savepoints(client):
@@ -194,6 +253,27 @@ def test_api_settings_persists_snapshot_options(client):
     assert cfg["custom_archive_dir"] == "/Volumes/MainLibrary/Archives"
     assert cfg["snapshot_cadence"] == "weekly"
     assert cfg["snapshot_include_master_db"] is True
+
+
+def test_api_settings_preserves_acoustid_when_omitted(client):
+    cfg_path = Path(os.environ["HOME"]) / ".fablegear" / "config.json"
+    cfg = json.loads(cfg_path.read_text())
+    cfg["acoustid_api_key"] = "existing-key-123"
+    cfg_path.write_text(json.dumps(cfg))
+
+    r = client.post("/api/settings", json={
+        "archive_mode": "custom",
+        "custom_archive_dir": "/Volumes/MainLibrary/Archives",
+        "snapshot_cadence": "weekly",
+        "snapshot_include_master_db": True,
+        "excluded_dirs": [],
+        # acoustid_api_key intentionally omitted: should preserve existing value.
+    })
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+    cfg_after = json.loads(cfg_path.read_text())
+    assert cfg_after["acoustid_api_key"] == "existing-key-123"
 
 
 @pytest.mark.parametrize(
@@ -391,3 +471,104 @@ def test_update_zip_no_nag_without_version(flask_app):
     assert _is_newer("v1.0.0", None, is_git=False) is False
     assert _is_newer("v1.0.0", "v1.0.0", is_git=False) is False
     assert _is_newer("v1.0.0", "v0.9", is_git=False) is True
+
+
+def test_fs_browse_root_skips_boot_volume_alias(client, monkeypatch, tmp_path):
+    import config as _config  # noqa: PLC0415
+    import routes_player as _player  # noqa: PLC0415
+
+    boot_alias = tmp_path / "boot-alias"
+    boot_alias.symlink_to("/", target_is_directory=True)
+
+    monkeypatch.setattr(_config, "MUSIC_ROOT", tmp_path / "music")
+    monkeypatch.setattr(
+        _player,
+        "get_connected_volumes",
+        lambda: [{"name": "Macintosh HD", "path": str(boot_alias)}],
+    )
+
+    resp = _hit(client, "/api/library/fs-browse", LOOPBACK)
+    data = resp.get_json()
+
+    assert resp.status_code == 200
+    assert data["is_volumes_root"] is True
+    assert data["volumes"] == []
+
+
+def test_enumerate_drive_audio_skips_boot_volume_alias(monkeypatch, tmp_path):
+    import config as _config  # noqa: PLC0415
+    import routes_player as _player  # noqa: PLC0415
+
+    music_root = tmp_path / "music"
+    music_root.mkdir()
+    track = music_root / "song.mp3"
+    track.write_bytes(b"ID3")
+
+    boot_alias = tmp_path / "boot-alias"
+    boot_alias.symlink_to("/", target_is_directory=True)
+
+    scanned_roots: list[str] = []
+    real_boot = os.path.realpath(str(boot_alias))
+
+    def _fake_walk(root, followlinks=False):
+        root_path = Path(root)
+        real_root = os.path.realpath(str(root_path))
+        scanned_roots.append(real_root)
+        if real_root == real_boot:
+            raise AssertionError("boot-volume alias should not be scanned")
+        if real_root == os.path.realpath(str(music_root)):
+            yield str(music_root), [], [track.name]
+
+    monkeypatch.setattr(_config, "MUSIC_ROOT", music_root)
+    monkeypatch.setattr(
+        _player,
+        "get_connected_volumes",
+        lambda: [{"name": "Macintosh HD", "path": str(boot_alias)}],
+    )
+    monkeypatch.setattr(_player.os, "walk", _fake_walk)
+
+    entries, total_estimate, truncated, volumes = _player._enumerate_drive_audio(limit=10)
+
+    assert [entry[0].name for entry in entries] == ["song.mp3"]
+    assert total_estimate == 1
+    assert truncated is False
+    assert volumes == []
+    assert scanned_roots == [os.path.realpath(str(music_root))]
+
+
+def test_fs_browse_recursive_path_uses_guarded_walk(client, monkeypatch, tmp_path):
+    import config as _config  # noqa: PLC0415
+    import routes_player as _player  # noqa: PLC0415
+
+    music_root = tmp_path / "music"
+    browse_root = music_root / "crate"
+    browse_root.mkdir(parents=True)
+    track = browse_root / "song.mp3"
+    track.write_bytes(b"ID3")
+
+    scanned_roots: list[str] = []
+
+    def _fake_walk(root, followlinks=False):
+        scanned_roots.append(os.path.realpath(str(root)))
+        yield str(browse_root), [], [track.name]
+
+    def _unexpected_rglob(self, pattern):
+        raise AssertionError("recursive folder browse should not use Path.rglob")
+
+    monkeypatch.setattr(_config, "MUSIC_ROOT", music_root)
+    monkeypatch.setattr(_player.os, "walk", _fake_walk)
+    monkeypatch.setattr(Path, "rglob", _unexpected_rglob)
+
+    resp = _hit(
+        client,
+        f"/api/library/fs-browse?path={browse_root}&recursive=1",
+        LOOPBACK,
+    )
+    data = resp.get_json()
+
+    assert resp.status_code == 200
+    assert data["recursive"] is True
+    assert data["truncated"] is False
+    assert data["track_count"] == 1
+    assert [item["filename"] for item in data["tracks"]] == ["song.mp3"]
+    assert scanned_roots == [os.path.realpath(str(browse_root))]

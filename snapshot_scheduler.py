@@ -85,30 +85,58 @@ def _snapshot_device_db() -> str:
     return str(_backup_db(DEVICE_DB))
 
 
+def _sync_fablegear_db() -> str | None:
+    """Back up FableGear's own library DB to the archive (doc §3.2
+    checkpoint sync). Independent of Rekordbox's running state — this is our
+    database, not Rekordbox's, so it isn't gated by rekordbox_is_running().
+    Returns the archive destination path on an actual sync, None on a
+    no-op (drive unmounted, archive disabled, nothing to sync yet)."""
+    from fablegear_database.archive_sync import sync_db_to_archive  # noqa: PLC0415
+
+    result = sync_db_to_archive()
+    if not result.ok:
+        raise RuntimeError(f"fablegear.db archive sync: {result.reason}")
+    if result.action == "synced" and result.detail:
+        return result.detail.get("destination")
+    return None
+
+
 def _perform_snapshot() -> dict:
     from config import SNAPSHOT_INCLUDE_MASTER_DB, SNAPSHOT_INTERVAL_SECONDS  # noqa: PLC0415
     from db_connection import rekordbox_is_running  # noqa: PLC0415
-
-    if rekordbox_is_running():
-        raise RuntimeError("Rekordbox is running; snapshot skipped")
 
     timestamp = _now().strftime("%Y%m%d_%H%M%S")
     paths: list[str] = []
     errors: list[str] = []
 
+    # FableGear's own library DB is ours to back up regardless of whether
+    # Rekordbox is open — only the Rekordbox-DB snapshots below need it closed.
     try:
-        paths.append(_snapshot_device_db())
+        fg_dest = _sync_fablegear_db()
+        if fg_dest:
+            paths.append(fg_dest)
     except Exception as exc:
-        log.warning("snapshot_scheduler: device DB snapshot failed — %s", exc)
-        errors.append(f"device DB: {exc}")
+        log.warning("snapshot_scheduler: fablegear.db archive sync failed — %s", exc)
+        errors.append(f"fablegear.db: {exc}")
 
-    if SNAPSHOT_INCLUDE_MASTER_DB:
+    if rekordbox_is_running():
+        errors.append("Rekordbox is running; Rekordbox DB snapshots skipped")
+    else:
         try:
-            paths.append(_snapshot_master_db(timestamp))
+            paths.append(_snapshot_device_db())
         except Exception as exc:
-            log.warning("snapshot_scheduler: master.db snapshot failed — %s", exc)
-            errors.append(f"master DB: {exc}")
+            log.warning("snapshot_scheduler: device DB snapshot failed — %s", exc)
+            errors.append(f"device DB: {exc}")
 
+        if SNAPSHOT_INCLUDE_MASTER_DB:
+            try:
+                paths.append(_snapshot_master_db(timestamp))
+            except Exception as exc:
+                log.warning("snapshot_scheduler: master.db snapshot failed — %s", exc)
+                errors.append(f"master DB: {exc}")
+
+    if not paths and errors:
+        raise RuntimeError("; ".join(errors))
     if not paths:
         raise RuntimeError("No snapshot files were written")
 

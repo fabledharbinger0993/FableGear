@@ -536,8 +536,80 @@
     </div>
   </section>
 
-  <!-- ══ Step 3: Library scan ═══════════════════════════════════════════════ -->
+  <!-- ══ Step 3: Read permission ══════════════════════════════════════════ -->
   <section class="ob-step" id="step-2">
+    <div class="ob-icon">📖</div>
+    <h1 class="ob-title">May FableGear read your files?</h1>
+    <p class="ob-sub">Read access lets FableGear see what's in your Rekordbox database,
+      your music files, and any connected drives — what tracks you have, where
+      their files are, and whether any paths are broken. This isn't only about
+      Rekordbox anymore: it's what every FableGear tool needs to look at your
+      library at all. Nothing is modified at this stage.</p>
+
+    <!-- FDA warning (shown only when needed) -->
+    <div id="fda-banner" class="fda-banner" style="display:none">
+      <span>⚠️</span>
+      <div class="fda-body">
+        <strong>Full Disk Access may be required</strong>
+        macOS restricts reading files in protected folders like ~/Library. If FableGear
+        can't read your database, grant Full Disk Access to Terminal (or FableGear) in
+        System Settings → Privacy &amp; Security → Full Disk Access.
+      </div>
+      <button class="ob-btn ob-btn-secondary" style="white-space:nowrap;flex-shrink:0;margin-left:4px"
+              onclick="openFDAPrefs()">Open Settings</button>
+    </div>
+
+    <div class="ob-card">
+      <div class="ob-card-title">Tools unlocked with read access</div>
+      <div class="dep-row"><span class="dep-icon">▣</span><span class="dep-name">Library Audit</span><span class="dep-hint">Maps your full library, flags broken paths and orphaned entries</span></div>
+      <div class="dep-row"><span class="dep-icon">🏷</span><span class="dep-name">Tag Tracks</span><span class="dep-hint">Cross-references the database when prioritising files for analysis</span></div>
+      <div class="dep-row"><span class="dep-icon">🔎</span><span class="dep-name">Find Duplicates</span><span class="dep-hint">Uses DB metadata for smart pre-filtering before fingerprinting</span></div>
+    </div>
+
+    <div class="ob-actions">
+      <button class="ob-btn ob-btn-secondary" onclick="goToStep(1)">← Back</button>
+      <button class="ob-btn ob-btn-ghost" onclick="permDenyRead()">Skip — limited mode</button>
+      <button class="ob-btn ob-btn-primary" onclick="permGrantRead()">Allow Read Access →</button>
+    </div>
+  </section>
+
+  <!-- ══ Step 4: Write permission ══════════════════════════════════════════ -->
+  <section class="ob-step" id="step-3">
+    <div class="ob-icon">✏️</div>
+    <h1 class="ob-title">May FableGear write to your files?</h1>
+    <p class="ob-sub">Some tools make changes to your library — not only the Rekordbox
+      database, but files on disk too (renaming, tagging, relocating). FableGear
+      always creates a timestamped backup before any database write, and Rekordbox
+      must be closed first for anything touching its database.</p>
+
+    <div class="ob-card">
+      <div class="ob-card-title">Tools unlocked with write access</div>
+      <div class="dep-row"><span class="dep-icon">📍</span><span class="dep-name">Fix Broken Paths</span><span class="dep-hint">Updates file paths in the database after a drive rename or move</span></div>
+      <div class="dep-row"><span class="dep-icon">＋</span><span class="dep-name">Import Tracks</span><span class="dep-hint">Adds new audio files to your Rekordbox library</span></div>
+      <div class="dep-row"><span class="dep-icon">🔗</span><span class="dep-name">Link Playlists</span><span class="dep-hint">Associates imported tracks to playlists based on folder structure</span></div>
+      <div class="dep-row"><span class="dep-icon">✂</span><span class="dep-name">Prune Duplicates</span><span class="dep-hint">Removes confirmed duplicates from the database and optionally the disk</span></div>
+    </div>
+
+    <div class="ob-card" style="background:rgba(0,212,232,.04);border-color:rgba(0,212,232,.18)">
+      <div class="ob-card-title" style="color:var(--accent)">Backup guarantee</div>
+      <div style="font-size:.86rem;color:var(--text-muted);line-height:1.55">
+        Every write operation creates a timestamped copy of your database before it
+        touches anything. Backups are stored in
+        <code id="backup-guarantee-path" style="font-size:.78rem;color:var(--text)">FableGear Archive/Savepoints</code>
+        beside your chosen library (or inside a custom archive, if you set one later).
+        Rekordbox must be closed before FableGear will attempt a write.
+      </div>
+    </div>
+
+    <div class="ob-actions">
+      <button class="ob-btn ob-btn-secondary" onclick="goToStep(2)">← Back</button>
+      <button class="ob-btn ob-btn-ghost" onclick="permDenyWrite()">Read-only mode</button>
+      <button class="ob-btn ob-btn-primary" onclick="permGrantWrite()">Allow Write Access →</button>
+    </div>
+  </section>
+
+  <!-- ══ Step 5: Library scan ═══════════════════════════════════════════════ -->
+  <section class="ob-step" id="step-4">
     <div class="ob-icon">🔍</div>
     <h1 class="ob-title">Your Rekordbox library</h1>
     <p class="ob-sub">FableGear can find your Rekordbox files automatically, or you can
@@ -556,7 +628,7 @@
         </div>
       </div>
       <div class="ob-actions">
-        <button class="ob-btn ob-btn-secondary" onclick="goToStep(1)">← Back</button>
+        <button class="ob-btn ob-btn-secondary" onclick="goToStep(3)">← Back</button>
         <button class="ob-btn ob-btn-ghost" onclick="declineScan()">Enter paths manually</button>
         <button class="ob-btn ob-btn-primary" onclick="allowScan()">Allow scan →</button>
       </div>
@@ -675,78 +747,9 @@
     </div><!-- /scan-results -->
 
     <div class="ob-actions" id="scan-actions" style="display:none">
-      <button class="ob-btn ob-btn-secondary" onclick="goToStep(1)">← Back</button>
+      <button class="ob-btn ob-btn-secondary" onclick="goToStep(3)">← Back</button>
       <button class="ob-btn ob-btn-secondary" onclick="triggerScan()">↻ Re-scan</button>
       <button class="ob-btn ob-btn-primary" onclick="confirmPaths()">Confirm paths →</button>
-    </div>
-  </section>
-
-  <!-- ══ Step 4: Read permission ══════════════════════════════════════════ -->
-  <section class="ob-step" id="step-3">
-    <div class="ob-icon">📖</div>
-    <h1 class="ob-title">May FableGear read your Rekordbox database?</h1>
-    <p class="ob-sub">Reading the database lets FableGear see what tracks are in your
-      library, where their files are, and whether any paths are broken.
-      Nothing is modified at this stage.</p>
-
-    <!-- FDA warning (shown only when needed) -->
-    <div id="fda-banner" class="fda-banner" style="display:none">
-      <span>⚠️</span>
-      <div class="fda-body">
-        <strong>Full Disk Access may be required</strong>
-        macOS restricts reading files in protected folders like ~/Library. If FableGear
-        can't read your database, grant Full Disk Access to Terminal (or FableGear) in
-        System Settings → Privacy &amp; Security → Full Disk Access.
-      </div>
-      <button class="ob-btn ob-btn-secondary" style="white-space:nowrap;flex-shrink:0;margin-left:4px"
-              onclick="openFDAPrefs()">Open Settings</button>
-    </div>
-
-    <div class="ob-card">
-      <div class="ob-card-title">Tools unlocked with read access</div>
-      <div class="dep-row"><span class="dep-icon">▣</span><span class="dep-name">Library Audit</span><span class="dep-hint">Maps your full library, flags broken paths and orphaned entries</span></div>
-      <div class="dep-row"><span class="dep-icon">🏷</span><span class="dep-name">Tag Tracks</span><span class="dep-hint">Cross-references the database when prioritising files for analysis</span></div>
-      <div class="dep-row"><span class="dep-icon">🔎</span><span class="dep-name">Find Duplicates</span><span class="dep-hint">Uses DB metadata for smart pre-filtering before fingerprinting</span></div>
-    </div>
-
-    <div class="ob-actions">
-      <button class="ob-btn ob-btn-secondary" onclick="goToStep(2)">← Back</button>
-      <button class="ob-btn ob-btn-ghost" onclick="permDenyRead()">Skip — limited mode</button>
-      <button class="ob-btn ob-btn-primary" onclick="permGrantRead()">Allow Read Access →</button>
-    </div>
-  </section>
-
-  <!-- ══ Step 5: Write permission ══════════════════════════════════════════ -->
-  <section class="ob-step" id="step-4">
-    <div class="ob-icon">✏️</div>
-    <h1 class="ob-title">May FableGear write to your Rekordbox database?</h1>
-    <p class="ob-sub">Some tools make changes to your library. FableGear always creates a
-      timestamped database backup before any write operation, and Rekordbox must be
-      closed first.</p>
-
-    <div class="ob-card">
-      <div class="ob-card-title">Tools unlocked with write access</div>
-      <div class="dep-row"><span class="dep-icon">📍</span><span class="dep-name">Fix Broken Paths</span><span class="dep-hint">Updates file paths in the database after a drive rename or move</span></div>
-      <div class="dep-row"><span class="dep-icon">＋</span><span class="dep-name">Import Tracks</span><span class="dep-hint">Adds new audio files to your Rekordbox library</span></div>
-      <div class="dep-row"><span class="dep-icon">🔗</span><span class="dep-name">Link Playlists</span><span class="dep-hint">Associates imported tracks to playlists based on folder structure</span></div>
-      <div class="dep-row"><span class="dep-icon">✂</span><span class="dep-name">Prune Duplicates</span><span class="dep-hint">Removes confirmed duplicates from the database and optionally the disk</span></div>
-    </div>
-
-    <div class="ob-card" style="background:rgba(0,212,232,.04);border-color:rgba(0,212,232,.18)">
-      <div class="ob-card-title" style="color:var(--accent)">Backup guarantee</div>
-      <div style="font-size:.86rem;color:var(--text-muted);line-height:1.55">
-        Every write operation creates a timestamped copy of your database before it
-        touches anything. Backups are stored in
-        <code id="backup-guarantee-path" style="font-size:.78rem;color:var(--text)">FableGear Archive/Savepoints</code>
-        beside your chosen library (or inside a custom archive, if you set one later).
-        Rekordbox must be closed before FableGear will attempt a write.
-      </div>
-    </div>
-
-    <div class="ob-actions">
-      <button class="ob-btn ob-btn-secondary" onclick="goToStep(3)">← Back</button>
-      <button class="ob-btn ob-btn-ghost" onclick="permDenyWrite()">Read-only mode</button>
-      <button class="ob-btn ob-btn-primary" onclick="permGrantWrite()">Allow Write Access →</button>
     </div>
   </section>
 
@@ -934,8 +937,8 @@ function goToStep(n) {
   if (dotNext) { dotNext.classList.remove('done'); dotNext.classList.add('active'); }
 
   // Side effects per step
-  if (n === 2) prepareScanStep();
-  if (n === 3) checkFDA();
+  if (n === 2) checkFDA();
+  if (n === 4) prepareScanStep();
   if (n === 6) prepareImportStep();
   if (n === 7) _buildSetupSummary();
 
@@ -1058,7 +1061,50 @@ function installApp() {
   .catch(function() { goToStep(2); });
 }
 
-// ── Step 3: Library scan ───────────────────────────────────────────────────────
+// ── Step 3: Read permission ────────────────────────────────────────────────────
+function checkFDA() {
+  fetch('/api/onboarding/check-fda')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.db_exists && !d.can_read) {
+        document.getElementById('fda-banner').style.display = '';
+      } else {
+        document.getElementById('fda-banner').style.display = 'none';
+      }
+    });
+}
+
+function openFDAPrefs() {
+  fetch('/api/onboarding/open-fda-prefs', { method: 'POST' });
+}
+
+function permGrantRead() {
+  confirmedPaths.db_read = true;
+  goToStep(3);
+}
+
+function permDenyRead() {
+  confirmedPaths.db_read  = false;
+  confirmedPaths.db_write = false;
+  _buildSetupSummary();
+  // Denying read/write access still lets the user build their FableGear
+  // archive and scan for music (that's foundational, not Rekordbox-gated) —
+  // land on the archive/scan step rather than skipping straight to AI.
+  goToStep(4);
+}
+
+// ── Step 4: Write permission ───────────────────────────────────────────────────
+function permGrantWrite() {
+  confirmedPaths.db_write = true;
+  goToStep(4);
+}
+
+function permDenyWrite() {
+  confirmedPaths.db_write = false;
+  goToStep(4);
+}
+
+// ── Step 5: Library scan ───────────────────────────────────────────────────────
 // Consent gate: nothing touches the filesystem until the user answers. Re-entry
 // via Back keeps the earlier answer — results (or manual inputs) are re-shown.
 function prepareScanStep() {
@@ -1321,12 +1367,12 @@ function confirmPaths() {
       : (archiveRoot ? archiveRoot + '/Savepoints' : ''),
     snapshot_cadence: document.getElementById('inp-snapshot-cadence').value || 'monthly',
     snapshot_include_master_db: document.getElementById('inp-snapshot-master-db').checked,
-    db_read:  true,
-    db_write: true,
+    db_read:  confirmedPaths.db_read,
+    db_write: confirmedPaths.db_write,
     drive_scan: scanConsent === true,
   };
   document.getElementById('backup-guarantee-path').textContent = confirmedPaths.backup_dir || '~/.fablegear/backups';
-  goToStep(3);
+  goToStep(5);
 }
 
 function openDiskUtilityForMusicRoot() {
@@ -1348,46 +1394,6 @@ function openDiskUtilityForMusicRoot() {
     .catch(function() {
       obNotice('Could not open Disk Utility.', 'error');
     });
-}
-
-// ── Step 4: Read permission ────────────────────────────────────────────────────
-function checkFDA() {
-  fetch('/api/onboarding/check-fda')
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (d.db_exists && !d.can_read) {
-        document.getElementById('fda-banner').style.display = '';
-      } else {
-        document.getElementById('fda-banner').style.display = 'none';
-      }
-    });
-}
-
-function openFDAPrefs() {
-  fetch('/api/onboarding/open-fda-prefs', { method: 'POST' });
-}
-
-function permGrantRead() {
-  confirmedPaths.db_read = true;
-  goToStep(4);
-}
-
-function permDenyRead() {
-  confirmedPaths.db_read  = false;
-  confirmedPaths.db_write = false;
-  _buildSetupSummary();
-  goToStep(5);
-}
-
-// ── Step 5: Write permission ───────────────────────────────────────────────────
-function permGrantWrite() {
-  confirmedPaths.db_write = true;
-  goToStep(5);
-}
-
-function permDenyWrite() {
-  confirmedPaths.db_write = false;
-  goToStep(5);
 }
 
 // ── Step 6: AI integration (MCP) — strictly opt-in ─────────────────────────────

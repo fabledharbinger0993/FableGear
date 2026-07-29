@@ -233,6 +233,76 @@ try:
 except Exception:
     pass  # Drive not mounted yet — non-fatal
 
+try:
+    # Archive-first DB home (docs/archive_first_architecture.md §3): restore
+    # the local working copy from the archive if it's missing/corrupt, or
+    # seed the archive from an existing local DB on first run. No-ops
+    # (returns action="skipped") when the drive isn't mounted — never blocks
+    # startup.
+    import logging as _logging  # noqa: PLC0415
+    from fablegear_database.archive_sync import startup_sync_check as _archive_startup_sync_check
+    _startup_sync_result = _archive_startup_sync_check()
+    if not _startup_sync_result.ok:
+        _logging.getLogger(__name__).warning(
+            "Archive DB sync check at startup: %s", _startup_sync_result.reason,
+        )
+    elif _startup_sync_result.action != "skipped":
+        _logging.getLogger(__name__).info(
+            "Archive DB sync check at startup: %s (%s)",
+            _startup_sync_result.action, _startup_sync_result.reason,
+        )
+except Exception:
+    import logging as _logging  # noqa: PLC0415
+    _logging.getLogger(__name__).exception("Archive DB startup sync check failed")
+
+
+def _sync_archive_db_on_exit() -> None:
+    """Clean-shutdown checkpoint (doc §3.2): back up the local working copy
+    to the archive on process exit. Best-effort — a missing drive or an
+    interrupted shutdown just means the periodic scheduler
+    (snapshot_scheduler) picks it up on its next cadence instead."""
+    try:
+        from fablegear_database.archive_sync import sync_db_to_archive  # noqa: PLC0415
+        sync_db_to_archive()
+    except Exception:
+        pass
+
+
+import atexit  # noqa: E402
+atexit.register(_sync_archive_db_on_exit)
+
+# atexit alone doesn't run on SIGTERM/SIGINT (Python's default handling for
+# both terminates immediately without unwinding to atexit). This app's own
+# self-update flow signals itself with SIGTERM (see api_update_apply), and a
+# packaged desktop build is routinely closed via SIGTERM/SIGINT from the OS
+# or its process supervisor — those are the *actual* common shutdown paths,
+# not a plain interpreter exit. Route both through the same sync + exit so
+# "clean shutdown" in the doc means what actually happens, not just the
+# idealized case.
+_prior_sigterm_handler = signal.getsignal(signal.SIGTERM)
+_prior_sigint_handler = signal.getsignal(signal.SIGINT)
+
+
+def _handle_shutdown_signal(signum, frame):
+    _sync_archive_db_on_exit()
+    if signum == signal.SIGTERM and callable(_prior_sigterm_handler):
+        _prior_sigterm_handler(signum, frame)
+        return
+    if signum == signal.SIGINT and callable(_prior_sigint_handler):
+        _prior_sigint_handler(signum, frame)
+        return
+    sys.exit(0)
+
+
+try:
+    signal.signal(signal.SIGTERM, _handle_shutdown_signal)
+    signal.signal(signal.SIGINT, _handle_shutdown_signal)
+except (ValueError, OSError):
+    # signal.signal() only works in the main thread of the main interpreter —
+    # non-fatal if app.py is ever imported somewhere that isn't (e.g. certain
+    # test harnesses); atexit above still covers normal interpreter exit.
+    pass
+
 
 # ── Health check cache ────────────────────────────────────────────────────────
 # Findings are refreshed at startup and whenever /api/health is called.
@@ -350,23 +420,9 @@ _SPLASH_HTML = """\
 @app.route("/")
 def index():
     from flask import redirect as _redirect  # noqa: PLC0415
-    from user_config import config_exists   # noqa: PLC0415
-    # First-run gate. A failure here must never silently skip the wizard:
-    # if we can't prove setup is complete, show onboarding (it lets a
-    # configured user continue straight through to the app).
-    try:
-        has_config = config_exists()
-    except Exception:
-        app.logger.exception("index gate: config_exists() failed — routing to onboarding")
-        return _redirect("/onboarding")
-    if not has_config:
-        return _redirect("/onboarding")
-    try:
-        _st = _load_setup_state(repair=True)
-    except Exception:
-        app.logger.exception("index gate: setup state unreadable — routing to onboarding")
-        return _redirect("/onboarding")
-    if not _st.get("setup_complete"):
+    ready, reason, _state = _setup_gate_status(repair=True)
+    if not ready:
+        app.logger.info("Redirecting to onboarding (reason=%s)", reason)
         return _redirect("/onboarding")
     return render_template("index.html")
 
@@ -1112,12 +1168,40 @@ def _load_setup_state(*, repair: bool = True) -> dict:
     return state
 
 
+def _setup_gate_status(*, repair: bool = True) -> tuple[bool, str, dict]:
+    """
+    Evaluate whether the app should admit the user to the main UI.
+
+    Returns (ready, reason, state) where reason is one of:
+      - ready
+      - config_missing
+      - config_check_failed
+      - setup_incomplete
+    """
+    from user_config import config_exists  # noqa: PLC0415
+
+    state = _load_setup_state(repair=repair)
+
+    try:
+        if not config_exists():
+            return False, "config_missing", state
+    except Exception:
+        app.logger.exception("Setup gate check failed while reading config state")
+        return False, "config_check_failed", state
+
+    if not state.get("setup_complete"):
+        return False, "setup_incomplete", state
+
+    return True, "ready", state
+
+
 @app.route("/api/setup-status")
 def api_setup_status():
     """Return whether the welcome wizard has been completed."""
-    state = _load_setup_state(repair=True)
+    ready, reason, state = _setup_gate_status(repair=True)
     return jsonify({
-        "setup_complete": bool(state.get("setup_complete")),
+        "setup_complete": bool(ready),
+        "gate_reason": reason,
         "db_read":        state.get("db_read"),
         "db_write":       state.get("db_write"),
     })
@@ -1266,26 +1350,19 @@ def api_drives_first_aid():
 def onboarding():
     """Serve the first-run setup wizard."""
     from flask import redirect as _redirect  # noqa: PLC0415
-    from user_config import config_exists   # noqa: PLC0415
-    # Whether a usable app already exists behind the wizard. Drives the
-    # wizard's Exit control: a configured user (re-running setup) can exit
-    # straight back to the app; a first-run user has no app to return to, so
-    # Exit offers to quit and resume later instead.
-    already_configured = False
-    try:
-        if config_exists():
-            state = _load_setup_state(repair=True)
-            already_configured = bool(state.get("setup_complete"))
-            # `?reconfigure=1` lets a completed user re-enter the wizard (e.g. to
-            # change permissions or paths); otherwise a finished setup bounces home.
-            if already_configured and not request.args.get("reconfigure"):
-                return _redirect("/")
-    except Exception:
-        # Fails open onto the wizard (the safe default), but silently — log
-        # it so a real setup-state bug is visible instead of just "onboarding
-        # showed up again for no obvious reason."
-        app.logger.exception("onboarding gate: setup state check failed — showing wizard")
-    return render_template("onboarding.html", already_configured=already_configured)
+    ready, reason, _state = _setup_gate_status(repair=True)
+    already_configured = bool(ready)
+
+    # `?reconfigure=1` lets a completed user re-enter the wizard (e.g. to
+    # change permissions or paths); otherwise a finished setup bounces home.
+    if ready and not request.args.get("reconfigure"):
+        return _redirect("/")
+
+    return render_template(
+        "onboarding.html",
+        already_configured=already_configured,
+        setup_gate_reason=reason,
+    )
 
 
 @app.route("/api/onboarding/dep-check")
