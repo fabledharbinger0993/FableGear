@@ -30,7 +30,16 @@ mutagen==1.47
 # Audio tag reading and writing
 
 librosa>=0.10.2
-# BPM detection, beat tracking, key detection, and chroma analysis
+# Key detection and chroma analysis; also the BPM fallback when essentia
+# is unavailable.
+
+essentia>=2.1b6.dev1110
+# Beat tracking (RhythmExtractor2013 multifeature). OPTIONAL but strongly
+# recommended: measured against 12,687 Rekordbox ground-truth beat grids,
+# exact-BPM agreement is 13.4% on the librosa fallback vs 91.4% with essentia.
+# That gap is what makes a FableGear-written beat grid safe to put on a CDJ.
+# audio_processor degrades to librosa automatically if this import fails, so
+# a platform without a wheel still works — just less accurately.
 pyloudnorm==0.1.1
 # Loudness measurement (EBU R128 / LUFS)
 
