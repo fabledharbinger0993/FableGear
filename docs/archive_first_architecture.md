@@ -30,17 +30,56 @@ step, never a side effect of building or viewing our library.
 
 ## 2. Current state (audit)
 
-| Concern | Archive-first target | Today (v1.1.25) | |
+**Re-audited 2026-07-29 against shipped code.** §3 (DB home) is now implemented;
+only the wizard order remains.
+
+| Concern | Archive-first target | Today | |
 |---|---|---|---|
-| Archive dir tree | Built first | Built on startup / config-save (`ensure_archive_structure`) | ✅ exists |
+| Archive dir tree | Built first | Built on startup / config-save (`ensure_archive_structure`) | ✅ |
 | Reports | In the archive | `ARCHIVE_ROOT/Reports` | ✅ |
 | Savepoints (pre-write DB backups) | In the archive | `ARCHIVE_ROOT/Savepoints` | ✅ |
-| Rekordbox backup | Offered, stored in archive | `snapshot_include_master_db` → archive snapshots | ✅ mechanism exists |
-| **App library DB** (`fablegear.db`) | Archive is its home | `~/.fablegear/fablegear.db` (home dir only) | ❌ |
-| **Undo journal** (`fg_processing_log`) | In the archive | inside the home-dir DB | ❌ (follows the DB) |
-| **Wizard order** | FableGear first | Rekordbox scan + read/write perms are steps 3–5; "Build the FableGear library" is step 7 | ❌ inverted |
+| Rekordbox backup | Offered, stored in archive | `snapshot_include_master_db` → archive snapshots | ✅ |
+| **App library DB** (`fablegear.db`) | Archive is its home | `fablegear_database/archive_sync.py` — archive holds the authoritative copy, local `~/.fablegear` copy is the live WAL target; wired into `app.py` startup (`startup_sync_check`) and shutdown (`sync_db_to_archive`), plus `snapshot_scheduler` | ✅ **shipped** |
+| **Undo journal** (`fg_processing_log`) | In the archive | follows the DB, so covered by the same sync | ✅ **shipped** |
+| **Wizard order** | FableGear first | Rekordbox library is step 4; "Build your FableGear library" is step 6 | ❌ **still inverted** |
 
-Two real divergences to fix: **wizard order** (§4) and **DB home** (§3).
+One real divergence remains: **wizard order** (§4).
+
+### 2.1 Why the wizard order has resisted a fix
+
+The blocker is not step numbering — it is a **data dependency**, which the
+original draft of this document did not identify.
+
+The drive scan lives *inside* the Rekordbox step (`allowScan()` in
+`templates/onboarding.html`, step 4) and writes `scanData.music_roots`.
+`prepareImportStep()` (step 6, "Build your FableGear library") then builds its
+"Discovered music sources" list from exactly that data. The fallback text is
+explicit about the coupling:
+
+> "No sources discovered — allow the drive scan in the library step"
+
+So FableGear's own library build is a **downstream consumer of a scan owned by
+the Rekordbox step**. Swapping the two steps would leave step 6 with nothing to
+offer. That inversion in the data flow is the real thing this document is
+describing, and it is why the reorder is not a template edit.
+
+**The fix is to extract the scan into its own neutral step**, since discovering
+where the user's music lives is a FableGear-serving operation that Rekordbox
+detection merely happens to piggyback on:
+
+```
+  perms → [scan drives: "where is your music?"]
+        → [build the FableGear library]        ← consumes the scan
+        → [connect Rekordbox (optional)]       ← also consumes the scan
+        → AI integration → done
+```
+
+Rekordbox then reads as what the principle says it is: an optional, downstream
+delivery target, not a precondition for having a library at all.
+
+**Not yet done.** This is the first-run experience, and the scan/import state
+machine spans the template's JS — it needs browser verification against a fresh
+config, not a blind edit.
 
 ## 3. Database home: archive is source of truth, working copy is local
 
