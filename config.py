@@ -134,6 +134,14 @@ def ensure_archive_structure() -> None:
 TARGET_LUFS:    float = float(_cfg["target_lufs"])
 LUFS_TOLERANCE: float = float(_cfg["lufs_tolerance"])
 
+# True-peak ceiling for the normalise operation, in dBTP. Gain is capped so a
+# file's true peak can never cross this line. Without the cap, gain is sized
+# purely from integrated loudness — a quiet-but-hot master (low LUFS, peak
+# already near 0 dBFS) gets the full boost anyway and clips. -1.0 dBTP is the
+# standard delivery ceiling, leaving headroom for intersample peaks introduced
+# by re-encoding.
+TRUE_PEAK_CEILING_DBTP: float = -1.0
+
 # AcoustID API key for MusicBrainz enrichment (optional — empty string disables lookup)
 ACOUSTID_API_KEY: str = _cfg.get("acoustid_api_key", "")
 
