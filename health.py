@@ -493,6 +493,45 @@ def _check_db_symlink() -> HealthFinding | None:
 
 # ── Public interface ──────────────────────────────────────────────────────────
 
+def _check_beat_tracker() -> HealthFinding | None:
+    """Warn when essentia is missing, because the fallback is silent.
+
+    audio_processor prefers essentia for beat tracking and degrades to librosa
+    if it can't be imported — deliberately, so a missing optional dependency
+    never breaks processing. The cost of that graceful failure is that it is
+    invisible: exact BPM agreement with Rekordbox drops from ~91% to ~13%, and
+    the only signal is one INFO log line.
+
+    In a packaged build this is the likely failure mode: essentia is a C++
+    extension imported inside a function, which PyInstaller can miss unless
+    FableGear.spec collects it explicitly. Surfacing it here means a packaging
+    regression shows up as a warning rather than as wrong beat grids at a gig.
+    """
+    try:
+        import audio_processor  # noqa: PLC0415
+        if audio_processor._essentia_available():
+            return None
+    except Exception as exc:
+        log.debug("beat-tracker health check could not probe essentia: %s", exc)
+        return None
+
+    return HealthFinding(
+        id="beat_tracker_degraded",
+        severity="warn",
+        title="Beat detection is running in fallback mode",
+        detail=(
+            "essentia could not be loaded, so BPM detection is using the less "
+            "accurate librosa fallback. Beat grids will still be written, but "
+            "agreement with Rekordbox drops sharply — mostly half/double-time "
+            "errors — which matters if you export these grids to a CDJ."
+        ),
+        fix_hint=(
+            "Reinstall dependencies with `pip install -r requirements.txt`. "
+            "If this is a packaged build, essentia was not bundled correctly."
+        ),
+    )
+
+
 def run_health_checks() -> list[HealthFinding]:
     """
     Run all hazard checks in isolation.  An unhandled exception in any
@@ -508,6 +547,7 @@ def run_health_checks() -> list[HealthFinding]:
         _check_backup_dir_missing,
         _check_db_symlink,
         _check_archive_available,
+        _check_beat_tracker,
     ]
     multi_checks = [
         _check_cloud_sync,
