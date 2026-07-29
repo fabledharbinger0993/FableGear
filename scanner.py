@@ -46,6 +46,7 @@ class TrackInfo:
     artist: str | None = None
     album: str | None = None
     genre: str | None = None
+    label: str | None = None        # Record label / publisher (TPUB, ©pub, etc.)
     year: int | None = None
     track_number: int | None = None
 
@@ -123,6 +124,21 @@ def _get_mp4_text(tags, key: str) -> str | None:
             return str(val[0]).strip() or None
         return str(val).strip() or None
     return None
+
+
+def _get_mp4_freeform(tags, name: str) -> str | None:
+    """Pull a value from an iTunes freeform MP4 atom (----:com.apple.iTunes:NAME).
+    Used for fields with no standard atom, e.g. the record LABEL. Values are a
+    list of bytes/str; decode the first non-empty one."""
+    val = tags.get(f"----:com.apple.iTunes:{name}")
+    if not val:
+        return None
+    try:
+        raw = val[0]
+        text = (raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)).strip()
+        return text or None
+    except Exception:
+        return None
 
 
 def _get_vorbis_text(tags, *keys: str) -> str | None:
@@ -251,6 +267,7 @@ def extract_metadata(path: Path) -> TrackInfo:
             info.artist = _get_mp4_text(tags, "©ART")
             info.album  = _get_mp4_text(tags, "©alb")
             info.genre  = _get_mp4_text(tags, "©gen")
+            info.label  = _get_mp4_text(tags, "©pub") or _get_mp4_freeform(tags, "LABEL")
             info.year   = _parse_year(_get_mp4_text(tags, "©day"))
             # Track number in M4A is stored as (track, total) tuple
             trkn = tags.get("trkn")
@@ -281,6 +298,7 @@ def extract_metadata(path: Path) -> TrackInfo:
             info.artist = _get_vorbis_text(tags, "artist")
             info.album  = _get_vorbis_text(tags, "album")
             info.genre  = _get_vorbis_text(tags, "genre")
+            info.label  = _get_vorbis_text(tags, "label", "publisher", "organization")
             info.key    = _get_vorbis_text(tags, "initialkey", "key")
             info.bpm    = _parse_bpm(_get_vorbis_text(tags, "bpm"))
             info.year   = _parse_year(_get_vorbis_text(tags, "date", "year"))
@@ -292,6 +310,7 @@ def extract_metadata(path: Path) -> TrackInfo:
             info.artist = _get_id3_text(tags, "TPE1")
             info.album  = _get_id3_text(tags, "TALB")
             info.genre  = _get_id3_text(tags, "TCON")
+            info.label  = _get_id3_text(tags, "TPUB")
             info.key    = _get_id3_text(tags, "TKEY")
             info.bpm    = _parse_bpm(_get_id3_text(tags, "TBPM"))
             info.year   = _parse_year(

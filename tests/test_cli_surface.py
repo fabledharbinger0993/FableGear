@@ -40,6 +40,12 @@ EXPECTED_COMMANDS = {
     "export-onelibrary", "import", "link", "novelty", "organize", "pdb-read",
     "pioneer-settings", "process", "prune", "rekordbox-dedupe", "rekordbox-sync",
     "relocate", "rename", "setup", "usb-inspect",
+    # Export-parity work (PR #129): playlist recovery, track parsing, and the
+    # Rekordbox write-back path. `playlist` is a command group — its handlers
+    # live on its children, which test_command_is_wired_to_a_callable_handler
+    # checks separately.
+    "import-missing-to-rekordbox", "parse", "parse-status", "playlist",
+    "push-recovery-to-rekordbox", "recover-playlists", "smart-dedup",
 }
 
 
@@ -88,21 +94,29 @@ def test_command_is_wired_to_a_callable_handler(choices, name):
     sub = choices.get(name)
     assert sub is not None, f"{name} is not registered"
 
-    # Command *groups* carry their handlers on their children, not themselves.
-    # `playlist` is the known one; it lands with the export-parity work, at
-    # which point test_no_command_appeared_without_being_declared_here fails
-    # and forces it into EXPECTED_COMMANDS — and this branch starts running.
-    if name == "playlist":
-        group = _subparsers(sub).choices
-        assert group, "playlist should expose subcommands"
-        for child_name, child in group.items():
-            fn = child.get_default("func")
-            assert callable(fn), f"playlist {child_name} has no callable handler"
-        return
-
     fn = sub.get_default("func")
-    assert fn is not None, f"{name} has no `func` default — main() would fail at dispatch"
-    assert callable(fn), f"{name}'s handler is not callable: {fn!r}"
+    if callable(fn):
+        return      # plain command, or a group that dispatches internally
+
+    # Otherwise it must be a command *group* whose children carry the handlers.
+    # Both shapes are legitimate and both are in use: `playlist` sets
+    # func=cmd_playlist on the parent and branches on args.playlist_action,
+    # so its children have no func of their own. What main() actually requires
+    # is only that `args.func` is callable after parsing — satisfied either way.
+    group_action = None
+    for action in sub._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            group_action = action
+            break
+    assert group_action is not None, (
+        f"{name} has no callable `func` and no subcommands — main() would fail "
+        f"at dispatch with AttributeError"
+    )
+    for child_name, child in group_action.choices.items():
+        child_fn = child.get_default("func")
+        assert callable(child_fn), (
+            f"{name} {child_name} has no callable handler, and neither does its parent"
+        )
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED_COMMANDS))

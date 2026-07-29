@@ -199,6 +199,28 @@ def _load_audio_ffmpeg(path: Path, duration: float = ANALYSIS_DURATION) -> "tupl
         return None
 
 
+def _fold_octave(bpm: float, lo: float, hi: float) -> float:
+    """Fold a tempo into [lo, hi) by doubling/halving. Corrects librosa's common
+    half/double-time octave errors. Only octave (2x) errors are fixable this way;
+    non-octave errors (e.g. 4:3 detections) are left as-is.
+
+    Only reachable on the librosa fallback below: when essentia is available it
+    resolves the octave from the signal itself and this heuristic is bypassed.
+    A fixed fold range also can't represent a genuinely slow or fast track,
+    which is part of why essentia is preferred."""
+    if bpm <= 0:
+        return bpm
+    b = bpm
+    for _ in range(6):
+        if b < lo:
+            b *= 2
+        elif b >= hi:
+            b /= 2
+        else:
+            break
+    return b if lo <= b < hi else bpm  # give up rather than force a bad value
+
+
 def _essentia_available() -> bool:
     """Whether essentia can be imported. Cached; essentia is an OPTIONAL
     dependency and every call site falls back to the librosa path without it,
@@ -252,10 +274,17 @@ def _detect_bpm_essentia(path: Path) -> "tuple[float, float] | None":
         return None
 
 
-def _detect_bpm(y: np.ndarray, sr: int, name: str) -> float | None:
+def _detect_bpm(y: np.ndarray, sr: int, name: str,
+                fix_octaves: bool = False,
+                fold_min: float = 76.0, fold_max: float = 152.0) -> float | None:
     try:
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
         bpm = float(np.squeeze(tempo))
+        if fix_octaves:
+            folded = _fold_octave(bpm, fold_min, fold_max)
+            if folded != bpm:
+                log.info("BPM octave-corrected %.2f → %.2f for %s", bpm, folded, name)
+                bpm = round(folded, 2)
         if BPM_MIN <= bpm <= BPM_MAX:
             return round(bpm, 2)
         log.warning("BPM %s out of range (%s–%s) for %s", bpm, BPM_MIN, BPM_MAX, name)
@@ -844,6 +873,7 @@ def process_file(
     force_normalize: bool = False,
     force_enrich: bool = False,
     enrich_tags: bool = False,
+    fix_octaves: bool = False,
 ) -> ProcessResult:
     """Run the full analysis + normalisation pipeline on a single file."""
     result = ProcessResult(path=path)
@@ -919,9 +949,12 @@ def process_file(
             # essentia already ran above (it decides whether _audio was even
             # loaded); librosa stands in when essentia is absent or came back
             # empty, so a per-file essentia failure still yields a BPM.
+            # --fix-octaves only reaches the librosa path: essentia resolves
+            # the octave from the signal, so folding its answer would be a
+            # heuristic overriding a better measurement.
             bpm = _es_bpm
             if bpm is None and _audio is not None:
-                bpm = _detect_bpm(*_audio, path.name)
+                bpm = _detect_bpm(*_audio, path.name, fix_octaves=fix_octaves)
                 if bpm is not None:
                     result.bpm_source = "librosa"
 
@@ -1021,6 +1054,7 @@ def process_directory(
     force_normalize: bool = False,
     force_enrich: bool = False,
     enrich_tags: bool = False,
+    fix_octaves: bool = False,
     max_workers: int = 1,
     pause_seconds: float = 0.0,
     quarantine_dir: Path | None = None,
@@ -1174,6 +1208,7 @@ def process_directory(
             force_normalize=force_normalize,
             force_enrich=force_enrich,
             enrich_tags=enrich_tags,
+            fix_octaves=fix_octaves,
         )
         if r.errors:
             log.info("[%d/%d] %s  ✗ errors: %s",

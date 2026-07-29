@@ -1,0 +1,41 @@
+{
+  "xor_base_pattern_hex": "cbe1eefae5eeadeee9d2e9ebe1e9f3e8e9f4e1",
+  "note": "Real .2EX starts with plaintext PMAI magic (not whole-file XOR). The XOR masking in the brief applies to a specific payload region, not the whole file \u2014 confirm region before claiming parity.",
+  "samples": [
+    {
+      "path": "PIONEER/USBANLZ/P000/00009530/ANLZ0000.2EX",
+      "size": 186979,
+      "magic": "PMAI",
+      "magic_is_PMAI": true,
+      "first_32_hex": "504d41490000001c0002da630000000100010000000100000000000050505448"
+    },
+    {
+      "path": "PIONEER/USBANLZ/P000/00028012/ANLZ0000.2EX",
+      "size": 180282,
+      "magic": "PMAI",
+      "magic_is_PMAI": true,
+      "first_32_hex": "504d41490000001c0002c03a0000000100010000000100000000000050505448"
+    },
+    {
+      "path": "PIONEER/USBANLZ/P000/0002C500/ANLZ0000.2EX",
+      "size": 161008,
+      "magic": "PMAI",
+      "magic_is_PMAI": true,
+      "first_32_hex": "504d41490000001c000274f00000000100010000000100000000000050505448"
+    },
+    {
+      "path": "PIONEER/USBANLZ/P000/0002C802/ANLZ0000.2EX",
+      "size": 124098,
+      "magic": "PMAI",
+      "magic_is_PMAI": true,
+      "first_32_hex": "504d41490000001c0001e4c20000000100010000000100000000000050505448"
+    },
+    {
+      "path": "PIONEER/USBANLZ/P001/00008D0B/ANLZ0000.2EX",
+      "size": 150828,
+      "magic": "PMAI",
+      "magic_is_PMAI": true,
+      "first_32_hex": "504d41490000001c00024d2c0000000100010000000100000000000050505448"
+    }
+  ]
+}

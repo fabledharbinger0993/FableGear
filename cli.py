@@ -11,7 +11,7 @@ Commands:
     relocate    Batch-update paths for moved/renamed files
     duplicates  Find acoustically identical files via Chromaprint
     process     Detect BPM/key and normalise loudness on audio files
-    organize    Consolidate files into Artist / Album / Track hierarchy
+    organize    Consolidate files into a choosable hierarchy (--by label, artist, …)
     rename      Rename files to clean titles based on metadata
     convert     Convert audio files to a target format
 
@@ -26,6 +26,7 @@ mutagen, librosa, etc.
 """
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -100,6 +101,17 @@ def _require_archive(command_name: str):
         )
         sys.exit(2)
     return archive
+
+
+def _rekordbox_running() -> bool:
+    """True if a Rekordbox process is running — writing to master.db while it is
+    open risks corruption, so callers must refuse."""
+    import subprocess  # noqa: PLC0415
+    try:
+        return subprocess.run(["pgrep", "-x", "rekordbox"],
+                              capture_output=True).returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _guard_or_exit(paths, tool: str) -> None:
@@ -1186,6 +1198,662 @@ def cmd_rekordbox_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_import_missing_rekordbox(args: argparse.Namespace) -> None:
+    """Phase 2: add the audio a recovery references but the Rekordbox collection
+    lacks (located via FableGear's archive) so a later push can link them.
+    Dry-run unless --write; --write requires Rekordbox closed, backs up first,
+    records added track ids for --undo, and logs to the audit trail."""
+    import json
+    import shutil
+    from datetime import datetime
+    from pathlib import Path
+    import playlist_recovery as R
+    from fablegear_database import FableGearDatabase
+
+    MANIFESTS = Path.home() / ".fablegear" / "rekordbox_import_manifests"
+    LIVE_DB = Path.home() / "Library" / "Pioneer" / "rekordbox" / "master.db"
+    target = getattr(args, "target", None)
+
+    if getattr(args, "undo", False):
+        if _rekordbox_running():
+            log.error("Close Rekordbox first, then re-run --undo.")
+            sys.exit(1)
+        mans = sorted(MANIFESTS.glob("*.json")) if MANIFESTS.is_dir() else []
+        if not mans:
+            log.error("No import manifest found — nothing to undo.")
+            sys.exit(1)
+        man = json.loads(mans[-1].read_text())
+        from pyrekordbox import Rekordbox6Database
+        db = Rekordbox6Database(path=man.get("target") or None)
+        n = 0
+        for cid in man.get("added_content_ids", []):
+            try:
+                db.delete_content(cid); n += 1
+            except Exception as exc:  # noqa: BLE001
+                log.warning("  could not remove track %s: %s", cid, exc)
+        db.commit(); db.close()
+        mans[-1].rename(mans[-1].with_suffix(".json.undone"))
+        log.info("Undid import — removed %d added track(s).", n)
+        return
+
+    sources = list(getattr(args, "source", None) or [])
+    if getattr(args, "source_list", None):
+        for ln in Path(args.source_list).read_text().splitlines():
+            ln = ln.strip()
+            if ln and not ln.startswith("#"):
+                sources.append(ln)
+    if not sources:
+        log.error("Pass --source / --source-list (e.g. the recovered master.db).")
+        sys.exit(1)
+
+    fg = FableGearDatabase()
+    log.info("Reading recovered crates from %d source(s)…", len(sources))
+    rec = R.recover(sources, database=None, strategy="richest",
+                    merge_numbered=getattr(args, "merge_duplicates", False))
+
+    if not getattr(args, "write", False):
+        rep = R.import_missing_to_rekordbox(rec.crates, fg, target_db_path=target, dry_run=True)
+        log.info("Target: %s", rep.target)
+        log.info("Files referenced by recovered crates: %d", rep.wanted_files)
+        log.info("  already in collection : %d", rep.already_present)
+        log.info("  missing               : %d", rep.missing)
+        log.info("  -> LOCATABLE (add now): %d", rep.locatable)
+        log.info("  -> not locatable      : %d (drive unmounted or gone)", rep.not_locatable)
+        for fn in rep.sample:
+            log.info("      + %s", fn)
+        log.info("DRY RUN — nothing added. Re-run with --write (Rekordbox closed).")
+        return
+
+    from rekordbox_safe_write import safe_master_write, SafeWriteError
+    try:
+        with safe_master_write(target, tag="import", manifest_dir=MANIFESTS) as ctx:
+            log.info("Backed up %s → %s", ctx.target.name, ctx.backup_dir)
+            rep = R.import_missing_to_rekordbox(rec.crates, fg, target_db_path=target,
+                                                dry_run=False)
+            ctx.record_manifest({"added": rep.added,
+                                 "added_content_ids": rep.added_content_ids})
+    except SafeWriteError as exc:
+        log.error("%s", exc)
+        sys.exit(1)
+
+    try:
+        fg.log_operation("import_to_rekordbox", file_path=str(ctx.target), status="ok",
+                         metadata={"added": rep.added, "backup": str(ctx.backup_dir)})
+    except Exception:  # noqa: BLE001
+        pass
+    log.info("%s", rep.detail)
+    log.info("These new tracks are in the collection but UNANALYZED — analyze them in "
+             "Rekordbox (select all → Analyze) for waveforms/grids.")
+    log.info("Undo (Rekordbox closed): python3 cli.py import-missing-to-rekordbox --undo")
+    log.info("Then run push-recovery-to-rekordbox --write to link the crates.")
+
+
+def cmd_push_rekordbox(args: argparse.Namespace) -> None:
+    """Push recovered crates into the live Rekordbox master.db (dry-run unless
+    --write). Non-destructive: creates new playlists under one folder, links
+    only tracks already in the collection (deduped), and skips any playlist name
+    that already exists. --write requires Rekordbox closed and takes its own
+    backup first; every created playlist id is recorded for one-command --undo."""
+    import json
+    import shutil
+    from datetime import datetime
+    from pathlib import Path
+    import playlist_recovery as R
+    from fablegear_database import FableGearDatabase
+
+    MANIFESTS = Path.home() / ".fablegear" / "rekordbox_push_manifests"
+    LIVE_DB = Path.home() / "Library" / "Pioneer" / "rekordbox" / "master.db"
+    target = getattr(args, "target", None)
+
+    # ── Undo ──
+    if getattr(args, "undo", False):
+        if _rekordbox_running():
+            log.error("Close Rekordbox first, then re-run --undo.")
+            sys.exit(1)
+        manifests = sorted(MANIFESTS.glob("*.json")) if MANIFESTS.is_dir() else []
+        if not manifests:
+            log.error("No push manifest found — nothing to undo.")
+            sys.exit(1)
+        man = json.loads(manifests[-1].read_text())
+        from pyrekordbox import Rekordbox6Database
+        db = Rekordbox6Database(path=man.get("target") or None)
+        n = 0
+        for pid in reversed(man.get("created_playlist_ids", [])):
+            try:
+                db.delete_playlist(pid); n += 1
+            except Exception as exc:  # noqa: BLE001
+                log.warning("  could not delete playlist %s: %s", pid, exc)
+        db.commit(); db.close()
+        manifests[-1].rename(manifests[-1].with_suffix(".json.undone"))
+        log.info("Undid push %s — removed %d playlist(s).", man.get("folder_name"), n)
+        return
+
+    # ── Gather + resolve (read-only) ──
+    sources = list(getattr(args, "source", None) or [])
+    if getattr(args, "source_list", None):
+        for ln in Path(args.source_list).read_text().splitlines():
+            ln = ln.strip()
+            if ln and not ln.startswith("#"):
+                sources.append(ln)
+    if not sources:
+        log.error("Pass --source / --source-list (e.g. the recovered master.db).")
+        sys.exit(1)
+
+    log.info("Reading recovered crates from %d source(s)…", len(sources))
+    rec = R.recover(sources, database=None, strategy="richest",
+                    merge_numbered=getattr(args, "merge_duplicates", False))
+    crates = rec.crates
+    skip_existing = not getattr(args, "no_skip_existing", False)
+
+    min_tracks = int(getattr(args, "min_tracks", 1))
+    if not getattr(args, "write", False):
+        rep = R.push_to_rekordbox(crates, target_db_path=target, dry_run=True,
+                                  skip_existing=skip_existing, min_tracks=min_tracks)
+        log.info("Target: %s", rep.target)
+        log.info("Recovered crates: %d", rep.total_crates)
+        log.info("  would CREATE : %d crate(s), %d track link(s)", rep.crates_planned, rep.links_planned)
+        log.info("  filtered out : %d crate(s) total —", rep.crates_filtered)
+        log.info("      junk/auto : %d (Rekordbox report/scratch crates)", rep.crates_junk_filtered)
+        log.info("      too small : %d (below --min-tracks)", rep.crates_too_small)
+        log.info("      no match  : %d (no track in the current collection)", rep.crates_no_match)
+        log.info("      existing  : %d (name already in your library)", rep.skipped_existing)
+        log.info("  need import  : %d placement(s) whose files aren't in the collection yet", rep.unresolved_placements)
+        for name, n in rep.sample:
+            log.info("      [%5d]  %s", n, name)
+        log.info("DRY RUN — nothing written. Re-run with --write to push (Rekordbox must be closed).")
+        return
+
+    # ── WRITE (guarded by the shared safe-write envelope) ──
+    from rekordbox_safe_write import safe_master_write, SafeWriteError
+
+    folder_name = f"Recovered {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    try:
+        with safe_master_write(target, tag="push", manifest_dir=MANIFESTS) as ctx:
+            log.info("Backed up %s → %s", ctx.target.name, ctx.backup_dir)
+            rep = R.push_to_rekordbox(crates, target_db_path=target, dry_run=False,
+                                      folder_name=folder_name, skip_existing=skip_existing,
+                                      min_tracks=min_tracks)
+            ctx.record_manifest({
+                "folder_name": folder_name,
+                "created_folder_id": rep.created_folder_id,
+                "created_playlist_ids": rep.created_playlist_ids,
+                "crates": rep.crates_planned, "links": rep.links_planned,
+            })
+    except SafeWriteError as exc:
+        log.error("%s", exc)
+        sys.exit(1)
+
+    try:
+        FableGearDatabase().log_operation("push_to_rekordbox", file_path=str(ctx.target),
+                                          status="ok",
+                                          metadata={"folder_name": folder_name,
+                                                    "crates": rep.crates_planned,
+                                                    "links": rep.links_planned,
+                                                    "backup": str(ctx.backup_dir)})
+    except Exception:  # noqa: BLE001
+        pass
+    log.info("%s", rep.detail)
+    log.info("Undo anytime (Rekordbox closed): python3 cli.py push-recovery-to-rekordbox --undo")
+    log.info("Backup kept at %s", ctx.backup_dir)
+
+
+def cmd_smart_dedup(args: argparse.Namespace) -> None:
+    """Smart Deduper — resolve duplicate Rekordbox records WITHOUT orphaning any
+    playlist. Re-wires every playlist membership of a duplicate onto the surviving
+    copy before deleting the record. Dry-run by default; --write executes behind
+    the safe-write envelope (Rekordbox closed + verified backup); --undo restores
+    the last run from its backup. Never touches an audio file."""
+    import json as _json
+    import shutil as _shutil
+    import smart_dedup as SD
+    from pyrekordbox import Rekordbox6Database
+
+    DEDUP_MANIFESTS = Path.home() / ".fablegear" / "rekordbox_dedup_manifests"
+    target = getattr(args, "target", None)
+    mode = SD.DedupMode.PHYSICAL if getattr(args, "mode", "database") == "physical" \
+        else SD.DedupMode.DATABASE
+
+    # ── UNDO: restore master.db from the last dedup backup ──
+    if getattr(args, "undo", False):
+        if _rekordbox_running():
+            log.error("Rekordbox is running — close it before --undo.")
+            sys.exit(1)
+        mans = sorted(DEDUP_MANIFESTS.glob("*.json")) if DEDUP_MANIFESTS.is_dir() else []
+        if not mans:
+            log.error("No dedup manifest found — nothing to undo.")
+            sys.exit(1)
+        man = _json.loads(mans[-1].read_text())
+        bdir = Path(man["backup"])
+        tgt = Path(man["target"])
+        for suf in ("", "-wal", "-shm"):
+            bfile = bdir / (tgt.name + suf)
+            if bfile.is_file():
+                _shutil.copy2(bfile, Path(str(tgt) + suf))
+        mans[-1].rename(mans[-1].with_suffix(".json.undone"))
+        log.info("Undid dedup — restored %s from %s", tgt.name, bdir)
+        return
+
+    # ── PLAN (read-only) ──
+    db = Rekordbox6Database(path=target) if target else Rekordbox6Database()
+    try:
+        plan = SD.SmartDedup(db, mode=mode).plan()
+    finally:
+        db.close()
+
+    s = plan.summary()
+    log.info("Smart Dedup (%s model):", s["mode"])
+    log.info("  duplicate groups     : %d", s["duplicate_groups"])
+    log.info("  auto-resolvable      : %d", s["auto_resolvable"])
+    log.info("  flagged for review   : %d", s["flagged_for_review"])
+    log.info("  records to remove    : %d", s["records_to_remove"])
+    log.info("  memberships re-wired : %d (moved onto survivors)", s["memberships_rewired"])
+    log.info("  duplicate links dropped: %d", s["duplicate_memberships_dropped"])
+
+    if getattr(args, "flagged_out", None):
+        flagged = [{"key": list(g.key),
+                    "records": [{"id": r.id, "path": r.folder_path,
+                                 "playlists": len(r.playlist_ids)} for r in g.records],
+                    "reason": g.reason} for g in plan.flagged]
+        Path(args.flagged_out).write_text(_json.dumps(flagged, indent=2))
+        log.info("Wrote %d flagged group(s) → %s", len(flagged), args.flagged_out)
+
+    if not getattr(args, "write", False):
+        log.info("DRY RUN — nothing changed. Re-run with --write to resolve "
+                 "(Rekordbox must be closed).")
+        return
+
+    # ── WRITE (guarded by the safe-write envelope) ──
+    from rekordbox_safe_write import safe_master_write, SafeWriteError
+    try:
+        with safe_master_write(target, tag="dedup", manifest_dir=DEDUP_MANIFESTS) as ctx:
+            log.info("Backed up %s → %s", ctx.target.name, ctx.backup_dir)
+            wdb = Rekordbox6Database(path=str(ctx.target))
+            try:
+                sd = SD.SmartDedup(wdb, mode=mode)
+                result = sd.execute(sd.plan())
+            finally:
+                wdb.close()
+            ctx.record_manifest({"mode": mode.value, **result})
+    except SafeWriteError as exc:
+        log.error("%s", exc)
+        sys.exit(1)
+
+    log.info("Resolved %d group(s): removed %d record(s), re-wired %d membership(s), "
+             "dropped %d duplicate link(s).", result["groups_resolved"],
+             result["records_removed"], result["memberships_rewired"],
+             result["duplicate_memberships_dropped"])
+    log.info("Undo (Rekordbox closed): python3 cli.py smart-dedup --undo")
+
+
+def cmd_recover_playlists(args: argparse.Namespace) -> None:
+    """Recover playlists ("crates") from exported media and rebuild them in the
+    FableGear archive. Dry-run by default (report only). With --write, rebuilds
+    every crate that has enough resolved tracks under one timestamped
+    "Recovered <ts>" folder — non-destructive (only creates new playlists),
+    checkpointed, audit-logged, and removable in one action (delete the folder).
+    """
+    import playlist_recovery as R
+    from fablegear_database import FableGearDatabase
+    from datetime import datetime
+
+    sources = list(getattr(args, "source", None) or [])
+    if getattr(args, "source_list", None):
+        for line in Path(args.source_list).read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                sources.append(line)
+    if not sources:
+        log.error("Pass at least one --source / --source-list (a drive/folder to scan, "
+                  "or a direct exportLibrary.db / export.pdb path).")
+        sys.exit(1)
+
+    db = FableGearDatabase()
+    log.info("Scanning %d source location(s) for exported crates…", len(sources))
+    report = R.recover(sources, database=db, strategy=getattr(args, "strategy", "richest"),
+                       merge_numbered=getattr(args, "merge_duplicates", False))
+
+    min_resolved = int(getattr(args, "min_resolved", 1))
+    keep = [c for c in report.crates
+            if sum(1 for t in c.tracks if t.content_id) >= min_resolved]
+    log.info("Found %d export source(s).", len(report.sources))
+    log.info("Recovered %d unique crate(s), %d track placement(s); %d/%d resolved (%d%%).",
+             len(report.crates), report.resolution.total_tracks,
+             report.resolution.resolved, report.resolution.total_tracks,
+             100 * report.resolution.resolved // max(1, report.resolution.total_tracks))
+    log.info("%d crate(s) meet --min-resolved=%d and will be rebuilt.", len(keep), min_resolved)
+
+    # Report body
+    lines = [f"# FableGear playlist recovery — {'WRITE' if getattr(args,'write',False) else 'DRY RUN'}",
+             f"sources: {len(report.sources)} | crates: {len(report.crates)} | "
+             f"resolved: {report.resolution.resolved}/{report.resolution.total_tracks}", ""]
+    for c in keep:
+        res = sum(1 for t in c.tracks if t.content_id)
+        lines.append(f"[{res:>4}/{len(c.tracks):>4} resolved]  {c.name}")
+    if getattr(args, "report", None):
+        Path(args.report).write_text("\n".join(lines))
+        log.info("Wrote report to %s", args.report)
+    else:
+        for ln in lines[3:23]:
+            log.info("  %s", ln)
+        if len(keep) > 20:
+            log.info("  … and %d more (use --report FILE for the full list)", len(keep) - 20)
+
+    if not getattr(args, "write", False):
+        log.info("Dry run — nothing written. Re-run with --write to rebuild these into the archive.")
+        return
+
+    # ── Guarded write: everything under one removable folder ──
+    # --replace: remove any prior "Recovered …" folders first (their crates are
+    # a subset of this run). Delete children then the folder itself.
+    if getattr(args, "replace", False):
+        for pl in db.list_playlists():
+            if pl.get("type") == "folder" and str(pl.get("name", "")).startswith("Recovered"):
+                for child in db.get_playlist(pl["id"]).get("children", []) if db.get_playlist(pl["id"]) else []:
+                    db.delete_playlist(child["id"])
+                db.delete_playlist(pl["id"])
+                log.info("Removed prior recovery folder %r (id=%s)", pl.get("name"), pl.get("id"))
+
+    folder_name = f"Recovered {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    folder_id = db.create_playlist(folder_name, playlist_type="folder")
+    created = [folder_id]
+    crates_written = links_written = 0
+    for c in keep:
+        try:
+            # dedupe resolved tracks within the crate, preserve order
+            ids, seen = [], set()
+            for t in c.tracks:
+                if t.content_id is not None and t.content_id not in seen:
+                    seen.add(t.content_id)
+                    ids.append(t.content_id)
+            if not ids:
+                continue
+            pid = db.create_playlist(c.name, parent_id=folder_id)
+            created.append(pid)
+            crates_written += 1
+            # bulk insert — one executemany per crate instead of 5 queries/track
+            with db.transaction() as conn:
+                cur = conn.cursor()
+                cur.executemany(
+                    "INSERT INTO fg_playlist_song (playlist_id, content_id, track_number) VALUES (?,?,?)",
+                    [(pid, cid, i) for i, cid in enumerate(ids, 1)],
+                )
+                cur.execute("UPDATE fg_playlist SET track_count = ? WHERE id = ?", (len(ids), pid))
+            links_written += len(ids)
+        except Exception as exc:  # noqa: BLE001 — one bad crate must not abort
+            log.warning("  crate %r failed: %s", c.name, exc)
+    try:
+        db.log_operation("recover_playlists", file_path=folder_name, status="ok",
+                         metadata={"folder_id": folder_id, "crates": crates_written,
+                                   "links": links_written, "sources": len(report.sources),
+                                   "created_playlist_ids": created})
+    except Exception:  # noqa: BLE001
+        pass
+    log.info("Rebuilt %d crate(s) / %d track link(s) under folder %r (id=%s).",
+             crates_written, links_written, folder_name, folder_id)
+    log.info("To undo: delete the %r folder (or its playlist ids %s…).",
+             folder_name, created[:3])
+
+
+def cmd_parse(args: argparse.Namespace) -> None:
+    """Parse — the Track Parsing tool.
+
+    Prepares tracks so DJ gear (CDJ/XDJ/OPUS) can display and play them with
+    full attributes: it identifies the BPM and musical key, builds the beat grid
+    (tempo + downbeat phase), and generates the waveform analysis a player shows
+    — the monochrome, colour, and 3-band scrolling waveforms + overviews. Results
+    are stored in the library (beat grid in the DB, waveforms in a per-track
+    analysis cache), so `export-onelibrary --with-anlz` is pure assembly and
+    never re-analyzes.
+
+    Uses BPM/key already in the library; only detects them when missing (or
+    --force), applying octave correction. Detection writes file tags, so close
+    Rekordbox first if you expect any track to need detection.
+    """
+    from fablegear_database import FableGearDatabase
+    from fablegear_database.database import BeatGridRecord
+    from pathlib import Path as _P
+    import sys as _sys
+
+    cs = _P(__file__).resolve().parent / "chop_shop"
+    if str(cs) not in _sys.path:
+        _sys.path.insert(0, str(cs))
+    import waveform_generator as wg
+
+    db = FableGearDatabase()
+    all_tracks = db.get_content_with_relations(None)
+    if getattr(args, "path", None) and not getattr(args, "all", False):
+        src = str(_P(args.path).resolve())
+        tracks = [t for t in all_tracks
+                  if t.file_path and str(_P(t.file_path).resolve()).startswith(src)]
+    else:
+        tracks = all_tracks
+    tracks = [t for t in tracks if t.file_path and _P(t.file_path).is_file()]
+    tracks.sort(key=lambda t: t.id or 0)
+    if not tracks:
+        log.error("No tracks to parse (import them first).")
+        sys.exit(1)
+
+    do_wave = not getattr(args, "no_waveforms", False)
+    force = getattr(args, "force", False)
+
+    # Resume checkpoint (order-independent, by file path) — matches convert/
+    # process, so an interrupted --all parse of a big library picks up where it
+    # stopped instead of re-analyzing everything.
+    ckpt_roots = [_P(args.path)] if getattr(args, "path", None) else [_P.home() / ".fablegear"]
+    ckpt = _get_checkpoint("parse", ckpt_roots, args, {"waveforms": do_wave})
+    done_paths: set = set()
+    if ckpt is not None:
+        saved = ckpt.load()
+        if saved:
+            done_paths = set(saved.get("done_paths", []))
+            if done_paths and not force:
+                log.info("Resuming: %d track(s) already parsed, skipping.", len(done_paths))
+
+    def _save_ckpt() -> None:
+        if ckpt is not None:
+            ckpt.save({"done_paths": sorted(done_paths), "completed": len(done_paths),
+                       "total": len(tracks)})
+
+    log.info("Parsing %d track(s) for DJ-gear playback%s…",
+             len(tracks), "" if do_wave else " (grids only)")
+
+    ok = 0
+    for i, t in enumerate(tracks, 1):
+        name = t.file_name or str(t.id)
+        if not force and t.file_path in done_paths:
+            continue
+        try:
+            bpm, key = t.bpm, t.key
+            if force or bpm is None or key is None:
+                from audio_processor import process_file
+                res = process_file(_P(t.file_path), detect_bpm=True, detect_key=True,
+                                   normalise=False, force=force, fix_octaves=True)
+                bpm = res.bpm_detected if res.bpm_detected is not None else bpm
+                key = res.key_detected if res.key_detected is not None else key
+                upd = {}
+                if bpm is not None:
+                    upd["bpm"] = bpm
+                if key is not None:
+                    upd["key"] = key
+                if upd:
+                    db.update_content(t.id, upd)
+
+            # Beat grid: constant tempo from BPM, phase from downbeat estimate.
+            if bpm and t.duration:
+                offset = wg.estimate_first_beat_ms(t.file_path, bpm)
+                beat_ms = 60000.0 / float(bpm)
+                total = int((float(t.duration) * 1000.0 - offset) / beat_ms)
+                grid = [BeatGridRecord(content_id=t.id, beat_number=(j % 4) + 1,
+                                       time_msec=int(round(offset + j * beat_ms)),
+                                       bpm=float(bpm))
+                        for j in range(max(0, total))]
+                db.bulk_upsert_beatgrids(t.id, grid)
+
+            # Waveforms -> per-track analysis cache.
+            n_cols = 0
+            if do_wave:
+                wf = wg.analyze_audio(t.file_path)
+                wg.save_waveform_cache(t.id, wg.all_waveform_tags(wf))
+                n_cols = wf.n_cols
+
+            # Document the parse in the archive's audit trail.
+            try:
+                db.log_operation("parse", file_path=t.file_path, status="ok",
+                                 metadata={"content_id": t.id, "bpm": bpm, "key": key,
+                                           "grid_beats": len(db.get_beatgrid_for_content(t.id)),
+                                           "waveform_cols": n_cols, "waveforms": do_wave})
+            except Exception:  # noqa: BLE001 — logging must never fail the parse
+                pass
+
+            done_paths.add(t.file_path)
+            if i % 10 == 0:
+                _save_ckpt()
+            ok += 1
+            log.info("  [%d/%d] parsed %s (bpm=%s key=%s)", i, len(tracks), name, bpm, key)
+        except Exception as exc:  # noqa: BLE001 — one bad track must not abort the run
+            try:
+                db.log_operation("parse", file_path=t.file_path, status="error",
+                                 error_message=str(exc), metadata={"content_id": t.id})
+            except Exception:  # noqa: BLE001
+                pass
+            log.warning("  [%d/%d] parse failed for %s: %s", i, len(tracks), name, exc)
+
+    # Clean completion — clear the checkpoint so the next run starts fresh
+    # (matches convert/process). An interrupted run leaves it saved for resume.
+    if ckpt is not None:
+        ckpt.reset()
+    log.info("Parse complete: %d/%d track(s) ready for DJ gear "
+             "(export with `export-onelibrary --with-anlz`).", ok, len(tracks))
+
+
+def cmd_playlist(args: argparse.Namespace) -> None:
+    """Create/list FableGear playlists. `create NAME --from-folder PATH` makes a
+    playlist and adds every imported track whose file lives under PATH."""
+    from fablegear_database import FableGearDatabase
+    from pathlib import Path as _P
+
+    db = FableGearDatabase()
+    action = args.playlist_action
+
+    if action == "list":
+        for pl in db.list_playlists():
+            kind = "folder" if pl.get("type") == "folder" else "playlist"
+            log.info("  [%s] id=%s %r", kind, pl.get("id"), pl.get("name"))
+        return
+
+    if action == "create":
+        name = args.name
+        existing = {p["name"]: p for p in db.list_playlists() if p.get("type") != "folder"}
+        if name in existing:
+            pid = existing[name]["id"]
+            log.info("Playlist %r already exists (id=%s) — reusing", name, pid)
+        else:
+            pid = db.create_playlist(name)
+            log.info("Created playlist %r (id=%s)", name, pid)
+
+        if getattr(args, "from_folder", None):
+            src = str(_P(args.from_folder).resolve())
+            tracks = [t for t in db.get_content_with_relations(None)
+                      if t.file_path and str(_P(t.file_path).resolve()).startswith(src)]
+            tracks.sort(key=lambda t: (t.file_name or "").lower())
+            if not tracks:
+                log.warning("No imported tracks found under %s — import first?", src)
+            added = 0
+            for t in tracks:
+                try:
+                    if db.add_song(pid, t.id):
+                        added += 1
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("  add %s failed: %s", t.id, exc)
+            log.info("Added %d track(s) to %r (id=%s)", added, name, pid)
+        return
+
+
+def _parsed_status(fg_db, content_ids):
+    """Report how ready a set of tracks is for a pure-assembly export.
+
+    A track is "parsed" when `parse` has produced both halves an export needs:
+    a beat grid in the DB and a waveform cache on disk. Anything missing means
+    `export-onelibrary` would have to synthesize it from the source audio at
+    write time (the silent-DSP fallback) — which is exactly what the parse
+    pre-flight exists to surface.
+
+    Returns ``(total, unparsed)`` where ``unparsed`` is a list of
+    ``(id, name, [reasons])`` for tracks missing one or both pieces.
+    """
+    import sys as _sys
+    from pathlib import Path as _P
+    cs = _P(__file__).resolve().parent / "chop_shop"
+    if str(cs) not in _sys.path:
+        _sys.path.insert(0, str(cs))
+    import waveform_generator as wg
+
+    tracks = fg_db.get_content_with_relations(content_ids)
+    unparsed = []
+    for t in tracks:
+        reasons = []
+        try:
+            if not fg_db.get_beatgrid_for_content(t.id):
+                reasons.append("no beat grid")
+        except Exception:  # noqa: BLE001 — treat an unreadable grid as missing
+            reasons.append("no beat grid")
+        if wg.load_waveform_cache(t.id) is None:
+            reasons.append("no waveforms")
+        if reasons:
+            unparsed.append((t.id, getattr(t, "file_name", None) or str(t.id), reasons))
+    return len(tracks), unparsed
+
+
+def _parse_preflight(fg_db, content_ids, *, require_parsed: bool) -> None:
+    """Log a parse pre-flight for an export set. With ``require_parsed`` set,
+    abort (exit 1) rather than let export silently synthesize missing data."""
+    total_n, unparsed = _parsed_status(fg_db, content_ids)
+    if not unparsed:
+        log.info("Parse pre-flight: all %d track(s) fully parsed (grid + waveforms).", total_n)
+        return
+    log.warning(
+        "Parse pre-flight: %d of %d track(s) are NOT fully parsed — export would "
+        "synthesize the missing grid/waveforms from audio at write time.",
+        len(unparsed), total_n,
+    )
+    for tid, name, reasons in unparsed[:10]:
+        log.warning("  unparsed: %s (%s)", name, ", ".join(reasons))
+    if len(unparsed) > 10:
+        log.warning("  … and %d more", len(unparsed) - 10)
+    if require_parsed:
+        log.error("--require-parsed: refusing to export. Run `parse` first "
+                  "(or drop --require-parsed to allow on-the-fly synthesis).")
+        sys.exit(1)
+
+
+def cmd_parse_status(args: argparse.Namespace) -> None:
+    """Report parse readiness (beat grid + waveforms) for the library or a
+    playlist, without exporting anything. Read-only."""
+    from fablegear_database import FableGearDatabase
+    fg_db = FableGearDatabase()
+    content_ids = None
+    if getattr(args, "playlist", None):
+        match = next((pl for pl in fg_db.list_playlists()
+                      if pl.get("type") != "folder" and pl.get("name") == args.playlist), None)
+        if match is None:
+            log.error("Playlist not found: %r", args.playlist)
+            sys.exit(1)
+        content_ids = [s.id for s in fg_db.get_playlist_songs(match["id"])]
+    total_n, unparsed = _parsed_status(fg_db, content_ids)
+    parsed_n = total_n - len(unparsed)
+    print(f"Parse status: {parsed_n}/{total_n} track(s) fully parsed "
+          f"(grid + waveforms).", flush=True)
+    if unparsed:
+        print(f"{len(unparsed)} need parsing:", flush=True)
+        for tid, name, reasons in unparsed[:50]:
+            print(f"  [{tid}] {name} — {', '.join(reasons)}", flush=True)
+        if len(unparsed) > 50:
+            print(f"  … and {len(unparsed) - 50} more", flush=True)
+        print("\nRun:  python3 cli.py parse" +
+              (f" --path <dir>" if content_ids is None else "") +
+              "   to prepare them.", flush=True)
+
+
 def cmd_export_onelibrary(args: argparse.Namespace) -> None:
     """Write a Pioneer OneLibrary exportLibrary.db from FableGear's database,
     plus the device-identity companion files (RBFLTR.DAT, djprofile.nxs)
@@ -1205,11 +1873,68 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
     dj_name = getattr(args, "dj_name", "") or "FableGear"
 
     fg_db = FableGearDatabase()
+
+    # Resolve which tracks + playlists to export.
+    playlist_ids = None
+    content_ids = None
+    if getattr(args, "content_ids", None):
+        content_ids = [int(x) for x in str(args.content_ids).split(",") if x.strip()]
+    if getattr(args, "playlist", None) or getattr(args, "playlist_id", None):
+        want_id = getattr(args, "playlist_id", None)
+        want_name = getattr(args, "playlist", None)
+        match = None
+        for pl in fg_db.list_playlists():
+            if pl.get("type") == "folder":
+                continue
+            if (want_id is not None and pl.get("id") == int(want_id)) or \
+               (want_name is not None and pl.get("name") == want_name):
+                match = pl
+                break
+        if match is None:
+            log.error("Playlist not found: %r", want_id if want_id is not None else want_name)
+            sys.exit(1)
+        playlist_ids = [match["id"]]
+        if content_ids is None:
+            content_ids = [s.id for s in fg_db.get_playlist_songs(match["id"])]
+        log.info("Exporting playlist %r (%d tracks)", match["name"], len(content_ids))
+
+    # Parse pre-flight: surface (or, with --require-parsed, refuse) any track
+    # that would force export to synthesize its grid/waveforms from audio.
+    if getattr(args, "with_anlz", False) or getattr(args, "require_parsed", False):
+        _parse_preflight(fg_db, content_ids,
+                         require_parsed=getattr(args, "require_parsed", False))
+
+    # Drive root for audio staging / ANLZ = the folder that holds PIONEER/.
+    stage_root = None
+    if getattr(args, "stage_audio", False):
+        pr = target.parent.parent
+        if pr.name == "PIONEER":
+            stage_root = pr.parent
+            log.info("Staging audio into %s/Contents/", stage_root)
+        else:
+            log.warning("--stage-audio ignored: target is not under PIONEER/rekordbox/")
+
+    # --force: replace an existing export in place (removes the DB + its WAL/SHM
+    # sidecars) so re-exporting to the same stick doesn't require a manual rm.
+    if getattr(args, "force", False) and target.exists():
+        for suffix in ("", "-wal", "-shm"):
+            p = Path(str(target) + suffix)
+            try:
+                if p.exists():
+                    p.unlink()
+            except OSError as exc:
+                log.error("Could not remove existing %s: %s", p, exc)
+                sys.exit(1)
+        log.info("Replaced existing export at %s (--force)", target)
+
     try:
         result = OneLibraryWriter(fg_db).write(
             target,
+            content_ids=content_ids,
             include_playlists=not getattr(args, "no_playlists", False),
             device_name=device_name,
+            stage_audio_to=stage_root,
+            playlist_ids=playlist_ids,
         )
     except FileExistsError as exc:
         log.error(str(exc))
@@ -1230,6 +1955,25 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
             log.warning("    %s", err)
         if len(result.errors) > 20:
             log.warning("    ... and %d more", len(result.errors) - 20)
+
+    # Document the export in the archive's audit trail — a gig stick should
+    # leave a record of exactly what was written, when, and to where.
+    try:
+        fg_db.log_operation(
+            "export_onelibrary", file_path=str(target), status="ok",
+            metadata={
+                "tracks_written": result.tracks_written,
+                "tracks_skipped": result.tracks_skipped,
+                "playlist": getattr(args, "playlist", None),
+                "audio_staged": result.audio_files_copied,
+                "audio_missing": result.audio_files_missing,
+                "with_anlz": bool(getattr(args, "with_anlz", False)),
+                "device_name": device_name,
+                "errors": len(result.errors),
+            },
+        )
+    except Exception:  # noqa: BLE001 — logging must never fail the export
+        pass
 
     if not getattr(args, "no_identity_files", False):
         # target is expected to be .../PIONEER/rekordbox/exportLibrary.db —
@@ -1255,14 +1999,54 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
         "Test on a sacrificial USB stick — never a gig stick — and keep a "
         "Rekordbox-made control stick until trust is earned."
     )
-    if not getattr(args, "no_anlz_note", False):
+    if getattr(args, "with_anlz", False):
+        _generate_export_anlz(fg_db, target, result)
+    elif not getattr(args, "no_anlz_note", False):
         log.info(
-            "To generate matching ANLZ analysis files, call "
-            "PioneerExporter.export_track_anlz(content_id=<FableGear id>, "
-            "device_content_id=<OneLibrary id>, ...) using the id pairs in "
-            "this run's content_id_map — the two must agree or tracks will "
-            "point at ANLZ folders that were never written."
+            "No ANLZ files written (pass --with-anlz to generate beat grids + "
+            "waveforms). Without them the CDJ re-analyzes on load."
         )
+
+
+def _generate_export_anlz(fg_db, target: Path, result) -> None:
+    """Generate ANLZ (.DAT/.EXT/.2EX with grids + waveforms) for every track in
+    a just-written OneLibrary export, keyed to the same content_id its
+    analysisDataFilePath points at. Best-effort per track."""
+    from fablegear_database.exporter import PioneerExporter
+
+    pr = target.parent.parent
+    if pr.name != "PIONEER":
+        log.warning("Skipping ANLZ: target not under PIONEER/rekordbox/ (%s)", target)
+        return
+    drive_root = pr.parent
+
+    # content.path per content_id, read back from the encrypted DB we just wrote.
+    path_by_cid = {}
+    try:
+        import sqlcipher3
+        from fablegear_database.onelibrary_writer import _ONELIBRARY_KEY, _CIPHER_COMPATIBILITY
+        conn = sqlcipher3.connect(str(target))
+        cur = conn.cursor()
+        cur.execute(f"PRAGMA key = '{_ONELIBRARY_KEY}';")
+        cur.execute(f"PRAGMA cipher_compatibility = {_CIPHER_COMPATIBILITY};")
+        path_by_cid = {cid: p for cid, p in cur.execute("SELECT content_id, path FROM content")}
+        conn.close()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not read back content paths for ANLZ (%s); PPTH may be blank", exc)
+
+    exporter = PioneerExporter(fg_db)
+    ok = 0
+    total = len(result.content_id_map)
+    log.info("Generating ANLZ (grids + waveforms) for %d track(s)…", total)
+    for fg_id, content_id in result.content_id_map.items():
+        rel = path_by_cid.get(content_id, "")
+        try:
+            if exporter.export_track_anlz(content_id=fg_id, target_root=drive_root,
+                                          relative_audio_path=rel, device_content_id=content_id):
+                ok += 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning("  ANLZ for content %s failed: %s", content_id, exc)
+    log.info("  ANLZ written for %d/%d track(s)", ok, total)
 
 
 def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
@@ -1804,6 +2588,7 @@ def cmd_process(args: argparse.Namespace) -> None:
                 force_bpm=force_bpm,
                 force_key=force_key,
                 force_normalize=force_normalize,
+                fix_octaves=getattr(args, "fix_octaves", False),
                 max_workers=max(1, args.workers),
                 quarantine_dir=_quarantine_dir,
                 enrich_tags=args.enrich_tags,
@@ -2253,15 +3038,32 @@ def cmd_convert(args: argparse.Namespace) -> None:
 
 
 def cmd_organize(args: argparse.Namespace) -> None:
-    """Consolidate audio files into Artist / Album / Track hierarchy."""
+    """Consolidate audio files into a choosable folder hierarchy (default: Artist / Album)."""
     from pathlib import Path
-    from library_organizer import organize_library
+    from library_organizer import organize_library, parse_scheme
 
     primary = Path(args.source)
     extra   = [Path(p) for p in (getattr(args, "also_scan", None) or [])]
     sources = [primary] + extra
     target  = Path(args.target)
     mode    = getattr(args, "mode", "assimilate")
+
+    # Choosable grouping scheme (default: Artist / Album). A typo fails loudly.
+    try:
+        scheme_keys = parse_scheme(getattr(args, "by", None))
+    except ValueError as exc:
+        log.error("%s", exc)
+        print(f"[ERROR] {exc}", flush=True)
+        sys.exit(2)
+    scheme_label = " / ".join(k.capitalize() for k in scheme_keys)
+
+    # Playlist mirror is always copy-based (a track can be in many playlists),
+    # so it never moves or prunes the source regardless of --mode.
+    if scheme_keys == ("playlist",):
+        if mode == "assimilate":
+            log.info("--by playlist mirrors playlists by COPYING; source is left "
+                     "intact (ignoring --mode assimilate).")
+        mode = "integrate"
 
     for s in sources:
         if not s.is_dir():
@@ -2338,6 +3140,7 @@ def cmd_organize(args: argparse.Namespace) -> None:
                 archive=archive,
                 skip_paths=ckpt_done_paths or None,
                 on_result=_on_organize_result,
+                scheme=scheme_keys,
             )
         except ValueError as exc:
             # Source guardrail tripped (system root / home folder / app data).
@@ -2353,9 +3156,9 @@ def cmd_organize(args: argparse.Namespace) -> None:
         root_lines = [f"{len(root_results)} files scanned."]
         if root_moved:
             root_lines.append(
-                f"{root_moved} files would be {action_past} into Artist / Album / Track folders."
+                f"{root_moved} files would be {action_past} into {scheme_label} folders."
                 if dry_run else
-                f"{root_moved} files were {action_past} into Artist / Album / Track folders."
+                f"{root_moved} files were {action_past} into {scheme_label} folders."
             )
         if root_skipped:
             root_lines.append(f"{root_skipped} were already at the destination — left alone.")
@@ -2389,7 +3192,7 @@ def cmd_organize(args: argparse.Namespace) -> None:
             f"Mode: {mode_note}",
         ]
         if moved:
-            lines.append(f"  {moved} would be {action_past} into Artist / Album / Track folders.")
+            lines.append(f"  {moved} would be {action_past} into {scheme_label} folders.")
         if skipped:
             lines.append(f"  {skipped} are exact copies already at the destination — they'd be skipped.")
         if conflicts:
@@ -2400,7 +3203,7 @@ def cmd_organize(args: argparse.Namespace) -> None:
     else:
         lines = ["Done organizing.", ""]
         if moved:
-            lines.append(f"{moved} files were {action_verb} into Artist / Album / Track folders.")
+            lines.append(f"{moved} files were {action_verb} into {scheme_label} folders.")
         if skipped:
             lines.append(f"{skipped} were already at the destination — left alone.")
         if conflicts:
@@ -3014,6 +3817,99 @@ Examples:
     p_rb_sync.set_defaults(func=cmd_rekordbox_sync, dry_run=True)
 
     # ── export-onelibrary ──
+    p_rec = sub.add_parser(
+        "recover-playlists",
+        help="Recover playlists/crates from exported media (exportLibrary.db / "
+             "export.pdb) and rebuild them in the archive. Dry-run unless --write.",
+    )
+    p_rec.add_argument("--source", action="append", default=[],
+                       help="Drive/folder to scan, or a direct export file (repeatable)")
+    p_rec.add_argument("--source-list", default=None, dest="source_list",
+                       help="File with one source path per line")
+    p_rec.add_argument("--write", action="store_true",
+                       help="Rebuild the recovered crates into the archive (default: dry-run)")
+    p_rec.add_argument("--strategy", choices=["richest"], default="richest",
+                       help="Union strategy when a crate appears on multiple sticks")
+    p_rec.add_argument("--merge-duplicates", action="store_true", dest="merge_duplicates",
+                       help="Collapse Rekordbox '(N)' duplicate-name crates into one each")
+    p_rec.add_argument("--replace", action="store_true",
+                       help="Delete any prior 'Recovered …' folders before writing this run")
+    p_rec.add_argument("--min-resolved", type=int, default=1, dest="min_resolved",
+                       help="Only rebuild crates with at least this many resolved tracks")
+    p_rec.add_argument("--report", default=None, help="Write the full crate list to this file")
+    p_rec.set_defaults(func=cmd_recover_playlists)
+
+    p_imp = sub.add_parser(
+        "import-missing-to-rekordbox",
+        help="Phase 2: add the audio a recovery references but Rekordbox lacks "
+             "(located via FableGear), so the push can then link it. Dry-run unless --write.",
+    )
+    p_imp.add_argument("--source", action="append", default=[],
+                       help="Recovery source (e.g. the recovered master.db). Repeatable.")
+    p_imp.add_argument("--source-list", default=None, dest="source_list",
+                       help="File with one source path per line")
+    p_imp.add_argument("--target", default=None,
+                       help="master.db to write to (default: your live library)")
+    p_imp.add_argument("--write", action="store_true",
+                       help="Actually add tracks (default: dry-run). Requires Rekordbox closed.")
+    p_imp.add_argument("--merge-duplicates", action="store_true", dest="merge_duplicates",
+                       help="Collapse Rekordbox '(N)' duplicate-name crates into one each")
+    p_imp.add_argument("--undo", action="store_true",
+                       help="Remove the tracks added by the last import (Rekordbox closed)")
+    p_imp.set_defaults(func=cmd_import_missing_rekordbox)
+
+    p_push = sub.add_parser(
+        "push-recovery-to-rekordbox",
+        help="Push recovered crates into the live Rekordbox master.db (dry-run "
+             "unless --write; non-destructive, backed up, undoable).",
+    )
+    p_push.add_argument("--source", action="append", default=[],
+                        help="Recovery source (e.g. the recovered master.db). Repeatable.")
+    p_push.add_argument("--source-list", default=None, dest="source_list",
+                        help="File with one source path per line")
+    p_push.add_argument("--target", default=None,
+                        help="master.db to write to (default: your live library)")
+    p_push.add_argument("--write", action="store_true",
+                        help="Actually write (default: dry-run). Requires Rekordbox closed.")
+    p_push.add_argument("--merge-duplicates", action="store_true", dest="merge_duplicates",
+                        help="Collapse Rekordbox '(N)' duplicate-name crates into one each")
+    p_push.add_argument("--min-tracks", type=int, default=1, dest="min_tracks",
+                        help="Only push crates with at least this many resolvable tracks "
+                             "(e.g. 7 to drop tiny package playlists)")
+    p_push.add_argument("--no-skip-existing", action="store_true", dest="no_skip_existing",
+                        help="Do not skip crates whose name already exists (default: skip them)")
+    p_push.add_argument("--undo", action="store_true",
+                        help="Remove the playlists created by the last push (Rekordbox closed)")
+    p_push.set_defaults(func=cmd_push_rekordbox)
+
+    p_dedup = sub.add_parser(
+        "smart-dedup",
+        help="Resolve duplicate Rekordbox records without orphaning playlists "
+             "(re-wires memberships to the survivor first). Dry-run unless --write.",
+    )
+    p_dedup.add_argument("--target", default=None,
+                         help="master.db to work on (default: your live library)")
+    p_dedup.add_argument("--mode", choices=["database", "physical"], default="database",
+                         help="database (default): records referencing files that may or "
+                              "may not exist — keep best path + richest crates, never touch "
+                              "files. physical: only records whose files exist on disk.")
+    p_dedup.add_argument("--write", action="store_true",
+                         help="Actually resolve (default: dry-run). Requires Rekordbox closed.")
+    p_dedup.add_argument("--flagged-out", default=None, dest="flagged_out",
+                         help="Write groups needing manual review to this JSON file")
+    p_dedup.add_argument("--undo", action="store_true",
+                         help="Restore master.db from the last dedup backup (Rekordbox closed)")
+    p_dedup.set_defaults(func=cmd_smart_dedup)
+
+    p_pl = sub.add_parser("playlist", help="Create or list FableGear playlists")
+    pl_sub = p_pl.add_subparsers(dest="playlist_action", required=True)
+    pl_create = pl_sub.add_parser("create", help="Create a playlist (optionally from an imported folder)")
+    pl_create.add_argument("name", help="Playlist name")
+    pl_create.add_argument("--from-folder", default=None,
+                           help="Add all imported tracks whose file is under this folder")
+    pl_sub.add_parser("list", help="List playlists")
+    p_pl.set_defaults(func=cmd_playlist)
+
     p_onelib = sub.add_parser(
         "export-onelibrary",
         help="Write a Pioneer OneLibrary exportLibrary.db from FableGear's database "
@@ -3044,7 +3940,59 @@ Examples:
         action="store_true",
         help="Skip writing RBFLTR.DAT and djprofile.nxs alongside exportLibrary.db",
     )
+    p_onelib.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace an existing export at TARGET (removes the DB + WAL/SHM) "
+             "instead of refusing — for re-exporting to the same stick",
+    )
+    p_onelib.add_argument(
+        "--stage-audio",
+        action="store_true",
+        help="Copy each track's audio onto the drive (TARGET/../../Contents/...) "
+             "and point the library at it — required for a playable CDJ stick",
+    )
+    p_onelib.add_argument(
+        "--with-anlz",
+        action="store_true",
+        help="Generate ANLZ analysis files (beat grids + waveforms) for every "
+             "exported track. Adds ~4-6s/track. Without it the CDJ re-analyzes.",
+    )
+    p_onelib.add_argument(
+        "--playlist",
+        default=None,
+        help="Export only this playlist (by name) and its tracks, not the whole archive",
+    )
+    p_onelib.add_argument(
+        "--playlist-id",
+        type=int,
+        default=None,
+        help="Export only this playlist (by id) and its tracks",
+    )
+    p_onelib.add_argument(
+        "--content-ids",
+        default=None,
+        help="Comma-separated FableGear content ids to export (overrides playlist track set)",
+    )
+    p_onelib.add_argument(
+        "--require-parsed",
+        action="store_true",
+        dest="require_parsed",
+        help="Refuse to export if any track lacks a beat grid or waveforms "
+             "(run `parse` first). Without it, missing analysis is synthesized "
+             "at write time and reported as a warning.",
+    )
     p_onelib.set_defaults(func=cmd_export_onelibrary)
+
+    # ── parse-status ──
+    p_pstat = sub.add_parser(
+        "parse-status",
+        help="Report parse readiness (beat grid + waveforms) for the library or "
+             "a playlist, without exporting. Read-only.",
+    )
+    p_pstat.add_argument("--playlist", default=None,
+                         help="Report only this playlist (by name); omit for the whole library")
+    p_pstat.set_defaults(func=cmd_parse_status)
 
     # ── prune ──
     p_prune = sub.add_parser(
@@ -3070,6 +4018,20 @@ Examples:
     p_prune.set_defaults(func=cmd_prune, dry_run=True, permanent=False)
 
     # ── process ──
+    p_parse = sub.add_parser(
+        "parse",
+        help="Track Parsing tool — prepare tracks for DJ gear: BPM, key, beat "
+             "grid, and waveforms (mono/colour/3-band). Makes export pure assembly.",
+    )
+    p_parse.add_argument("path", metavar="PATH", nargs="?", default=None,
+                         help="Folder of imported tracks to parse (omit with --all for the whole library)")
+    p_parse.add_argument("--all", action="store_true", help="Parse every track in the library")
+    p_parse.add_argument("--force", action="store_true",
+                         help="Re-detect BPM/key and regenerate even if already present")
+    p_parse.add_argument("--no-waveforms", action="store_true",
+                         help="Build beat grids only, skip waveform generation (faster)")
+    p_parse.set_defaults(func=cmd_parse)
+
     p_process = sub.add_parser(
         "process",
         help="Detect BPM/key and normalise loudness",
@@ -3091,6 +4053,13 @@ Examples:
         action="store_true",
         dest="force_key",
         help="Re-detect and overwrite key even if a key tag already exists",
+    )
+    p_process.add_argument(
+        "--fix-octaves",
+        action="store_true",
+        dest="fix_octaves",
+        help="Octave-correct detected BPM into 76-152 (fixes librosa half/double-"
+             "time errors, e.g. 60->120). Only 2x errors are fixable this way.",
     )
     p_process.add_argument(
         "--no-bpm",
@@ -3236,12 +4205,24 @@ Examples:
     # ── organize ──
     p_organize = sub.add_parser(
         "organize",
-        help="Consolidate files into Artist / Album / Track hierarchy",
+        help="Consolidate files into a choosable folder hierarchy (default: Artist / Album)",
     )
     p_organize.add_argument(
         "source",
         metavar="SOURCE",
         help="Directory to scan for audio files",
+    )
+    p_organize.add_argument(
+        "--by",
+        metavar="KEYS",
+        default=None,
+        help="Grouping scheme as slash-nested keys (default: artist/album). "
+             "Keys: label, artist, album, title, genre, year, filetype. "
+             "Examples: --by label   --by label/artist   --by genre/artist   --by filetype. "
+             "Tag values are cleaned (URLs, junk, Camelot-in-artist dropped); a track with no "
+             "value for the first key goes to Orphaned Tracks. "
+             "Special: --by playlist mirrors the archive's playlist tree to folders by "
+             "COPYING (a track in many crates yields many copies; source is left intact).",
     )
     p_organize.add_argument(
         "target",

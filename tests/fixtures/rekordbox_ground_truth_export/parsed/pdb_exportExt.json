@@ -1,0 +1,18 @@
+{
+  "path": "tests/fixtures/rekordbox_ground_truth_export/PIONEER/rekordbox/exportExt.pdb",
+  "exists": true,
+  "readable": true,
+  "file_size": 73728,
+  "valid_header": true,
+  "page_size": 4096,
+  "num_tables": 9,
+  "next_unused_page": 21,
+  "tracks": [],
+  "partial": false,
+  "detail": "DeviceSQL header OK \u2014 page size 4096, 9 tables, next_unused_page 21, 73,728 bytes",
+  "notes": [
+    "Extracted 0 track row(s) via the documented (not hardware-verified) page/row walker \u2014 see module docstring HONESTY LIMIT. artist/key names are unresolved (raw artist_id/key_id are populated on each TrackRow instead)."
+  ],
+  "present": true,
+  "unique_track_count": 0
+}

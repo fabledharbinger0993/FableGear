@@ -53,6 +53,50 @@ _MULTI_SPACE  = re.compile(r' {2,}')
 # Matches one or more  <1-2 digits><A|B>  groups followed by a dash separator.
 _KEY_PREFIX = re.compile(r'^(?:\d{1,2}[ABab]\s+)*\d{1,2}[ABab]\s*[-–]\s*')
 
+# Tag-cleaning helpers used to derive folder names for the choosable schemes.
+# Dual import so this works whether loaded as `library_organizer` (chop_shop on
+# sys.path) or as `chop_shop.library_organizer`.
+try:
+    from tag_cleaning import clean_value, clean_artist  # noqa: E402
+except ImportError:  # pragma: no cover
+    from chop_shop.tag_cleaning import clean_value, clean_artist  # noqa: E402
+
+# Grouping keys the Organize tool can build a folder hierarchy from, and the
+# default (backward-compatible) Artist / Album layout. "playlist" is special:
+# it mirrors the archive's playlist tree (one-to-many, copy-based) rather than
+# deriving a folder from the file's own tags, so it can't be nested with others.
+_TAG_SCHEME_KEYS = ("label", "artist", "album", "title", "genre", "year", "filetype")
+SCHEME_KEYS   = _TAG_SCHEME_KEYS + ("playlist",)
+DEFAULT_SCHEME = ("artist", "album")
+
+
+def parse_scheme(spec) -> tuple[str, ...]:
+    """Normalize a ``--by`` spec into a validated tuple of scheme keys.
+
+    Accepts a slash-nested string (``"label/artist"``), a list, or ``None``
+    (→ the default Artist/Album layout). Raises ``ValueError`` on any key not in
+    ``SCHEME_KEYS``, or if ``playlist`` is combined with another key (it is a
+    standalone mirror mode), so a mistake fails loudly instead of mis-filing.
+    """
+    if not spec:
+        return DEFAULT_SCHEME
+    keys = spec.split("/") if isinstance(spec, str) else list(spec)
+    keys = [k.strip().lower() for k in keys if k and str(k).strip()]
+    if not keys:
+        return DEFAULT_SCHEME
+    bad = [k for k in keys if k not in SCHEME_KEYS]
+    if bad:
+        raise ValueError(
+            f"Unknown organize key(s): {', '.join(bad)}. "
+            f"Choose from: {', '.join(SCHEME_KEYS)} (slash-nested, e.g. label/artist)."
+        )
+    if "playlist" in keys and len(keys) > 1:
+        raise ValueError(
+            "'playlist' is a standalone mirror scheme and can't be combined with "
+            "other keys — use --by playlist on its own."
+        )
+    return tuple(keys)
+
 
 # ─── Result type ──────────────────────────────────────────────────────────────
 
@@ -236,41 +280,81 @@ def _year_str(path: Path, tagged_year: int | None) -> str:
         return "Unknown Year"
 
 
+def _scheme_level(key: str, src: Path, track, merge_map: dict | None = None) -> str | None:
+    """Cleaned folder name for one scheme *key*, or ``None`` when the track has
+    no usable value for it (the caller drops the level or routes to Orphans).
+
+    Values are run through :mod:`tag_cleaning`, so a label that is really a URL,
+    a Camelot key mis-tagged as the artist, or an ``unknown`` sentinel becomes
+    ``None`` instead of a junk folder.
+    """
+    if key == "filetype":
+        ft = track.file_type or (src.suffix.lstrip(".").upper() or None)
+        return ft.upper() if ft else None
+    if key == "year":
+        return _year_str(src, track.year)  # never None — falls back to file mtime
+
+    if key == "artist":
+        # Normalize away Camelot prefixes, then fall back to filename parsing.
+        raw = _folder_artist(src) or track.artist
+        artist = _normalize_artist(raw) if raw else None
+        if not artist or not artist.strip():
+            # "Artist - Title.mp3", stripping Pioneer _PN suffixes / leading nums.
+            stem = re.sub(r'_PN\s*\d*$', '', src.stem, flags=re.IGNORECASE).strip()
+            stem = re.sub(r'^\d+[\s.\-]+', '', stem).strip()
+            if ' - ' in stem:
+                cand = stem.split(' - ', 1)[0].strip()
+                artist = _normalize_artist(cand) if cand else None
+        artist = clean_artist(artist) if artist else None
+        return _sanitize_folder(artist) if artist and artist.strip() else None
+
+    # label / album / title / genre — tag-derived, cleaned.
+    raw = {
+        "label": getattr(track, "label", None),
+        "album": track.album,
+        "title": track.title,
+        "genre": track.genre,
+    }.get(key)
+    val = clean_value(key, raw, merge_map=merge_map)
+    return _sanitize_folder(val) if val else None
+
+
 def _canonical_dest(
     src: Path,
     target: Path,
     track,
     threshold: float,
+    *,
+    scheme: "tuple[str, ...]" = DEFAULT_SCHEME,
+    merge_map: dict | None = None,
 ) -> Path:
-    """Compute the canonical destination path for a track (no I/O performed)."""
-    year  = _year_str(src, track.year)
+    """Compute the destination path for a track under the chosen grouping
+    *scheme* (no I/O performed).
+
+    The first scheme key is the primary bucket: a track with no usable value
+    there is routed to Orphaned Tracks. Missing values for secondary keys
+    collapse that level away — ``label/artist`` with no artist tag becomes
+    ``target/Label/track`` rather than ``target/Label/Unknown/track``.
+    """
     fname = _sanitize_filename(src.name)
 
-    # Long-form content (mixes, live sets, radio shows)
+    # Long-form content (mixes, live sets, radio shows) always lands in one
+    # place — a two-hour set has no meaningful artist/label/album.
     if track.duration_seconds is not None and track.duration_seconds >= threshold:
-        return target / MIX_FOLDER / year / fname
+        return target / MIX_FOLDER / _year_str(src, track.year) / fname
 
-    # Resolve artist for folder naming (normalize away any key prefixes)
-    raw_artist = _folder_artist(src) or track.artist
-    artist = _normalize_artist(raw_artist) if raw_artist else None
+    levels: list[str] = []
+    for i, key in enumerate(scheme):
+        val = _scheme_level(key, src, track, merge_map=merge_map)
+        if val:
+            levels.append(val)
+        elif i == 0:
+            return target / ORPHAN_FOLDER / _year_str(src, track.year) / fname
+        # secondary key with no value: collapse this level away
 
-    # No artist from tags — try filename-based extraction as last resort.
-    # Handles "Artist - Title.mp3" and strips Pioneer _PN suffixes.
-    if not artist or not artist.strip():
-        stem = re.sub(r'_PN\s*\d*$', '', src.stem, flags=re.IGNORECASE).strip()
-        stem = re.sub(r'^\d+[\s.\-]+', '', stem).strip()
-        if ' - ' in stem:
-            candidate = stem.split(' - ', 1)[0].strip()
-            artist = _normalize_artist(candidate) if candidate else None
-
-    if not artist or not artist.strip():
-        return target / ORPHAN_FOLDER / year / fname
-
-    # Normal: Artist / Album / Track  or  Artist / Track
-    artist_dir = _sanitize_folder(artist)
-    if track.album and track.album.strip():
-        return target / artist_dir / _sanitize_folder(track.album) / fname
-    return target / artist_dir / fname
+    if not levels:
+        return target / ORPHAN_FOLDER / _year_str(src, track.year) / fname
+    return target.joinpath(*levels, fname)
 
 
 def _resolve_dest(src: Path, dest: Path) -> tuple[Path | None, str]:
@@ -318,6 +402,73 @@ except ImportError:  # imported as chop_shop.library_organizer
     from chop_shop.path_guard import forbidden_source_reason as _forbidden_source_reason  # noqa: E402
 
 
+def mirror_playlists_to_folders(
+    sources: "list[Path]",
+    target: Path,
+    archive,
+    *,
+    dry_run: bool = True,
+    on_result=None,
+    skip_paths: "set[str] | None" = None,
+) -> list[MoveResult]:
+    """Mirror the archive's playlist tree onto disk: copy each track into
+    ``target/<playlist name>/`` for **every** playlist it belongs to.
+
+    This is fundamentally different from the tag-based schemes: a track can be
+    in many playlists, so it is *copied* (a track in three crates yields three
+    copies), never moved — the source library is left intact. Only tracks whose
+    file currently lives under one of *sources* are included, so the SRC
+    argument still scopes the operation.
+    """
+    src_roots = [Path(s).resolve() for s in sources]
+
+    def _under_sources(p: "str | Path") -> bool:
+        try:
+            rp = Path(p).resolve()
+        except Exception:  # noqa: BLE001
+            return False
+        return any(rp == r or r in rp.parents for r in src_roots)
+
+    results: list[MoveResult] = []
+    playlists = [pl for pl in archive.list_playlists() if pl.get("type") != "folder"]
+    log.info("Mirroring %d playlist(s) into %s (copy — sources are left intact)",
+             len(playlists), target)
+
+    for pl in playlists:
+        name = pl.get("name") or f"playlist_{pl.get('id')}"
+        dest_dir = target / _sanitize_folder(name)
+        for song in archive.get_playlist_songs(pl["id"]):
+            src = getattr(song, "file_path", None)
+            if not src or not _under_sources(src):
+                continue
+            srcp = Path(src)
+            if skip_paths and str(srcp) in skip_paths:
+                continue
+            dest = dest_dir / _sanitize_filename(srcp.name)
+            if not srcp.is_file():
+                r = MoveResult(src=srcp, dest=dest, action="error",
+                               reason="source file missing")
+            elif dry_run:
+                rel = dest.relative_to(target) if dest.is_relative_to(target) else dest
+                r = MoveResult(src=srcp, dest=dest, action="dry_run", reason=str(rel))
+            else:
+                try:
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    final, action = _resolve_dest(srcp, dest)
+                    if final is None:
+                        r = MoveResult(src=srcp, dest=dest, action="skipped",
+                                       reason="already at destination")
+                    else:
+                        shutil.copy2(str(srcp), str(final))  # always copy: one-to-many
+                        r = MoveResult(src=srcp, dest=final, action=action)
+                except Exception as e:  # noqa: BLE001
+                    r = MoveResult(src=srcp, dest=dest, action="error", reason=str(e))
+            results.append(r)
+            if on_result:
+                on_result(r)
+    return results
+
+
 def organize_library(
     sources: "Path | list[Path]",
     target: Path,
@@ -329,6 +480,8 @@ def organize_library(
     archive=None,
     skip_paths: "set[str] | None" = None,
     on_result=None,
+    scheme: "str | list[str] | tuple[str, ...] | None" = None,
+    merge_map: dict | None = None,
 ) -> list[MoveResult]:
     """
     Scan one or more source directories, compute the canonical destination for
@@ -368,6 +521,8 @@ def organize_library(
     """
     from scanner import scan_directory
 
+    scheme_keys = parse_scheme(scheme)  # validates; raises ValueError on typo
+
     source_list: list[Path] = [sources] if isinstance(sources, Path) else list(sources)
 
     # ── Source guardrails ─────────────────────────────────────────────────
@@ -379,6 +534,19 @@ def organize_library(
         err = _forbidden_source_reason(Path(s))
         if err:
             raise ValueError(f"Refusing to organize from {s}: {err}")
+
+    # Playlist mirror is a separate, copy-based path (one-to-many): route to it
+    # before the file scan, which the tag-based schemes rely on.
+    if scheme_keys == ("playlist",):
+        if archive is None:
+            raise ValueError(
+                "--by playlist needs the FableGear archive (playlists live in the "
+                "library, not in the files). Run it against your imported library."
+            )
+        return mirror_playlists_to_folders(
+            source_list, target, archive,
+            dry_run=dry_run, on_result=on_result, skip_paths=skip_paths,
+        )
 
     tracks: list = []
     for s in source_list:
@@ -393,8 +561,9 @@ def organize_library(
         return results
 
     log.info(
-        "Organizing %d files  sources=%s  target=%s  mode=%s  dry_run=%s  workers=%d",
-        total, [str(s) for s in source_list], target, mode, dry_run, max_workers,
+        "Organizing %d files  sources=%s  target=%s  by=%s  mode=%s  dry_run=%s  workers=%d",
+        total, [str(s) for s in source_list], target, "/".join(scheme_keys),
+        mode, dry_run, max_workers,
     )
 
     done = moved = skipped = conflicts = errors = 0
@@ -425,7 +594,8 @@ def organize_library(
         )
 
     def _process(track) -> MoveResult:
-        dest = _canonical_dest(track.path, target, track, mix_threshold_sec)
+        dest = _canonical_dest(track.path, target, track, mix_threshold_sec,
+                               scheme=scheme_keys, merge_map=merge_map)
 
         # Already in the right place (in-place reorganisation with correct structure)
         if track.path.resolve() == dest.resolve():
