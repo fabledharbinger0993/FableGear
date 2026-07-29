@@ -6,8 +6,9 @@ Analyses and normalises audio files in-place. No database interaction.
 Operations per file (each independently skippable):
 1. BPM detection via librosa beat tracking, written to TBPM tag
 2. Key detection via librosa chroma + Krumhansl-Schmuckler, written to TKEY (Camelot)
-3. Loudness check via pyloudnorm (EBU R128 measurement)
-4. Normalisation via ffmpeg volume filter if outside tolerance, in-place replacement
+3. Loudness + true-peak check via ffmpeg's loudnorm filter (EBU R128 measurement)
+4. Normalisation via ffmpeg volume filter if outside tolerance, gain capped so
+   true peak can't cross TRUE_PEAK_CEILING_DBTP, in-place replacement
 
 Design rules:
 - Existing tags are NEVER overwritten unless force=True (both) or the per-effect
@@ -40,7 +41,10 @@ import soundfile as sf
 from mutagen import File as MutagenFile
 from mutagen.id3 import TBPM, TKEY
 
-from config import AUDIO_EXTENSIONS, BPM_MAX, BPM_MIN, LUFS_TOLERANCE, TARGET_LUFS
+from config import (
+    AUDIO_EXTENSIONS, BPM_MAX, BPM_MIN, LUFS_TOLERANCE, TARGET_LUFS,
+    TRUE_PEAK_CEILING_DBTP,
+)
 from health_acoustid import collect_health
 
 log = logging.getLogger(__name__)
@@ -223,11 +227,17 @@ def _detect_key(y: np.ndarray, sr: int, name: str) -> str | None:
 
 # ─── Loudness measurement ─────────────────────────────────────────────────────
 
-def _measure_lufs(path: Path) -> float | None:
+def _measure_lufs(path: Path) -> tuple[float, float | None] | None:
     """
-    Measure integrated loudness via ffmpeg's loudnorm filter (EBU R128).
-    Uses a subprocess so memory use is bounded regardless of file size, and
-    avoids the scipy circular-import problem on Python 3.12+.
+    Measure integrated loudness and true peak via ffmpeg's loudnorm filter
+    (EBU R128), in one subprocess pass. loudnorm's analysis already computes
+    true peak (`input_tp`) alongside integrated loudness at no extra cost —
+    reading it here is what lets the caller cap normalisation gain instead of
+    silently clipping. Uses a subprocess so memory use is bounded regardless
+    of file size, and avoids the scipy circular-import problem on Python 3.12+.
+
+    Returns (lufs, true_peak_dbtp), where true_peak_dbtp is None if loudnorm's
+    JSON didn't include a usable value (older ffmpeg builds, edge-case input).
     """
     try:
         cmd = [
@@ -250,10 +260,36 @@ def _measure_lufs(path: Path) -> float | None:
         if not np.isfinite(lufs):
             log.warning("Non-finite LUFS for %s (silent file?)", path.name)
             return None
-        return round(lufs, 2)
+        true_peak = None
+        try:
+            tp = float(data["input_tp"])
+            if np.isfinite(tp):
+                true_peak = round(tp, 2)
+        except (KeyError, TypeError, ValueError):
+            pass
+        return round(lufs, 2), true_peak
     except Exception as e:
         log.error("Loudness measurement failed for %s: %s", path.name, e)
         return None
+
+
+def _capped_gain_db(
+    lufs: float,
+    true_peak: float | None,
+    target: float = TARGET_LUFS,
+    ceiling: float = TRUE_PEAK_CEILING_DBTP,
+) -> float:
+    """
+    dB of gain to reach *target* LUFS, capped so the true peak can never cross
+    *ceiling*. Only a boost (positive gain) is capped — an attenuation can't
+    push the peak up, so it passes through unchanged. Falls back to the
+    uncapped gain when true_peak is unknown, rather than blocking
+    normalisation outright.
+    """
+    want = target - lufs
+    if true_peak is None or want <= 0:
+        return want
+    return min(want, ceiling - true_peak)
 
 
 # ─── Normalisation ────────────────────────────────────────────────────────────
@@ -817,18 +853,27 @@ def process_file(
 
     # ── Loudness ──
     if normalise:
-        lufs = _measure_lufs(path)
+        measured = _measure_lufs(path)
+        lufs, true_peak = measured if measured is not None else (None, None)
         result.loudness_before = lufs
         if lufs is None:
             result.errors.append("loudness measurement failed")
         elif (not force_normalize) and abs(lufs - TARGET_LUFS) <= LUFS_TOLERANCE:
             result.skipped_loudness = True
         else:
-            gain_db = TARGET_LUFS - lufs
+            gain_db = _capped_gain_db(lufs, true_peak)
+            requested_db = TARGET_LUFS - lufs
+            if gain_db != requested_db:
+                log.info(
+                    "Gain capped %+.1f → %+.1f dB for %s to keep true peak "
+                    "under %.1f dBTP (measured %.1f dBTP)",
+                    requested_db, gain_db, path.name, TRUE_PEAK_CEILING_DBTP, true_peak,
+                )
             log.info("Normalising %s: %.1f LUFS → %.1f (gain: %+.1f dB)",
                      path.name, lufs, TARGET_LUFS, gain_db)
             if _normalise_file(path, gain_db):
-                result.loudness_after = _measure_lufs(path)
+                after = _measure_lufs(path)
+                result.loudness_after = after[0] if after is not None else None
                 result.normalised = True
             else:
                 result.errors.append("normalisation failed")
