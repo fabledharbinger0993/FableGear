@@ -262,7 +262,10 @@ def test_sync_metadata_merging(fg_db, rdb_path):
     assert content.Title == "FableGear Title"
     assert content.Artist.Name == "FableGear Artist"
     assert content.BPM == 12000
-    assert content.Key.ScaleName == "Am" # 1A maps to Am
+    # 1A is A-flat minor on the Camelot wheel, not A minor (that is 8A).
+    # This previously asserted "Am", encoding the off-by-a-fifth error that
+    # CAMELOT_TO_RB was corrected for; the mapping is right, the test was not.
+    assert content.Key.ScaleName == "Abm"
     assert content.Rating == 5
     assert content.ColorID == "3" # Orange is "3"
     assert content.Commnt == "FableGear Comment"
