@@ -46,6 +46,11 @@ log = logging.getLogger(__name__)
 # Canonical library location — a copy living here is preferred as the survivor.
 CANONICAL_HINT = "Music for Dj's"
 
+# Two records must agree on length within this many seconds to be the same
+# recording. Encoders and metadata sources routinely disagree by a second or
+# two; a radio edit and an extended mix never do.
+DURATION_TOLERANCE_SEC = 2
+
 
 class DedupMode(Enum):
     PHYSICAL = "physical"   # two files on disk; survivor must exist on disk
@@ -60,6 +65,7 @@ class TrackRec:
     artist: Optional[str]
     folder_path: Optional[str]
     playlist_ids: Tuple[int, ...] = ()
+    duration: Optional[int] = None   # seconds; part of the identity (see below)
 
 
 @dataclass
@@ -112,20 +118,71 @@ class DedupPlan:
 # ── Pure decision logic ─────────────────────────────────────────────────────
 
 def normalize_key(title: Optional[str], artist: Optional[str]) -> Tuple[str, str]:
-    """The identity used to group duplicates: case/space-folded title+artist."""
-    return ((title or "").strip().lower(), (artist or "").strip().lower())
+    """Case/space-folded title+artist. This is only the *name* half of a track's
+    identity — duration is applied separately (see :func:`find_duplicate_groups`)."""
+    t = " ".join(str(title or "").strip().lower().split())
+    a = " ".join(str(artist or "").strip().lower().split())
+    return (t, a)
 
 
-def find_duplicate_groups(tracks: List[TrackRec]) -> List[List[TrackRec]]:
-    """Group tracks by normalized title+artist; return only groups of 2+.
-    Records with an empty title are never grouped (nothing to match on)."""
-    buckets: Dict[Tuple[str, str], List[TrackRec]] = {}
+def _cluster_by_duration(records: List[TrackRec],
+                         tolerance: int) -> List[List[TrackRec]]:
+    """Split same-name records into clusters whose durations are within
+    *tolerance* seconds of each other.
+
+    Uses proximity clustering (sort, then break whenever the gap to the previous
+    record exceeds the tolerance) rather than fixed buckets, so there is no
+    boundary artifact where two tracks one second apart fall either side of a
+    bucket edge. Records with an unknown duration cluster only with each other —
+    an unknown length is not evidence of a match.
+    """
+    timed = sorted((r for r in records if r.duration is not None),
+                   key=lambda r: int(r.duration))
+    untimed = [r for r in records if r.duration is None]
+
+    clusters: List[List[TrackRec]] = []
+    current: List[TrackRec] = []
+    for r in timed:
+        if current and int(r.duration) - int(current[-1].duration) > tolerance:
+            clusters.append(current)
+            current = []
+        current.append(r)
+    if current:
+        clusters.append(current)
+    if untimed:
+        clusters.append(untimed)
+    return clusters
+
+
+def find_duplicate_groups(tracks: List[TrackRec],
+                          tolerance: int = DURATION_TOLERANCE_SEC) -> List[List[TrackRec]]:
+    """Group tracks that are the same recording: identical title+artist **and**
+    a duration within *tolerance* seconds. Returns only groups of 2+.
+
+    Duration is part of the identity on purpose. Title+artist alone would merge
+    a 3:30 radio edit with a 7:00 extended mix — two genuinely different tracks
+    that share a name — and merging them means deleting one record and
+    re-pointing its crates at the other. Requiring durations to agree makes that
+    false merge impossible. The cost is the opposite, harmless error: two true
+    duplicates whose stored lengths disagree wildly are simply left alone.
+
+    Records with an empty title are never grouped (nothing to match on).
+    """
+    by_name: Dict[Tuple[str, str], List[TrackRec]] = {}
     for t in tracks:
         key = normalize_key(t.title, t.artist)
         if not key[0]:
             continue
-        buckets.setdefault(key, []).append(t)
-    return [g for g in buckets.values() if len(g) > 1]
+        by_name.setdefault(key, []).append(t)
+
+    groups: List[List[TrackRec]] = []
+    for records in by_name.values():
+        if len(records) < 2:
+            continue
+        for cluster in _cluster_by_duration(records, tolerance):
+            if len(cluster) > 1:
+                groups.append(cluster)
+    return groups
 
 
 def choose_survivor(
@@ -211,10 +268,11 @@ def build_plan(
     tracks: List[TrackRec],
     mode: DedupMode = DedupMode.DATABASE,
     path_exists: Callable[[str], bool] = os.path.exists,
+    tolerance: int = DURATION_TOLERANCE_SEC,
 ) -> DedupPlan:
     """Full pure plan: group, choose survivors, plan re-wires. No DB access."""
     plan = DedupPlan(mode=mode)
-    for group in find_duplicate_groups(tracks):
+    for group in find_duplicate_groups(tracks, tolerance):
         plan.groups.append(plan_group(group, mode, path_exists))
     return plan
 
@@ -242,17 +300,20 @@ class SmartDedup:
         recs: List[TrackRec] = []
         for c in self.db.query(tables.DjmdContent).with_entities(
                 tables.DjmdContent.ID, tables.DjmdContent.Title,
-                tables.DjmdContent.ArtistName, tables.DjmdContent.FolderPath):
+                tables.DjmdContent.ArtistName, tables.DjmdContent.FolderPath,
+                tables.DjmdContent.Length):
             recs.append(TrackRec(
                 id=c.ID, title=c.Title, artist=c.ArtistName,
                 folder_path=c.FolderPath,
                 playlist_ids=tuple(members.get(c.ID, ())),
+                duration=int(c.Length) if c.Length else None,
             ))
         return recs
 
-    def plan(self, path_exists: Callable[[str], bool] = os.path.exists) -> DedupPlan:
+    def plan(self, path_exists: Callable[[str], bool] = os.path.exists,
+             tolerance: int = DURATION_TOLERANCE_SEC) -> DedupPlan:
         """Scan + plan. Read-only."""
-        return build_plan(self._read_tracks(), self.mode, path_exists)
+        return build_plan(self._read_tracks(), self.mode, path_exists, tolerance)
 
     def execute(self, plan: DedupPlan) -> dict:
         """Apply the auto-resolvable groups: re-wire memberships onto each

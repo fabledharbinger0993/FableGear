@@ -23,9 +23,9 @@ if str(REPO_ROOT) not in sys.path:
 import smart_dedup as SD  # noqa: E402
 
 
-def _t(i, title="Song", artist="Artist", path=None, playlists=()):
+def _t(i, title="Song", artist="Artist", path=None, playlists=(), duration=200):
     return SD.TrackRec(id=i, title=title, artist=artist, folder_path=path,
-                       playlist_ids=tuple(playlists))
+                       playlist_ids=tuple(playlists), duration=duration)
 
 
 NONE_EXIST = lambda p: False          # noqa: E731
@@ -43,6 +43,57 @@ def test_grouping_matches_on_title_and_artist_case_insensitively():
 
 def test_empty_title_never_groups():
     assert SD.find_duplicate_groups([_t(1, ""), _t(2, "")]) == []
+
+
+# ── duration guards the identity (false-merge protection) ───────────────────
+
+def test_radio_edit_and_extended_mix_never_merge():
+    """The defect this guards: same title+artist, wildly different lengths are
+    different recordings. Merging them would delete one and re-point its crates."""
+    tracks = [_t(1, "Boogie", "Kenny Dope", duration=210),   # 3:30 radio edit
+              _t(2, "Boogie", "Kenny Dope", duration=420)]   # 7:00 extended mix
+    assert SD.find_duplicate_groups(tracks) == []
+
+
+def test_small_duration_disagreement_still_groups():
+    # Encoders/metadata routinely differ by a second or two — still one track.
+    tracks = [_t(1, "Boogie", "Kenny Dope", duration=210),
+              _t(2, "Boogie", "Kenny Dope", duration=211)]
+    groups = SD.find_duplicate_groups(tracks)
+    assert len(groups) == 1 and {r.id for r in groups[0]} == {1, 2}
+
+
+def test_no_bucket_boundary_artifact():
+    """Proximity clustering, not fixed buckets: a 1s difference must group no
+    matter where the absolute values fall."""
+    for base in range(200, 212):
+        tracks = [_t(1, duration=base), _t(2, duration=base + 1)]
+        groups = SD.find_duplicate_groups(tracks)
+        assert len(groups) == 1, f"failed to group at base={base}"
+
+
+def test_unknown_duration_groups_only_with_unknown():
+    tracks = [_t(1, duration=None), _t(2, duration=None), _t(3, duration=200)]
+    groups = SD.find_duplicate_groups(tracks)
+    assert len(groups) == 1 and {r.id for r in groups[0]} == {1, 2}
+
+
+def test_distinct_length_clusters_split_into_separate_groups():
+    # Two real duplicate pairs of different mixes under one name.
+    tracks = [_t(1, duration=210), _t(2, duration=210),
+              _t(3, duration=420), _t(4, duration=420)]
+    groups = SD.find_duplicate_groups(tracks)
+    assert len(groups) == 2
+    assert {frozenset(r.id for r in g) for g in groups} == {frozenset({1, 2}), frozenset({3, 4})}
+
+
+def test_same_path_duplicates_are_detected():
+    """A double drag-and-drop yields two records with the SAME path — the case
+    database_dedup.py skips (it requires >1 distinct path)."""
+    tracks = [_t(1, path="/lib/a.mp3", playlists=(1, 2)),
+              _t(2, path="/lib/a.mp3", playlists=(3,))]
+    groups = SD.find_duplicate_groups(tracks)
+    assert len(groups) == 1 and len(groups[0]) == 2
 
 
 # ── survivor choice ─────────────────────────────────────────────────────────
