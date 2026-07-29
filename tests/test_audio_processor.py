@@ -273,3 +273,32 @@ def test_essentia_out_of_range_bpm_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr(ap, "_essentia_available", lambda: True)
     f = _tagless_mp3(tmp_path)
     assert ap._detect_bpm_essentia(f) is None
+
+
+# ── packaging guard ─────────────────────────────────────────────────────────
+
+def test_health_warns_when_beat_tracker_degraded(monkeypatch):
+    """The essentia fallback is deliberately silent so a missing optional
+    dependency can't break processing. That makes it invisible — and in a
+    packaged build it is the likely failure mode, since essentia is a C++
+    extension imported inside a function that PyInstaller can miss. The health
+    check is what turns a silent ~91% -> ~13% accuracy regression into a
+    visible warning."""
+    import health
+
+    monkeypatch.setattr(ap, "_essentia_available", lambda: False)
+    finding = health._check_beat_tracker()
+    assert finding is not None
+    assert finding.id == "beat_tracker_degraded"
+    assert finding.severity == "warn"
+
+    monkeypatch.setattr(ap, "_essentia_available", lambda: True)
+    assert health._check_beat_tracker() is None
+
+
+def test_beat_tracker_check_is_registered():
+    """A check that exists but is never run is worse than no check."""
+    import inspect
+    import health
+    src = inspect.getsource(health.run_health_checks)
+    assert "_check_beat_tracker" in src
