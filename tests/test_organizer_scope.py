@@ -134,11 +134,15 @@ def test_moves_are_journaled_per_file_not_at_the_end(tmp_path, monkeypatch):
     counts_seen = []
     real_process_hook = library_organizer._canonical_dest
 
-    def spy_dest(path, target_arg, track, thr):
+    def spy_dest(path, target_arg, track, thr, **kwargs):
         # Called once per file at the START of processing it — by the second
         # call, the first file's move must already be in the log.
+        # **kwargs forwards whatever keyword-only options _canonical_dest grows
+        # (scheme, merge_map, …) so this spy tracks the real signature instead
+        # of pinning a snapshot of it — what this test asserts is journal
+        # ordering, not the destination-resolution API.
         counts_seen.append(archive.count_operations("organize"))
-        return real_process_hook(path, target_arg, track, thr)
+        return real_process_hook(path, target_arg, track, thr, **kwargs)
 
     monkeypatch.setattr(library_organizer, "_canonical_dest", spy_dest)
 
