@@ -169,3 +169,107 @@ def test_normalise_never_drives_true_peak_past_ceiling(tmp_path):
     lufs_after, peak_after = after
     assert peak_after <= config.TRUE_PEAK_CEILING_DBTP + 0.3  # ffmpeg measurement tolerance
     assert lufs_after > lufs_before                            # it did get louder
+
+
+# ── beat-tracker selection and fallback ─────────────────────────────────────
+#
+# essentia is an OPTIONAL dependency that is materially more accurate than the
+# librosa path (exact-BPM agreement with Rekordbox ground truth 13.4% -> 91.4%
+# on a 300-track sample), so it is preferred when importable. But it must never
+# become load-bearing: a missing essentia, or a per-file essentia failure, has
+# to fall back to librosa rather than silently yielding no BPM. The fallback is
+# easy to break by skipping the shared decode too eagerly, which is exactly
+# what these pin.
+
+def _tagless_mp3(tmp_path: Path) -> Path:
+    _require_ffmpeg()
+    p = tmp_path / "plain.mp3"
+    subprocess.run(
+        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+         "-i", "anullsrc=r=44100:cl=stereo", "-t", "1", "-q:a", "9", str(p)],
+        check=True, capture_output=True,
+    )
+    return p
+
+
+def test_essentia_is_preferred_when_available(tmp_path, monkeypatch):
+    f = _tagless_mp3(tmp_path)
+    monkeypatch.setattr(ap, "_essentia_available", lambda: True)
+    monkeypatch.setattr(ap, "_detect_bpm_essentia", lambda p: (123.45, 3.2))
+    monkeypatch.setattr(ap, "_detect_bpm", lambda *a, **k: pytest.fail(
+        "librosa must not run when essentia succeeded"))
+    monkeypatch.setattr(ap, "_write_tags", lambda path, bpm=None, key=None: None)
+
+    r = ap.process_file(f, detect_bpm=True, detect_key=False, normalise=False)
+
+    assert r.bpm_detected == 123.45
+    assert r.bpm_source == "essentia"
+    assert r.bpm_confidence == 3.2
+
+
+def test_falls_back_to_librosa_when_essentia_missing(tmp_path, monkeypatch):
+    f = _tagless_mp3(tmp_path)
+    monkeypatch.setattr(ap, "_essentia_available", lambda: False)
+    monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: ("AUDIO", 44100))
+    monkeypatch.setattr(ap, "_detect_bpm", lambda *a, **k: 128.0)
+    monkeypatch.setattr(ap, "_write_tags", lambda path, bpm=None, key=None: None)
+
+    r = ap.process_file(f, detect_bpm=True, detect_key=False, normalise=False)
+
+    assert r.bpm_detected == 128.0
+    assert r.bpm_source == "librosa"
+    assert r.bpm_confidence is None
+
+
+def test_falls_back_to_librosa_when_essentia_fails_on_this_file(tmp_path, monkeypatch):
+    """The regression that matters: essentia importable but failing on one file
+    (9/300 in the real evaluation, all undecodable) must still produce a BPM.
+    Skipping the shared decode because 'essentia is available' silently kills
+    this path."""
+    f = _tagless_mp3(tmp_path)
+    monkeypatch.setattr(ap, "_essentia_available", lambda: True)
+    monkeypatch.setattr(ap, "_detect_bpm_essentia", lambda p: None)   # per-file failure
+    monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: ("AUDIO", 44100))
+    monkeypatch.setattr(ap, "_detect_bpm", lambda *a, **k: 128.0)
+    monkeypatch.setattr(ap, "_write_tags", lambda path, bpm=None, key=None: None)
+
+    r = ap.process_file(f, detect_bpm=True, detect_key=False, normalise=False)
+
+    assert r.bpm_detected == 128.0
+    assert r.bpm_source == "librosa"
+
+
+def test_bpm_only_run_skips_the_shared_decode_when_essentia_succeeds(tmp_path, monkeypatch):
+    """essentia loads the file itself, so a BPM-only run must not also pay for
+    the 90 s ffmpeg decode that nothing would read."""
+    f = _tagless_mp3(tmp_path)
+    monkeypatch.setattr(ap, "_essentia_available", lambda: True)
+    monkeypatch.setattr(ap, "_detect_bpm_essentia", lambda p: (120.0, 3.0))
+    monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: pytest.fail(
+        "shared decode should be skipped when essentia handled BPM and key is off"))
+    monkeypatch.setattr(ap, "_write_tags", lambda path, bpm=None, key=None: None)
+
+    r = ap.process_file(f, detect_bpm=True, detect_key=False, normalise=False)
+    assert r.bpm_detected == 120.0
+
+
+def test_key_still_gets_its_decode_even_when_essentia_handles_bpm(tmp_path, monkeypatch):
+    f = _tagless_mp3(tmp_path)
+    monkeypatch.setattr(ap, "_essentia_available", lambda: True)
+    monkeypatch.setattr(ap, "_detect_bpm_essentia", lambda p: (120.0, 3.0))
+    monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: ("AUDIO", 44100))
+    monkeypatch.setattr(ap, "_detect_key", lambda *a, **k: "8A")
+    monkeypatch.setattr(ap, "_write_tags", lambda path, bpm=None, key=None: None)
+
+    r = ap.process_file(f, detect_bpm=True, detect_key=True, normalise=False)
+
+    assert r.bpm_detected == 120.0
+    assert r.key_detected == "8A"
+
+
+def test_essentia_out_of_range_bpm_is_rejected(tmp_path, monkeypatch):
+    """A 1 s silent fixture makes essentia report ~738 BPM. Out-of-range values
+    must be discarded so they can't reach a tag or a beat grid."""
+    monkeypatch.setattr(ap, "_essentia_available", lambda: True)
+    f = _tagless_mp3(tmp_path)
+    assert ap._detect_bpm_essentia(f) is None
