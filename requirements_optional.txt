@@ -1,0 +1,40 @@
+# FableGear optional dependencies — installed BEST-EFFORT.
+#
+# Nothing here may be required for the app to run. setup.sh and launch.sh
+# install this file with failures tolerated, so a package that has no wheel
+# for the user's platform degrades a feature instead of breaking the install.
+#
+# ── essentia ────────────────────────────────────────────────────────────────
+#
+# What it buys: beat tracking via RhythmExtractor2013 (multifeature). Measured
+# against 12,687 Rekordbox ground-truth beat grids from a real library
+# (random 300-track sample), versus the librosa fallback:
+#
+#     exact agreement (±0.6 BPM)   13.4%  ->  91.4%
+#     within 1%                    36.8%  ->  94.8%
+#     MIREX (±4%)                  90.7%  ->  98.3%
+#
+# The exact column is the one that matters: a 4%-tolerant tempo drifts a full
+# beat inside ~25 bars. Since a OneLibrary export carries FableGear's grids to
+# the CDJ, this is the difference between grids that are advisory and grids
+# that are trustworthy.
+#
+# Why it is NOT in requirements.txt: essentia's wheel coverage is narrow and
+# moves fast. As of 2026-07-29 the matrix on PyPI is roughly:
+#
+#     cp311 / macOS 11+ arm64   ->  2.1b6.dev1110
+#     cp312 / macOS 11+ arm64   ->  2.1b6.dev1177
+#     cp313 / macOS 15+ arm64   ->  2.1b6.dev1389   <-- macOS 15 floor
+#     cp314 / macOS 15+         ->  2.1b6.dev1438
+#
+# setup.sh prefers Python 3.13, and FableGear supports macOS 12.0+. A user on
+# macOS 12-14 therefore has NO compatible cp313 wheel: pip falls back to the
+# sdist and tries to compile a large C++ project, which fails. As a hard
+# requirement that aborted the whole `pip install -r requirements.txt`, taking
+# every other dependency down with it. Best-effort keeps that a graceful
+# downgrade to librosa.
+#
+# audio_processor imports essentia lazily and falls back automatically;
+# health.py raises a `beat_tracker_degraded` warning so the downgrade is
+# visible rather than silent.
+essentia

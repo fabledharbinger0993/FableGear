@@ -97,6 +97,11 @@ source "$VENV/bin/activate"
 # Quick no-op when everything is current.
 pip install --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1
 pip install --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
+# Best-effort: a platform without an essentia wheel must not fail the launch.
+# `|| true` keeps the non-zero exit from leaking out of this block regardless
+# of how the caller invokes the script. Beat detection degrades to librosa and
+# the Health panel reports it.
+pip install --quiet -r "$SCRIPT_DIR/requirements_optional.txt" >> "$LOG" 2>&1 || true
 
 # ── Update to the latest RELEASE (skip in dev mode) ──────────────────────
 # Release-gated: tracks GitHub's "latest release" tag, same endpoint the

@@ -30,21 +30,17 @@ mutagen==1.47
 # Audio tag reading and writing
 
 librosa>=0.10.2
-# Key detection and chroma analysis; also the BPM fallback when essentia
-# is unavailable.
+# Key detection, chroma analysis, waveform generation, and the BPM fallback.
+# Always required: essentia is the accuracy upgrade, librosa is the floor that
+# works on every platform.
 
-essentia>=2.1b6.dev1110
-# Beat tracking (RhythmExtractor2013 multifeature). OPTIONAL but strongly
-# recommended: measured against 12,687 Rekordbox ground-truth beat grids,
-# exact-BPM agreement is 13.4% on the librosa fallback vs 91.4% with essentia.
-# That gap is what makes a FableGear-written beat grid safe to put on a CDJ.
-# audio_processor degrades to librosa automatically if this import fails, so
-# a platform without a wheel still works — just less accurately.
-pyloudnorm==0.1.1
-# Loudness measurement (EBU R128 / LUFS)
+# essentia is deliberately NOT listed here — see requirements_optional.txt.
+# Its wheel coverage is narrow enough that a hard dependency would abort this
+# entire install on a supported machine, so it is installed best-effort.
 
 soundfile>=0.12.1
-# Audio file I/O used by pyloudnorm and normalisation verification
+# Audio file I/O — sf.info() for source bit-depth detection and for verifying
+# normalisation output
 
 psutil>=5.9
 # System info: disk partitions and usage for the drives panel in app.py
@@ -69,8 +65,8 @@ pywebview>=5.0
 # Native OS window (WKWebView on macOS) — replaces the browser launch step.
 # Enables real drag-and-drop path delivery and a proper .app experience.
 
-pytest>=8.0
-# Test runner for the tests/ suite (run: python -m pytest tests/)
+# pytest lives in requirements-dev.txt — it is a development tool and every
+# end user was installing it (and its dependencies) for no reason.
 
 # PyQt5 removed — splash_player.py was dead code, never invoked by launch.sh
 # pyinstaller removed — build-only tool, see requirements_build.txt
