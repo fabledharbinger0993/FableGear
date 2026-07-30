@@ -149,7 +149,6 @@ async function saveSettings() {
   btn.textContent = 'Saving…'; btn.disabled = true;
   try {
     const acoustidEl = document.getElementById('settings-acoustid-key');
-    const acoustidNewValue = (acoustidEl?.value || '').trim();
     const clearAcoustid = !!document.getElementById('settings-clear-acoustid-key')?.checked;
     const payload = {
       archive_mode: mode,
@@ -159,13 +158,17 @@ async function saveSettings() {
       excluded_dirs: document.getElementById('settings-excluded-dirs').value
         .split('\n').map(s => s.trim()).filter(Boolean),
     };
-    // Only send the AcoustID key if the user actually edited the field this
-    // session. The field is intentionally blank even when a key is saved
-    // (the secret is never echoed back), so an unconditional send would wipe
-    // the stored key every time any other setting was saved. An edited-then-
-    // emptied field still sends "" — that's the documented way to disable.
-    const acoustidEl = document.getElementById('settings-acoustid-key');
-    if (acoustidEl && acoustidEl.dataset.dirty) {
+    // Only send the AcoustID key when the user actually asked us to change it.
+    // The field is intentionally blank even when a key is saved (the secret is
+    // never echoed back), so sending it unconditionally would wipe the stored
+    // key every time any other setting was saved.
+    //
+    //   "Clear stored key" ticked  → send "" (the server treats empty as clear)
+    //   field edited this session  → send what they typed
+    //   neither                    → omit the field entirely, key untouched
+    if (clearAcoustid) {
+      payload.acoustid_api_key = '';
+    } else if (acoustidEl && acoustidEl.dataset.dirty) {
       payload.acoustid_api_key = acoustidEl.value.trim();
     }
     const res  = await fetch('/api/settings', {
