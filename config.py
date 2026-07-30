@@ -134,6 +134,14 @@ def ensure_archive_structure() -> None:
 TARGET_LUFS:    float = float(_cfg["target_lufs"])
 LUFS_TOLERANCE: float = float(_cfg["lufs_tolerance"])
 
+# True-peak ceiling for the normalise operation, in dBTP. Gain is capped so a
+# file's true peak can never cross this line. Without the cap, gain is sized
+# purely from integrated loudness — a quiet-but-hot master (low LUFS, peak
+# already near 0 dBFS) gets the full boost anyway and clips. -1.0 dBTP is the
+# standard delivery ceiling, leaving headroom for intersample peaks introduced
+# by re-encoding.
+TRUE_PEAK_CEILING_DBTP: float = -1.0
+
 # AcoustID API key for MusicBrainz enrichment (optional — empty string disables lookup)
 ACOUSTID_API_KEY: str = _cfg.get("acoustid_api_key", "")
 
@@ -265,19 +273,25 @@ BPM_MAX: float = 300.0
 # Sources that tag keys use various notations. We normalize all of them here.
 
 # Camelot → Rekordbox ScaleName
+# Standard Camelot wheel (Mixed In Key) → Rekordbox ScaleName.
+# Spellings match Rekordbox's own DjmdKey vocabulary captured from a real
+# export (Dbm/Ebm/Bbm/Abm/F#m — never C#m/D#m/Gb). An earlier version of this
+# table was accidentally populated with the OpenKey→RB values (which are a
+# perfect fifth / +7 Camelot positions off), so every key exported a fifth
+# wrong. Verified: standard Camelot 8A = A minor, 6A = G minor, 1A = Ab minor.
 CAMELOT_TO_RB = {
-    "1A": "Am",   "2A": "Em",   "3A": "Bm",   "4A": "F#m",
-    "5A": "C#m",  "6A": "Abm",  "7A": "Ebm",  "8A": "Bbm",
-    "9A": "Fm",   "10A": "Cm",  "11A": "Gm",  "12A": "Dm",
-    "1B": "C",    "2B": "G",    "3B": "D",    "4B": "A",
-    "5B": "E",    "6B": "B",    "7B": "F#",   "8B": "Db",
-    "9B": "Ab",   "10B": "Eb",  "11B": "Bb",  "12B": "F",
+    "1A": "Abm",  "2A": "Ebm",  "3A": "Bbm",  "4A": "Fm",
+    "5A": "Cm",   "6A": "Gm",   "7A": "Dm",   "8A": "Am",
+    "9A": "Em",   "10A": "Bm",  "11A": "F#m", "12A": "Dbm",
+    "1B": "B",    "2B": "F#",   "3B": "Db",   "4B": "Ab",
+    "5B": "Eb",   "6B": "Bb",   "7B": "F",    "8B": "C",
+    "9B": "G",    "10B": "D",   "11B": "A",   "12B": "E",
 }
 
 # Open Key → Rekordbox ScaleName
 OPENKEY_TO_RB = {
     "1m": "Am",   "2m": "Em",   "3m": "Bm",   "4m": "F#m",
-    "5m": "C#m",  "6m": "Abm",  "7m": "Ebm",  "8m": "Bbm",
+    "5m": "Dbm",  "6m": "Abm",  "7m": "Ebm",  "8m": "Bbm",
     "9m": "Fm",   "10m": "Cm",  "11m": "Gm",  "12m": "Dm",
     "1d": "C",    "2d": "G",    "3d": "D",    "4d": "A",
     "5d": "E",    "6d": "B",    "7d": "F#",   "8d": "Db",

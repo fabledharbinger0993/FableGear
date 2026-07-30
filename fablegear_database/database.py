@@ -518,9 +518,17 @@ class FableGearDatabase:
         """
         import os  # noqa: PLC0415
         import hashlib  # noqa: PLC0415
+        # Format is derived from the new extension — the conversion's whole point
+        # is a format change, so leaving the old `format` would make every
+        # downstream consumer (e.g. the OneLibrary fileType code) mislabel the
+        # file. aif → aiff is normalised to match the rest of the codebase.
+        new_fmt = Path(new_path).suffix.lstrip(".").lower()
+        if new_fmt == "aif":
+            new_fmt = "aiff"
         updates: Dict[str, Any] = {
             "file_path": new_path,
             "file_name": Path(new_path).name,
+            "format": new_fmt,
             "processing_status": "relinked",
             "acoustic_fingerprint": None,   # audio re-encoded → recompute later
             "fingerprint_quality": 0,

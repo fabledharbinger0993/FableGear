@@ -400,6 +400,8 @@ def api_pipeline():
             org_mode = cfg.get("mode", "assimilate")
             if org_mode == "integrate":
                 cmd += ["--mode", "integrate"]
+            if cfg.get("by"):
+                cmd += ["--by", str(cfg["by"])]
             if cfg.get("mix_threshold"):
                 cmd += ["--mix-threshold", str(cfg["mix_threshold"])]
             if cfg.get("workers", 1) > 1:
@@ -606,6 +608,12 @@ def api_organize():
     org_mode = request.args.get("mode", "assimilate").strip()
     if org_mode == "integrate":
         cmd += ["--mode", "integrate"]
+
+    # Choosable grouping scheme, e.g. "label", "label/artist", "genre/artist".
+    # Validation (unknown keys) is enforced by the CLI/organizer, not here.
+    by_scheme = request.args.get("by", "").strip()
+    if by_scheme:
+        cmd += ["--by", by_scheme]
 
     workers = request.args.get("workers", "1").strip()
     if workers.isdigit() and int(workers) > 1:
