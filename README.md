@@ -11,6 +11,7 @@
 ![macOS](https://img.shields.io/badge/macOS-Monterey_12.0%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![No Telemetry](https://img.shields.io/badge/telemetry-none-lightgrey)
+[![CI](https://github.com/fabledharbinger0993/FableGear/actions/workflows/ci.yml/badge.svg)](https://github.com/fabledharbinger0993/FableGear/actions/workflows/ci.yml)
 
 **Free -- Open source (MIT) -- No account -- No cloud -- No telemetry**
 
@@ -47,11 +48,12 @@ flowchart TD
 
     RR1["Library Browser + Player"]
     RR2["Library Audit"]
-    RR3["Import Tracks"]
-    RR4["Fix Broken Paths"]
-    RR5["Link Playlists"]
-    RR6["Playlist Management"]
-    RR7["Pioneer USB Export"]
+    RR3["Consolidate Duplicates"]
+    RR4["Import Tracks"]
+    RR5["Fix Broken Paths"]
+    RR6["Link Playlists"]
+    RR7["Playlist Management"]
+    RR8["Pioneer USB Export"]
 
     RR --> RR1
     RR --> RR2
@@ -60,6 +62,7 @@ flowchart TD
     RR --> RR5
     RR --> RR6
     RR --> RR7
+    RR --> RR8
 
     CS1["Tag Tracks"]
     CS2["Find Duplicates"]
@@ -93,7 +96,7 @@ These tools read from and write to your Rekordbox database.
 | **Fix Broken Paths** | Bulk-updates file paths in the database when a drive remounts with a different name or files have been moved. |
 | **Link Playlists** | Maps your folder structure to Rekordbox playlist names after imports or reorganizations. |
 | **Playlist Management** | Create, rename, delete, and reorder playlists. Add and remove tracks. |
-| **Pioneer USB Export** | Exports playlists to a USB drive in the directory format Pioneer players expect. |
+| **Pioneer USB Export** | Copies playlists and audio onto a USB drive Rekordbox has already exported to once, writing FableGear's own database layout rather than a fresh standard Rekordbox export. It does not include waveform, beat-grid, or hot-cue analysis data, so some players may show blank waveforms for these tracks until Rekordbox re-analyzes them. |
 
 ---
 
@@ -180,6 +183,14 @@ FableGo uses token-based authentication from your local config. The FableGear de
 
 ---
 
+## AI agent integration (MCP)
+
+FableGear also runs as an [MCP](https://modelcontextprotocol.io) server, exposing its library-management tools directly to AI agents -- Claude Desktop, Cursor, Windsurf, VS Code Copilot, and anything else that speaks the open MCP standard. This lets an agent audit, tag, dedupe, or reorganize your library through natural-language requests without opening the FableGear window.
+
+The same safety contract applies as everywhere else: write tools check that Rekordbox is closed before touching the database and refuse if it's running, and every write creates a timestamped backup first. Enable it from FableGear's Settings panel, or run `python3 mcp_server.py` directly (stdio by default; `--transport sse` for HTTP-based/multi-client setups).
+
+---
+
 ## Install
 
 1. Click **Download FableGear for macOS** at the top of this page
@@ -232,7 +243,7 @@ FableGear is a Flask app that runs a local server on port 5001 and opens in a na
 | [librosa](https://librosa.org) | BPM detection, beat tracking, key detection, chroma analysis |
 | [Chromaprint / fpcalc](https://acoustid.org/chromaprint) | Acoustic fingerprinting for duplicate detection |
 | [mutagen](https://mutagen.readthedocs.io) | Audio metadata (tag) reading and writing |
-| [pyloudnorm](https://github.com/csteinmetz1/pyloudnorm) | EBU R128 integrated loudness measurement |
+| [ffmpeg](https://ffmpeg.org) (`loudnorm` filter) | EBU R128 integrated loudness measurement and normalization |
 | [Flask](https://flask.palletsprojects.com) + [Waitress](https://docs.pylonsproject.org/projects/waitress) | Local application server |
 | [pywebview](https://pywebview.flowrl.com) | Native desktop window wrapper |
 | [flask-sock](https://flask-sock.readthedocs.io) | WebSocket support for live progress and companion-device events |
