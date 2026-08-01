@@ -5094,6 +5094,7 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
 .le-export-drive {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 10px 14px;
   background: var(--surface-hi);
@@ -5109,6 +5110,13 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
 .le-export-drive input[type="radio"] { accent-color: var(--accent); flex-shrink: 0; }
 .le-export-drive-name { font-weight: 600; font-size: .84rem; color: var(--text); }
 .le-export-drive-meta { font-size: .72rem; color: var(--text-muted); margin-left: auto; }
+.le-export-drive-detail {
+  flex-basis: 100%;
+  font-size: .68rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+  padding-left: 28px; /* aligns under the name, past the radio input */
+}
 .le-export-drive-pioneer {
   font-size: .65rem;
   font-weight: 700;

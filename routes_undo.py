@@ -640,6 +640,14 @@ def undo_database_revert():
         from fablegear_database.undo import DatabaseUndoManager
         fg_db = _fg_archive_db()
         undo_mgr = DatabaseUndoManager(fg_db)
+        transaction = undo_mgr.history.get_transaction(transaction_id)
+        if transaction is not None and not transaction.affected_records:
+            return jsonify({
+                "error": (
+                    f"'{transaction.operation_type}' transactions don't carry "
+                    "per-record history and can't be reverted this way."
+                ),
+            }), 400
         success = undo_mgr.history.undo_transaction(transaction_id)
         if success:
             return jsonify({"ok": True})

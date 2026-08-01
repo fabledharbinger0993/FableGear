@@ -18,7 +18,6 @@ from typing import List, Optional, Dict, Any
 
 try:
     from fablegear_database import FableGearDatabase, FileImporter
-    from fablegear_database.exporter import PioneerExporter
     DATABASE_AVAILABLE = True
 except ImportError:
     DATABASE_AVAILABLE = False
@@ -125,25 +124,23 @@ def import_directory_database_first(
             report.error_files
         )
         
-        # Export to Rekordbox if requested
+        # Export to Rekordbox if requested — writes directly into the real
+        # Rekordbox master.db via sync_fablegear_to_rekordbox(), which itself
+        # goes through db_connection.write_db() (Rekordbox-closed check +
+        # pre-write backup) and skips tracks whose FolderPath is already
+        # present there.
         if export_to_rekordbox:
             try:
-                exporter = PioneerExporter(db)
-                # Export to Rekordbox-compatible database
-                rekordbox_db_path = Path.home() / ".fablegear" / "rekordbox_export.db"
-                success = exporter.export_to_rekordbox_db(rekordbox_db_path)
-                
-                if success:
-                    # Import the exported database to actual Rekordbox
-                    # This would need to be implemented based on the existing Rekordbox import logic
-                    report.rekordbox_exported = report.new_files + report.updated_files
-                    log.info("Exported %d tracks to Rekordbox", report.rekordbox_exported)
-                else:
-                    log.warning("Failed to export to Rekordbox")
-                    
+                sync_stats = sync_fablegear_to_rekordbox(db)
+                report.rekordbox_exported = sync_stats["total_exported"]
+                if sync_stats["errors"]:
+                    report.errors.extend(
+                        f"Rekordbox sync: {err}" for err in sync_stats["errors"][:20]
+                    )
+                log.info("Synced %d tracks to Rekordbox", report.rekordbox_exported)
             except Exception as exc:
-                log.error("Rekordbox export failed: %s", exc)
-                report.errors.append(f"Rekordbox export failed: {exc}")
+                log.error("Rekordbox sync failed: %s", exc)
+                report.errors.append(f"Rekordbox sync failed: {exc}")
         
         return report
         
@@ -249,18 +246,18 @@ def sync_fablegear_to_rekordbox(
         with write_db(LOCAL_DB) as rdb:
             # Load existing FolderPaths in Rekordbox to avoid redundant imports
             existing_paths = {row.FolderPath for row in rdb.get_content().all()}
-            
+
             offset = 0
             limit = 1000
             while True:
                 records = db.get_all_content(limit=limit, offset=offset)
                 if not records:
                     break
-                
+
                 for record in records:
                     if record.file_path in existing_paths:
                         continue
-                    
+
                     track_info = TrackInfo(
                         path=Path(record.file_path),
                         title=record.title,
@@ -277,7 +274,7 @@ def sync_fablegear_to_rekordbox(
                         file_size=record.file_size,
                         file_type=record.format,
                     )
-                    
+
                     try:
                         res = _import_track(track_info, rdb)
                         if res.success:
@@ -288,7 +285,13 @@ def sync_fablegear_to_rekordbox(
                             stats["errors"].append(f"{record.file_path}: {res.error}")
                     except Exception as e:
                         stats["errors"].append(f"{record.file_path}: {e}")
-                
+
+                # _import_track() deliberately does not commit (see its docstring:
+                # "caller owns the batch commit"). Commit once per page so a
+                # mid-run failure doesn't lose everything and no single
+                # transaction spans the whole library.
+                rdb.commit()
+
                 offset += limit
                 
     except Exception as exc:

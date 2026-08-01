@@ -60,6 +60,7 @@ async function leOpenExportModal() {
         const note = d.export_supported
           ? (d.layout === 'master-db' ? 'FableGear export supported' : (d.layout || 'Supported'))
           : (d.export_error || 'Unsupported export target');
+        const detail = d.export_supported ? (d.export_note || '') : '';
         return `
         <label class="le-export-drive">
           <input type="radio" name="le-export-drive" value="${_leEsc(d.path)}" ${checked} ${disabled} onchange="_leExportDrivePath=this.value;_leExportUpdateSubmit()">
@@ -67,6 +68,7 @@ async function leOpenExportModal() {
           <span class="le-export-drive-name">${_leEsc(d.name)}</span>
           <span class="le-export-drive-meta">${_leExportGb(d.free_bytes)} free / ${_leExportGb(d.total_bytes)}</span>
           <span class="le-export-drive-meta">${_leEsc(note)}</span>
+          ${detail ? `<span class="le-export-drive-detail">${_leEsc(detail)}</span>` : ''}
         </label>`;
       }).join('');
     }

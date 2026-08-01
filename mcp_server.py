@@ -829,6 +829,25 @@ def list_jobs(state: str = "") -> str:
 
 
 @mcp.tool()
+def cancel_job(job_id: str) -> str:
+    """
+    Cancel a dispatched background job.
+
+    If the job is still queued behind other work (the pool runs up to 4 jobs
+    at once), it's removed before it ever spawns its cli.py subprocess. If
+    it's already running, its subprocess is sent a termination signal — the
+    job will settle into state 'cancelled' shortly after; poll
+    get_job_status(job_id) to confirm. Jobs already done/error/cancelled are
+    left alone.
+
+    Args:
+        job_id: The job_id string returned by the tool that dispatched the job.
+    """
+    result = job_dispatcher.cancel(job_id.strip())
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
 def check_checkpoint(tool: str, scope: str = "") -> str:
     """
     Check whether a completed checkpoint exists for a tool + scope combination.

@@ -976,6 +976,7 @@ def api_prune_stage():
                 "paths":      paths,
                 "permanent":  bool(data.get("permanent", False)),
                 "keeper_map": keeper_map,
+                "csv_path":   str(csv_path) if csv_path.exists() else "",
                 "_issued_at": time.time(),
             }
         return jsonify({"token": token, "keeper_map_size": len(keeper_map)})
@@ -1145,7 +1146,19 @@ def api_run_prune():
                 log_q.put(("done", 1))
                 return
 
-            from pruner import prune_files  # noqa: PLC0415
+            from pruner import prune_files, trash_rescue_preflight, TrashRescueRequired  # noqa: PLC0415
+
+            staged_csv_path = staged.get("csv_path", "")
+            if staged_csv_path:
+                try:
+                    trash_rescue_preflight(Path(staged_csv_path))
+                except TrashRescueRequired as exc:
+                    log_q.put(("line", f"[ERROR] {exc}"))
+                    for issue in exc.issues:
+                        log_q.put(("line", f"  - {issue}"))
+                    log_q.put(("line", "Resolve the rescue report before pruning again."))
+                    log_q.put(("done", 1))
+                    return
             from db_connection import write_db  # noqa: PLC0415
             from config import DEVICE_DB as _DEVICE_DB, LOCAL_DB as _LOCAL_DB  # noqa: PLC0415
 

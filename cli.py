@@ -1036,7 +1036,7 @@ def cmd_prune(args: argparse.Namespace) -> None:
     --no-dry-run to actually prune. Mirrors the interactive Chop Shop prune
     and is the executor for the pipeline's "prune" step.
     """
-    from pruner import load_report, prune_files
+    from pruner import load_report, prune_files, trash_rescue_preflight, TrashRescueRequired
     from db_connection import read_db, write_db
 
     csv_path = Path(args.csv_path)
@@ -1104,6 +1104,15 @@ def cmd_prune(args: argparse.Namespace) -> None:
         lines += ["", "Re-run with --no-dry-run to move these to the recovery folder."]
         _emit_report("\n".join(lines), "Prune", f"prune_{timestamp}.txt")
         return
+
+    try:
+        trash_rescue_preflight(csv_path)
+    except TrashRescueRequired as exc:
+        log.error("%s", exc)
+        for issue in exc.issues:
+            log.error("  - %s", issue)
+        log.error("Resolve the rescue report before pruning again.")
+        sys.exit(1)
 
     log.info("Pruning %d duplicate file(s) from %s", len(remove_paths), db_path)
     archive = _require_archive("prune")
@@ -2054,7 +2063,7 @@ def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
     from config import AUDIO_EXTENSIONS
     from db_connection import read_db, write_db
     from duplicate_detector import scan_duplicates, write_csv_report, write_trash_rescue_report
-    from pruner import load_report, prune_files
+    from pruner import load_report, prune_files, trash_rescue_preflight, TrashRescueRequired
 
     db_path = _resolve_active_db_path(getattr(args, "db_path", None))
     workers = max(1, int(getattr(args, "workers", 1) or 1))
@@ -2209,6 +2218,15 @@ def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
             lines.append(f"Locked groups        : {locked_groups} (keeper in trash)")
         _emit_report("\n".join(lines), "Rekordbox Dedupe", f"rekordbox_dedupe_{timestamp}.txt")
         return
+
+    try:
+        trash_rescue_preflight(output)
+    except TrashRescueRequired as exc:
+        log.error("%s", exc)
+        for issue in exc.issues:
+            log.error("  - %s", issue)
+        log.error("Resolve the rescue report before pruning again.")
+        sys.exit(1)
 
     log.info("Pruning %d Rekordbox duplicate files from %s", len(remove_paths), db_path)
     try:

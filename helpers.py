@@ -641,6 +641,13 @@ def _detect_pioneer_drive_layout(drive_path: str | Path) -> dict:
             "layout": "master-db",
             "export_supported": True,
             "export_error": None,
+            "export_note": (
+                "Writes FableGear's own database layout, not a standard Rekordbox "
+                "USB export. Waveforms, beat grids, and hot-cue analysis (ANLZ data) "
+                "are not included — some players may show blank waveforms for these "
+                "tracks. For full ANLZ-inclusive OneLibrary exports (CDJ-3000 6.8+, "
+                "XDJ-AZ, OMNIS-DUO, OPUS-QUAD), use `cli.py export-onelibrary`."
+            ),
             "db_path": str(master_db),
         }
 
@@ -655,6 +662,7 @@ def _detect_pioneer_drive_layout(drive_path: str | Path) -> dict:
                 "(PIONEER/rekordbox/exportLibrary.db, export.pdb, exportExt.pdb). "
                 "FableGear can detect it, but it cannot safely write that Pioneer format yet."
             ),
+            "export_note": None,
             "db_path": str(db_path),
         }
 
@@ -663,6 +671,7 @@ def _detect_pioneer_drive_layout(drive_path: str | Path) -> dict:
         "layout": None,
         "export_supported": False,
         "export_error": None,
+        "export_note": None,
         "db_path": None,
     }
 
@@ -1132,6 +1141,23 @@ def _get_library_root(req, primary_field: str) -> str:
 
 # ── USB / library export job runner (shared between player + mobile) ──────────
 
+def export_target_reachable(drive_path: str) -> bool:
+    """
+    Cheap liveness check for a USB export target: is it still mounted (or at
+    least still present on disk)? Used by _run_export to detect a mid-export
+    unmount instead of letting it surface as a cascade of per-file
+    OSError/FileNotFoundError copy failures, or a cryptic failure deep
+    inside a pyrekordbox commit() call against a vanished volume.
+    """
+    import os as _os  # noqa: PLC0415
+    from pathlib import Path as _Path  # noqa: PLC0415
+
+    try:
+        return _os.path.ismount(drive_path) or _Path(drive_path).exists()
+    except OSError:
+        return False
+
+
 def _run_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
     """
     Background thread: export selected playlists from the main Rekordbox DB
@@ -1194,6 +1220,9 @@ def _run_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
         with _EXPORT_LOCK:
             _EXPORT_JOBS[job_id].update(patch)
         _push(patch)
+
+    def _volume_still_mounted() -> bool:
+        return export_target_reachable(drive_path)
 
     try:
         drive_info = _detect_pioneer_drive_layout(drive_path)
@@ -1301,7 +1330,17 @@ def _run_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
                     path_to_usb_row[row.FolderPath] = row
 
             done = 0
+            drive_lost = False
             for entry in export_tracks.values():
+                if not _volume_still_mounted():
+                    drive_lost = True
+                    errors.append(
+                        f"USB drive at {drive_path} disappeared mid-export "
+                        f"({done}/{total} tracks copied before it went away). "
+                        f"A backup of the target database is at {backup_path}."
+                    )
+                    break
+
                 source_path = entry["source_path"]
                 dest_path = entry["dest_path"]
                 dest_key = str(dest_path)
@@ -1350,74 +1389,101 @@ def _run_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
                 done += 1
                 _update({"tracks_done": done})
 
-            usb.commit()
+            if drive_lost:
+                # Volume vanished mid-copy — don't attempt further writes
+                # against a database that may no longer be reachable.
+                try:
+                    usb.rollback()
+                except Exception:
+                    pass
+            else:
+                if not _volume_still_mounted():
+                    drive_lost = True
+                    errors.append(
+                        f"USB drive at {drive_path} disappeared before the database "
+                        f"commit could run. A backup of the target database is at "
+                        f"{backup_path}."
+                    )
+                    try:
+                        usb.rollback()
+                    except Exception:
+                        pass
 
-            usb_playlist_index: dict[tuple[str, str, int], object] = {}
-            for row in usb.get_playlist().all():
-                key = (
-                    row.Name or "",
-                    str(getattr(row, "ParentID", "") or ""),
-                    int(getattr(row, "Attribute", 0) or 0),
-                )
-                usb_playlist_index[key] = row
+            if not drive_lost:
+                usb.commit()
 
-            usb_playlists_by_source_id: dict[str, object] = {}
+                usb_playlist_index: dict[tuple[str, str, int], object] = {}
+                for row in usb.get_playlist().all():
+                    key = (
+                        row.Name or "",
+                        str(getattr(row, "ParentID", "") or ""),
+                        int(getattr(row, "Attribute", 0) or 0),
+                    )
+                    usb_playlist_index[key] = row
 
-            def _ensure_usb_playlist(src_playlist):
-                src_id = str(src_playlist.ID)
-                if src_id in usb_playlists_by_source_id:
-                    return usb_playlists_by_source_id[src_id]
+                usb_playlists_by_source_id: dict[str, object] = {}
 
-                parent_usb = None
-                parent_id = str(getattr(src_playlist, "ParentID", "") or "")
-                if parent_id:
-                    parent_src = source_playlists.get(parent_id)
-                    if parent_src is not None:
-                        parent_usb = _ensure_usb_playlist(parent_src)
+                def _ensure_usb_playlist(src_playlist):
+                    src_id = str(src_playlist.ID)
+                    if src_id in usb_playlists_by_source_id:
+                        return usb_playlists_by_source_id[src_id]
 
-                parent_key = str(getattr(parent_usb, "ID", "") or "") if parent_usb is not None else ""
-                attribute = int(getattr(src_playlist, "Attribute", 0) or 0)
-                playlist_key = (src_playlist.Name or "", parent_key, attribute)
-                usb_playlist = usb_playlist_index.get(playlist_key)
+                    parent_usb = None
+                    parent_id = str(getattr(src_playlist, "ParentID", "") or "")
+                    if parent_id:
+                        parent_src = source_playlists.get(parent_id)
+                        if parent_src is not None:
+                            parent_usb = _ensure_usb_playlist(parent_src)
 
-                if usb_playlist is None:
-                    if attribute == 1:
-                        usb_playlist = usb.create_playlist_folder(src_playlist.Name or "Folder", parent=parent_usb)
-                    else:
-                        usb_playlist = usb.create_playlist(src_playlist.Name or "Playlist", parent=parent_usb)
-                    usb.flush()
-                    usb_playlist_index[playlist_key] = usb_playlist
+                    parent_key = str(getattr(parent_usb, "ID", "") or "") if parent_usb is not None else ""
+                    attribute = int(getattr(src_playlist, "Attribute", 0) or 0)
+                    playlist_key = (src_playlist.Name or "", parent_key, attribute)
+                    usb_playlist = usb_playlist_index.get(playlist_key)
 
-                usb_playlists_by_source_id[src_id] = usb_playlist
-                return usb_playlist
+                    if usb_playlist is None:
+                        if attribute == 1:
+                            usb_playlist = usb.create_playlist_folder(src_playlist.Name or "Folder", parent=parent_usb)
+                        else:
+                            usb_playlist = usb.create_playlist(src_playlist.Name or "Playlist", parent=parent_usb)
+                        usb.flush()
+                        usb_playlist_index[playlist_key] = usb_playlist
 
-            for src_playlist in selected_playlists:
-                usb_pl = _ensure_usb_playlist(src_playlist)
+                    usb_playlists_by_source_id[src_id] = usb_playlist
+                    return usb_playlist
 
-                already_linked: set[str] = {
-                    str(s.ContentID)
-                    for s in usb.get_playlist_songs(PlaylistID=usb_pl.ID).all()
-                }
+                for src_playlist in selected_playlists:
+                    usb_pl = _ensure_usb_playlist(src_playlist)
 
-                for playlist_entry in playlist_tracks.get(str(src_playlist.ID), []):
-                    export_entry = export_tracks.get(playlist_entry["dest_key"])
-                    usb_row = export_entry.get("usb_row") if export_entry else None
-                    if usb_row is None:
-                        continue
-                    if str(usb_row.ID) not in already_linked:
-                        try:
-                            usb.add_to_playlist(usb_pl, usb_row, track_no=None)
-                            already_linked.add(str(usb_row.ID))
-                        except Exception as exc:
-                            track_name = export_entry["source_path"].name if export_entry else "track"
-                            errors.append(f"Link {track_name}: {exc}")
+                    already_linked: set[str] = {
+                        str(s.ContentID)
+                        for s in usb.get_playlist_songs(PlaylistID=usb_pl.ID).all()
+                    }
 
-            usb.commit()
+                    for playlist_entry in playlist_tracks.get(str(src_playlist.ID), []):
+                        export_entry = export_tracks.get(playlist_entry["dest_key"])
+                        usb_row = export_entry.get("usb_row") if export_entry else None
+                        if usb_row is None:
+                            continue
+                        if str(usb_row.ID) not in already_linked:
+                            try:
+                                usb.add_to_playlist(usb_pl, usb_row, track_no=None)
+                                already_linked.add(str(usb_row.ID))
+                            except Exception as exc:
+                                track_name = export_entry["source_path"].name if export_entry else "track"
+                                errors.append(f"Link {track_name}: {exc}")
+
+                usb.commit()
 
         finally:
-            usb.close()
+            try:
+                usb.close()
+            except Exception:
+                pass
 
-        final_status = "complete_with_errors" if errors else "complete"
+        if drive_lost:
+            final_status = "failed"
+        else:
+            final_status = "complete_with_errors" if errors else "complete"
         _update({"status": final_status, "errors": errors, "current_track": ""})
 
     except Exception as exc:

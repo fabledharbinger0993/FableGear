@@ -8,7 +8,7 @@ import subprocess
 import sys
 import threading
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from collections import defaultdict
@@ -29,7 +29,7 @@ CHECKPOINT_ARCHIVE_DIRNAME = "Archive"
 class JobRecord:
     job_id: str
     tool: str
-    state: Literal["pending", "running", "done", "error"]
+    state: Literal["pending", "running", "done", "error", "cancelled"]
     scope: Optional[str]
     cli_args: List[str]
     dispatched_at: str
@@ -45,6 +45,15 @@ class JobRecord:
 _executor = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="fablegear")
 _jobs: Dict[str, JobRecord] = {}
 _jobs_lock = threading.Lock()
+
+# Cancellation support. A job can be cancelled two ways: still queued behind
+# other work in the 4-worker pool (Future.cancel() removes it before it ever
+# runs), or already running as a cli.py subprocess (terminate()/kill() it).
+# _cancel_lock guards all three of the dicts/sets below.
+_futures: Dict[str, "Future"] = {}
+_running_procs: Dict[str, "subprocess.Popen"] = {}
+_cancel_requested: set = set()
+_cancel_lock = threading.Lock()
 
 _archive_checkpoints_dir: Optional[Path] = None
 _repo_dir: Optional[Path] = None
@@ -126,7 +135,9 @@ def dispatch(
     _broadcast(record)
     _write_live_jobs()
 
-    _executor.submit(_run_job, job_id, timeout)
+    future = _executor.submit(_run_job, job_id, timeout)
+    with _cancel_lock:
+        _futures[job_id] = future
 
     return json.dumps(
         {
@@ -145,6 +156,15 @@ def dispatch(
 
 
 def _run_job(job_id: str, timeout: int) -> None:
+    with _cancel_lock:
+        already_cancelled = job_id in _cancel_requested
+
+    if already_cancelled:
+        # Cancelled while still queued behind other work in the pool — never
+        # spawn the subprocess at all.
+        _finish_as_cancelled(job_id)
+        return
+
     with _jobs_lock:
         record = _jobs[job_id]
         record.state = "running"
@@ -157,18 +177,38 @@ def _run_job(job_id: str, timeout: int) -> None:
 
     cmd = [sys.executable, str(_repo_dir / "cli.py"), *record.cli_args]
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=timeout,
             cwd=str(_repo_dir),
         )
-        output = (result.stdout + result.stderr).strip()
-        exit_ok = result.returncode == 0
+        with _cancel_lock:
+            _running_procs[job_id] = proc
+            # Close the race: cancel() may have run between the check above
+            # and this registration, in which case it never saw a process to
+            # terminate. Catch that here.
+            if job_id in _cancel_requested:
+                proc.terminate()
+
+        try:
+            stdout, _ = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout, _ = proc.communicate()
+            raise
+
+        with _cancel_lock:
+            was_cancelled = job_id in _cancel_requested
+
+        output = (stdout or "").strip()
         with _jobs_lock:
-            record.state = "done" if exit_ok else "error"
-            record.exit_code = result.returncode
+            if was_cancelled:
+                record.state = "cancelled"
+            else:
+                record.state = "done" if proc.returncode == 0 else "error"
+            record.exit_code = proc.returncode
             record.result = output
             record.result_blob_path = _write_result_blob(record)
 
@@ -185,6 +225,12 @@ def _run_job(job_id: str, timeout: int) -> None:
             record.result = f"Dispatch error: {exc}"
             record.exit_code = -1
             record.result_blob_path = _write_result_blob(record)
+
+    finally:
+        with _cancel_lock:
+            _running_procs.pop(job_id, None)
+            _cancel_requested.discard(job_id)
+            _futures.pop(job_id, None)
 
     completed = _now()
     with _jobs_lock:
@@ -210,6 +256,75 @@ def _run_job(job_id: str, timeout: int) -> None:
     )
     _broadcast(record)
     _write_live_jobs()
+
+
+def _finish_as_cancelled(job_id: str) -> None:
+    """Mark a still-pending job cancelled without ever spawning its subprocess."""
+    with _jobs_lock:
+        record = _jobs[job_id]
+        record.state = "cancelled"
+        record.result = "Cancelled before it started."
+        now_iso = _now()
+        record.started_at = record.started_at or now_iso
+        record.completed_at = now_iso
+        record.duration_seconds = 0.0
+
+    with _cancel_lock:
+        _cancel_requested.discard(job_id)
+        _futures.pop(job_id, None)
+
+    _db_upsert_job(record)
+    _db_insert_event(record.job_id, "state_change", record.state, {"reason": "cancelled_before_start"})
+    _broadcast(record)
+    _write_live_jobs()
+
+
+def cancel(job_id: str) -> dict:
+    """
+    Request cancellation of a dispatched job.
+
+    Returns a dict: {"ok": bool, "state": str, "detail": str}.
+    - If the job is still queued (not yet running), it's removed from the
+      pool and never spawns a subprocess.
+    - If the job's cli.py subprocess is already running, it's sent SIGTERM
+      (via Popen.terminate()); if it hasn't exited within a few seconds the
+      waiting communicate() call in _run_job will still return once the
+      process actually dies — cancel() itself does not block on that.
+    - If the job is already done/error/cancelled, this is a no-op that
+      reports the existing terminal state.
+    """
+    with _jobs_lock:
+        record = _jobs.get(job_id)
+        if record is None:
+            return {"ok": False, "state": "unknown", "detail": f"No job found with id '{job_id}'."}
+        current_state = record.state
+
+    if current_state in ("done", "error", "cancelled"):
+        return {"ok": False, "state": current_state, "detail": f"Job already {current_state}; nothing to cancel."}
+
+    with _cancel_lock:
+        _cancel_requested.add(job_id)
+        future = _futures.get(job_id)
+        proc = _running_procs.get(job_id)
+
+    # Future.cancel() only succeeds if the work item hasn't started running
+    # yet (still queued behind other jobs in the 4-worker pool).
+    cancelled_before_start = bool(future is not None and future.cancel())
+    if cancelled_before_start:
+        _finish_as_cancelled(job_id)
+        return {"ok": True, "state": "cancelled", "detail": "Job was still queued; removed before it started."}
+
+    if proc is not None:
+        try:
+            proc.terminate()
+        except Exception as exc:
+            _log.warning("cancel(%s): terminate() failed: %s", job_id, exc)
+        return {"ok": True, "state": "running", "detail": "Termination signal sent; job will finish as 'cancelled' shortly."}
+
+    # Not yet in _running_procs (subprocess still spinning up) but no longer
+    # cancellable-before-start either — the flag in _cancel_requested will be
+    # caught by _run_job's post-Popen race check.
+    return {"ok": True, "state": current_state, "detail": "Cancellation requested; will take effect as soon as the subprocess starts."}
 
 
 def _write_checkpoint(record: JobRecord) -> Optional[str]:
@@ -627,18 +742,68 @@ def _db_connect() -> Optional[sqlite3.Connection]:
         return None
 
 
+def _migrate_jobs_state_check(conn: sqlite3.Connection) -> None:
+    """
+    Widen the jobs.state CHECK constraint to allow 'cancelled' on DBs created
+    before cancel support existed. CREATE TABLE IF NOT EXISTS is a no-op on
+    an existing table, so without this, every pre-existing fablegear_jobs.db
+    would silently reject (and drop, via the caught sqlite3.Error in
+    _db_upsert_job) any attempt to persist a cancelled job's state.
+    """
+    try:
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'"
+        ).fetchone()
+        if row is None or row[0] is None or "'cancelled'" in row[0]:
+            return  # table doesn't exist yet, or already migrated
+
+        conn.executescript(
+            """
+            ALTER TABLE jobs RENAME TO jobs_pre_cancel_migration;
+
+            CREATE TABLE jobs (
+              job_id TEXT PRIMARY KEY,
+              tool TEXT NOT NULL,
+              state TEXT NOT NULL CHECK (state IN ('pending','running','done','error','cancelled')),
+              scope TEXT,
+              scope_hash TEXT,
+              cli_args_json TEXT NOT NULL,
+              dispatched_at TEXT NOT NULL,
+              started_at TEXT,
+              completed_at TEXT,
+              duration_seconds REAL,
+              exit_code INTEGER,
+              result_summary TEXT,
+              result_blob_path TEXT,
+              checkpoint_path TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            INSERT INTO jobs SELECT * FROM jobs_pre_cancel_migration;
+
+            DROP TABLE jobs_pre_cancel_migration;
+            """
+        )
+        conn.commit()
+        _log.info("Migrated jobs table to allow 'cancelled' state")
+    except sqlite3.Error:
+        _log.exception("jobs.state CHECK-constraint migration failed — cancelled jobs may not persist to history")
+
+
 def _db_init() -> None:
     with _db_lock:
         conn = _db_connect()
         if conn is None:
             return
         try:
+            _migrate_jobs_state_check(conn)
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS jobs (
                   job_id TEXT PRIMARY KEY,
                   tool TEXT NOT NULL,
-                  state TEXT NOT NULL CHECK (state IN ('pending','running','done','error')),
+                  state TEXT NOT NULL CHECK (state IN ('pending','running','done','error','cancelled')),
                   scope TEXT,
                   scope_hash TEXT,
                   cli_args_json TEXT NOT NULL,

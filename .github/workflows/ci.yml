@@ -1,0 +1,58 @@
+name: CI
+
+# Runs on every push/PR to main. build-release.yml only builds & publishes on
+# a version tag — it never ran the test suite, ruff, or pyright automatically,
+# so regressions could land on main unnoticed until someone ran them by hand.
+#
+# The `test` job is a real gate (559+ tests currently pass in ~15s locally).
+# `lint` is informational for now (continue-on-error): ruff/pyright both have
+# a real, pre-existing backlog (see ruff.toml's own "Goal: passes clean"
+# comment, and audit_20260731_155721/) that isn't fixed yet. Flip
+# continue-on-error to false once that backlog is cleared.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test suite
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest -q
+
+  lint:
+    name: Lint & type-check (informational)
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt ruff pyright
+
+      - name: ruff check
+        run: ruff check .
+
+      - name: pyright
+        run: pyright .
