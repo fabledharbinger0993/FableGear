@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -48,12 +47,15 @@ class SafeWriteError(RuntimeError):
 
 
 def rekordbox_running() -> bool:
-    """True if the Rekordbox app is currently running (holds master.db)."""
-    try:
-        return subprocess.run(["pgrep", "-x", "rekordbox"],
-                              capture_output=True).returncode == 0
-    except Exception:  # noqa: BLE001 — if we can't tell, assume the worst elsewhere
-        return True
+    """True if the Rekordbox app is currently running (holds master.db).
+
+    Delegates to db_connection.rekordbox_is_running() — the single
+    canonical implementation (previously reimplemented separately here,
+    in cli.py, and in db_connection.py itself, with inconsistent
+    fail-safe behavior between them).
+    """
+    from db_connection import rekordbox_is_running  # noqa: PLC0415
+    return rekordbox_is_running()
 
 
 def backup_master_db(target: Path, tag: str) -> Path:

@@ -172,6 +172,11 @@ if command -v tailscale &>/dev/null; then
 fi
 
 # ── Launch FableGear (arch-aware) ─────────────────────────────────────────
+# Resolve once here so the running app can read it directly (helpers.py /
+# state_tracker.py both check FABLEGEAR_VERSION first, falling back to a
+# `git rev-parse` subprocess call per-request when it's unset).
+export FABLEGEAR_VERSION="$(git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+
 # Use 'arch -arm64' only on Apple Silicon; use plain Python on Intel Macs.
 ARCH_NAME=$(uname -m)
 if [ "$ARCH_NAME" = "arm64" ]; then

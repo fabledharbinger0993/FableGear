@@ -758,37 +758,61 @@ def prune_files(
                 "cancelled":               True,
             }
         try:
-            rows = db.get_content(FolderPath=path).all()
-            if rows:
-                deleted_for_path = 0
-                for row in rows:
-                    # Re-thread associations (playlists, cues, tags, etc.) before
-                    # deleting the content row
-                    keeper_path = (keeper_map or {}).get(path)
-                    song_rows = db.get_playlist_songs(ContentID=row.ID).all()
-                    if keeper_path:
-                        result = _rethread_associations(row, keeper_path, db, emit)
-                        playlists_rethreaded += result["playlists_rethreaded"]
-                        associations_rethreaded += result["associations_rethreaded"]
-                        metadata_backfilled += result["metadata_backfilled"]
-                        if result["playlists_rethreaded"]:
-                            emit(f"      ↪  {result['playlists_rethreaded']} playlist slot(s) re-threaded to keeper")
-                    elif song_rows:
-                        protected_paths.add(path)
-                        skipped += 1
-                        emit(
-                            "      ⚠  Protected — track is in playlist(s) but no keeper mapping was provided; skipping delete"
-                        )
-                        continue
-                    db.session.delete(row)
-                    deleted_for_path += 1
-                if deleted_for_path > 0:
-                    db_removed += deleted_for_path
-                    emit(f"    DB ✓  {Path(path).name}")
+            # SAVEPOINT-scoped: if re-threading a row succeeds but deleting it
+            # (or a later row for this same path) then fails, the whole block
+            # rolls back to this savepoint on the way out — not just this row,
+            # but not the rest of the batch either. Without this, a partial
+            # rethread could ride along uncommitted-but-staged into whatever
+            # the final db.commit() below picks up from earlier, successful
+            # paths in this same run.
+            # Accumulated locally and only merged into the outer running totals
+            # after the nested block below completes without raising — if a
+            # later row for this same path fails, the savepoint rolls back the
+            # DB-side changes, but Python variable increments aren't
+            # transactional, so accumulating straight into the outer counters
+            # would let a rolled-back row's stats survive in the summary.
+            path_playlists_rethreaded = 0
+            path_associations_rethreaded = 0
+            path_metadata_backfilled = 0
+            path_deleted = 0
+
+            with db.session.begin_nested():
+                rows = db.get_content(FolderPath=path).all()
+                if rows:
+                    for row in rows:
+                        # Re-thread associations (playlists, cues, tags, etc.) before
+                        # deleting the content row
+                        keeper_path = (keeper_map or {}).get(path)
+                        song_rows = db.get_playlist_songs(ContentID=row.ID).all()
+                        if keeper_path:
+                            result = _rethread_associations(row, keeper_path, db, emit)
+                            path_playlists_rethreaded += result["playlists_rethreaded"]
+                            path_associations_rethreaded += result["associations_rethreaded"]
+                            path_metadata_backfilled += result["metadata_backfilled"]
+                            if result["playlists_rethreaded"]:
+                                emit(f"      ↪  {result['playlists_rethreaded']} playlist slot(s) re-threaded to keeper")
+                        elif song_rows:
+                            protected_paths.add(path)
+                            skipped += 1
+                            emit(
+                                "      ⚠  Protected — track is in playlist(s) but no keeper mapping was provided; skipping delete"
+                            )
+                            continue
+                        db.session.delete(row)
+                        path_deleted += 1
+                    if path_deleted > 0:
+                        emit(f"    DB ✓  {Path(path).name}")
+                    else:
+                        emit(f"    DB —  {Path(path).name}  (protected; no rows deleted)")
                 else:
-                    emit(f"    DB —  {Path(path).name}  (protected; no rows deleted)")
-            else:
-                emit(f"    DB —  {Path(path).name}  (not in database — file only)")
+                    emit(f"    DB —  {Path(path).name}  (not in database — file only)")
+
+            # Reached only if the nested block above didn't raise — safe to
+            # fold this path's stats into the run-wide totals now.
+            playlists_rethreaded += path_playlists_rethreaded
+            associations_rethreaded += path_associations_rethreaded
+            metadata_backfilled += path_metadata_backfilled
+            db_removed += path_deleted
         except Exception as exc:
             msg = f"DB error for {Path(path).name}: {exc}"
             errors.append(msg)

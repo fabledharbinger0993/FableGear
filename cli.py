@@ -105,13 +105,15 @@ def _require_archive(command_name: str):
 
 def _rekordbox_running() -> bool:
     """True if a Rekordbox process is running — writing to master.db while it is
-    open risks corruption, so callers must refuse."""
-    import subprocess  # noqa: PLC0415
-    try:
-        return subprocess.run(["pgrep", "-x", "rekordbox"],
-                              capture_output=True).returncode == 0
-    except Exception:  # noqa: BLE001
-        return False
+    open risks corruption, so callers must refuse.
+
+    Delegates to db_connection.rekordbox_is_running() — previously this,
+    rekordbox_safe_write.rekordbox_running(), and db_connection's own
+    version were three separate reimplementations of the same pgrep check,
+    with different (and inconsistent) fail-safe behavior on error.
+    """
+    from db_connection import rekordbox_is_running  # noqa: PLC0415
+    return rekordbox_is_running()
 
 
 def _guard_or_exit(paths, tool: str) -> None:

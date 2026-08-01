@@ -131,6 +131,9 @@ def migrate(target_path: str):
         yield _line("  Destination already exists — removing stale copy…")
         shutil.rmtree(dst)
 
+    src_master_db = src / "master.db"
+    src_master_size = src_master_db.stat().st_size if src_master_db.exists() else None
+
     yield _line(f"  Copying {src.name}/…")
     try:
         shutil.copytree(str(src), str(dst))
@@ -140,9 +143,25 @@ def migrate(target_path: str):
         return
     yield _line("  Copy complete.")
 
-    # 6. Verify master.db arrived
-    if not (dst / "master.db").exists():
+    # 6. Verify master.db arrived intact — existence alone doesn't catch a
+    # truncated copy (e.g. the destination volume filled up mid-copytree
+    # without shutil surfacing it as a hard failure). Same size-verification
+    # rekordbox_safe_write.backup_master_db() already uses for this exact
+    # file elsewhere in the app — a short copy must never be treated as good
+    # right before the original gets rmtree'd.
+    dst_master_db = dst / "master.db"
+    if not dst_master_db.exists():
         yield _line("✗ master.db not found at destination — aborting before removing source.")
+        yield _done(1)
+        return
+    dst_master_size = dst_master_db.stat().st_size
+    if src_master_size is not None and dst_master_size != src_master_size:
+        yield _line(
+            f"✗ master.db copy size mismatch (source {src_master_size} bytes, "
+            f"destination {dst_master_size} bytes) — aborting before removing source."
+        )
+        yield _line(f"  Possible causes: destination drive full, or copy interrupted.")
+        yield _line(f"  The incomplete copy is at {dst} — safe to delete and retry.")
         yield _done(1)
         return
 

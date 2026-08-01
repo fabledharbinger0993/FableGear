@@ -1,8 +1,9 @@
 # Build-only dependencies — NOT installed by setup.sh or launch.sh.
-# Used only by the Windows frozen build in
-# .github/workflows/build-release.yml (pyinstaller FableGear_win.spec).
-# macOS ships the thin bootstrap bundle instead (release-zip.yml), so no
-# PyInstaller step runs for macOS.
+# Used for a manual/local Windows frozen build (pyinstaller FableGear_win.spec).
+# Not currently wired into any GitHub Actions workflow — the only workflow
+# that exists, .github/workflows/build-release.yml, builds and publishes the
+# macOS thin bootstrap bundle only (via build_release.sh, no PyInstaller step
+# for either platform runs in CI today).
 #
 # Usage: pip install -r requirements_build.txt
 

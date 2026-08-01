@@ -79,12 +79,15 @@ def rekordbox_is_running() -> bool:
             )
             return result.returncode == 0
     except FileNotFoundError:
-        # Neither pgrep nor tasklist found — log and assume not running
+        # Neither pgrep nor tasklist found. This gates every write to a
+        # shared, irreplaceable library — fail closed (assume it might be
+        # running) rather than silently proceeding as if it were confirmed
+        # safe.
         log.warning(
             "Could not check for running Rekordbox processes "
-            "(pgrep/tasklist not found). Proceeding without process check."
+            "(pgrep/tasklist not found) — assuming it might be running."
         )
-        return False
+        return True
 
 
 # ─── Backup ───────────────────────────────────────────────────────────────────

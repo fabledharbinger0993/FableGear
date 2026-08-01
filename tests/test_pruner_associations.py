@@ -65,6 +65,17 @@ def db(tmp_path):
     engine.dispose()
 
     handle = Rekordbox6Database(path=str(db_path), unlock=False)
+    # Rekordbox6Database.commit() (as opposed to the lower-level
+    # .session.commit()) bumps a global USN counter stored in this row. A
+    # real master.db always has it; a from-scratch test schema doesn't, so
+    # seed it for any test that calls db.commit() (e.g. via prune_files()).
+    from datetime import datetime as _dt
+    handle.session.add(rb_tables.AgentRegistry(
+        registry_id="localUpdateCount", int_1=0,
+        date_1=_dt.utcnow(), date_2=_dt.utcnow(),
+        created_at=_dt.utcnow(), updated_at=_dt.utcnow(),
+    ))
+    handle.session.commit()
     yield handle
     handle.close()
 
@@ -297,3 +308,73 @@ def test_rethread_associations_end_to_end(db):
     assert keeper.BPM == 12800
     assert db.get_playlist_songs(PlaylistID="PL1").all()[0].ContentID == keeper.ID
     assert db.get_cue(ContentID=keeper.ID).all()[0].Kind == 2
+
+
+# ── prune_files: per-path savepoint isolation on partial failure ────────────
+
+def test_prune_files_rolls_back_only_the_failed_path_not_the_whole_batch(db, tmp_path, monkeypatch):
+    """
+    A path whose second content row fails mid-rethread must not lose (a) the
+    first row's already-applied rethread for *that* path, silently committing
+    a half-done state, nor (b) an unrelated, already-succeeded path earlier
+    in the same batch. Before the begin_nested() fix, prune_files() had no
+    per-path transaction boundary: a failure here could ride along into
+    whatever the single end-of-run db.commit() picked up.
+    """
+    good_keeper = _make_content(db, FolderPath="/good_keeper.mp3")
+    good_dup = _make_content(db, FolderPath="/good_dup.mp3")
+
+    fail_keeper = _make_content(db, FolderPath="/fail_keeper.mp3")
+    fail_dup_a = _make_content(db, FolderPath="/fail_shared.mp3", FileNameL="a.mp3", FileNameS="a.mp3")
+    fail_dup_b = _make_content(db, FolderPath="/fail_shared.mp3", FileNameL="b.mp3", FileNameS="b.mp3")
+    db.session.flush()
+
+    good_dup_file = tmp_path / "good_dup.mp3"
+    good_dup_file.write_bytes(b"x")
+    fail_shared_file = tmp_path / "fail_shared.mp3"
+    fail_shared_file.write_bytes(b"x")
+
+    # Patch FolderPath to point at real on-disk files so the later file-move
+    # step (which happens after the DB step this test cares about) has
+    # something to work with.
+    good_dup.FolderPath = str(good_dup_file)
+    fail_dup_a.FolderPath = str(fail_shared_file)
+    fail_dup_b.FolderPath = str(fail_shared_file)
+    db.session.flush()
+
+    call_count = {"n": 0}
+    real_rethread = pruner._rethread_associations
+
+    def flaky_rethread(row, keeper_path, db_arg, emit):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            # Fails on the *second* row processed for the shared-path group
+            # (i.e. after the first row's rethread already ran).
+            raise RuntimeError("simulated mid-path failure")
+        return real_rethread(row, keeper_path, db_arg, emit)
+
+    monkeypatch.setattr(pruner, "_rethread_associations", flaky_rethread)
+
+    keeper_map = {
+        str(good_dup_file): good_keeper.FolderPath,
+        str(fail_shared_file): fail_keeper.FolderPath,
+    }
+
+    result = pruner.prune_files(
+        [str(good_dup_file), str(fail_shared_file)],
+        db,
+        log=None,
+        keeper_map=keeper_map,
+    )
+
+    # The unrelated, earlier, fully-successful path must have committed.
+    assert db.get_content(FolderPath=str(good_dup_file)).all() == []
+
+    # Both rows sharing the failed path must still exist -- the savepoint
+    # rolled back that path's changes in full, not a half-deleted state.
+    remaining = db.get_content(FolderPath=str(fail_shared_file)).all()
+    assert len(remaining) == 2
+
+    # Only the genuinely successful path counts toward db_removed.
+    assert result["db_removed"] == 1
+    assert any("fail_shared.mp3" in e or "simulated mid-path failure" in e for e in result["errors"])
