@@ -241,6 +241,8 @@ class LocalView:
                 return parts[1]  # e.g., "Volumes", "Music"
             return "local"
         except Exception:
+            # Path.parts is a pure in-memory property and shouldn't raise;
+            # this is just a defensive fallback for unexpected path shapes.
             return "unknown"
     
     def _check_in_rekordbox(self, file_path: Path) -> bool:
@@ -260,8 +262,16 @@ class LocalView:
                 # Check if there's a content entry with this path
                 rows = db.get_content(FolderPath=str(file_path)).all()
                 return len(rows) > 0
-                
-        except Exception:
+
+        except Exception as exc:
+            # Called per-file over the whole library, so this stays broad
+            # and logs at debug (not warning/error) to avoid flooding the
+            # log if Rekordbox's db is briefly locked/unavailable. Note the
+            # caveat: a failed check here is indistinguishable from a
+            # genuine "not in Rekordbox" to callers (in_rekordbox=False),
+            # so a systemic failure (e.g. db locked for the whole scan)
+            # would silently mislabel the entire library as out of sync.
+            log.debug("Rekordbox lookup failed for %s: %s", file_path, exc)
             return False
     
     def _apply_filters_and_sort(self) -> None:

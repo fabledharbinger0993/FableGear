@@ -2,10 +2,17 @@
 fablegear_database.undo — Database-level transaction history.
 
 Provides transaction history and rollback capabilities for database
-operations.  The classes here are well-tested infrastructure but are
-NOT currently called by any production tool, route, or CLI command —
-they are tested in tests/test_snapshot_storage.py and exported from
-fablegear_database/__init__.py for future use.
+operations. DatabaseUndoManager is live and called from
+importer_database.py (record_import, on every non-trivial import),
+routes_player.py, and routes_undo.py (/api/undo/database/history and
+/api/undo/database/revert).
+
+Caveat: record_import() logs with affected_records=[] — imports don't
+carry per-record before/after state, so undo_transaction() cannot
+actually restore anything for an "import"-type transaction and
+correctly reports failure (not vacuous success) for one. Only
+record_update() carries real before/after state and is genuinely
+revertible; nothing in the current codebase calls record_update() yet.
 
 If you are reading this module expecting it to protect ongoing DB
 operations: it does not.  Live DB safety is provided by
@@ -210,7 +217,20 @@ class TransactionHistory:
         if not transaction:
             log.error("Transaction not found: %s", transaction_id)
             return False
-        
+
+        if not transaction.affected_records:
+            # e.g. "import" transactions (see record_import): no per-record
+            # before/after state was captured, so there is nothing to
+            # restore. Reporting success here would tell the caller their
+            # revert worked when nothing happened.
+            log.error(
+                "Undo %s: transaction has no affected_records (operation_type=%s) — "
+                "this transaction type carries no per-record state and cannot be "
+                "undone through this mechanism",
+                transaction_id, transaction.operation_type,
+            )
+            return False
+
         try:
             # Restore before state for each affected record
             restored = 0
@@ -225,7 +245,7 @@ class TransactionHistory:
                         transaction_id, record_id,
                     )
 
-            if transaction.affected_records and restored == 0:
+            if restored == 0:
                 # Nothing actually restored — reporting success here would
                 # tell the user their rollback worked when it did not.
                 log.error(

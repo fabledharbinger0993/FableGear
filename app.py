@@ -264,8 +264,11 @@ def _sync_archive_db_on_exit() -> None:
     try:
         from fablegear_database.archive_sync import sync_db_to_archive  # noqa: PLC0415
         sync_db_to_archive()
-    except Exception:
-        pass
+    except Exception as exc:
+        import logging as _logging  # noqa: PLC0415
+        _logging.getLogger(__name__).warning(
+            "Archive DB sync on exit failed (non-fatal — periodic scheduler will retry): %s", exc,
+        )
 
 
 import atexit  # noqa: E402
@@ -939,8 +942,8 @@ def _mounted_volumes() -> list:
                 "is_music_root":  music_root_str.startswith(mp),
                 "is_read_only":   "ro" in {o.strip() for o in (part.opts or "").split(",")},
             })
-    except Exception:
-        pass
+    except Exception as exc:
+        app.logger.warning("_mounted_volumes: enumeration failed: %s", exc)
     return vols
 
 
@@ -957,7 +960,7 @@ def api_fs_stream():
         return jsonify({"error": "path required"}), 400
     try:
         p = Path(path_str).resolve()
-    except Exception:
+    except (OSError, RuntimeError):
         return jsonify({"error": "Invalid path"}), 400
     if not _is_browseable_path(p):
         return jsonify({"error": "Forbidden"}), 403
@@ -989,7 +992,7 @@ def api_fs_list():
     path_str = (request.args.get("path") or "").strip() or default_root
     try:
         p = Path(path_str).resolve()
-    except Exception:
+    except (OSError, RuntimeError):
         return jsonify({"error": "Invalid path"}), 400
     if not _is_browseable_path(p):
         return jsonify({"error": "Forbidden"}), 403
@@ -1149,7 +1152,7 @@ def _load_setup_state(*, repair: bool = True) -> dict:
         else:
             raw = {}
             should_write = True
-    except Exception:
+    except (OSError, json.JSONDecodeError):
         raw = {}
         should_write = True
 
@@ -1162,8 +1165,11 @@ def _load_setup_state(*, repair: bool = True) -> dict:
         try:
             _FABLEGEAR_STATE.parent.mkdir(parents=True, exist_ok=True)
             _FABLEGEAR_STATE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
-        except Exception:
-            pass
+        except OSError as exc:
+            import logging as _logging  # noqa: PLC0415
+            _logging.getLogger(__name__).warning(
+                "Could not persist repaired setup-state file %s: %s", _FABLEGEAR_STATE, exc,
+            )
 
     return state
 
@@ -1326,7 +1332,7 @@ def api_drives_first_aid():
 
     try:
         requested_mount = str(Path(mountpoint).resolve())
-    except Exception:
+    except (OSError, RuntimeError):
         return jsonify({"ok": False, "error": "Invalid mountpoint"}), 400
 
     allowed_mounts = {str(Path(v.get("mountpoint", "")).resolve()) for v in _mounted_volumes() if v.get("mountpoint")}
@@ -1385,7 +1391,7 @@ def api_onboarding_install_deps():
     try:
         subprocess.Popen(["open", "-a", "Terminal", str(setup_sh)])
         return jsonify({"ok": True})
-    except Exception as exc:
+    except OSError as exc:
         return jsonify({"error": str(exc)}), 500
 
 
@@ -1583,7 +1589,7 @@ def api_onboarding_open_fda_prefs():
             ["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"]
         )
         return jsonify({"ok": True})
-    except Exception as exc:
+    except OSError as exc:
         return jsonify({"error": str(exc)}), 500
 
 
@@ -1695,7 +1701,9 @@ def api_mcp_status():
 @app.route("/api/mcp/start", methods=["POST"])
 def api_mcp_start():
     """Start the embedded MCP server."""
-    from user_config import load_user_config, enable_mcp, save_user_config, find_available_mcp_port  # noqa: PLC0415
+    from user_config import (  # noqa: PLC0415
+        load_user_config, enable_mcp, save_user_config, find_available_mcp_port, NotConfiguredError,
+    )
     from mcp_server import start_embedded, is_running  # noqa: PLC0415
 
     if is_running():
@@ -1703,8 +1711,12 @@ def api_mcp_start():
 
     try:
         cfg = load_user_config()
-    except Exception:
-        cfg = {}
+    except NotConfiguredError as exc:
+        # NOT `cfg = {}` and fall through — enable_mcp()+save_user_config() below
+        # would then persist a config missing local_db/device_db/music_root/
+        # backup_dir (none of which are in DEFAULTS), overwriting a good config
+        # on disk with an incomplete one just because this read failed.
+        return jsonify({"ok": False, "error": f"FableGear is not fully configured: {exc}"}), 400
 
     if not cfg.get("mcp_enabled"):
         cfg = enable_mcp(cfg)
@@ -1735,11 +1747,16 @@ def api_mcp_stop():
 @app.route("/api/mcp/enable", methods=["POST"])
 def api_mcp_enable():
     """Enable MCP and configure it. Body: {autostart?, expose?}"""
-    from user_config import load_user_config, enable_mcp, save_user_config  # noqa: PLC0415
+    from user_config import (  # noqa: PLC0415
+        load_user_config, enable_mcp, save_user_config, NotConfiguredError,
+    )
     try:
         cfg = load_user_config()
-    except Exception:
-        cfg = {}
+    except NotConfiguredError as exc:
+        # Same reasoning as api_mcp_start: don't fall through with cfg = {}
+        # and let save_user_config() below persist an incomplete config over
+        # a good one just because this read failed.
+        return jsonify({"ok": False, "error": f"FableGear is not fully configured: {exc}"}), 400
 
     data = request.get_json(silent=True) or {}
     cfg = enable_mcp(

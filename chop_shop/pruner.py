@@ -706,7 +706,10 @@ def prune_files(
             return False
         try:
             return bool(should_cancel())
-        except Exception:
+        except Exception as exc:
+            # A broken cancel-check must never abort or hang the prune — default
+            # to "not cancelled" — but log it so a flaky should_cancel() is visible.
+            _log.warning("should_cancel() raised — treating as not cancelled: %s", exc)
             return False
 
     stamp     = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -736,7 +739,12 @@ def prune_files(
             try:
                 db.rollback()
             except Exception as exc:
-                errors.append(f"Rollback failed after cancel request: {exc}")
+                # Caller's cancelled-path only prints a generic message and never
+                # inspects `errors` for this early return, so a silent append here
+                # would hide the failure entirely — emit it too.
+                msg = f"Rollback failed after cancel request: {exc}"
+                errors.append(msg)
+                emit(f"    ⚠  {msg}")
             emit("  Prune cancelled before commit. No files were moved.")
             return {
                 "db_removed":              0,

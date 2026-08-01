@@ -235,8 +235,12 @@ class LibraryScanner:
                         return "corrupted"
                     return "valid"
             except Exception:
+                # Silently fall through to the filesystem check below. This
+                # runs per-track over the whole library (up to ~246k calls),
+                # so a db lookup failure is not logged here to avoid log
+                # spam; the filesystem fallback still produces a status.
                 pass
-        
+
         # Fallback to filesystem check
         return self._check_file_filesystem(file_path)
     
@@ -292,8 +296,11 @@ class LibraryScanner:
                         "genre": record.genre,
                     }
             except Exception:
+                # Same rationale as check_file_status(): per-file hot path
+                # over the whole library, fall through silently and let the
+                # extraction fallback below produce the metadata instead.
                 pass
-        
+
         # Fallback to file metadata extraction
         return self._extract_file_metadata(file_path)
     

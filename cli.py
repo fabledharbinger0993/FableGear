@@ -1036,7 +1036,7 @@ def cmd_prune(args: argparse.Namespace) -> None:
     --no-dry-run to actually prune. Mirrors the interactive Chop Shop prune
     and is the executor for the pipeline's "prune" step.
     """
-    from pruner import load_report, prune_files
+    from pruner import load_report, prune_files, trash_rescue_preflight, TrashRescueRequired
     from db_connection import read_db, write_db
 
     csv_path = Path(args.csv_path)
@@ -1104,6 +1104,15 @@ def cmd_prune(args: argparse.Namespace) -> None:
         lines += ["", "Re-run with --no-dry-run to move these to the recovery folder."]
         _emit_report("\n".join(lines), "Prune", f"prune_{timestamp}.txt")
         return
+
+    try:
+        trash_rescue_preflight(csv_path)
+    except TrashRescueRequired as exc:
+        log.error("%s", exc)
+        for issue in exc.issues:
+            log.error("  - %s", issue)
+        log.error("Resolve the rescue report before pruning again.")
+        sys.exit(1)
 
     log.info("Pruning %d duplicate file(s) from %s", len(remove_paths), db_path)
     archive = _require_archive("prune")
@@ -1279,8 +1288,8 @@ def cmd_import_missing_rekordbox(args: argparse.Namespace) -> None:
     try:
         fg.log_operation("import_to_rekordbox", file_path=str(ctx.target), status="ok",
                          metadata={"added": rep.added, "backup": str(ctx.backup_dir)})
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Archive audit-log entry for import-to-rekordbox failed: %s", exc)
     log.info("%s", rep.detail)
     log.info("These new tracks are in the collection but UNANALYZED — analyze them in "
              "Rekordbox (select all → Analyze) for waveforms/grids.")
@@ -1390,8 +1399,8 @@ def cmd_push_rekordbox(args: argparse.Namespace) -> None:
                                                     "crates": rep.crates_planned,
                                                     "links": rep.links_planned,
                                                     "backup": str(ctx.backup_dir)})
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Archive audit-log entry for push-to-rekordbox failed: %s", exc)
     log.info("%s", rep.detail)
     log.info("Undo anytime (Rekordbox closed): python3 cli.py push-recovery-to-rekordbox --undo")
     log.info("Backup kept at %s", ctx.backup_dir)
@@ -1586,8 +1595,8 @@ def cmd_recover_playlists(args: argparse.Namespace) -> None:
                          metadata={"folder_id": folder_id, "crates": crates_written,
                                    "links": links_written, "sources": len(report.sources),
                                    "created_playlist_ids": created})
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Archive audit-log entry for recover-playlists failed: %s", exc)
     log.info("Rebuilt %d crate(s) / %d track link(s) under folder %r (id=%s).",
              crates_written, links_written, folder_name, folder_id)
     log.info("To undo: delete the %r folder (or its playlist ids %s…).",
@@ -2054,7 +2063,7 @@ def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
     from config import AUDIO_EXTENSIONS
     from db_connection import read_db, write_db
     from duplicate_detector import scan_duplicates, write_csv_report, write_trash_rescue_report
-    from pruner import load_report, prune_files
+    from pruner import load_report, prune_files, trash_rescue_preflight, TrashRescueRequired
 
     db_path = _resolve_active_db_path(getattr(args, "db_path", None))
     workers = max(1, int(getattr(args, "workers", 1) or 1))
@@ -2209,6 +2218,15 @@ def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
             lines.append(f"Locked groups        : {locked_groups} (keeper in trash)")
         _emit_report("\n".join(lines), "Rekordbox Dedupe", f"rekordbox_dedupe_{timestamp}.txt")
         return
+
+    try:
+        trash_rescue_preflight(output)
+    except TrashRescueRequired as exc:
+        log.error("%s", exc)
+        for issue in exc.issues:
+            log.error("  - %s", issue)
+        log.error("Resolve the rescue report before pruning again.")
+        sys.exit(1)
 
     log.info("Pruning %d Rekordbox duplicate files from %s", len(remove_paths), db_path)
     try:

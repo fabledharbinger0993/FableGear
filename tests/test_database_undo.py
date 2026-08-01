@@ -84,14 +84,33 @@ def test_record_and_undo_update(temp_db):
 
 def test_record_import_stats(temp_db):
     db, undo_mgr = temp_db
-    
+
     tx_id = undo_mgr.record_import(
         imported_count=5,
         root_paths=[Path("/drives/usb1/music")],
     )
-    
+
     assert undo_mgr.can_undo()
     recent = undo_mgr.history.get_recent_transactions()
     assert len(recent) == 1
     assert recent[0].operation_type == "import"
     assert recent[0].metadata["imported_count"] == 5
+
+
+def test_undo_import_reports_failure_not_vacuous_success(temp_db):
+    """
+    record_import() logs affected_records=[] (no per-record before/after
+    state is captured for imports). undo_transaction() must report this
+    honestly as a failure -- previously it fell through and returned True,
+    so /api/undo/database/revert told the user their revert succeeded
+    despite restoring nothing.
+    """
+    db, undo_mgr = temp_db
+
+    tx_id = undo_mgr.record_import(
+        imported_count=3,
+        root_paths=[Path("/drives/usb1/music")],
+    )
+
+    success = undo_mgr.history.undo_transaction(tx_id)
+    assert success is False
