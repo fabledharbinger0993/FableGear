@@ -519,8 +519,8 @@ def undo_operations_revert():
             if rb_db_ctx is not None:
                 try:
                     rb_db_ctx.__exit__(None, None, None)
-                except Exception:
-                    pass
+                except Exception as exc2:
+                    log.warning("Cleanup of failed Rekordbox write session also failed: %s", exc2)
             return jsonify({"error": "Could not open Rekordbox DB — check server logs"}), 500
 
     try:
@@ -601,8 +601,8 @@ def undo_operations_revert():
         if rb_db_ctx is not None:
             try:
                 rb_db_ctx.__exit__(None, None, None)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("Cleanup of Rekordbox write session after revert also failed: %s", exc)
 
     return jsonify({
         "ok": True,

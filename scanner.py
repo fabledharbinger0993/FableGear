@@ -137,7 +137,9 @@ def _get_mp4_freeform(tags, name: str) -> str | None:
         raw = val[0]
         text = (raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)).strip()
         return text or None
-    except Exception:
+    except (IndexError, TypeError, AttributeError):
+        # Malformed freeform atom (wrong shape / non-decodable value) — this
+        # is an optional field, so degrade to "not present" rather than fail.
         return None
 
 
@@ -224,8 +226,10 @@ def extract_metadata(path: Path) -> TrackInfo:
                     info = None
                 audio = _ID3Only()
                 info.errors.append(f"MPEG sync warning (ID3 tags recovered): {e}")
-            except Exception:
-                info.errors.append(f"mutagen open failed: {e}")
+            except Exception as id3_err:
+                # ID3-only recovery also failed — surface both the original
+                # mutagen error and this one instead of discarding id3_err.
+                info.errors.append(f"mutagen open failed: {e} (ID3 recovery also failed: {id3_err})")
                 _parse_filename_metadata(path, info)
                 return info
         else:
@@ -291,7 +295,9 @@ def extract_metadata(path: Path) -> TrackInfo:
                 try:
                     raw = key_atom[0]
                     info.key = (raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)).strip() or None
-                except Exception:
+                except (IndexError, TypeError, AttributeError, UnicodeDecodeError):
+                    # Malformed freeform atom — degrade to "no key detected",
+                    # consistent with the trkn/tmpo parses just above.
                     pass
         elif is_vorbis:
             info.title  = _get_vorbis_text(tags, "title")

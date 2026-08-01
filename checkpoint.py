@@ -141,7 +141,11 @@ class Checkpoint:
                 "config": data.get("config", {}),
                 "is_partial": True,
             }
-        except Exception:
+        except Exception as exc:
+            # Unlike load(), this stays broad and reports "exists but unreadable"
+            # rather than {"exists": False} — the UI should still offer a
+            # reset, not silently pretend there's nothing to resume.
+            log.warning("Checkpoint info unreadable for %s: %s", self.tool, exc)
             return {"exists": True, "readable": False, "is_partial": True}
 
     # ── I/O ───────────────────────────────────────────────────────────────────

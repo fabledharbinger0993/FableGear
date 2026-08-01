@@ -7,6 +7,7 @@ normalize preview, and scan cancel).
 """
 
 import json
+import logging
 import os
 import platform
 import queue
@@ -42,6 +43,8 @@ from helpers import (
 )
 
 bp = Blueprint("tools", __name__)
+
+log = logging.getLogger(__name__)
 
 
 # ── External tool path resolution (Homebrew-safe) ─────────────────────────────
@@ -981,6 +984,10 @@ def api_prune_stage():
             }
         return jsonify({"token": token, "keeper_map_size": len(keeper_map)})
     except Exception as exc:
+        # Feeds directly into /api/run/prune, so a swallowed failure here
+        # (with only a generic message reaching the client in non-debug
+        # mode) must still leave a server-side trace to diagnose.
+        log.warning("Prune stage failed: %s", exc)
         return api_error_from_exc(exc)
 
 

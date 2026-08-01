@@ -10,9 +10,12 @@ reconnect on any Mac (or create the same symlink), and Rekordbox works.
 """
 
 import json
+import logging
 import shutil
 import subprocess
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 
 # ── Pioneer app-data location ─────────────────────────────────────────────────
@@ -50,8 +53,16 @@ def _rb_is_running() -> bool:
             capture_output=True, text=True, timeout=5,
         )
         return r.returncode == 0
-    except Exception:
-        return False
+    except (OSError, subprocess.SubprocessError) as exc:
+        # This gates a destructive copy-then-delete-original migration of the
+        # live Rekordbox library — fail closed. If we can't tell whether
+        # Rekordbox is running, assume it might be rather than silently
+        # letting the migration proceed underneath a running app.
+        log.warning(
+            "Could not check whether Rekordbox is running (%s) — assuming it might be",
+            exc,
+        )
+        return True
 
 
 # ── Main migration ─────────────────────────────────────────────────────────────

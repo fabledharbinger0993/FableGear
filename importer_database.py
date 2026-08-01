@@ -284,7 +284,12 @@ def sync_fablegear_to_rekordbox(
                         else:
                             stats["errors"].append(f"{record.file_path}: {res.error}")
                     except Exception as e:
+                        # One bad track must not abort the batch (matches
+                        # cli.py's parse loop), but a per-track Rekordbox
+                        # write failure should still leave a server-side
+                        # trace, not just a truncated UI report line.
                         stats["errors"].append(f"{record.file_path}: {e}")
+                        log.warning("Rekordbox sync failed for %s: %s", record.file_path, e)
 
                 # _import_track() deliberately does not commit (see its docstring:
                 # "caller owns the batch commit"). Commit once per page so a

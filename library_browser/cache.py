@@ -71,8 +71,11 @@ class ViewCache:
                     else:
                         # Expired, remove from disk
                         cache_file.unlink()
-                        
-                except Exception as exc:
+
+                except (OSError, json.JSONDecodeError, KeyError) as exc:
+                    # OSError: file missing/unreadable/unlink failed.
+                    # JSONDecodeError: corrupt cache file on disk.
+                    # KeyError: entry missing expected "data"/"created_at" key.
                     log.error("Failed to load cache entry %s: %s", key, exc)
             
             return None
@@ -109,8 +112,10 @@ class ViewCache:
                 self._check_size_limit()
                 
                 return True
-                
-            except Exception as exc:
+
+            except (OSError, TypeError, ValueError) as exc:
+                # OSError: disk write failed (permissions, disk full, etc).
+                # TypeError/ValueError: data isn't JSON-serializable.
                 log.error("Failed to cache data for key %s: %s", key, exc)
                 return False
     
@@ -131,18 +136,18 @@ class ViewCache:
             if cache_file.exists():
                 try:
                     cache_file.unlink()
-                except Exception as exc:
+                except OSError as exc:
                     log.error("Failed to delete cache file %s: %s", cache_file, exc)
-    
+
     def clear(self) -> None:
         """Clear all cache entries."""
         with self._lock:
             self._memory_cache.clear()
-            
+
             for cache_file in self.cache_dir.glob("*.json"):
                 try:
                     cache_file.unlink()
-                except Exception as exc:
+                except OSError as exc:
                     log.error("Failed to delete cache file %s: %s", cache_file, exc)
     
     def _is_valid(self, entry: Dict[str, Any]) -> bool:
@@ -160,8 +165,10 @@ class ViewCache:
             ttl_seconds = entry.get("ttl", self._cache_ttl.total_seconds())
             
             return datetime.now() - created_at < timedelta(seconds=ttl_seconds)
-            
-        except Exception:
+
+        except (KeyError, ValueError, TypeError):
+            # KeyError: "created_at" missing. ValueError: unparseable
+            # timestamp. TypeError: entry isn't a dict-like mapping.
             return False
     
     def _check_size_limit(self) -> None:
@@ -183,23 +190,30 @@ class ViewCache:
                             "size": stat.st_size,
                             "mtime": stat.st_mtime,
                         })
-                    except Exception:
+                    except OSError:
+                        # File vanished/unreadable between the glob() above
+                        # and this stat(); just skip it as an eviction
+                        # candidate, it's already gone or inaccessible.
                         continue
-                
+
                 # Sort by modification time (oldest first)
                 entries.sort(key=lambda x: x["mtime"])
-                
+
                 # Remove oldest entries
                 for entry in entries:
                     if total_size <= self.max_size_bytes:
                         break
-                    
+
                     try:
                         entry["file"].unlink()
                         total_size -= entry["size"]
-                    except Exception:
+                    except OSError as exc:
+                        # Eviction failing silently would let the on-disk
+                        # cache grow past max_size_mb with no signal, so
+                        # surface it (e.g. permissions problem).
+                        log.warning("Failed to evict cache file %s: %s", entry["file"], exc)
                         continue
-                        
+
         except Exception as exc:
             log.error("Error checking cache size limit: %s", exc)
     

@@ -70,7 +70,11 @@ def _disk_partitions() -> list:
     try:
         import psutil  # noqa: PLC0415
         return psutil.disk_partitions(all=True)
-    except Exception:
+    except Exception as exc:
+        # Feeds _check_readonly_mounts / _check_backup_same_volume — log so a
+        # persistent psutil failure (which silently degrades those checks) is
+        # at least visible somewhere.
+        log.debug("psutil disk_partitions unavailable, mount-based checks degraded: %s", exc)
         return []
 
 
@@ -101,7 +105,8 @@ def _free_bytes(path: Path) -> int | None:
     try:
         import psutil  # noqa: PLC0415
         return psutil.disk_usage(str(path)).free
-    except Exception:
+    except Exception as exc:
+        log.debug("could not read free space for %s: %s", path, exc)
         return None
 
 
@@ -188,8 +193,22 @@ def _check_rekordbox_running() -> HealthFinding | None:
             ),
             fix_hint="Close Rekordbox before running import, relocate, or organise tools.",
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        # If we can't determine Rekordbox's state, silently returning None
+        # would read as "confirmed closed" — surface it instead so the UI
+        # doesn't imply a safety guarantee we couldn't actually check.
+        log.warning("rekordbox-running health check failed to execute: %s", exc)
+        return HealthFinding(
+            id="rb_running_check_failed",
+            severity="warn",
+            title="Could not determine whether Rekordbox is running",
+            detail=(
+                f"The Rekordbox process check itself failed ({type(exc).__name__}: {exc}), "
+                "so this signal is unavailable this run — treat write operations with "
+                "caution until it's resolved."
+            ),
+            fix_hint="Check the application log for details.",
+        )
 
 
 def _check_cloud_sync() -> list[HealthFinding]:
@@ -240,8 +259,22 @@ def _check_cloud_sync() -> list[HealthFinding]:
                     ),
                     fix_hint=f"Exclude the music folder from {provider} sync or move it to a local volume.",
                 ))
-    except Exception:
-        pass
+    except Exception as exc:
+        # Potential findings here are "critical" (DB inside a cloud-sync
+        # folder) — a silent failure of the check itself must not read as
+        # "confirmed no cloud sync," so log it and surface it as a finding.
+        log.warning("cloud-sync health check failed to complete: %s", exc)
+        findings.append(HealthFinding(
+            id="cloud_sync_check_failed",
+            severity="warn",
+            title="Could not fully check for cloud-sync folders",
+            detail=(
+                f"The cloud-sync safety check did not complete ({type(exc).__name__}: {exc}). "
+                "A database or music folder inside iCloud/Dropbox/OneDrive/Google Drive/Box "
+                "may not have been detected this run."
+            ),
+            fix_hint="Check the application log for details.",
+        ))
     return findings
 
 
@@ -287,8 +320,20 @@ def _check_db_size_regression() -> HealthFinding | None:
                     "If data is missing, restore from backup before running any tools."
                 ),
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        # This check exists to catch DB corruption/truncation — a silent
+        # failure here must not read as "confirmed fine."
+        log.warning("db-size-regression health check failed to execute: %s", exc)
+        return HealthFinding(
+            id="db_size_check_failed",
+            severity="warn",
+            title="Could not check master.db size against last backup",
+            detail=(
+                f"The database-size safety check itself failed ({type(exc).__name__}: {exc}), "
+                "so a shrunk or truncated master.db would not have been detected this run."
+            ),
+            fix_hint="Check the application log for details.",
+        )
     return None
 
 
@@ -330,8 +375,8 @@ def _check_readonly_mounts() -> list[HealthFinding]:
                         "For other volumes: check Disk Utility → First Aid."
                     ),
                 ))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("readonly-mount health check failed to complete: %s", exc)
     return findings
 
 
@@ -364,8 +409,8 @@ def _check_backup_same_volume() -> HealthFinding | None:
                 fix_action="move_backup_dir",
                 fix_action_label="Move Backups to Another Drive",
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("backup-same-volume health check failed to execute: %s", exc)
     return None
 
 
@@ -393,8 +438,8 @@ def _check_free_space() -> HealthFinding | None:
                 ),
                 fix_hint="Free up space on the drive before running any tool that copies or moves files.",
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("free-space health check failed to execute: %s", exc)
     return None
 
 
@@ -437,8 +482,8 @@ def _check_backup_dir_missing() -> HealthFinding | None:
             fix_action="create_backup_dir",
             fix_action_label="Create Backup Directory Now",
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("backup-dir-missing health check failed to execute: %s", exc)
     return None
 
 
@@ -459,6 +504,7 @@ def _check_archive_available() -> HealthFinding | None:
             return None
         return None
     except Exception as exc:
+        log.warning("archive-availability health check failed: %s", exc)
         return HealthFinding(
             id="archive_unavailable",
             severity="warn",
@@ -486,8 +532,20 @@ def _check_db_symlink() -> HealthFinding | None:
                     ),
                     fix_hint="Point config directly at the real file path to avoid surprises.",
                 )
-    except Exception:
-        pass
+    except Exception as exc:
+        # A silent failure here reads as "confirmed not a symlink," which is
+        # exactly the false "all clear" this check exists to prevent.
+        log.warning("db-symlink health check failed to execute: %s", exc)
+        return HealthFinding(
+            id="db_symlink_check_failed",
+            severity="warn",
+            title="Could not check DB paths for symlinks",
+            detail=(
+                f"The symlink safety check itself failed ({type(exc).__name__}: {exc}), "
+                "so a symlinked database path would not have been detected this run."
+            ),
+            fix_hint="Check the application log for details.",
+        )
     return None
 
 

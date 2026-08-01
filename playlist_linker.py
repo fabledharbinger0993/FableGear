@@ -399,7 +399,11 @@ def link_directory(
                 continue
             try:
                 Path(folder_path).resolve().relative_to(root)
-            except Exception:
+            except (ValueError, OSError):
+                # ValueError: folder_path doesn't fall under root (expected —
+                # this is the standard way to test containment). OSError:
+                # resolve() hit an unresolvable symlink/permission issue.
+                # Either way, skip this track rather than abort the batch.
                 continue
             under_root.append(content_row)
     except Exception as e:

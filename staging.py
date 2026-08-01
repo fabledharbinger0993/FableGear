@@ -23,8 +23,8 @@ def _load() -> dict:
     if _STAGING_PATH.exists():
         try:
             return json.loads(_STAGING_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except (OSError, json.JSONDecodeError) as exc:
+            log.warning("staging: could not read %s — starting with empty queue (%s)", _STAGING_PATH, exc)
     return {"items": [], "saved_batches": {}}
 
 

@@ -33,8 +33,9 @@ def load_state(library_root: str) -> dict:
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except Exception as exc:
         # corrupt file → graceful fallback
+        log.warning("state_tracker: could not load state from %s (%s) — starting fresh", path, exc)
         return {"library_root": str(library_root), "steps_completed": {}}
 
 

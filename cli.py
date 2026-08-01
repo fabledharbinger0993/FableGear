@@ -1288,8 +1288,8 @@ def cmd_import_missing_rekordbox(args: argparse.Namespace) -> None:
     try:
         fg.log_operation("import_to_rekordbox", file_path=str(ctx.target), status="ok",
                          metadata={"added": rep.added, "backup": str(ctx.backup_dir)})
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Archive audit-log entry for import-to-rekordbox failed: %s", exc)
     log.info("%s", rep.detail)
     log.info("These new tracks are in the collection but UNANALYZED — analyze them in "
              "Rekordbox (select all → Analyze) for waveforms/grids.")
@@ -1399,8 +1399,8 @@ def cmd_push_rekordbox(args: argparse.Namespace) -> None:
                                                     "crates": rep.crates_planned,
                                                     "links": rep.links_planned,
                                                     "backup": str(ctx.backup_dir)})
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Archive audit-log entry for push-to-rekordbox failed: %s", exc)
     log.info("%s", rep.detail)
     log.info("Undo anytime (Rekordbox closed): python3 cli.py push-recovery-to-rekordbox --undo")
     log.info("Backup kept at %s", ctx.backup_dir)
@@ -1595,8 +1595,8 @@ def cmd_recover_playlists(args: argparse.Namespace) -> None:
                          metadata={"folder_id": folder_id, "crates": crates_written,
                                    "links": links_written, "sources": len(report.sources),
                                    "created_playlist_ids": created})
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Archive audit-log entry for recover-playlists failed: %s", exc)
     log.info("Rebuilt %d crate(s) / %d track link(s) under folder %r (id=%s).",
              crates_written, links_written, folder_name, folder_id)
     log.info("To undo: delete the %r folder (or its playlist ids %s…).",

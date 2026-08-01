@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import os
 import shlex
 import signal
@@ -28,7 +29,13 @@ from flask_limiter.util import get_remote_address
 from flask_sock import Sock
 from mutagen import File as MutagenFile
 
-from pioneer_export_validator import validate_export_paths, validate_copied_file_exists
+from pioneer_export_validator import (
+    PioneerExportError,
+    validate_copied_file_exists,
+    validate_export_paths,
+)
+
+log = logging.getLogger(__name__)
 
 
 def api_error_response(
@@ -206,7 +213,12 @@ def _read_proc_registry_unlocked() -> dict[str, dict]:
         return {}
     try:
         data = json.loads(_PROC_REGISTRY_PATH.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, ValueError) as exc:
+        # ValueError covers json.JSONDecodeError. A corrupted/unreadable
+        # registry silently resets tracking to "nothing running" — log it,
+        # since the emergency-stop / orphan-detection path depends on this
+        # file to know what's still out there.
+        log.warning("Could not read subprocess registry %s: %s", _PROC_REGISTRY_PATH, exc)
         return {}
     if isinstance(data, dict):
         return data
@@ -228,14 +240,14 @@ def _pid_exists(pid: int) -> bool:
         return False
     except PermissionError:
         return True
-    except Exception:
+    except OSError:
         return False
 
 
 def _tokens_from_command(command: str) -> list[str]:
     try:
         return shlex.split(command)
-    except Exception:
+    except ValueError:
         return command.split()
 
 
@@ -269,7 +281,7 @@ def _pid_command(pid: int) -> str:
             timeout=1.0,
         )
         return out.strip()
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         return ""
 
 
@@ -282,7 +294,7 @@ def _pid_ppid(pid: int) -> int:
             timeout=1.0,
         )
         return int(out.strip() or "0")
-    except Exception:
+    except (subprocess.SubprocessError, OSError, ValueError):
         return 0
 
 
@@ -328,7 +340,8 @@ def _list_orphaned_cli_pids(tool: str | None = None) -> list[int]:
             pids.add(pid)
         if pids:
             return sorted(pids)
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
+        # pgrep unavailable/failed — fall through to the ps-based scan below.
         pass
 
     try:
@@ -338,7 +351,11 @@ def _list_orphaned_cli_pids(tool: str | None = None) -> list[int]:
             text=True,
             timeout=2.0,
         )
-    except Exception:
+    except (subprocess.SubprocessError, OSError) as exc:
+        # Last-resort fallback (pgrep already failed above). If this also
+        # fails we silently report zero orphans, which would defeat the
+        # emergency-stop "kill orphaned cli.py processes" feature — log it.
+        log.warning("Could not enumerate processes via ps for orphan detection: %s", exc)
         return []
 
     pids: list[int] = []
@@ -387,13 +404,18 @@ def _kill_process_group_or_pid(pid: int, sig: int) -> bool:
         return True
     except ProcessLookupError:
         return False
-    except Exception:
+    except OSError:
         try:
             os.kill(pid, sig)
             return True
         except ProcessLookupError:
             return False
-        except Exception:
+        except OSError as exc:
+            # Both killpg and kill failed for a reason other than "already
+            # gone" (e.g. permissions). Callers treat False as "not killed"
+            # but don't log themselves — without this, a failed
+            # emergency-stop/cancel is invisible.
+            log.warning("Failed to kill pid %s with signal %s: %s", pid, sig, exc)
             return False
 
 
@@ -409,7 +431,8 @@ def list_running_managed_subprocesses(tool: str | None = None) -> list[int]:
                 if not _command_matches_cli_tool(command, tool):
                     continue
                 running.add(int(proc.pid))
-            except Exception:
+            except Exception as exc:
+                log.warning("Error while checking tracked process %r: %s", getattr(proc, "pid", None), exc)
                 continue
 
     with _PROC_REGISTRY_LOCK:
@@ -463,7 +486,12 @@ def terminate_managed_subprocesses(force: bool = False, include_orphans: bool = 
                     continue
                 if _kill_process_group_or_pid(int(proc.pid), sig):
                     tracked_pids.add(int(proc.pid))
-            except Exception:
+            except Exception as exc:
+                # This loop IS the emergency-stop/cancel-job kill path — a
+                # silently skipped process here means the user believes the
+                # job was cancelled while it keeps running against the
+                # shared library.
+                log.error("Error while terminating tracked process %r: %s", getattr(proc, "pid", None), exc)
                 continue
 
         # Only remove entries for subprocesses that have actually exited.
@@ -683,7 +711,13 @@ def _rb_is_running() -> bool:
     try:
         from db_connection import rekordbox_is_running  # noqa: PLC0415
         return rekordbox_is_running()
-    except Exception:
+    except Exception as exc:
+        # Fails "open" (assume not running) to match db_connection's own
+        # FileNotFoundError fallback — but that decision must not be silent:
+        # this gates the write guards (_require_rb_closed, _run_export) that
+        # exist specifically to protect the shared library from concurrent
+        # writes while Rekordbox has it open.
+        log.warning("Could not determine whether Rekordbox is running: %s", exc)
         return False
 
 
@@ -830,13 +864,14 @@ def _stream(
                 _kill_process_group_or_pid(int(process.pid), signal.SIGTERM)
                 try:
                     process.wait(timeout=2.0)
-                except Exception:
+                except subprocess.TimeoutExpired:
                     _kill_process_group_or_pid(int(process.pid), signal.SIGKILL)
             if process.poll() is not None:
                 with _proc_lock:
                     _active_procs.pop(request_id, None)
                 _unregister_active_process(request_id)
     except Exception as exc:
+        log.error("Subprocess stream failed for cmd=%r: %s", cmd, exc)
         with _proc_lock:
             _active_procs.pop(request_id, None)
         _unregister_active_process(request_id)
@@ -850,7 +885,7 @@ def _stream(
         for p in cleanup_paths:
             try:
                 p.unlink(missing_ok=True)
-            except Exception:
+            except OSError:
                 pass
 
     yield f"data: {json.dumps({'done': True, 'exit_code': exit_code})}\n\n"

@@ -37,7 +37,11 @@ Used by routes_player.py:
   POST /api/library/integrity/canonical-paths/execute   (writes, via write_db())
 """
 
+import logging
 import os
+
+log = logging.getLogger(__name__)
+
 
 def _norm(value) -> str:
     return " ".join(str(value or "").strip().lower().split())
@@ -69,7 +73,14 @@ def scan_conflicts(db) -> tuple[int, list[dict]]:
         title = _norm(getattr(track, "Title", ""))
         try:
             artist_name = _norm(track.Artist.Name if track.Artist else "")
-        except Exception:
+        except Exception as exc:
+            # Falling back to "" risks grouping this record with unrelated
+            # tracks that share title+duration but a different real artist —
+            # log it so a bad merge/delete downstream can be traced back here.
+            log.warning(
+                "database_dedup: could not resolve Artist for ContentID=%s — %s",
+                getattr(track, "ID", "?"), exc,
+            )
             artist_name = ""
         duration = int(getattr(track, "Length", 0) or 0)
         path = str(getattr(track, "FolderPath", "") or "").strip()

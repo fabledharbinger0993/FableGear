@@ -7,6 +7,7 @@ in-process audio playback for the desktop UI.
 """
 
 from pathlib import Path
+import logging
 import os
 import platform
 import mimetypes
@@ -38,6 +39,7 @@ from helpers import (
 )
 
 bp = Blueprint("player", __name__)
+log = logging.getLogger(__name__)
 
 # ── connected helpers ───────────────────────────────────────────────────
 

@@ -156,8 +156,11 @@ def cancel_job(job_id: str) -> bool:
         except Exception:
             try:
                 proc.kill()
-            except Exception:
-                pass
+            except Exception as exc:
+                # Both terminate() and kill() failed — the yt-dlp subprocess may
+                # be left running as an orphan. Nothing more we can do, but log
+                # it so a lingering process isn't a total mystery later.
+                log.warning("cancel_job: could not kill yt-dlp process for job %s: %s", job_id, exc)
 
     try:
         from ws_bus import broadcast  # noqa: PLC0415

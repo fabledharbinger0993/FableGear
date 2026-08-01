@@ -478,12 +478,22 @@ def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str
                         ua = _dt.now()
                     try:
                         xmlobj.add(p.ID, par, int(p.Attribute or 0), ua)
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception as exc:  # noqa: BLE001
+                        # Non-fatal: the DjmdPlaylist row is already committed to
+                        # master.db — only the XML display tree entry is missing,
+                        # so the crate may not show up until Rekordbox re-syncs it.
+                        log.warning(
+                            "playlist_recovery: could not add playlist ID=%s to "
+                            "masterPlaylists6.xml — %s", p.ID, exc,
+                        )
             try:
                 xmlobj.save()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "playlist_recovery: could not save masterPlaylists6.xml after "
+                    "recovery — recovered crates may not appear until Rekordbox "
+                    "re-syncs the XML — %s", exc,
+                )
 
         rep.created_playlist_ids = created
         rep.written = True
