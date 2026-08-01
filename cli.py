@@ -441,9 +441,15 @@ def cmd_dead_files(args: argparse.Namespace) -> None:
 
 
 def cmd_import(args: argparse.Namespace) -> None:
-    """Import audio files under one or more source paths into the database."""
-    from importer_database import import_multi_drive_database_first
-    from db_connection import read_db, write_db
+    """Import audio files under one or more source paths.
+
+    --target decides where the import writes:
+      both       (default) — FableGear's own database, then synced into Rekordbox
+      rekordbox            — Rekordbox's database only; FableGear's own DB is untouched
+      fablegear             — FableGear's own database only; Rekordbox is never touched
+    """
+    target = getattr(args, "target", None) or "both"
+    resume = bool(getattr(args, "resume", False))
 
     roots: list[Path] = [Path(args.path)]
     for extra in (getattr(args, "also_scan", None) or []):
@@ -456,9 +462,27 @@ def cmd_import(args: argparse.Namespace) -> None:
             log.error("PATH is not a directory: %s", root)
             sys.exit(1)
 
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    if target == "rekordbox":
+        _cmd_import_rekordbox_only(roots, dry_run=args.dry_run, resume=resume, timestamp=timestamp)
+        return
+
+    # target in ("both", "fablegear") — the database-first path. FableGear's
+    # own DB is always the primary write target here; "fablegear" just skips
+    # the sync-to-Rekordbox step that "both" performs.
+    from importer_database import import_multi_drive_database_first
+
+    export_to_rekordbox = target == "both"
+    if resume:
+        log.info(
+            "--resume has no effect on target=%s: re-running is already incremental "
+            "(files already imported are skipped automatically, no crash-resume needed)",
+            target,
+        )
+
     if args.dry_run:
         log.info("DRY RUN — no writes will occur (delegating to database-first preview)")
-        # We can run it with export_to_rekordbox=False to preview
         try:
             report = import_multi_drive_database_first(
                 roots,
@@ -466,7 +490,7 @@ def cmd_import(args: argparse.Namespace) -> None:
                 force_refresh=False,
             )
             summary_text = (
-                f"Database-First Import Preview (Dry Run):\n"
+                f"Database-First Import Preview (Dry Run) — target: {target}\n"
                 f"  Total files scanned: {report.total_files}\n"
                 f"  New files:           {report.new_files}\n"
                 f"  Updated files:       {report.updated_files}\n"
@@ -474,7 +498,6 @@ def cmd_import(args: argparse.Namespace) -> None:
                 f"  Error files:         {report.error_files}\n"
             )
             print(summary_text)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             report_path = _write_report("Import", f"preview_import_{timestamp}.txt", summary_text)
             if report_path:
                 print(f"FABLEGEAR_REPORT_PATH: {report_path}", flush=True)
@@ -482,7 +505,7 @@ def cmd_import(args: argparse.Namespace) -> None:
             log.exception("Dry-run import failed")
             sys.exit(1)
     else:
-        log.info("Importing from %d source folder(s) (database-first)", len(roots))
+        log.info("Importing from %d source folder(s) (database-first, target=%s)", len(roots), target)
         try:
             # Progress callback that prints progress to match SSE generator expects
             def progress_callback(current, total, drive_idx=0, drive_total=1):
@@ -491,29 +514,84 @@ def cmd_import(args: argparse.Namespace) -> None:
 
             report = import_multi_drive_database_first(
                 roots,
-                export_to_rekordbox=True,
+                export_to_rekordbox=export_to_rekordbox,
                 progress_callback=progress_callback,
                 force_refresh=False,
             )
-            summary_text = (
-                f"Database-First Import Report:\n"
-                f"  Total files scanned: {report.total_files}\n"
-                f"  New files:           {report.new_files}\n"
-                f"  Updated files:       {report.updated_files}\n"
-                f"  Skipped files:       {report.skipped_files}\n"
-                f"  Error files:         {report.error_files}\n"
-                f"  Synced to Rekordbox: {report.rekordbox_exported}\n"
-            )
+            summary_lines = [
+                f"Database-First Import Report — target: {target}",
+                f"  Total files scanned: {report.total_files}",
+                f"  New files:           {report.new_files}",
+                f"  Updated files:       {report.updated_files}",
+                f"  Skipped files:       {report.skipped_files}",
+                f"  Error files:         {report.error_files}",
+            ]
+            if export_to_rekordbox:
+                summary_lines.append(f"  Synced to Rekordbox: {report.rekordbox_exported}")
+            else:
+                summary_lines.append("  Rekordbox:           not touched (target=fablegear)")
+            summary_text = "\n".join(summary_lines) + "\n"
             if report.errors:
                 summary_text += "\nErrors:\n" + "\n".join(f"  {err}" for err in report.errors[:50])
             print(summary_text)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             report_path = _write_report("Import", f"import_{timestamp}.txt", summary_text)
             if report_path:
                 print(f"FABLEGEAR_REPORT_PATH: {report_path}", flush=True)
         except Exception:
             log.exception("Import failed")
             sys.exit(1)
+
+
+def _cmd_import_rekordbox_only(
+    roots: list[Path], *, dry_run: bool, resume: bool, timestamp: str,
+) -> None:
+    """target=rekordbox: write straight into Rekordbox's master.db, per-file,
+    via the same _import_track() path sync_fablegear_to_rekordbox() uses —
+    FableGear's own database is never opened, let alone written to.
+
+    Uses write_db()/read_db() (LOCAL_DB), so the Rekordbox-closed check and
+    pre-write backup are enforced the same way every other write command
+    enforces them — no separate check needed here.
+    """
+    from importer import import_directory
+    from db_connection import read_db, write_db
+
+    if resume:
+        log.info("--resume: skipping files already committed in a prior interrupted run of this target")
+
+    combined = None
+    try:
+        with (read_db() if dry_run else write_db()) as db:
+            for root in roots:
+                log.info(
+                    "Importing %s -> Rekordbox only%s", root, " (dry run)" if dry_run else "",
+                )
+                report = import_directory(root, db, dry_run=dry_run, resume=resume)
+                if combined is None:
+                    combined = report
+                else:
+                    combined.imported += report.imported
+                    combined.skipped += report.skipped
+                    combined.resumed += report.resumed
+                    combined.failed += report.failed
+                    combined.results.extend(report.results)
+    except Exception:
+        log.exception("Rekordbox-only import failed")
+        sys.exit(1)
+
+    summary_text = (
+        ("DRY RUN — " if dry_run else "")
+        + "Rekordbox-Only Import Report (FableGear's own database was not touched):\n"
+        + combined.summary()
+    )
+    print(summary_text)
+    report_path = _write_report(
+        "Import",
+        f"{'preview_' if dry_run else ''}import_{timestamp}.txt",
+        summary_text,
+    )
+    if report_path:
+        print(f"FABLEGEAR_REPORT_PATH: {report_path}", flush=True)
 
 
 def cmd_link(args: argparse.Namespace) -> None:
@@ -3666,6 +3744,18 @@ Examples:
         "--resume",
         action="store_true",
         help="Resume an interrupted import using the saved progress state for each source root",
+    )
+    p_import.add_argument(
+        "--target",
+        choices=("rekordbox", "both", "fablegear"),
+        default="both",
+        help=(
+            "Where to write: 'rekordbox' writes only to Rekordbox's database "
+            "(FableGear's own database is untouched); 'both' (default) writes "
+            "to FableGear's database and syncs into Rekordbox; 'fablegear' "
+            "writes only to FableGear's own database and never touches "
+            "Rekordbox."
+        ),
     )
     p_import.set_defaults(func=cmd_import)
 
