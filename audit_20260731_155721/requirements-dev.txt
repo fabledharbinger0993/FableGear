@@ -1,9 +1,0 @@
-# Development-only dependencies. Not installed by setup.sh or launch.sh.
-#
-#   pip install -r requirements-dev.txt
-#   python -m pytest tests/
-
--r requirements.txt
-
-pytest>=8.0
-# Test runner for the tests/ suite.

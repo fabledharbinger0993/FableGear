@@ -1,4 +1,0 @@
-total 8
-drwxr-xr-x@ 3 camalama  staff    96 Jul 12 11:11 .
-drwxr-xr-x@ 5 camalama  staff   160 Jul 12 11:11 ..
--rw-r--r--@ 1 camalama  staff  1539 Jul 12 11:11 build-release.yml
