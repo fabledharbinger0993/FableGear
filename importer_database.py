@@ -38,7 +38,7 @@ class ImportReport:
     skipped_files: int = 0
     error_files: int = 0
     rekordbox_exported: int = 0
-    errors: list[str] = None
+    errors: list[str] | None = None
 
     def __post_init__(self):
         if self.errors is None:
@@ -73,15 +73,20 @@ def import_directory_database_first(
     report = ImportReport()
 
     if not DATABASE_AVAILABLE:
-        log.warning("Database not available, use legacy import_directory")
-        # Fallback to legacy import
-        from importer import import_directory
-        legacy_report = import_directory(root, batch_size=batch_size)
-        # Convert legacy report to our format
-        report.total_files = legacy_report.total_files
-        report.new_files = legacy_report.added_count
-        report.error_files = legacy_report.error_count
-        return report
+        # This used to attempt a "fallback" to importer.import_directory, but
+        # that call could never have worked. It omitted the required `db`
+        # argument and passed a `batch_size` the function does not accept, so
+        # it raised TypeError immediately; and even had it run, the three
+        # attributes read off the result (total_files, added_count,
+        # error_count) do not exist on the legacy ImportReport either.
+        #
+        # Failing clearly beats a fallback that only pretends to exist.
+        raise RuntimeError(
+            "The FableGear database package could not be imported, so a "
+            "database-first import cannot run. Reinstall dependencies with "
+            "`pip install -r requirements.txt`. (There is no working legacy "
+            "fallback for this path — the previous one was never functional.)"
+        )
 
     try:
         # Initialize database

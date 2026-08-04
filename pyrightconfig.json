@@ -1,0 +1,52 @@
+{
+  "// why this file exists": [
+    "pyright ran with no configuration and reported 431 diagnostics, so the",
+    "type-check job was permanently red and could not signal a new problem.",
+    "81 of those were reportMissingImports for FIRST-PARTY modules that live",
+    "in chop_shop/ and are imported by bare name, because the entry points",
+    "insert that directory into sys.path at runtime. That is the same",
+    "deliberate pattern the E402 per-file-ignores in ruff.toml document.",
+    "pyright cannot see a runtime sys.path mutation, so it needs extraPaths.",
+    "Third-party stubs come from the project venv via venvPath/venv."
+  ],
+  "include": [
+    "."
+  ],
+  "exclude": [
+    "venv",
+    "**/__pycache__",
+    "**/node_modules",
+    ".git",
+    "audit_*",
+    "scripts/live_bridge/research",
+    "tests/fixtures/**/tools"
+  ],
+  "venvPath": ".",
+  "venv": "venv",
+  "extraPaths": [
+    ".",
+    "chop_shop"
+  ],
+  "pythonVersion": "3.13",
+  "typeCheckingMode": "basic",
+  "// deliberately relaxed": [
+    "reportMissingImports stays on \u2014 it catches real typos.",
+    "The rules below are switched off with reasons; see the PR for counts.",
+    "Optional-access rules fire heavily against pyrekordbox and mutagen,",
+    "whose attributes are dynamically typed, and against SQLAlchemy row",
+    "objects. Those are library-shape problems, not defects in this code."
+  ],
+  "reportPrivateImportUsage": "none",
+  "reportAttributeAccessIssue": "warning",
+  "reportOptionalMemberAccess": "warning",
+  "reportOptionalSubscript": "warning",
+  "reportOptionalOperand": "warning",
+  "reportArgumentType": "warning",
+  "// conditional imports": [
+    "These are resolved at runtime or are genuinely optional, and pyright",
+    "cannot see them: FableGear.config only exists when the app is installed",
+    "as a package (cli.py tries it and falls back), _version is generated at",
+    "build time, hid and mcp.server.fastmcp are optional dependencies."
+  ],
+  "reportMissingImports": "warning"
+}

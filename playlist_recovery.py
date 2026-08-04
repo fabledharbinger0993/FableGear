@@ -113,7 +113,7 @@ def find_export_sources(roots) -> list[ExportSource]:
 
     def _is_real_masterdb(p) -> bool:
         # skip the blank ~4KB template shipped inside rekordbox.app
-        return "rekordbox.app" not in str(p) and _mtime(p) and os.path.getsize(p) > 5_000_000
+        return bool("rekordbox.app" not in str(p) and _mtime(p) and os.path.getsize(p) > 5_000_000)
 
     for root in roots:
         root = Path(root)

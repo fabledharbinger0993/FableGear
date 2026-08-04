@@ -103,10 +103,16 @@ def _backup_db(db_path: Path) -> Path:
     if not db_path.exists():
         # Give a friendly hint if it looks like a drive-mount issue
         parts = db_path.parts
-        volume_path = Path(f"/{parts[1]}/{parts[2]}") if len(parts) >= 3 else None
+        volume_path = None
+        volume_name = ""
+        # Written as a plain guard rather than a conditional expression so a
+        # type checker can follow the length narrowing; behaviour is identical.
+        if len(parts) >= 3:
+            volume_name = parts[2]
+            volume_path = Path(f"/{parts[1]}/{volume_name}")
         drive_hint = ""
         if volume_path and not volume_path.exists():
-            drive_hint = f" (drive '{parts[2]}' is not mounted — connect it and try again)"
+            drive_hint = f" (drive '{volume_name}' is not mounted — connect it and try again)"
         elif volume_path:
             drive_hint = " (drive is mounted but file not found — check ~/.fablegear/config.json)"
         raise RuntimeError(f"Database not found at {db_path}{drive_hint}")

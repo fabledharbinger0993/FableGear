@@ -410,7 +410,7 @@ class DatabaseConfig:
     synchronous: str = "NORMAL"  # Safety vs performance balance
     foreign_keys: bool = True
 
-    def get_pragmas(self) -> dict[str, str]:
+    def get_pragmas(self) -> dict[str, str | int]:
         """Get SQLite pragmas for configuration."""
         return {
             "journal_mode": self.journal_mode,
