@@ -222,8 +222,13 @@ document.addEventListener('DOMContentLoaded', () => {
   _initToolCheckpoints();
 
   // Pre-populate all music-folder tool zones with the configured music_root.
-  // This means every tool (Audit, Duplicates, Normalize, etc.) opens pre-filled
+  // This means every tool (Audit, Duplicates, Convert, etc.) opens pre-filled
   // so the user doesn't have to re-enter the library path every time.
+  // normalize-pills is deliberately excluded: it carries a MutationObserver
+  // (normPreviewSetupObserver) that fires a live loudness-preview scan the
+  // instant a pill is added, so a silent config pre-fill here used to kick
+  // off a real scan against the toolkit's highest-risk tool on every page
+  // load — including a guaranteed failed request when the drive is offline.
   fetch('/api/config')
     .then(r => r.ok ? r.json() : null)
     .then(cfg => {
@@ -231,7 +236,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const root = cfg.music_root;
       // Only pre-fill zones that are currently empty (don't overwrite user changes)
       const zones = [
-        'audit-pills', 'process-pills', 'dupes-pills', 'normalize-pills',
+        'audit-pills', 'process-pills', 'dupes-pills',
         'convert-pills', 'rename-pills', 'organize-source-pills',
       ];
       zones.forEach(id => {
