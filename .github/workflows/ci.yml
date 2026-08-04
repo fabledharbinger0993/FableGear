@@ -27,6 +27,26 @@ jobs:
         with:
           python-version: '3.13'
 
+      # tests/test_static_js_syntax.py parses every shipped .js and skips when
+      # node is absent. The macOS runner image already ships node, so this is
+      # not fixing a skip — it pins the version so that guard cannot quietly
+      # stop running if a future image drops or changes it.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # ffmpeg genuinely IS missing on the runner. Twelve tests skip because of
+      # it: every ffmpeg-backed test in test_audio_processor.py and
+      # test_tagger_effects.py. That includes the regression tests for the
+      # normalise bug that clipped 39 of 39 sampled tracks and deleted the
+      # originals. Those guards have never once executed in CI.
+      #
+      # Homebrew rather than a third-party setup action: slower, but it is
+      # already on the image and adds no new supply-chain dependency to the
+      # workflow that gates every merge.
+      - name: Install ffmpeg
+        run: brew install ffmpeg
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
