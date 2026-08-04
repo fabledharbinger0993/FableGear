@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import rekordbox_safe_write as RSW  # noqa: E402
+import rekordbox_safe_write as RSW
 
 
 def _make_db(tmp_path: Path) -> Path:

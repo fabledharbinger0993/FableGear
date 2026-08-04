@@ -18,7 +18,7 @@ without the app config.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .database import ContentRecord, FableGearDatabase
 from .importer import FileImporter
@@ -34,8 +34,8 @@ class DatabaseSync:
     def __init__(
         self,
         database: FableGearDatabase,
-        importer: Optional[FileImporter] = None,
-        scanner_module: Optional[Any] = None,
+        importer: FileImporter | None = None,
+        scanner_module: Any | None = None,
     ):
         """
         Args:
@@ -48,11 +48,11 @@ class DatabaseSync:
 
     def reconcile(
         self,
-        root_paths: List[Path],
+        root_paths: list[Path],
         *,
         remove_missing: bool = False,
         detect_moves: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Bring the database in line with the filesystem under ``root_paths``.
 
@@ -81,7 +81,7 @@ class DatabaseSync:
         # 2. Records whose file is no longer at the recorded path.
         stale = self.find_stale_records()
 
-        moves: List[Dict[str, str]] = []
+        moves: list[dict[str, str]] = []
         if detect_moves and stale:
             moves = self._detect_moves(stale)
             moved_ids = {m["id"] for m in moves}
@@ -143,7 +143,7 @@ class DatabaseSync:
         )
         return stats
 
-    def _detect_moves(self, stale: List[ContentRecord]) -> List[Dict[str, str]]:
+    def _detect_moves(self, stale: list[ContentRecord]) -> list[dict[str, str]]:
         """
         Relink stale records to files that moved (matched by content hash).
 
@@ -156,14 +156,14 @@ class DatabaseSync:
         stale_ids = {r.id for r in stale}
 
         # On-disk, non-stale records grouped by hash — these are move targets.
-        by_hash: Dict[str, List[ContentRecord]] = {}
+        by_hash: dict[str, list[ContentRecord]] = {}
         for record in self.database.get_all_content(limit=_ALL):
             if record.id in stale_ids:
                 continue
             if record.file_hash and Path(record.file_path).exists():
                 by_hash.setdefault(record.file_hash, []).append(record)
 
-        moves: List[Dict[str, str]] = []
+        moves: list[dict[str, str]] = []
         for record in stale:
             if not record.file_hash:
                 continue
@@ -183,7 +183,7 @@ class DatabaseSync:
 
         return moves
 
-    def find_stale_records(self) -> List[ContentRecord]:
+    def find_stale_records(self) -> list[ContentRecord]:
         """Return records that reference a file which no longer exists."""
         stale = [
             record
@@ -193,7 +193,7 @@ class DatabaseSync:
         log.info("Found %d stale database records", len(stale))
         return stale
 
-    def find_orphaned_files(self, root_paths: List[Path]) -> List[Path]:
+    def find_orphaned_files(self, root_paths: list[Path]) -> list[Path]:
         """
         Return files present on disk but absent from the database.
 

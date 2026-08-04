@@ -12,6 +12,8 @@ metadata extraction scan_directory does per file.
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -52,8 +54,5 @@ def test_count_skips_undersized_files(tmp_path):
 
 def test_count_raises_on_non_directory(tmp_path):
     f = _write(tmp_path / "a.mp3")
-    try:
+    with pytest.raises(ValueError):
         count_scannable_files(f)
-        assert False, "expected ValueError"
-    except ValueError:
-        pass

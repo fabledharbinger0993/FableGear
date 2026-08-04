@@ -17,7 +17,6 @@ how the ffmpeg-dependent tests here behave.
 """
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest

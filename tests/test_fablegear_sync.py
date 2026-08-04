@@ -13,7 +13,6 @@ attached fingerprint rather than becoming a dead record plus a fresh one.
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
 
 import pytest
 
@@ -30,10 +29,10 @@ from fablegear_database.sync import DatabaseSync
 @dataclass
 class FakeTrack:
     path: Path
-    title: Optional[str] = None
-    file_size: Optional[int] = None
-    file_type: Optional[str] = None
-    errors: List[str] = field(default_factory=list)
+    title: str | None = None
+    file_size: int | None = None
+    file_type: str | None = None
+    errors: list[str] = field(default_factory=list)
 
 
 class FakeScanner:

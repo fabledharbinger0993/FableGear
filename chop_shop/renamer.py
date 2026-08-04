@@ -52,11 +52,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import renamer_learned as _learned
 from mutagen import File as MutagenFile
 from mutagen.id3 import ID3
 
 from config import AUDIO_EXTENSIONS, BATCH_SIZE, SKIP_DIRS, SKIP_PREFIXES
-import renamer_learned as _learned
 from scanner import extract_metadata
 
 if TYPE_CHECKING:
@@ -218,24 +218,24 @@ def _strip_leading_artist_from_title(artist: str, title: str) -> str:
 def _get_prioritized_artist(path: Path) -> str | None:
     """
     Read artist tags from the file and return the highest-priority artist.
-    
+
     Priority order (use first available):
     1. TPE1 (Lead/Vocal artist) — the vocalist or primary performer
     2. TPE2 (Album artist/Band) — the band or ensemble name
     3. Fall back to None
-    
+
     For remixes: Returns the original artist, not the remixer.
     E.g., "Donna Summer" (not "Felix da Housecat") for a remix.
-    
+
     Returns: Cleaned artist string or None.
     """
     try:
         mf = MutagenFile(path)
         if not mf or not mf.tags:
             return None
-        
+
         tags = mf.tags
-        
+
         # ID3 tags (MP3, AIFF, WAV with ID3)
         if isinstance(tags, ID3):
             # TPE1: Lead/Vocal artist
@@ -260,7 +260,7 @@ def _get_prioritized_artist(path: Path) -> str | None:
                 s = _normalize_artist_text(str(tpe2).strip())
                 if s:
                     return s
-        
+
         # Vorbis comments (FLAC, OGG, Opus)
         elif hasattr(tags, 'get'):
             # Vorbis ARTIST (vocalist/lead)
@@ -275,7 +275,7 @@ def _get_prioritized_artist(path: Path) -> str | None:
                 s = _normalize_artist_text(album_artist[0].strip())
                 if s:
                     return s
-        
+
         return None
     except Exception as e:
         log.debug("Could not read artist tags from %s: %s", path, e)
@@ -671,17 +671,17 @@ def _extract_artist_title(
     """
     Best-effort extraction of artist, title, and copy suffix from metadata.
     Prefers tag fields, falls back to filename parsing.
-    
+
     Artist priority: vocal artist (TPE1) > album artist (TPE2) > fallback
     Title: extracted from tags or filename, preserves remix/version markers.
     Copy suffix: extracted from original filename (e.g., "(2)", "(copy)", "(v2)")
     Removes only filler: PN suffixes, numeric prefixes/suffixes, underscores.
-    
+
     Returns: (artist, title, copy_suffix) where copy_suffix is None or a string like "(2)"
     """
     # Try to get artist from tags with priority (vocalist > band > producer)
     artist = _get_prioritized_artist(path)
-    
+
     # Fallback to scanner's metadata.artist if prioritized method returned nothing
     if not artist:
         artist = metadata.artist or None
@@ -695,7 +695,7 @@ def _extract_artist_title(
     if title:
         title = _strip_leading_key_bpm_prefix(str(title))
     copy_suffix = None
-    
+
     # Extract copy suffix from original filename first (before any cleaning)
     stem_original = path.stem
     copy_match = _COPY_SUFFIX.search(stem_original)
@@ -703,11 +703,11 @@ def _extract_artist_title(
         copy_suffix = f"({copy_match.group(1)})"
         # Remove copy suffix from stem for further processing
         stem_original = _COPY_SUFFIX.sub('', stem_original).strip()
-    
+
     # Both found in tags — use them (preserves remix/dub markers if in tag)
     if artist and title:
         return artist, title, copy_suffix
-    
+
     # Try filename-based fallback for title
     stem = stem_original
 
@@ -776,7 +776,7 @@ def _extract_artist_title(
     if mix_annotation:
         mix_annotation = _canonicalize_mix_annotation(mix_annotation, rules)
         title = f"{title} ({mix_annotation})"
-    
+
     return artist or None, title or None, copy_suffix
 
 
@@ -881,18 +881,18 @@ def _resolve_filename_collision(dest: Path) -> Path:
     """
     If dest already exists, append (2), (3), ... until a free slot is found.
     Returns the new collision-safe path or None if no slot found within 100 attempts.
-    
+
     Uses (2), (3) format to match standard copy naming conventions.
     """
     if not dest.exists():
         return dest
-    
+
     stem, suffix = dest.stem, dest.suffix
     for i in range(2, 101):
         candidate = dest.with_name(f"{stem} ({i}){suffix}")
         if not candidate.exists():
             return candidate
-    
+
     return None  # No free slot found (extremely unlikely)
 
 
@@ -1016,7 +1016,7 @@ def _rename_one(
             action="error",
             reason=f"Metadata extraction failed: {e}",
         )
-    
+
     ext = path.suffix
     if manual_name:
         new_name = manual_name if Path(manual_name).suffix else f"{manual_name}{ext}"
@@ -1067,7 +1067,7 @@ def _rename_one(
         album = getattr(metadata, "album", None)
         new_name = _generate_filename(artist, title, ext, copy_suffix, album=album)
     new_path = path.parent / new_name
-    
+
     # If the new name matches the current name, skip
     if new_path == path:
         return RenameResult(
@@ -1076,7 +1076,7 @@ def _rename_one(
             action="no_change",
             reason="Filename already matches metadata",
         )
-    
+
     # Handle collisions
     if new_path.exists():
         collision_path = _resolve_filename_collision(new_path)
@@ -1091,7 +1091,7 @@ def _rename_one(
         action = "collision_numbered"
     else:
         action = "renamed"
-    
+
     if not dry_run:
         try:
             path.rename(new_path)
@@ -1277,7 +1277,7 @@ def rename_directory(
     total = len(files)
     results: list[RenameResult] = []
     label_artist_hints = _infer_artists_by_label(files)
-    
+
     if total == 0:
         log.info("No audio files found in %s", root)
         return results
@@ -1289,7 +1289,7 @@ def rename_directory(
         dry_run,
         max_workers,
     )
-    
+
     renamed = skipped = collisions = errors = quarantined = 0
     batch_count = 0          # renames since last DB commit — controls flush cadence
     db_rows_pending = 0      # rekordbox rows actually updated since last commit

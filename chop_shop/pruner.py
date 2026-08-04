@@ -31,7 +31,6 @@ import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from sqlalchemy import text
 
@@ -169,8 +168,8 @@ class DupeEntry:
     rank:          str            # PN | MIK | RAW
     file_path:     str
     file_size_mb:  float
-    bpm:           Optional[str]  # CSV-sourced text like "127.00"; TrackInfo/FG-DB use float — do not compare directly
-    key:           Optional[str]
+    bpm:           str | None  # CSV-sourced text like "127.00"; TrackInfo/FG-DB use float — do not compare directly
+    key:           str | None
     filename:      str
     # enriched after load
     format_ext:    str  = ""
@@ -197,7 +196,7 @@ class DupeGroup:
     keep_in_trash: bool = False  # True when the KEEP file lives in a trash folder
 
     @property
-    def keep(self) -> Optional[DupeEntry]:
+    def keep(self) -> DupeEntry | None:
         return next((e for e in self.entries if e.action == "KEEP"), None)
 
     @property
@@ -667,7 +666,7 @@ def prune_files(
     db,
     log=None,
     permanent: bool = False,
-    keeper_map: Optional[dict[str, str]] = None,
+    keeper_map: dict[str, str] | None = None,
     should_cancel=None,
     archive=None,
 ) -> dict:

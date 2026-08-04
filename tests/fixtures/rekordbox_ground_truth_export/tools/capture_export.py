@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 capture_export.py — inventory + parse a mounted Pioneer export (or a captured
 copy of one) into durable JSON/text fixtures for the Rekordbox↔FableGear parity
@@ -137,7 +136,7 @@ def dump_onelibrary(root: Path, out_dir: Path) -> dict:
         import sqlcipher3
     except ImportError as exc:
         return {"present": True, "path": str(src), "error": f"sqlcipher3 unavailable: {exc}"}
-    from fablegear_database.onelibrary_writer import _ONELIBRARY_KEY, _CIPHER_COMPATIBILITY
+    from fablegear_database.onelibrary_writer import _CIPHER_COMPATIBILITY, _ONELIBRARY_KEY
 
     # Copy db + wal + shm to a scratch spot so checkpoint doesn't touch source.
     work = out_dir / "_onelibrary_work"
@@ -166,7 +165,7 @@ def dump_onelibrary(root: Path, out_dir: Path) -> dict:
         for t in tables:
             try:
                 counts[t] = cur.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 counts[t] = f"error: {exc}"
 
         def rows(table, limit=50):
@@ -177,7 +176,7 @@ def dump_onelibrary(root: Path, out_dir: Path) -> dict:
             c.execute(f"PRAGMA cipher_compatibility = {_CIPHER_COMPATIBILITY};")
             try:
                 c.execute(f"SELECT * FROM {table} LIMIT {limit}")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 return [{"_error": str(exc)}]
             cols = [d[0] for d in c.description]
             return [dict(zip(cols, r)) for r in c.fetchall()]
@@ -270,7 +269,7 @@ def main():
         ol = dump_onelibrary(root, out)
         (out / "onelibrary.json").write_text(json.dumps(ol, indent=2, default=str))
         results["onelibrary"] = ol.get("row_counts") or ol.get("error") or ol.get("present")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         results["onelibrary"] = f"FAILED: {exc}"
         (out / "onelibrary.json").write_text(json.dumps({"error": str(exc)}, indent=2))
 

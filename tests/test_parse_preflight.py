@@ -23,7 +23,7 @@ _WAVE_CACHE = {1: {"PWV3": b"x"}}  # only content id 1 has cached waveforms
 _FAKE_WG.load_waveform_cache = lambda cid: _WAVE_CACHE.get(cid)
 sys.modules["waveform_generator"] = _FAKE_WG
 
-import cli  # noqa: E402
+import cli
 
 
 class _Track:

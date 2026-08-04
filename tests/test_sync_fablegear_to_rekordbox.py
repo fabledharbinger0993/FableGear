@@ -12,17 +12,18 @@ import sys
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
 from pyrekordbox import Rekordbox6Database
 from pyrekordbox.db6 import tables as rb_tables
+from sqlalchemy import create_engine
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from fablegear_database.database import FableGearDatabase, ContentRecord
-from fablegear_database.schema import DatabaseConfig
 from rekordbox_meta_support import relaxed_rekordbox_nullability
+
+from fablegear_database.database import ContentRecord, FableGearDatabase
+from fablegear_database.schema import DatabaseConfig
 
 
 @pytest.fixture

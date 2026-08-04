@@ -37,9 +37,9 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
@@ -61,24 +61,24 @@ class DedupMode(Enum):
 class TrackRec:
     """The minimal projection of a DjmdContent row the resolver reasons about."""
     id: int
-    title: Optional[str]
-    artist: Optional[str]
-    folder_path: Optional[str]
-    playlist_ids: Tuple[int, ...] = ()
-    duration: Optional[int] = None   # seconds; part of the identity (see below)
+    title: str | None
+    artist: str | None
+    folder_path: str | None
+    playlist_ids: tuple[int, ...] = ()
+    duration: int | None = None   # seconds; part of the identity (see below)
 
 
 @dataclass
 class GroupPlan:
     """A resolved (or flagged) duplicate group."""
-    key: Tuple[str, str]
-    records: List[TrackRec]
-    survivor: Optional[TrackRec] = None
-    to_remove: List[TrackRec] = field(default_factory=list)
+    key: tuple[str, str]
+    records: list[TrackRec]
+    survivor: TrackRec | None = None
+    to_remove: list[TrackRec] = field(default_factory=list)
     resolution: str = "flagged"          # 'auto' | 'flagged'
     reason: str = ""
     # {removed_id: {"move": [playlist_id...], "drop": [playlist_id...]}}
-    rewires: Dict[int, Dict[str, List[int]]] = field(default_factory=dict)
+    rewires: dict[int, dict[str, list[int]]] = field(default_factory=dict)
 
     @property
     def links_rewired(self) -> int:
@@ -92,14 +92,14 @@ class GroupPlan:
 @dataclass
 class DedupPlan:
     mode: DedupMode
-    groups: List[GroupPlan] = field(default_factory=list)
+    groups: list[GroupPlan] = field(default_factory=list)
 
     @property
-    def auto(self) -> List[GroupPlan]:
+    def auto(self) -> list[GroupPlan]:
         return [g for g in self.groups if g.resolution == "auto"]
 
     @property
-    def flagged(self) -> List[GroupPlan]:
+    def flagged(self) -> list[GroupPlan]:
         return [g for g in self.groups if g.resolution == "flagged"]
 
     def summary(self) -> dict:
@@ -117,7 +117,7 @@ class DedupPlan:
 
 # ── Pure decision logic ─────────────────────────────────────────────────────
 
-def normalize_key(title: Optional[str], artist: Optional[str]) -> Tuple[str, str]:
+def normalize_key(title: str | None, artist: str | None) -> tuple[str, str]:
     """Case/space-folded title+artist. This is only the *name* half of a track's
     identity — duration is applied separately (see :func:`find_duplicate_groups`)."""
     t = " ".join(str(title or "").strip().lower().split())
@@ -125,8 +125,8 @@ def normalize_key(title: Optional[str], artist: Optional[str]) -> Tuple[str, str
     return (t, a)
 
 
-def _cluster_by_duration(records: List[TrackRec],
-                         tolerance: int) -> List[List[TrackRec]]:
+def _cluster_by_duration(records: list[TrackRec],
+                         tolerance: int) -> list[list[TrackRec]]:
     """Split same-name records into clusters whose durations are within
     *tolerance* seconds of each other.
 
@@ -140,8 +140,8 @@ def _cluster_by_duration(records: List[TrackRec],
                    key=lambda r: int(r.duration))
     untimed = [r for r in records if r.duration is None]
 
-    clusters: List[List[TrackRec]] = []
-    current: List[TrackRec] = []
+    clusters: list[list[TrackRec]] = []
+    current: list[TrackRec] = []
     for r in timed:
         if current and int(r.duration) - int(current[-1].duration) > tolerance:
             clusters.append(current)
@@ -154,8 +154,8 @@ def _cluster_by_duration(records: List[TrackRec],
     return clusters
 
 
-def find_duplicate_groups(tracks: List[TrackRec],
-                          tolerance: int = DURATION_TOLERANCE_SEC) -> List[List[TrackRec]]:
+def find_duplicate_groups(tracks: list[TrackRec],
+                          tolerance: int = DURATION_TOLERANCE_SEC) -> list[list[TrackRec]]:
     """Group tracks that are the same recording: identical title+artist **and**
     a duration within *tolerance* seconds. Returns only groups of 2+.
 
@@ -168,14 +168,14 @@ def find_duplicate_groups(tracks: List[TrackRec],
 
     Records with an empty title are never grouped (nothing to match on).
     """
-    by_name: Dict[Tuple[str, str], List[TrackRec]] = {}
+    by_name: dict[tuple[str, str], list[TrackRec]] = {}
     for t in tracks:
         key = normalize_key(t.title, t.artist)
         if not key[0]:
             continue
         by_name.setdefault(key, []).append(t)
 
-    groups: List[List[TrackRec]] = []
+    groups: list[list[TrackRec]] = []
     for records in by_name.values():
         if len(records) < 2:
             continue
@@ -186,10 +186,10 @@ def find_duplicate_groups(tracks: List[TrackRec],
 
 
 def choose_survivor(
-    records: List[TrackRec],
+    records: list[TrackRec],
     mode: DedupMode,
     path_exists: Callable[[str], bool],
-) -> Tuple[Optional[TrackRec], str]:
+) -> tuple[TrackRec | None, str]:
     """Pick which record to keep. Returns ``(survivor, reason)`` or
     ``(None, reason)`` when the group can't be auto-resolved and must be flagged.
 
@@ -233,7 +233,7 @@ def choose_survivor(
 
 
 def plan_group(
-    records: List[TrackRec],
+    records: list[TrackRec],
     mode: DedupMode,
     path_exists: Callable[[str], bool],
 ) -> GroupPlan:
@@ -265,7 +265,7 @@ def plan_group(
 
 
 def build_plan(
-    tracks: List[TrackRec],
+    tracks: list[TrackRec],
     mode: DedupMode = DedupMode.DATABASE,
     path_exists: Callable[[str], bool] = os.path.exists,
     tolerance: int = DURATION_TOLERANCE_SEC,
@@ -287,17 +287,17 @@ class SmartDedup:
     def __init__(self, db, mode: DedupMode = DedupMode.DATABASE):
         self.db = db
         self.mode = mode
-        from pyrekordbox.db6 import tables  # noqa: F401 — imported lazily
+        from pyrekordbox.db6 import tables
         self._tables = tables
 
-    def _read_tracks(self) -> List[TrackRec]:
+    def _read_tracks(self) -> list[TrackRec]:
         tables = self._tables
         # playlist memberships per content id
-        members: Dict[int, List[int]] = {}
+        members: dict[int, list[int]] = {}
         for sp in self.db.query(tables.DjmdSongPlaylist).with_entities(
                 tables.DjmdSongPlaylist.ContentID, tables.DjmdSongPlaylist.PlaylistID):
             members.setdefault(sp.ContentID, []).append(sp.PlaylistID)
-        recs: List[TrackRec] = []
+        recs: list[TrackRec] = []
         for c in self.db.query(tables.DjmdContent).with_entities(
                 tables.DjmdContent.ID, tables.DjmdContent.Title,
                 tables.DjmdContent.ArtistName, tables.DjmdContent.FolderPath,

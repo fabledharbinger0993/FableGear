@@ -23,13 +23,11 @@ if str(REPO_ROOT) not in sys.path:
 if str(REPO_ROOT / "chop_shop") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "chop_shop"))
 
+import pruner
 from pyrekordbox import Rekordbox6Database
 from pyrekordbox.db6 import tables as rb_tables
-from sqlalchemy import create_engine, text
-
 from rekordbox_meta_support import relaxed_rekordbox_nullability
-
-import pruner
+from sqlalchemy import create_engine, text
 
 
 @pytest.fixture

@@ -7,11 +7,10 @@ captures teach us more about the CDJ-3000/Rekordbox traffic.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
 import re
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from typing import Any
-
 
 PROLINK_PORTS: tuple[int, ...] = (50000, 50001, 50002, 50004, 50111, 2049, 33531)
 KNOWN_SIGNATURES: tuple[bytes, ...] = (b"Mac ", b"Qspt1WmJOL")
@@ -44,7 +43,7 @@ class PacketRecord:
 
 
 def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 def bytes_to_ascii(payload: bytes, *, limit: int = 160) -> str:

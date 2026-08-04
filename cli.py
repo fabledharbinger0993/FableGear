@@ -48,10 +48,10 @@ for _p in (str(_CLI_ROOT), str(_CLI_ROOT / "chop_shop")):
         sys.path.insert(0, _p)
 
 try:
-    from FableGear.config import LOCAL_DB, MUSIC_ROOT   # when run as a package
+    from FableGear.config import LOCAL_DB, MUSIC_ROOT  # when run as a package
 except ImportError:
     try:
-        from config import LOCAL_DB, MUSIC_ROOT         # when run as a script
+        from config import LOCAL_DB, MUSIC_ROOT  # when run as a script
     except RuntimeError:
         LOCAL_DB = None    # type: ignore[assignment]
         MUSIC_ROOT = None  # type: ignore[assignment]
@@ -72,7 +72,7 @@ def _archive():
     global _ARCHIVE, _ARCHIVE_ERROR
     if _ARCHIVE is None and _ARCHIVE_ERROR is None:
         try:
-            from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
+            from fablegear_database.database import FableGearDatabase
             _ARCHIVE = FableGearDatabase()
         except Exception as exc:
             _ARCHIVE_ERROR = f"{type(exc).__name__}: {exc}"
@@ -112,13 +112,13 @@ def _rekordbox_running() -> bool:
     version were three separate reimplementations of the same pgrep check,
     with different (and inconsistent) fail-safe behavior on error.
     """
-    from db_connection import rekordbox_is_running  # noqa: PLC0415
+    from db_connection import rekordbox_is_running
     return rekordbox_is_running()
 
 
 def _guard_or_exit(paths, tool: str) -> None:
     """Refuse system/home/app-data scan roots — same rails as the organizer."""
-    from path_guard import guard_sources  # noqa: PLC0415
+    from path_guard import guard_sources
     try:
         guard_sources(paths, tool)
     except ValueError as exc:
@@ -156,9 +156,9 @@ def _write_report(subdir: str, filename: str, text: str) -> str | None:
     """
     try:
         try:
-            from FableGear.config import REPORTS_DIR  # noqa: PLC0415
+            from FableGear.config import REPORTS_DIR
         except ImportError:
-            from config import REPORTS_DIR           # noqa: PLC0415
+            from config import REPORTS_DIR
 
         out_dir = REPORTS_DIR / subdir
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -239,7 +239,7 @@ def cmd_audit(args: argparse.Namespace) -> None:
 
 def cmd_usb_inspect(args: argparse.Namespace) -> None:
     """Read-only inspection of a Pioneer export drive (dual-format check)."""
-    from usb_inspector import inspect_usb, NotAMountError
+    from usb_inspector import NotAMountError, inspect_usb
 
     try:
         report = inspect_usb(args.mount)
@@ -555,8 +555,8 @@ def _cmd_import_rekordbox_only(
     pre-write backup are enforced the same way every other write command
     enforces them — no separate check needed here.
     """
-    from importer import import_directory
     from db_connection import read_db, write_db
+    from importer import import_directory
 
     if resume:
         log.info("--resume: skipping files already committed in a prior interrupted run of this target")
@@ -598,8 +598,8 @@ def _cmd_import_rekordbox_only(
 
 def cmd_link(args: argparse.Namespace) -> None:
     """Link imported tracks under one or more source paths to existing playlists."""
-    from playlist_linker import link_directory
     from db_connection import read_db, write_db
+    from playlist_linker import link_directory
 
     roots: list[Path] = [Path(args.path)]
     for extra in (getattr(args, "also_scan", None) or []):
@@ -646,6 +646,7 @@ def cmd_link(args: argparse.Namespace) -> None:
 def cmd_relocate(args: argparse.Namespace) -> None:
     """Batch-update FolderPath for files moved from OLD_ROOT to NEW_ROOT."""
     from relocator import relocate_directory
+
     from db_connection import write_db
 
     old_root = Path(args.old_root)
@@ -716,7 +717,7 @@ def _get_checkpoint(tool: str, roots, args, config: dict | None = None):
     (no resume support) rather than fail when that happens.
     """
     try:
-        from checkpoint import Checkpoint  # noqa: PLC0415
+        from checkpoint import Checkpoint
     except ImportError:
         return None
     try:
@@ -746,7 +747,7 @@ def _duplicates_checkpoint(roots, args):
     lets scan_duplicates pick up exactly where an interrupted run stopped.
     """
     try:
-        from checkpoint import Checkpoint  # noqa: PLC0415
+        from checkpoint import Checkpoint
     except ImportError:
         return None
     try:
@@ -780,7 +781,10 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
     Both return a ScanResult, so the report / prune / resolve pipeline is shared.
     """
     from duplicate_detector import (
-        scan_duplicates, scan_duplicates_hash, write_csv_report, write_trash_rescue_report,
+        scan_duplicates,
+        scan_duplicates_hash,
+        write_csv_report,
+        write_trash_rescue_report,
     )
 
     paths = args.path if isinstance(args.path, list) else [args.path]
@@ -800,9 +804,9 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
         # otherwise fall back to ~/.fablegear/Reports/Duplicates.
         try:
             try:
-                from FableGear.config import REPORTS_DIR  # noqa: PLC0415
+                from FableGear.config import REPORTS_DIR
             except ImportError:
-                from config import REPORTS_DIR           # noqa: PLC0415
+                from config import REPORTS_DIR
             out_dir = REPORTS_DIR / "Duplicates"
             out_dir.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1116,7 +1120,8 @@ def cmd_prune(args: argparse.Namespace) -> None:
     --no-dry-run to actually prune. Mirrors the interactive Chop Shop prune
     and is the executor for the pipeline's "prune" step.
     """
-    from pruner import load_report, prune_files, trash_rescue_preflight, TrashRescueRequired
+    from pruner import TrashRescueRequired, load_report, prune_files, trash_rescue_preflight
+
     from db_connection import read_db, write_db
 
     csv_path = Path(args.csv_path)
@@ -1127,10 +1132,10 @@ def cmd_prune(args: argparse.Namespace) -> None:
     # Operate on the device DB when the Pioneer drive is mounted, else local —
     # same selection the interactive prune endpoint uses.
     try:
-        from FableGear.config import DEVICE_DB as _DEVICE_DB  # noqa: PLC0415
+        from FableGear.config import DEVICE_DB as _DEVICE_DB
     except ImportError:
         try:
-            from config import DEVICE_DB as _DEVICE_DB        # noqa: PLC0415
+            from config import DEVICE_DB as _DEVICE_DB
         except Exception:
             _DEVICE_DB = None
     db_path = _DEVICE_DB if (_DEVICE_DB and _DEVICE_DB.exists()) else LOCAL_DB
@@ -1236,10 +1241,10 @@ def _resolve_active_db_path(cli_db_path: str | None = None) -> Path:
         return candidate
 
     try:
-        from FableGear.config import DEVICE_DB as _DEVICE_DB  # noqa: PLC0415
+        from FableGear.config import DEVICE_DB as _DEVICE_DB
     except ImportError:
         try:
-            from config import DEVICE_DB as _DEVICE_DB  # noqa: PLC0415
+            from config import DEVICE_DB as _DEVICE_DB
         except Exception:
             _DEVICE_DB = None
 
@@ -1253,21 +1258,20 @@ def _resolve_active_db_path(cli_db_path: str | None = None) -> Path:
 
 def cmd_rekordbox_sync(args: argparse.Namespace) -> None:
     """Run bidirectional synchronization between FableGear and Rekordbox databases."""
-    from config import LOCAL_DB
     from fablegear_database import FableGearDatabase, RekordboxSyncAdapter
-    
+
     db_path = _resolve_active_db_path(getattr(args, "db_path", None))
     dry_run = getattr(args, "dry_run", True)
-    
+
     log.info("Starting bidirectional Rekordbox synchronization using DB: %s", db_path)
     if dry_run:
         log.info("Dry-run mode active. No database writes will be executed.")
-        
+
     try:
         fg_db = FableGearDatabase()
         adapter = RekordboxSyncAdapter(fg_db)
         stats = adapter.sync_bidirectional(db_path, dry_run=dry_run)
-        
+
         log.info("Synchronization complete. Results:")
         log.info("  Tracks imported to Rekordbox: %d", stats["tracks_imported_to_rekordbox"])
         log.info("  Tracks imported to FableGear:  %d", stats["tracks_imported_to_fablegear"])
@@ -1275,13 +1279,13 @@ def cmd_rekordbox_sync(args: argparse.Namespace) -> None:
         log.info("  Tracks updated in FableGear:   %d", stats["tracks_updated_in_fablegear"])
         log.info("  Cues/loops synchronized:       %d", stats["cues_synchronized"])
         log.info("  Cues/loops deleted:            %d", stats["cues_deleted"])
-        
+
         if stats["errors"]:
             log.error("Sync encountered errors:")
             for err in stats["errors"]:
                 log.error("  %s", err)
             sys.exit(1)
-            
+
     except Exception as e:
         log.exception("Fatal error during database synchronization: %s", e)
         sys.exit(1)
@@ -1293,14 +1297,13 @@ def cmd_import_missing_rekordbox(args: argparse.Namespace) -> None:
     Dry-run unless --write; --write requires Rekordbox closed, backs up first,
     records added track ids for --undo, and logs to the audit trail."""
     import json
-    import shutil
-    from datetime import datetime
     from pathlib import Path
+
     import playlist_recovery as R
     from fablegear_database import FableGearDatabase
 
     MANIFESTS = Path.home() / ".fablegear" / "rekordbox_import_manifests"
-    LIVE_DB = Path.home() / "Library" / "Pioneer" / "rekordbox" / "master.db"
+    Path.home() / "Library" / "Pioneer" / "rekordbox" / "master.db"
     target = getattr(args, "target", None)
 
     if getattr(args, "undo", False):
@@ -1318,7 +1321,7 @@ def cmd_import_missing_rekordbox(args: argparse.Namespace) -> None:
         for cid in man.get("added_content_ids", []):
             try:
                 db.delete_content(cid); n += 1
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.warning("  could not remove track %s: %s", cid, exc)
         db.commit(); db.close()
         mans[-1].rename(mans[-1].with_suffix(".json.undone"))
@@ -1353,7 +1356,7 @@ def cmd_import_missing_rekordbox(args: argparse.Namespace) -> None:
         log.info("DRY RUN — nothing added. Re-run with --write (Rekordbox closed).")
         return
 
-    from rekordbox_safe_write import safe_master_write, SafeWriteError
+    from rekordbox_safe_write import SafeWriteError, safe_master_write
     try:
         with safe_master_write(target, tag="import", manifest_dir=MANIFESTS) as ctx:
             log.info("Backed up %s → %s", ctx.target.name, ctx.backup_dir)
@@ -1368,7 +1371,7 @@ def cmd_import_missing_rekordbox(args: argparse.Namespace) -> None:
     try:
         fg.log_operation("import_to_rekordbox", file_path=str(ctx.target), status="ok",
                          metadata={"added": rep.added, "backup": str(ctx.backup_dir)})
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("Archive audit-log entry for import-to-rekordbox failed: %s", exc)
     log.info("%s", rep.detail)
     log.info("These new tracks are in the collection but UNANALYZED — analyze them in "
@@ -1384,14 +1387,14 @@ def cmd_push_rekordbox(args: argparse.Namespace) -> None:
     that already exists. --write requires Rekordbox closed and takes its own
     backup first; every created playlist id is recorded for one-command --undo."""
     import json
-    import shutil
     from datetime import datetime
     from pathlib import Path
+
     import playlist_recovery as R
     from fablegear_database import FableGearDatabase
 
     MANIFESTS = Path.home() / ".fablegear" / "rekordbox_push_manifests"
-    LIVE_DB = Path.home() / "Library" / "Pioneer" / "rekordbox" / "master.db"
+    Path.home() / "Library" / "Pioneer" / "rekordbox" / "master.db"
     target = getattr(args, "target", None)
 
     # ── Undo ──
@@ -1410,7 +1413,7 @@ def cmd_push_rekordbox(args: argparse.Namespace) -> None:
         for pid in reversed(man.get("created_playlist_ids", [])):
             try:
                 db.delete_playlist(pid); n += 1
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.warning("  could not delete playlist %s: %s", pid, exc)
         db.commit(); db.close()
         manifests[-1].rename(manifests[-1].with_suffix(".json.undone"))
@@ -1453,7 +1456,7 @@ def cmd_push_rekordbox(args: argparse.Namespace) -> None:
         return
 
     # ── WRITE (guarded by the shared safe-write envelope) ──
-    from rekordbox_safe_write import safe_master_write, SafeWriteError
+    from rekordbox_safe_write import SafeWriteError, safe_master_write
 
     folder_name = f"Recovered {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     try:
@@ -1479,7 +1482,7 @@ def cmd_push_rekordbox(args: argparse.Namespace) -> None:
                                                     "crates": rep.crates_planned,
                                                     "links": rep.links_planned,
                                                     "backup": str(ctx.backup_dir)})
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("Archive audit-log entry for push-to-rekordbox failed: %s", exc)
     log.info("%s", rep.detail)
     log.info("Undo anytime (Rekordbox closed): python3 cli.py push-recovery-to-rekordbox --undo")
@@ -1494,8 +1497,10 @@ def cmd_smart_dedup(args: argparse.Namespace) -> None:
     the last run from its backup. Never touches an audio file."""
     import json as _json
     import shutil as _shutil
-    import smart_dedup as SD
+
     from pyrekordbox import Rekordbox6Database
+
+    import smart_dedup as SD
 
     DEDUP_MANIFESTS = Path.home() / ".fablegear" / "rekordbox_dedup_manifests"
     target = getattr(args, "target", None)
@@ -1552,7 +1557,7 @@ def cmd_smart_dedup(args: argparse.Namespace) -> None:
         return
 
     # ── WRITE (guarded by the safe-write envelope) ──
-    from rekordbox_safe_write import safe_master_write, SafeWriteError
+    from rekordbox_safe_write import SafeWriteError, safe_master_write
     try:
         with safe_master_write(target, tag="dedup", manifest_dir=DEDUP_MANIFESTS) as ctx:
             log.info("Backed up %s → %s", ctx.target.name, ctx.backup_dir)
@@ -1581,9 +1586,10 @@ def cmd_recover_playlists(args: argparse.Namespace) -> None:
     "Recovered <ts>" folder — non-destructive (only creates new playlists),
     checkpointed, audit-logged, and removable in one action (delete the folder).
     """
+    from datetime import datetime
+
     import playlist_recovery as R
     from fablegear_database import FableGearDatabase
-    from datetime import datetime
 
     sources = list(getattr(args, "source", None) or [])
     if getattr(args, "source_list", None):
@@ -1668,14 +1674,14 @@ def cmd_recover_playlists(args: argparse.Namespace) -> None:
                 )
                 cur.execute("UPDATE fg_playlist SET track_count = ? WHERE id = ?", (len(ids), pid))
             links_written += len(ids)
-        except Exception as exc:  # noqa: BLE001 — one bad crate must not abort
+        except Exception as exc:
             log.warning("  crate %r failed: %s", c.name, exc)
     try:
         db.log_operation("recover_playlists", file_path=folder_name, status="ok",
                          metadata={"folder_id": folder_id, "crates": crates_written,
                                    "links": links_written, "sources": len(report.sources),
                                    "created_playlist_ids": created})
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("Archive audit-log entry for recover-playlists failed: %s", exc)
     log.info("Rebuilt %d crate(s) / %d track link(s) under folder %r (id=%s).",
              crates_written, links_written, folder_name, folder_id)
@@ -1698,10 +1704,11 @@ def cmd_parse(args: argparse.Namespace) -> None:
     --force), applying octave correction. Detection writes file tags, so close
     Rekordbox first if you expect any track to need detection.
     """
+    import sys as _sys
+    from pathlib import Path as _P
+
     from fablegear_database import FableGearDatabase
     from fablegear_database.database import BeatGridRecord
-    from pathlib import Path as _P
-    import sys as _sys
 
     cs = _P(__file__).resolve().parent / "chop_shop"
     if str(cs) not in _sys.path:
@@ -1773,7 +1780,7 @@ def cmd_parse(args: argparse.Namespace) -> None:
                 beat_ms = 60000.0 / float(bpm)
                 total = int((float(t.duration) * 1000.0 - offset) / beat_ms)
                 grid = [BeatGridRecord(content_id=t.id, beat_number=(j % 4) + 1,
-                                       time_msec=int(round(offset + j * beat_ms)),
+                                       time_msec=round(offset + j * beat_ms),
                                        bpm=float(bpm))
                         for j in range(max(0, total))]
                 db.bulk_upsert_beatgrids(t.id, grid)
@@ -1791,7 +1798,7 @@ def cmd_parse(args: argparse.Namespace) -> None:
                                  metadata={"content_id": t.id, "bpm": bpm, "key": key,
                                            "grid_beats": len(db.get_beatgrid_for_content(t.id)),
                                            "waveform_cols": n_cols, "waveforms": do_wave})
-            except Exception:  # noqa: BLE001 — logging must never fail the parse
+            except Exception:
                 pass
 
             done_paths.add(t.file_path)
@@ -1799,11 +1806,11 @@ def cmd_parse(args: argparse.Namespace) -> None:
                 _save_ckpt()
             ok += 1
             log.info("  [%d/%d] parsed %s (bpm=%s key=%s)", i, len(tracks), name, bpm, key)
-        except Exception as exc:  # noqa: BLE001 — one bad track must not abort the run
+        except Exception as exc:
             try:
                 db.log_operation("parse", file_path=t.file_path, status="error",
                                  error_message=str(exc), metadata={"content_id": t.id})
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             log.warning("  [%d/%d] parse failed for %s: %s", i, len(tracks), name, exc)
 
@@ -1818,8 +1825,9 @@ def cmd_parse(args: argparse.Namespace) -> None:
 def cmd_playlist(args: argparse.Namespace) -> None:
     """Create/list FableGear playlists. `create NAME --from-folder PATH` makes a
     playlist and adds every imported track whose file lives under PATH."""
-    from fablegear_database import FableGearDatabase
     from pathlib import Path as _P
+
+    from fablegear_database import FableGearDatabase
 
     db = FableGearDatabase()
     action = args.playlist_action
@@ -1852,7 +1860,7 @@ def cmd_playlist(args: argparse.Namespace) -> None:
                 try:
                     if db.add_song(pid, t.id):
                         added += 1
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     log.warning("  add %s failed: %s", t.id, exc)
             log.info("Added %d track(s) to %r (id=%s)", added, name, pid)
         return
@@ -1884,7 +1892,7 @@ def _parsed_status(fg_db, content_ids):
         try:
             if not fg_db.get_beatgrid_for_content(t.id):
                 reasons.append("no beat grid")
-        except Exception:  # noqa: BLE001 — treat an unreadable grid as missing
+        except Exception:
             reasons.append("no beat grid")
         if wg.load_waveform_cache(t.id) is None:
             reasons.append("no waveforms")
@@ -1905,7 +1913,7 @@ def _parse_preflight(fg_db, content_ids, *, require_parsed: bool) -> None:
         "synthesize the missing grid/waveforms from audio at write time.",
         len(unparsed), total_n,
     )
-    for tid, name, reasons in unparsed[:10]:
+    for _tid, name, reasons in unparsed[:10]:
         log.warning("  unparsed: %s (%s)", name, ", ".join(reasons))
     if len(unparsed) > 10:
         log.warning("  … and %d more", len(unparsed) - 10)
@@ -1939,7 +1947,7 @@ def cmd_parse_status(args: argparse.Namespace) -> None:
         if len(unparsed) > 50:
             print(f"  … and {len(unparsed) - 50} more", flush=True)
         print("\nRun:  python3 cli.py parse" +
-              (f" --path <dir>" if content_ids is None else "") +
+              (" --path <dir>" if content_ids is None else "") +
               "   to prepare them.", flush=True)
 
 
@@ -1952,8 +1960,8 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
     any existing Pioneer file. Refuses to overwrite an existing target.
     """
     from fablegear_database import FableGearDatabase
+    from fablegear_database.device_identity import write_dj_profile, write_rbfltr
     from fablegear_database.onelibrary_writer import OneLibraryWriter
-    from fablegear_database.device_identity import write_rbfltr, write_dj_profile
 
     target = Path(args.target)
     log.info("Writing OneLibrary export to: %s", target)
@@ -2061,7 +2069,7 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
                 "errors": len(result.errors),
             },
         )
-    except Exception:  # noqa: BLE001 — logging must never fail the export
+    except Exception:
         pass
 
     if not getattr(args, "no_identity_files", False):
@@ -2113,14 +2121,15 @@ def _generate_export_anlz(fg_db, target: Path, result) -> None:
     path_by_cid = {}
     try:
         import sqlcipher3
-        from fablegear_database.onelibrary_writer import _ONELIBRARY_KEY, _CIPHER_COMPATIBILITY
+
+        from fablegear_database.onelibrary_writer import _CIPHER_COMPATIBILITY, _ONELIBRARY_KEY
         conn = sqlcipher3.connect(str(target))
         cur = conn.cursor()
         cur.execute(f"PRAGMA key = '{_ONELIBRARY_KEY}';")
         cur.execute(f"PRAGMA cipher_compatibility = {_CIPHER_COMPATIBILITY};")
         path_by_cid = {cid: p for cid, p in cur.execute("SELECT content_id, path FROM content")}
         conn.close()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("Could not read back content paths for ANLZ (%s); PPTH may be blank", exc)
 
     exporter = PioneerExporter(fg_db)
@@ -2133,17 +2142,18 @@ def _generate_export_anlz(fg_db, target: Path, result) -> None:
             if exporter.export_track_anlz(content_id=fg_id, target_root=drive_root,
                                           relative_audio_path=rel, device_content_id=content_id):
                 ok += 1
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.warning("  ANLZ for content %s failed: %s", content_id, exc)
     log.info("  ANLZ written for %d/%d track(s)", ok, total)
 
 
 def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
     """Scan only Rekordbox library tracks for duplicates, then optionally prune + rethread playlists."""
+    from duplicate_detector import scan_duplicates, write_csv_report, write_trash_rescue_report
+    from pruner import TrashRescueRequired, load_report, prune_files, trash_rescue_preflight
+
     from config import AUDIO_EXTENSIONS
     from db_connection import read_db, write_db
-    from duplicate_detector import scan_duplicates, write_csv_report, write_trash_rescue_report
-    from pruner import load_report, prune_files, trash_rescue_preflight, TrashRescueRequired
 
     db_path = _resolve_active_db_path(getattr(args, "db_path", None))
     workers = max(1, int(getattr(args, "workers", 1) or 1))
@@ -2188,9 +2198,9 @@ def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
     if output is None:
         try:
             try:
-                from FableGear.config import REPORTS_DIR  # noqa: PLC0415
+                from FableGear.config import REPORTS_DIR
             except ImportError:
-                from config import REPORTS_DIR  # noqa: PLC0415
+                from config import REPORTS_DIR
             out_dir = REPORTS_DIR / "Duplicates"
             out_dir.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -2368,8 +2378,9 @@ def cmd_process(args: argparse.Namespace) -> None:
       file are processed — no directory scan occurs. PATH arg is still required
       by argparse but is not used as a scan root in this mode.
     """
-    from audio_processor import process_directory, process_file, is_corrupt, quarantine_file
     import json as _json
+
+    from audio_processor import is_corrupt, process_directory, process_file, quarantine_file
 
     paths_file = getattr(args, "paths_file", None)
     bpm_mode = _resolve_effect_mode(
@@ -2567,8 +2578,9 @@ def cmd_process(args: argparse.Namespace) -> None:
     # the log stream, is cancellable via the normal interrupt path, and
     # emits per-file scan progress to keep the UI alive.
     if getattr(args, "smart_skip", False) and (detect_bpm or detect_key):
-        from scanner import scan_directory  # noqa: PLC0415
-        import json as _json  # noqa: PLC0415
+        import json as _json
+
+        from scanner import scan_directory
         pending: list[Path] = []
         pending_per_root: dict[Path, int] = {}
         total_scanned = 0
@@ -2602,7 +2614,7 @@ def cmd_process(args: argparse.Namespace) -> None:
         ]
         args._smart_skip_skipped = skipped_complete
         # Reuse the paths-file branch: write pending list and re-enter
-        import tempfile as _tf  # noqa: PLC0415
+        import tempfile as _tf
         with _tf.NamedTemporaryFile(
             mode="w", suffix=".txt", prefix="fablegear_smart_skip_",
             delete=False, encoding="utf-8",
@@ -2675,7 +2687,7 @@ def cmd_process(args: argparse.Namespace) -> None:
         try:
             already_done = 0
             if ckpt_done_paths:
-                from scanner import scan_directory  # noqa: PLC0415
+                from scanner import scan_directory
                 already_done = len([1 for t in scan_directory(root) if str(t.path) in ckpt_done_paths])
             results = process_directory(
                 root,
@@ -2698,8 +2710,9 @@ def cmd_process(args: argparse.Namespace) -> None:
             # interrupted on drive 3 must keep drives 1-2 in the archive.
             _persist_process_results(results, archive)
             if rename_mode != "off" and not args.dry_run:
-                from db_connection import write_db  # noqa: PLC0415
-                from renamer import rename_directory  # noqa: PLC0415
+                from renamer import rename_directory
+
+                from db_connection import write_db
                 rename_roots: list[Path]
                 if rename_mode == "aggressive":
                     rename_roots = [root]
@@ -2896,6 +2909,7 @@ def cmd_convert(args: argparse.Namespace) -> None:
     import concurrent.futures
     import json
     from pathlib import Path
+
     from audio_processor import _convert_file
     from scanner import scan_directory
 
@@ -3138,11 +3152,12 @@ def cmd_convert(args: argparse.Namespace) -> None:
 def cmd_organize(args: argparse.Namespace) -> None:
     """Consolidate audio files into a choosable folder hierarchy (default: Artist / Album)."""
     from pathlib import Path
+
     from library_organizer import organize_library, parse_scheme
 
     primary = Path(args.source)
     extra   = [Path(p) for p in (getattr(args, "also_scan", None) or [])]
-    sources = [primary] + extra
+    sources = [primary, *extra]
     target  = Path(args.target)
     mode    = getattr(args, "mode", "assimilate")
 
@@ -3330,11 +3345,12 @@ def cmd_organize(args: argparse.Namespace) -> None:
 def cmd_novelty(args: argparse.Namespace) -> None:
     """Find tracks that only exist on the source and copy them to the destination."""
     from pathlib import Path
+
     from novelty_scanner import scan_novel
 
     primary = Path(args.source)
     extra   = [Path(p) for p in (getattr(args, "also_scan", None) or [])]
-    sources = [primary] + extra
+    sources = [primary, *extra]
     dest    = Path(args.dest)
     copy_to_arg = getattr(args, "copy_to", None)
     copy_to = Path(copy_to_arg) if copy_to_arg else None
@@ -3485,8 +3501,9 @@ def cmd_novelty(args: argparse.Namespace) -> None:
 
 def cmd_rename(args: argparse.Namespace) -> None:
     """Rename audio files based on their ID3/tag metadata to clean filenames."""
-    from db_connection import write_db
     from renamer import rename_directory
+
+    from db_connection import write_db
 
     roots = [Path(args.path)] + [Path(p) for p in (getattr(args, "also_scan", None) or [])]
 
@@ -4536,7 +4553,7 @@ def main() -> None:
     log.debug("Args: %s", vars(args))
 
     if args.command != "setup":
-        from user_config import config_exists  # noqa: PLC0415
+        from user_config import config_exists
 
         if not config_exists():
             print(

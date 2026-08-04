@@ -8,19 +8,19 @@ Exports FableGear database to Pioneer-compatible formats for:
 - Professional DJ workflow support
 """
 
-import logging
 import json
+import logging
 import sqlite3
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
+from construct import Container
 from pyrekordbox import AnlzFile
 from pyrekordbox.anlz import structs
-from pyrekordbox.anlz.tags import PPTHAnlzTag, PQTZAnlzTag, PCOBAnlzTag, PCO2AnlzTag
-from construct import Container
+from pyrekordbox.anlz.tags import PCO2AnlzTag, PCOBAnlzTag, PPTHAnlzTag, PQTZAnlzTag
 
-from .database import FableGearDatabase, ContentRecord
+from .database import ContentRecord, FableGearDatabase
 
 log = logging.getLogger(__name__)
 
@@ -37,55 +37,55 @@ except Exception as e:
 class PioneerExporter:
     """
     Exports FableGear database to Pioneer-compatible formats.
-    
+
     Enables CDJ3000 and other Pioneer hardware to work directly
     with FableGear databases, bypassing Rekordbox dependency.
     """
-    
+
     def __init__(self, database: FableGearDatabase):
         """
         Initialize the Pioneer exporter.
-        
+
         Args:
             database: FableGear database instance
         """
         self.database = database
-    
+
     def export_to_pioneer_xml(self, output_path: Path) -> bool:
         """
         Export database to Pioneer XML format.
-        
+
         Args:
             output_path: Path for output XML file
-            
+
         Returns:
             True if export succeeded
         """
         try:
             # Get all content records
             records = self.database.get_all_content(limit=100000)
-            
+
             # Create Pioneer-compatible XML structure
             xml_content = self._generate_pioneer_xml(records)
-            
+
             # Write to file
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(xml_content)
-            
+
             log.info("Exported %d records to Pioneer XML: %s", len(records), output_path)
             return True
-            
+
         except Exception as exc:
             log.error("Failed to export to Pioneer XML: %s", exc)
             return False
-    
+
     def export_to_rekordbox_db(self, output_path: Path) -> bool:
         """
         Export database to Rekordbox-compatible SQLite format.
-        
+
         Args:
             output_path: Path for output database file
-            
+
         Returns:
             True if export succeeded
         """
@@ -93,35 +93,35 @@ class PioneerExporter:
             # Create new database
             conn = sqlite3.connect(output_path)
             cursor = conn.cursor()
-            
+
             # Enable foreign keys
             cursor.execute("PRAGMA foreign_keys = ON")
-            
+
             # Create Rekordbox-compatible schema
             self._create_rekordbox_schema(cursor)
-            
+
             # Export content
             records = self.database.get_all_content(limit=100000)
             for record in records:
                 self._insert_rekordbox_content(cursor, record)
-            
+
             conn.commit()
             conn.close()
-            
+
             log.info("Exported %d records to Rekordbox DB: %s", len(records), output_path)
             return True
-            
+
         except Exception as exc:
             log.error("Failed to export to Rekordbox DB: %s", exc)
             return False
-    
+
     def export_playlists(self, output_path: Path) -> bool:
         """
         Export playlists to Pioneer-compatible format.
-        
+
         Args:
             output_path: Path for output file
-            
+
         Returns:
             True if export succeeded
         """
@@ -129,30 +129,30 @@ class PioneerExporter:
             # Get playlist data from database
             # This would need playlist tables in the schema
             # For now, create a placeholder
-            
+
             playlist_data = {
                 "version": "1.0",
                 "exported_at": datetime.now().isoformat(),
                 "playlists": [],
             }
-            
+
             with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(playlist_data, f, indent=2)
-            
+
             log.info("Exported playlists to: %s", output_path)
             return True
-            
+
         except Exception as exc:
             log.error("Failed to export playlists: %s", exc)
             return False
-    
-    def _generate_pioneer_xml(self, records: List[ContentRecord]) -> str:
+
+    def _generate_pioneer_xml(self, records: list[ContentRecord]) -> str:
         """
         Generate Pioneer-compatible XML from records.
-        
+
         Args:
             records: List of ContentRecords
-            
+
         Returns:
             XML string
         """
@@ -163,7 +163,7 @@ class PioneerExporter:
             '  <PRODUCT NAME="FableGear" VERSION="1.0"/>',
             '  <COLLECTION>',
         ]
-        
+
         for record in records:
             xml_lines.append(f'    <TRACK Location="{record.file_path}">')
             if record.title:
@@ -179,18 +179,18 @@ class PioneerExporter:
             if record.duration:
                 xml_lines.append(f'      <TOTALTIME>{record.duration}</TOTALTIME>')
             xml_lines.append('    </TRACK>')
-        
+
         xml_lines.extend([
             '  </COLLECTION>',
             '</DJ_PLAYLISTS>',
         ])
-        
+
         return "\n".join(xml_lines)
-    
+
     def _create_rekordbox_schema(self, cursor: sqlite3.Cursor) -> None:
         """
         Create Rekordbox-compatible database schema.
-        
+
         Args:
             cursor: SQLite cursor
         """
@@ -208,16 +208,16 @@ class PioneerExporter:
                 ImagePath TEXT
             )
         """)
-        
+
         # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_folder_path ON djmdContent(FolderPath)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_title ON djmdContent(Title)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_artist ON djmdContent(Artist)")
-    
+
     def _insert_rekordbox_content(self, cursor: sqlite3.Cursor, record: ContentRecord) -> None:
         """
         Insert record into Rekordbox-compatible format.
-        
+
         Args:
             cursor: SQLite cursor
             record: ContentRecord to insert
@@ -236,16 +236,16 @@ class PioneerExporter:
             record.duration,
         ))
 
-    def export_track_anlz(self, content_id: int, target_root: Path, relative_audio_path: str, device_content_id: Optional[int] = None) -> bool:
+    def export_track_anlz(self, content_id: int, target_root: Path, relative_audio_path: str, device_content_id: int | None = None) -> bool:
         """
         Generate and save Pioneer compatible ANLZ (.DAT and .EXT) files for a track.
-        
+
         Args:
             content_id: Track database ID
             target_root: Target directory of the export (e.g. USB mount point)
             relative_audio_path: The relative path of the track on the device
             device_content_id: Optional track ID on the destination device (for ANLZ folder naming)
-            
+
         Returns:
             True if files were successfully created
         """
@@ -298,7 +298,7 @@ class PioneerExporter:
                 for b in sorted(track.beatgrid, key=lambda x: x.time_msec):
                     entries.append({
                         'beat': b.beat_number,
-                        'tempo': int(round(b.bpm * 100)),
+                        'tempo': round(b.bpm * 100),
                         'time': int(b.time_msec)
                     })
             elif track.bpm and track.duration:
@@ -319,15 +319,15 @@ class PioneerExporter:
                     import waveform_generator as _wg
                     if getattr(track, "file_path", None):
                         offset_ms = _wg.estimate_first_beat_ms(track.file_path, track.bpm)
-                except Exception:  # noqa: BLE001 — phase is an enhancement
+                except Exception:
                     offset_ms = 0.0
-                tempo_i = int(round(float(track.bpm) * 100))
+                tempo_i = round(float(track.bpm) * 100)
                 total_beats = int((float(track.duration) * 1000.0 - offset_ms) / beat_ms)
                 for i in range(total_beats):
                     entries.append({
                         'beat': (i % 4) + 1,
                         'tempo': tempo_i,
-                        'time': int(round(offset_ms + i * beat_ms)),
+                        'time': round(offset_ms + i * beat_ms),
                     })
             if entries:
                 qtz_data = structs.AnlzTag.build({
@@ -345,7 +345,7 @@ class PioneerExporter:
             # C. PCOB Tags (Memory cues & Hot cues separate)
             memory_cues = [c for c in track.cues if c.kind in (0, 3)] # Memory or Active Loop
             hot_cues = [c for c in track.cues if c.kind in (1, 2)] # Hot Cue or Loop
-            
+
             if memory_cues:
                 mc_entries = []
                 for cue in memory_cues:
@@ -437,7 +437,7 @@ class PioneerExporter:
                     comment_bytes = comment.encode("utf-16-be")
                     len_comment = len(comment_bytes)
                     len_entry = 96 + len_comment # 96 is a safe baseline entry size
-                    
+
                     r, g, b = 0, 0, 0
                     color_code = 0
                     if cue.color:
@@ -487,7 +487,7 @@ class PioneerExporter:
                     comment_bytes = comment.encode("utf-16-be")
                     len_comment = len(comment_bytes)
                     len_entry = 96 + len_comment
-                    
+
                     r, g, b = 0, 0, 0
                     color_code = 0
                     if cue.color:
@@ -572,35 +572,35 @@ class PioneerExporter:
             if ppth and band:
                 wg.build_2ex(Path(anlz_dir) / "ANLZ0000.2EX", ppth, band)
             log.info("Injected waveforms (%s) for content %s", src, track.id)
-        except Exception as exc:  # noqa: BLE001 — waveforms are an enhancement, never fatal
+        except Exception as exc:
             log.warning("Waveform injection skipped (%s): %s", type(exc).__name__, exc)
 
 
 class PioneerHandshake:
     """
     Pioneer hardware communication layer.
-    
+
     Enables direct communication with CDJ3000 and other Pioneer
     hardware for library browsing and playback without Rekordbox.
     """
-    
+
     def __init__(self, database: FableGearDatabase):
         """
         Initialize the Pioneer handshake.
-        
+
         Args:
             database: FableGear database instance
         """
         self.database = database
         self._connected = False
-    
+
     def connect(self, device_address: str) -> bool:
         """
         Connect to Pioneer hardware device.
-        
+
         Args:
             device_address: Network address or USB identifier
-            
+
         Returns:
             True if connection succeeded
         """
@@ -609,52 +609,52 @@ class PioneerHandshake:
         log.info("Attempting to connect to Pioneer device: %s", device_address)
         self._connected = True
         return True
-    
+
     def disconnect(self) -> None:
         """Disconnect from Pioneer hardware."""
         if self._connected:
             log.info("Disconnecting from Pioneer device")
             self._connected = False
-    
+
     def send_library_data(self, limit: int = 1000) -> bool:
         """
         Send library data to connected Pioneer device.
-        
+
         Args:
             limit: Maximum number of tracks to send
-            
+
         Returns:
             True if send succeeded
         """
         if not self._connected:
             log.error("Not connected to Pioneer device")
             return False
-        
+
         try:
             # Get records from database
             records = self.database.get_all_content(limit=limit)
-            
+
             # Convert to Pioneer protocol format
             # This would implement the actual Pioneer communication protocol
             log.info("Sending %d tracks to Pioneer device", len(records))
-            
+
             return True
-            
+
         except Exception as exc:
             log.error("Failed to send library data: %s", exc)
             return False
-    
-    def receive_playback_data(self) -> Optional[Dict[str, Any]]:
+
+    def receive_playback_data(self) -> dict[str, Any] | None:
         """
         Receive playback data from Pioneer device.
-        
+
         Returns:
             Dictionary with playback data or None
         """
         if not self._connected:
             log.error("Not connected to Pioneer device")
             return None
-        
+
         # This would implement actual Pioneer data reception
         # For now, placeholder
         return {

@@ -46,16 +46,18 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import Dict, Optional
 
 import job_dispatcher
-
 from user_config import (
     DEFAULTS as USER_CONFIG_DEFAULTS,
+)
+from user_config import (
     generate_mcp_token,
-    get_drive_status as probe_drive_status,
     load_user_config,
     save_user_config,
+)
+from user_config import (
+    get_drive_status as probe_drive_status,
 )
 
 # Hosts that never require a bearer token — only reachable from this machine.
@@ -77,11 +79,11 @@ except ImportError:
 
 # ── FableGear imports (lazy — server still starts if config is absent) ─────────
 
-_CONFIG_ERROR: Optional[str] = None
+_CONFIG_ERROR: str | None = None
 
 try:
+    from config import ARCHIVE_ROOT, LOCAL_DB, MUSIC_ROOT
     from db_connection import rekordbox_is_running
-    from config import LOCAL_DB, MUSIC_ROOT, ARCHIVE_ROOT
 except RuntimeError as _e:
     _CONFIG_ERROR = str(_e)
     LOCAL_DB = None
@@ -96,7 +98,7 @@ except RuntimeError as _e:
 REPO_DIR = Path(__file__).parent
 
 # ── Job dispatcher init ────────────────────────────────────────────────────────
-_checkpoints_dir: Optional[Path] = None
+_checkpoints_dir: Path | None = None
 try:
     from config import ARCHIVE_ROOT as _ARCHIVE_ROOT
 
@@ -107,7 +109,7 @@ except Exception:
 job_dispatcher.init(REPO_DIR, _checkpoints_dir)
 
 
-def _cfg_gate() -> Optional[str]:
+def _cfg_gate() -> str | None:
     """Return an error string if FableGear is not yet configured."""
     try:
         load_user_config()
@@ -120,7 +122,7 @@ def _cfg_gate() -> Optional[str]:
     return None
 
 
-def _get_config() -> Optional[Dict]:
+def _get_config() -> dict | None:
     """Return the live user config if available, otherwise None."""
     try:
         return load_user_config()
@@ -136,7 +138,7 @@ def _effective_music_root() -> str:
     return str(MUSIC_ROOT) if MUSIC_ROOT else ""
 
 
-def _rb_gate() -> Optional[str]:
+def _rb_gate() -> str | None:
     """Return an error string if Rekordbox is currently running."""
     try:
         if rekordbox_is_running():
@@ -155,7 +157,7 @@ def _rb_gate() -> Optional[str]:
 # have a completed checkpoint for the given scope before the keyed tool runs.
 # Callers can bypass with force=True (e.g. when checkpoints exist out-of-band
 # or the operator has explicit reason to skip the precondition).
-_DEPENDENCY_MAP: Dict[str, str] = {
+_DEPENDENCY_MAP: dict[str, str] = {
     "find_duplicates":     "audit_library",
     "tag_tracks":          "audit_library",
     "rename_files":        "tag_tracks",
@@ -165,7 +167,7 @@ _DEPENDENCY_MAP: Dict[str, str] = {
 }
 
 
-def _dep_gate(tool: str, scope: str, force: bool = False) -> Optional[str]:
+def _dep_gate(tool: str, scope: str, force: bool = False) -> str | None:
     """Return an error string if the prerequisite checkpoint is missing.
 
     Returns None when:
@@ -281,8 +283,8 @@ def configure_paths(
     device_db: str,
     music_root: str,
     backup_dir: str,
-    target_lufs: Optional[float] = None,
-    mode: Optional[str] = None,
+    target_lufs: float | None = None,
+    mode: str | None = None,
 ) -> str:
     """
     Create or update ~/.fablegear/config.json from MCP.
@@ -1032,7 +1034,7 @@ if _DEV_MODE:
         [DEV] Tail the FableGear app log. Returns the last N lines,
         optionally filtered by a grep pattern.
         """
-        import re as _re  # noqa: PLC0415
+        import re as _re
         log_file = REPO_DIR / "fablegear.log"
         if not log_file.exists():
             return "No log file found."
@@ -1041,9 +1043,9 @@ if _DEV_MODE:
             if pattern:
                 try:
                     rx = _re.compile(pattern, _re.IGNORECASE)
-                    all_lines = [l for l in all_lines if rx.search(l)]
+                    all_lines = [ln for ln in all_lines if rx.search(ln)]
                 except _re.error:
-                    all_lines = [l for l in all_lines if pattern.lower() in l.lower()]
+                    all_lines = [ln for ln in all_lines if pattern.lower() in ln.lower()]
             tail = all_lines[-lines:]
             return "\n".join(tail) if tail else "(no matching lines)"
         except Exception as e:
@@ -1080,16 +1082,16 @@ if _DEV_MODE:
 
 # ─── Embedded server (started by main.py) ────────────────────────────────────
 
-_mcp_thread: Optional[threading.Thread] = None
+_mcp_thread: threading.Thread | None = None
 _mcp_running = threading.Event()
-_mcp_port: Optional[int] = None
-_mcp_host: Optional[str] = None
+_mcp_port: int | None = None
+_mcp_host: str | None = None
 
 
 def _make_token_auth_app(app, token: str):
     """Wrap a Starlette/ASGI app with bearer token auth middleware."""
-    from starlette.requests import Request  # noqa: PLC0415
-    from starlette.responses import JSONResponse  # noqa: PLC0415
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse
 
     async def middleware(scope, receive, send):
         if scope["type"] == "http":
@@ -1137,7 +1139,7 @@ def start_embedded(
 
     def _run():
         try:
-            import uvicorn  # noqa: PLC0415
+            import uvicorn
 
             app = mcp.sse_app()
 
@@ -1162,7 +1164,7 @@ def start_embedded(
     _mcp_thread.start()
 
     # Brief wait to confirm startup
-    import time  # noqa: PLC0415
+    import time
     time.sleep(0.5)
     if not _mcp_thread.is_alive():
         _mcp_running.clear()
@@ -1269,7 +1271,7 @@ def main() -> None:
                 )
             app = _make_token_auth_app(app, token)
 
-        import uvicorn  # noqa: PLC0415
+        import uvicorn
 
         uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     else:

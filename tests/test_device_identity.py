@@ -16,12 +16,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from fablegear_database.device_identity import (  # noqa: E402
-    write_rbfltr,
-    write_dj_profile,
-    _RBFLTR_BYTES,
+from fablegear_database.device_identity import (
     _DJPROFILE_HEADER,
     _DJPROFILE_TOTAL_SIZE,
+    _RBFLTR_BYTES,
+    write_dj_profile,
+    write_rbfltr,
 )
 
 

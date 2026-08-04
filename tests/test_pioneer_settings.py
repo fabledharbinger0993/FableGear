@@ -15,14 +15,12 @@ import struct
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 for p in (REPO_ROOT, REPO_ROOT / "chop_shop"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-from pioneer_settings import read_settings_file, read_settings_tree  # noqa: E402
+from pioneer_settings import read_settings_file, read_settings_tree
 
 _LEN_STRINGS = 0x60
 _SENTINEL = b"\x78\x56\x34\x12"

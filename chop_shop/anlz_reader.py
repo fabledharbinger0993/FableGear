@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: FableGear (Claude + Marshall Guthrie)
 # Date:   2026-07-13
 """
@@ -48,11 +47,10 @@ import logging
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
-PathLike = Union[str, Path]
+PathLike = str | Path
 
 ANLZ_MAGIC = b"PMAI"
 
@@ -72,8 +70,8 @@ class BeatGridEntry:
 class WaveformTagInfo:
     """Header-level metadata for a 3-band/color waveform tag — counts only,
     no pixel-level decode (out of scope, see module docstring)."""
-    len_entry_bytes: Optional[int] = None
-    len_entries: Optional[int] = None
+    len_entry_bytes: int | None = None
+    len_entries: int | None = None
     entry_bytes_total: int = 0
 
 
@@ -93,14 +91,14 @@ class AnlzFileReport:
     exists: bool = False
     readable: bool = False
     file_size: int = 0
-    len_header: Optional[int] = None
-    len_file: Optional[int] = None
-    tags: List[AnlzTagInfo] = field(default_factory=list)
-    tags_present: List[str] = field(default_factory=list)
-    ppth_path: Optional[str] = None
-    beat_grid: List[BeatGridEntry] = field(default_factory=list)
-    waveform_tags: Dict[str, WaveformTagInfo] = field(default_factory=dict)
-    notes: List[str] = field(default_factory=list)
+    len_header: int | None = None
+    len_file: int | None = None
+    tags: list[AnlzTagInfo] = field(default_factory=list)
+    tags_present: list[str] = field(default_factory=list)
+    ppth_path: str | None = None
+    beat_grid: list[BeatGridEntry] = field(default_factory=list)
+    waveform_tags: dict[str, WaveformTagInfo] = field(default_factory=dict)
+    notes: list[str] = field(default_factory=list)
 
     @property
     def has_beat_grid(self) -> bool:
@@ -115,13 +113,13 @@ class AnlzFileReport:
 class AnlzSetReport:
     """A track's full ANLZ set — ``.DAT`` (base) plus optional ``.EXT``/``.2EX``."""
     anlz_dir: str = ""
-    dat: Optional[AnlzFileReport] = None
-    ext: Optional[AnlzFileReport] = None
-    two_ex: Optional[AnlzFileReport] = None
-    notes: List[str] = field(default_factory=list)
+    dat: AnlzFileReport | None = None
+    ext: AnlzFileReport | None = None
+    two_ex: AnlzFileReport | None = None
+    notes: list[str] = field(default_factory=list)
 
     @property
-    def track_path(self) -> Optional[str]:
+    def track_path(self) -> str | None:
         """The embedded audio file path, from whichever file carries PPTH."""
         for report in (self.dat, self.ext, self.two_ex):
             if report is not None and report.ppth_path:
@@ -143,7 +141,7 @@ class AnlzSetReport:
 
 # ─── Manual tag-chain walker ──────────────────────────────────────────────────
 
-def _walk_tags(data: bytes, start: int) -> List[AnlzTagInfo]:
+def _walk_tags(data: bytes, start: int) -> list[AnlzTagInfo]:
     """Walk the PMAI tag chain by hand, from ``start`` to the end of ``data``.
 
     Each tag is ``magic(4) + len_header:u32be + len_tag:u32be + body``, where
@@ -154,7 +152,7 @@ def _walk_tags(data: bytes, start: int) -> List[AnlzTagInfo]:
     rather than reading garbage or letting a downstream decoder slice with a
     negative/out-of-range length.
     """
-    tags: List[AnlzTagInfo] = []
+    tags: list[AnlzTagInfo] = []
     offset = start
     n = len(data)
     while offset + 12 <= n:
@@ -172,7 +170,7 @@ def _walk_tags(data: bytes, start: int) -> List[AnlzTagInfo]:
     return tags
 
 
-def _decode_ppth(data: bytes, tag: AnlzTagInfo) -> Optional[str]:
+def _decode_ppth(data: bytes, tag: AnlzTagInfo) -> str | None:
     """PPTH: ``len_path:u32be`` lives in the header-extension region
     (offset+12..offset+len_header, same slot PWV6/PWV7 use for their count
     fields) — NOT as a prefix inside the body. The body itself is exactly
@@ -191,20 +189,20 @@ def _decode_ppth(data: bytes, tag: AnlzTagInfo) -> Optional[str]:
         return None
 
 
-def _decode_pqtz(data: bytes, tag: AnlzTagInfo) -> List[BeatGridEntry]:
+def _decode_pqtz(data: bytes, tag: AnlzTagInfo) -> list[BeatGridEntry]:
     """PQTZ body: 2×unknown u32 + ``len_beats:u32be``, then per-beat entries.
     Handles both mock files (len_header=12) and real files (len_header=24).
     """
     header_ext_offset = tag.offset + 12
     if header_ext_offset + 12 > len(data):
         return []
-    
+
     _unknown1, _unknown2, len_beats = struct.unpack_from(">III", data, header_ext_offset)
-    
+
     # Entries start after the header structure (minimum of 24 bytes)
     entries_start = tag.offset + max(tag.len_header, 24)
-    
-    entries: List[BeatGridEntry] = []
+
+    entries: list[BeatGridEntry] = []
     entry_offset = entries_start
     for _ in range(len_beats):
         if entry_offset + 8 > len(data):

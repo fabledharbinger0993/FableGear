@@ -7,7 +7,7 @@ All path references in the toolkit flow from here.
 import sys
 from pathlib import Path
 
-if sys.version_info < (3, 11):
+if sys.version_info < (3, 11):  # noqa: UP036  (runtime guard for users on old interpreters)
     raise RuntimeError(
         f"FableGear requires Python 3.11 or later "
         f"(found {sys.version_info.major}.{sys.version_info.minor}). "
@@ -119,7 +119,7 @@ def ensure_archive_structure() -> None:
         for path in [SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR, *LOG_DIRS.values()]:
             path.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        import logging as _log  # noqa: PLC0415
+        import logging as _log
         _log.getLogger(__name__).warning(
             "ensure_archive_structure: could not create archive directories — %s",
             exc,
@@ -146,7 +146,7 @@ TRUE_PEAK_CEILING_DBTP: float = -1.0
 ACOUSTID_API_KEY: str = _cfg.get("acoustid_api_key", "")
 
 # Supported audio file extensions (lowercase)
-# 
+#
 # Modern formats (Rekordbox native):
 #   .mp3, .wav, .aiff/.aif/.aifc, .flac, .m4a/.m4p/.mp4/.m4v (AAC/ALAC containers), .ogg (Vorbis), .opus
 #

@@ -9,11 +9,10 @@ undo / restore actions, plus write endpoints that perform the actual restores.
 import logging
 import os
 import shutil
-import sqlite3
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from flask import Blueprint, jsonify, request
 
@@ -22,7 +21,7 @@ log = logging.getLogger(__name__)
 
 
 def _config():
-    from config import BACKUP_DIR, SAVEPOINTS_DIR  # noqa: PLC0415
+    from config import BACKUP_DIR, SAVEPOINTS_DIR
     return BACKUP_DIR, SAVEPOINTS_DIR
 
 
@@ -40,7 +39,7 @@ def _is_within(child: Path, parent: Path) -> bool:
 
 @bp.route("/api/undo/timeline")
 def undo_timeline():
-    from job_dispatcher import get_history  # noqa: PLC0415
+    from job_dispatcher import get_history
 
     limit = request.args.get("limit", 50, type=int)
     tool = request.args.get("tool") or None
@@ -51,7 +50,7 @@ def undo_timeline():
 
 @bp.route("/api/undo/job/<job_id>")
 def undo_job_detail(job_id: str):
-    from job_dispatcher import get_output  # noqa: PLC0415
+    from job_dispatcher import get_output
 
     detail = get_output(job_id, max_chars=200_000)
     if detail is None:
@@ -100,7 +99,7 @@ def undo_savepoints():
 
 @bp.route("/api/undo/savepoint/restore", methods=["POST"])
 def undo_restore_savepoint():
-    from db_connection import _backup_db, rekordbox_is_running  # noqa: PLC0415
+    from db_connection import _backup_db, rekordbox_is_running
 
     body = request.get_json(silent=True) or {}
     savepoint_path = body.get("path", "").strip()
@@ -123,7 +122,7 @@ def undo_restore_savepoint():
         return jsonify({"error": "Rekordbox is running — close it first"}), 409
 
     try:
-        from config import DEVICE_DB  # noqa: PLC0415
+        from config import DEVICE_DB
     except Exception:
         return jsonify({"error": "FableGear not configured"}), 500
 
@@ -201,7 +200,7 @@ def undo_trash_files(folder_name: str):
     folder_name = os.path.basename(folder_name)
     if not folder_name.startswith("FableGear_Pruned_"):
         return jsonify({"error": "Invalid folder"}), 400
-        
+
     trash_dir = Path.home() / ".Trash" / folder_name
     if not trash_dir.is_dir():
         return jsonify({"error": "Folder not found"}), 404
@@ -239,7 +238,7 @@ def undo_trash_restore():
 
     if not dest:
         try:
-            from config import MUSIC_ROOT  # noqa: PLC0415
+            from config import MUSIC_ROOT
             dest = str(MUSIC_ROOT)
         except Exception:
             return jsonify({"error": "No destination and MUSIC_ROOT not configured"}), 400
@@ -289,7 +288,7 @@ _SESSION_GAP_SEC = 15 * 60
 
 
 def _fg_archive_db():
-    from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
+    from fablegear_database.database import FableGearDatabase
     return FableGearDatabase()
 
 
@@ -332,7 +331,7 @@ def undo_operations():
         return jsonify({"error": f"archive unavailable: {exc}"}), 500
 
     sessions: list[dict] = []
-    for row_id, op_type, file_path, completed_at, metadata in rows:
+    for row_id, op_type, file_path, completed_at, _metadata in rows:
         try:
             when = datetime.fromisoformat(completed_at) if completed_at else None
         except ValueError:
@@ -372,7 +371,7 @@ def undo_operations():
 
 def _build_revert_plan(op_type: str, first_id: int, last_id: int) -> dict:
     """Compute, per journal row, whether and how it can be reverted."""
-    import json as _json  # noqa: PLC0415
+    import json as _json
 
     if op_type not in _REVERTIBLE:
         return {"error": f"'{op_type}' operations cannot be reverted by moving files"}
@@ -503,7 +502,7 @@ def undo_operations_revert():
     rb_db = None
     rb_folder_index: dict[str, Any] = {}  # FolderPath → content row; O(n) build, O(1) lookup
     if op_type == "relocate" and any(i.get("ok") for i in plan["items"]):
-        from db_connection import rekordbox_is_running, write_db  # noqa: PLC0415
+        from db_connection import rekordbox_is_running, write_db
         if rekordbox_is_running():
             return jsonify({"error": "Rekordbox is running — close it before reverting a relocate"}), 409
         try:
@@ -561,7 +560,7 @@ def undo_operations_revert():
                     new_path = old_path
                 else:  # remove_copy — never destroy: park it in the Archive
                     if recovery_dir is None:
-                        from config import ARCHIVE_ROOT  # noqa: PLC0415
+                        from config import ARCHIVE_ROOT
                         stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
                         recovery_dir = Path(str(ARCHIVE_ROOT)) / "Undone Copies" / stamp
                         recovery_dir.mkdir(parents=True, exist_ok=True)
@@ -635,7 +634,7 @@ def undo_database_revert():
     transaction_id = body.get("transaction_id")
     if not transaction_id:
         return jsonify({"error": "Missing 'transaction_id'"}), 400
-        
+
     try:
         from fablegear_database.undo import DatabaseUndoManager
         fg_db = _fg_archive_db()

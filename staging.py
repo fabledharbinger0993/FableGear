@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ def add_items(paths: list[str]) -> list[dict]:
     """Append paths (deduplicates by resolved path). Returns updated list."""
     data = _load()
     existing = {item["path"] for item in data["items"]}
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     for raw in paths:
         p = Path(raw)
         key = str(p)
@@ -81,7 +81,7 @@ def save_batch(name: str) -> dict:
     data = _load()
     data.setdefault("saved_batches", {})[name] = {
         "items": list(data["items"]),
-        "saved_at": datetime.now(timezone.utc).isoformat(),
+        "saved_at": datetime.now(UTC).isoformat(),
     }
     _save(data)
     return data["saved_batches"]

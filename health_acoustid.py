@@ -14,7 +14,7 @@ from pathlib import Path
 
 def _find_fpcalc() -> str | None:
     """Locate fpcalc from $FPCALC / PATH, then common Homebrew locations."""
-    import os  # noqa: PLC0415
+    import os
 
     env_fpcalc = os.environ.get("FPCALC", "").strip()
     if env_fpcalc:
@@ -53,7 +53,7 @@ def _acoustid_module_available() -> bool:
 
 def _acoustid_key_configured() -> bool:
     try:
-        from config import ACOUSTID_API_KEY  # noqa: PLC0415
+        from config import ACOUSTID_API_KEY
     except Exception:
         return False
     if ACOUSTID_API_KEY is None:

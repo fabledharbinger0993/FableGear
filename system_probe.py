@@ -111,7 +111,7 @@ def _hw_cache_store(key: str, value) -> None:
 def _available_ram_gb() -> float:
     """Return currently available (not total installed) RAM in GB, or 0.0 on failure."""
     try:
-        import psutil  # noqa: PLC0415
+        import psutil
         return psutil.virtual_memory().available / (1024 ** 3)
     except Exception:
         return 0.0
@@ -120,7 +120,7 @@ def _available_ram_gb() -> float:
 def _physical_cores() -> int:
     """Return physical CPU core count, or 2 as a conservative fallback."""
     try:
-        import psutil  # noqa: PLC0415
+        import psutil
         return psutil.cpu_count(logical=False) or 2
     except Exception:
         return 2

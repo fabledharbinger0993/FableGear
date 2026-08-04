@@ -32,7 +32,6 @@ if str(REPO_ROOT) not in sys.path:
 
 import key_mapper
 
-
 # ── Fixtures ───────────────────────────────────────────────────────────────
 
 @pytest.fixture(autouse=True)

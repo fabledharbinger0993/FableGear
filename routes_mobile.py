@@ -24,20 +24,20 @@ def _is_user_mount(mountpoint: str) -> bool:
                 and mountpoint[0].upper() not in ("A", "B"))
     return mountpoint.startswith("/media/") or mountpoint.startswith("/mnt/")
 
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, current_app, jsonify, request
 
 from helpers import (
-    limiter,
-    sock,
-    api_error_response,
-    api_error_from_exc,
     _EXPORT_JOBS,
     _EXPORT_LOCK,
-    _MAX_EXPORT_JOBS,
     _MAX_ANALYSIS_JOBS,
-    _evict_old_jobs,
+    _MAX_EXPORT_JOBS,
     _detect_pioneer_drive_layout,
+    _evict_old_jobs,
     _run_export,
+    api_error_from_exc,
+    api_error_response,
+    limiter,
+    sock,
 )
 
 bp = Blueprint("mobile", __name__)
@@ -77,7 +77,7 @@ def _get_mobile_token() -> str:
     Returns empty string if FableGear hasn't been configured yet.
     """
     try:
-        from user_config import load_user_config, save_user_config, config_exists  # noqa: PLC0415
+        from user_config import config_exists, load_user_config, save_user_config
         if not config_exists():
             return ""
         cfg = load_user_config()
@@ -107,7 +107,7 @@ def _read_mobile_token() -> str:
     Falls back to the module-level MOBILE_TOKEN if config can't be read.
     """
     try:
-        from user_config import load_user_config, config_exists  # noqa: PLC0415
+        from user_config import config_exists, load_user_config
         if not config_exists():
             return ""
         cfg = load_user_config()
@@ -118,7 +118,8 @@ def _read_mobile_token() -> str:
 
 # ── Auth gate (fires before every blueprint route) ────────────────────────────
 
-import hmac as _hmac  # noqa: E402
+import hmac as _hmac
+
 
 @bp.before_request
 @limiter.limit("10 per minute")
@@ -157,7 +158,7 @@ def _check_mobile_auth():
 def mobile_ping():
     """Health check for FableGo. No auth required."""
     try:
-        from update_checker import _local_version  # noqa: PLC0415
+        from update_checker import _local_version
         _ver, _ = _local_version()
     except Exception:
         _ver = None
@@ -180,7 +181,7 @@ def api_connectivity():
     import subprocess as _sp
 
     # Best local IP (non-loopback)
-    local_ip: "str | None" = None
+    local_ip: str | None = None
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
@@ -190,7 +191,7 @@ def api_connectivity():
         local_ip = "127.0.0.1"
 
     # Tailscale IP — fast check, 2 s timeout
-    tailscale_ip: "str | None" = None
+    tailscale_ip: str | None = None
     try:
         ts = _sp.run(["tailscale", "ip", "-4"],
                      capture_output=True, text=True, timeout=2)
@@ -200,7 +201,7 @@ def api_connectivity():
         pass
 
     # Mobile auth token
-    token: "str | None" = None
+    token: str | None = None
     try:
         import json as _json
         import pathlib as _pl
@@ -216,7 +217,11 @@ def api_connectivity():
     def _make_styled_qr(payload: str, fill: str = "#ff6600") -> "str | None":
         """Transparent-background SVG QR with a custom fill colour."""
         try:
-            import qrcode, qrcode.image.svg, io, re  # noqa: E401
+            import io
+            import re
+
+            import qrcode
+            import qrcode.image.svg
             qr = qrcode.make(payload,
                              image_factory=qrcode.image.svg.SvgPathImage,
                              box_size=6, border=2)
@@ -230,14 +235,14 @@ def api_connectivity():
         except Exception:
             return None
 
-    qr_svg: "str | None" = None
+    qr_svg: str | None = None
     if token and best_ip:
         qr_svg = _make_styled_qr(
             f"fablego://{best_ip}:5001?token={token}",
             fill="#ff6600",
         )
 
-    qr_pwa_url: "str | None" = None
+    qr_pwa_url: str | None = None
     if best_ip:
         qr_pwa_url = _make_styled_qr(f"http://{best_ip}:5001", fill="#ff6600")
 
@@ -270,7 +275,7 @@ def api_connectivity():
 def mobile_folders():
     """List configured download folders with file counts."""
     try:
-        from user_config import load_user_config  # noqa: PLC0415
+        from user_config import load_user_config
         cfg = load_user_config()
         folders = cfg.get("download_folders", [])
     except Exception:
@@ -303,7 +308,7 @@ def mobile_folder_files(folder_path: str):
     SECURITY: Validates that folder_path stays within MUSIC_ROOT to prevent
     path traversal attacks.
     """
-    from config import MUSIC_ROOT  # noqa: PLC0415
+    from config import MUSIC_ROOT
 
     p = Path("/" + folder_path) if not folder_path.startswith("/") else Path(folder_path)
 
@@ -346,7 +351,7 @@ def mobile_folder_files(folder_path: str):
                 "path":       str(f),
                 "size_bytes": stat.st_size,
                 "modified":   datetime.datetime.fromtimestamp(
-                    stat.st_mtime, tz=datetime.timezone.utc
+                    stat.st_mtime, tz=datetime.UTC
                 ).isoformat(),
             })
     except PermissionError:
@@ -364,7 +369,7 @@ def mobile_download():
     Body: { "url": "...", "destination": "/...", "format": "aiff", "filename": "..." }
     Response: { "job_id": "uuid" }
     """
-    import downloader  # noqa: PLC0415
+    import downloader
     body = request.get_json(force=True, silent=True) or {}
     url = (body.get("url") or "").strip()
     destination = (body.get("destination") or "").strip()
@@ -385,14 +390,14 @@ def mobile_download():
 @bp.route("/api/mobile/jobs")
 def mobile_jobs():
     """Return all download jobs, newest first (capped at 200)."""
-    import downloader  # noqa: PLC0415
+    import downloader
     return jsonify(downloader.get_all_jobs())
 
 
 @bp.route("/api/mobile/jobs/<job_id>")
 def mobile_job(job_id: str):
     """Return a single download job by ID."""
-    import downloader  # noqa: PLC0415
+    import downloader
     job = downloader.get_job(job_id)
     if job is None:
         return jsonify({"error": "not_found"}), 404
@@ -405,7 +410,7 @@ def mobile_cancel_job(job_id: str):
     Cancel a queued or in-progress download job.
     Returns 200 if cancelled, 404 if not found, 409 if already in a terminal state.
     """
-    import downloader  # noqa: PLC0415
+    import downloader
     job = downloader.get_job(job_id)
     if job is None:
         return jsonify({"error": "not_found"}), 404
@@ -423,8 +428,8 @@ def mobile_rekordbox_tracks():
     List tracks in the Rekordbox database.
     Query params: search, sort (date_added|title|artist|bpm), limit, offset.
     """
-    from db_connection import read_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import read_db
 
     search = request.args.get("search", "").strip().lower()
     sort = request.args.get("sort", "date_added")
@@ -494,8 +499,8 @@ def mobile_rekordbox_add_track():
     Body: { "file_path": "/absolute/path/to/track.mp3" }
     Response: { "track_id": "123456", "status": "added" }
     """
-    from db_connection import write_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import write_db
 
     data = request.get_json(silent=True) or {}
     file_path = data.get("file_path", "").strip()
@@ -524,7 +529,7 @@ def mobile_rekordbox_add_track():
     except ValueError as exc:
         if "already exists" in str(exc):
             try:
-                from db_connection import read_db as _read  # noqa: PLC0415
+                from db_connection import read_db as _read
                 with _read(_DB) as db:
                     existing = list(db.get_content())
                     match = next((t for t in existing if t.FolderPath == file_path), None)
@@ -534,7 +539,7 @@ def mobile_rekordbox_add_track():
                 return jsonify({"track_id": "unknown", "status": "already_exists"}), 409
         return api_error_from_exc(exc, status=400, code="invalid_request")
 
-    except RuntimeError as exc:
+    except RuntimeError:
         return api_error_response("Database temporarily unavailable.", status=503, code="service_unavailable")
 
     except Exception as exc:
@@ -553,7 +558,7 @@ def _push_analysis_event(
 ) -> None:
     """Push a WebSocket analysis_update event to all connected FableGo clients."""
     try:
-        import ws_bus  # noqa: PLC0415
+        import ws_bus
         ws_bus.broadcast(json.dumps({
             "type":     "analysis_update",
             "job_id":   job_id,
@@ -572,20 +577,21 @@ def _run_analysis(job_id: str, track_ids: list) -> None:
     Background thread: detect BPM and key for each track, write results
     to file tags and to the Rekordbox DB.
     """
-    from pathlib import Path as _Path  # noqa: PLC0415
-    from audio_processor import process_file  # noqa: PLC0415
-    from db_connection import read_db, write_db  # noqa: PLC0415
-    from key_mapper import resolve_key_id  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from pathlib import Path as _Path
+
+    from audio_processor import process_file
+    from config import LOCAL_DB as _DB
+    from db_connection import read_db, write_db
+    from key_mapper import resolve_key_id
 
     for track_id in track_ids:
         with _ANALYSIS_LOCK:
             _ANALYSIS_JOBS[job_id]["results"][track_id]["status"] = "analyzing"
         _push_analysis_event(job_id, track_id, "analyzing")
 
-        bpm: "float | None" = None
-        key: "str | None" = None
-        db_note: "str | None" = None
+        bpm: float | None = None
+        key: str | None = None
+        db_note: str | None = None
 
         try:
             with read_db(_DB) as db:
@@ -612,7 +618,7 @@ def _run_analysis(job_id: str, track_ids: list) -> None:
                     row = db.get_content(ID=track_id)
                     if row:
                         if bpm is not None:
-                            row.BPM = int(round(bpm * 100))
+                            row.BPM = round(bpm * 100)
                         if key is not None:
                             kid = resolve_key_id(key, db)
                             if kid:
@@ -694,8 +700,8 @@ def mobile_rekordbox_analyze_status(job_id: str):
 @bp.route("/api/mobile/rekordbox/playlists")
 def mobile_rekordbox_playlists():
     """List all non-folder playlists with track count."""
-    from db_connection import read_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import read_db
 
     try:
         with read_db(_DB) as db:
@@ -719,8 +725,8 @@ def mobile_rekordbox_playlists():
 @bp.route("/api/mobile/rekordbox/playlists", methods=["POST"])
 def mobile_rekordbox_create_playlist():
     """Create a new playlist. Body: { "name": "My Playlist" }"""
-    from db_connection import write_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import write_db
 
     data = request.get_json(silent=True) or {}
     name = data.get("name", "").strip()
@@ -732,7 +738,7 @@ def mobile_rekordbox_create_playlist():
             pl = db.create_playlist(name)
             db.commit()
             return jsonify({"playlist_id": str(pl.ID)}), 201
-    except RuntimeError as exc:
+    except RuntimeError:
         return api_error_response("Database temporarily unavailable.", status=503, code="service_unavailable")
     except Exception as exc:
         return api_error_from_exc(exc)
@@ -741,8 +747,8 @@ def mobile_rekordbox_create_playlist():
 @bp.route("/api/mobile/rekordbox/playlists/<playlist_id>")
 def mobile_rekordbox_playlist(playlist_id: str):
     """Get a single playlist with its ordered track list."""
-    from db_connection import read_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import read_db
 
     try:
         with read_db(_DB) as db:
@@ -795,8 +801,8 @@ def mobile_rekordbox_playlist(playlist_id: str):
 @bp.route("/api/mobile/rekordbox/playlists/<playlist_id>", methods=["PUT"])
 def mobile_rekordbox_rename_playlist(playlist_id: str):
     """Rename a playlist. Body: { "name": "New Name" }"""
-    from db_connection import write_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import write_db
 
     data = request.get_json(silent=True) or {}
     name = data.get("name", "").strip()
@@ -811,7 +817,7 @@ def mobile_rekordbox_rename_playlist(playlist_id: str):
             db.rename_playlist(pl, name)
             db.commit()
             return jsonify({"status": "ok"})
-    except RuntimeError as exc:
+    except RuntimeError:
         return api_error_response("Database temporarily unavailable.", status=503, code="service_unavailable")
     except Exception as exc:
         return api_error_from_exc(exc)
@@ -820,8 +826,8 @@ def mobile_rekordbox_rename_playlist(playlist_id: str):
 @bp.route("/api/mobile/rekordbox/playlists/<playlist_id>", methods=["DELETE"])
 def mobile_rekordbox_delete_playlist(playlist_id: str):
     """Delete a playlist (does not delete the tracks themselves)."""
-    from db_connection import write_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import write_db
 
     try:
         with write_db(_DB) as db:
@@ -831,7 +837,7 @@ def mobile_rekordbox_delete_playlist(playlist_id: str):
             db.delete_playlist(pl)
             db.commit()
             return jsonify({"status": "deleted"})
-    except RuntimeError as exc:
+    except RuntimeError:
         return api_error_response("Database temporarily unavailable.", status=503, code="service_unavailable")
     except Exception as exc:
         return api_error_from_exc(exc)
@@ -840,8 +846,8 @@ def mobile_rekordbox_delete_playlist(playlist_id: str):
 @bp.route("/api/mobile/rekordbox/playlists/<playlist_id>/tracks", methods=["POST"])
 def mobile_rekordbox_add_to_playlist(playlist_id: str):
     """Append a track to a playlist. Body: { "track_id": "123456" }"""
-    from db_connection import write_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import write_db
 
     data = request.get_json(silent=True) or {}
     track_id = str(data.get("track_id", "")).strip()
@@ -875,7 +881,7 @@ def mobile_rekordbox_add_to_playlist(playlist_id: str):
             db.add_to_playlist(pl, track, track_no=None)
             db.commit()
             return jsonify({"status": "added"}), 201
-    except RuntimeError as exc:
+    except RuntimeError:
         return api_error_response("Database temporarily unavailable.", status=503, code="service_unavailable")
     except Exception as exc:
         return api_error_from_exc(exc)
@@ -887,8 +893,8 @@ def mobile_rekordbox_add_to_playlist(playlist_id: str):
 )
 def mobile_rekordbox_remove_from_playlist(playlist_id: str, track_id: str):
     """Remove a track from a playlist (does not delete the track from the library)."""
-    from db_connection import write_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import write_db
 
     try:
         with write_db(_DB) as db:
@@ -904,7 +910,7 @@ def mobile_rekordbox_remove_from_playlist(playlist_id: str, track_id: str):
                 removed += 1
             db.commit()
             return jsonify({"status": "removed", "removed": removed})
-    except RuntimeError as exc:
+    except RuntimeError:
         return api_error_response("Database temporarily unavailable.", status=503, code="service_unavailable")
     except Exception as exc:
         return api_error_from_exc(exc)
@@ -916,7 +922,7 @@ def mobile_rekordbox_remove_from_playlist(playlist_id: str, track_id: str):
 def mobile_drives():
     """List mounted Pioneer-compatible drives."""
     try:
-        import psutil  # noqa: PLC0415
+        import psutil
         drives = []
         for part in psutil.disk_partitions():
             mp = part.mountpoint
@@ -1010,7 +1016,7 @@ def mobile_events(ws):
     NOTE: @sock.route registers directly on the app, not the blueprint, so
     @bp.before_request does NOT fire here. Auth is checked manually below.
     """
-    import ws_bus  # noqa: PLC0415
+    import ws_bus
 
     # Manual auth check — blueprint before_request hooks do not fire for
     # routes registered via @sock.route (app-level, not blueprint-level).

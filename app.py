@@ -18,12 +18,13 @@ import json
 import mimetypes
 import os
 import platform
-import psutil
 import signal
 import subprocess
 import sys
 import threading
 from pathlib import Path
+
+import psutil
 from werkzeug.exceptions import NotFound
 
 _SYSTEM = platform.system()  # "Darwin" | "Windows" | "Linux"
@@ -33,15 +34,15 @@ from flask import Flask, Response, jsonify, render_template, render_template_str
 # ── Shared helpers (base layer — no circular imports) ─────────────────────────
 from helpers import (
     REPO_ROOT,
-    limiter,
-    sock,
-    api_error_from_exc,
-    _rb_is_running,
     _backup_info,
+    _rb_is_running,
     _release_info,
     _sse_response,
+    api_error_from_exc,
     get_step_status,
+    limiter,
     list_running_managed_subprocesses,
+    sock,
     terminate_managed_subprocesses,
 )
 
@@ -59,7 +60,7 @@ app = Flask(
 @app.errorhandler(Exception)
 def _handle_unexpected_exception(exc):
     if request.path.startswith("/api/"):
-        import logging as _logging  # noqa: PLC0415
+        import logging as _logging
         _logging.getLogger(__name__).exception(
             "Unhandled exception on %s %s", request.method, request.path
         )
@@ -139,6 +140,7 @@ sock.init_app(app)
 
 # Cache-bust token — changes every server start so WKWebView picks up new assets
 import time as _time
+
 _CACHE_BUST = str(int(_time.time()))
 
 @app.context_processor
@@ -196,11 +198,11 @@ def _enforce_network_boundary():
 
 # ── Blueprints ────────────────────────────────────────────────────────────────
 
-from routes_player     import bp as player_bp      # noqa: E402
-from routes_tools      import bp as tools_bp        # noqa: E402
-from routes_rekordbox  import bp as rekordbox_bp    # noqa: E402
-from routes_mobile     import bp as mobile_bp       # noqa: E402
-from routes_undo       import bp as undo_bp         # noqa: E402
+from routes_mobile import bp as mobile_bp
+from routes_player import bp as player_bp
+from routes_rekordbox import bp as rekordbox_bp
+from routes_tools import bp as tools_bp
+from routes_undo import bp as undo_bp
 
 app.register_blueprint(player_bp)
 app.register_blueprint(tools_bp)
@@ -210,25 +212,36 @@ app.register_blueprint(undo_bp)
 
 # ── Startup side-effects ──────────────────────────────────────────────────────
 
-from brew_updater import (                          # noqa: E402
-    start_background_checker as _start_brew_checker,
+from brew_updater import (
     check_now as _brew_check_now,
+)
+from brew_updater import (
     get_status as _brew_get_status,
 )
+from brew_updater import (
+    start_background_checker as _start_brew_checker,
+)
+
 _start_brew_checker()
 
-from snapshot_scheduler import start_background_scheduler as _start_snapshot_scheduler  # noqa: E402
+from snapshot_scheduler import start_background_scheduler as _start_snapshot_scheduler
+
 _start_snapshot_scheduler()
 
-from update_checker import (                        # noqa: E402
-    start_background_checker as _start_update_checker,
-    get_status as _update_get_status,
+from update_checker import (
     check_now as _update_check_now,
 )
+from update_checker import (
+    get_status as _update_get_status,
+)
+from update_checker import (
+    start_background_checker as _start_update_checker,
+)
+
 _start_update_checker()
 
 try:
-    from config import ensure_archive_structure     # noqa: PLC0415
+    from config import ensure_archive_structure
     ensure_archive_structure()
 except Exception:
     pass  # Drive not mounted yet — non-fatal
@@ -239,7 +252,8 @@ try:
     # seed the archive from an existing local DB on first run. No-ops
     # (returns action="skipped") when the drive isn't mounted — never blocks
     # startup.
-    import logging as _logging  # noqa: PLC0415
+    import logging as _logging
+
     from fablegear_database.archive_sync import startup_sync_check as _archive_startup_sync_check
     _startup_sync_result = _archive_startup_sync_check()
     if not _startup_sync_result.ok:
@@ -252,7 +266,7 @@ try:
             _startup_sync_result.action, _startup_sync_result.reason,
         )
 except Exception:
-    import logging as _logging  # noqa: PLC0415
+    import logging as _logging
     _logging.getLogger(__name__).exception("Archive DB startup sync check failed")
 
 
@@ -262,16 +276,17 @@ def _sync_archive_db_on_exit() -> None:
     interrupted shutdown just means the periodic scheduler
     (snapshot_scheduler) picks it up on its next cadence instead."""
     try:
-        from fablegear_database.archive_sync import sync_db_to_archive  # noqa: PLC0415
+        from fablegear_database.archive_sync import sync_db_to_archive
         sync_db_to_archive()
     except Exception as exc:
-        import logging as _logging  # noqa: PLC0415
+        import logging as _logging
         _logging.getLogger(__name__).warning(
             "Archive DB sync on exit failed (non-fatal — periodic scheduler will retry): %s", exc,
         )
 
 
-import atexit  # noqa: E402
+import atexit
+
 atexit.register(_sync_archive_db_on_exit)
 
 # atexit alone doesn't run on SIGTERM/SIGINT (Python's default handling for
@@ -324,7 +339,7 @@ def _refresh_health_cache(force: bool = False) -> list[dict]:
     Throttled to _HEALTH_TTL unless force=True.
     Thread-safe.
     """
-    import time as _time  # noqa: PLC0415
+    import time as _time
     global _health_cache, _health_refreshed_at
 
     with _health_lock:
@@ -332,7 +347,7 @@ def _refresh_health_cache(force: bool = False) -> list[dict]:
             return _health_cache
 
         try:
-            from health import run_health_checks, auto_heal_safe  # noqa: PLC0415
+            from health import auto_heal_safe, run_health_checks
             findings = run_health_checks()
             healed = auto_heal_safe(findings)
             if healed:
@@ -340,7 +355,7 @@ def _refresh_health_cache(force: bool = False) -> list[dict]:
                 findings = run_health_checks()
             _health_cache = [f.as_dict() for f in findings]
         except Exception as exc:
-            import logging as _logging  # noqa: PLC0415
+            import logging as _logging
             _logging.getLogger(__name__).warning("Health check failed: %s", exc)
             _health_cache = []
 
@@ -422,7 +437,7 @@ _SPLASH_HTML = """\
 
 @app.route("/")
 def index():
-    from flask import redirect as _redirect  # noqa: PLC0415
+    from flask import redirect as _redirect
     ready, reason, _state = _setup_gate_status(repair=True)
     if not ready:
         app.logger.info("Redirecting to onboarding (reason=%s)", reason)
@@ -438,7 +453,7 @@ def splash():
 @app.route("/api/status")
 @limiter.exempt
 def api_status():
-    from user_config import get_drive_status  # noqa: PLC0415
+    from user_config import get_drive_status
     findings = _refresh_health_cache()        # returns cached unless stale
     return jsonify({
         "rb_running": _rb_is_running(),
@@ -476,7 +491,7 @@ def api_health_fix():
         return jsonify({"error": "id is required"}), 400
 
     try:
-        from health import run_health_checks  # noqa: PLC0415
+        from health import run_health_checks
         findings = run_health_checks()
         target = next((f for f in findings if f.id == finding_id), None)
         if not target:
@@ -486,21 +501,25 @@ def api_health_fix():
             new_dir = data.get("path", "").strip()
             if not new_dir:
                 return jsonify({"error": "path is required for move_backup_dir"}), 400
-            from user_config import load_user_config, save_user_config  # noqa: PLC0415
+            from user_config import load_user_config, save_user_config
             new_path = Path(new_dir)
             new_path.mkdir(parents=True, exist_ok=True)
             cfg = load_user_config()
             cfg["backup_dir"] = str(new_path)
             save_user_config(cfg)
             # Reload config module so BACKUP_DIR and friends pick up the new path
-            import importlib, config as _config_mod  # noqa: PLC0415, E401
+            import importlib
+
+            import config as _config_mod
             importlib.reload(_config_mod)
             _refresh_health_cache(force=True)
             return jsonify({"ok": True, "message": f"Backup directory moved to {new_path}"})
 
         if action == "create_backup_dir" and target.auto_fixable and target.auto_fix_fn:
             target.auto_fix_fn()
-            import importlib, config as _config_mod  # noqa: PLC0415, E401
+            import importlib
+
+            import config as _config_mod
             importlib.reload(_config_mod)
             _refresh_health_cache(force=True)
             return jsonify({"ok": True, "message": "Backup directory created"})
@@ -518,14 +537,23 @@ def api_health_fix():
 @app.route("/api/config")
 def api_config():
     """Expose the configured default paths so the UI can pre-fill forms."""
-    from helpers import _current_fablegear_mode, _backup_dir  # noqa: PLC0415
+    from helpers import _backup_dir, _current_fablegear_mode
     try:
-        from config import (  # noqa: PLC0415
-            DEVICE_DB, LOCAL_DB, MUSIC_ROOT, ARCHIVE_ROOT, SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR,
-            BACKUP_DIR, ARCHIVE_ENABLED, SNAPSHOT_CADENCE, SNAPSHOT_INCLUDE_MASTER_DB,
-            _archive_mode, _custom_archive,
+        from config import (
+            ARCHIVE_ENABLED,
+            ARCHIVE_ROOT,
+            BACKUP_DIR,
+            DEVICE_DB,
+            LOCAL_DB,
+            MUSIC_ROOT,
+            QUARANTINE_DIR,
+            REPORTS_DIR,
+            SNAPSHOT_CADENCE,
+            SNAPSHOT_INCLUDE_MASTER_DB,
+            _archive_mode,
+            _custom_archive,
         )
-        from user_config import load_user_config as _luc  # noqa: PLC0415
+        from user_config import load_user_config as _luc
         _ucfg = _luc()
         current_mode = _current_fablegear_mode()
         return jsonify({
@@ -581,7 +609,7 @@ def api_state():
 def api_setup_archive():
     """Create the FableGear Archive folder structure on the DJ drive."""
     try:
-        from config import ensure_archive_structure  # noqa: PLC0415
+        from config import ensure_archive_structure
         ensure_archive_structure()
         return jsonify({"ok": True})
     except Exception as exc:
@@ -592,15 +620,16 @@ def api_setup_archive():
 def api_settings():
     """Save archive mode and custom path to user config."""
     try:
-        from user_config import (  # noqa: PLC0415
+        import json as _json
+
+        from user_config import (
+            CONFIG_PATH,
+            IMPORT_TARGET_CHOICES,
+            _coerce_bool,
             archive_root_for_music_root,
             load_user_config,
-            CONFIG_PATH,
             normalize_snapshot_cadence,
-            _coerce_bool,
-            IMPORT_TARGET_CHOICES,
         )
-        import json as _json
         data = request.get_json(force=True) or {}
         cfg = load_user_config()
         raw_archive_mode = data.get("archive_mode")
@@ -807,7 +836,7 @@ def api_brew_upgrade():
             mimetype="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
-    cmd = ["brew", "upgrade"] + names
+    cmd = ["brew", "upgrade", *names]
     return _sse_response(cmd)
 
 
@@ -925,9 +954,9 @@ def _is_browseable_path(p: Path) -> bool:
     a tool. Only OS-internal trees are excluded; see forbidden_browse_reason().
     """
     try:
-        from path_guard import forbidden_browse_reason  # noqa: PLC0415
+        from path_guard import forbidden_browse_reason
     except ImportError:  # imported via the chop_shop package
-        from chop_shop.path_guard import forbidden_browse_reason  # noqa: PLC0415
+        from chop_shop.path_guard import forbidden_browse_reason
     return forbidden_browse_reason(p) is None
 
 
@@ -935,7 +964,7 @@ def _mounted_volumes() -> list:
     """Return info about user-accessible mounts. Platform-aware."""
     vols = []
     try:
-        from config import MUSIC_ROOT as _MR  # noqa: PLC0415
+        from config import MUSIC_ROOT as _MR
         music_root_str = str(_MR)
         for part in psutil.disk_partitions(all=False):
             mp = part.mountpoint
@@ -1064,13 +1093,13 @@ def api_fs_list():
 
 @app.route("/api/staging", methods=["GET"])
 def api_staging_get():
-    from staging import get_items  # noqa: PLC0415
+    from staging import get_items
     return jsonify(get_items())
 
 
 @app.route("/api/staging/add", methods=["POST"])
 def api_staging_add():
-    from staging import add_items  # noqa: PLC0415
+    from staging import add_items
     data = request.get_json(silent=True) or {}
     paths = data.get("paths", [])
     if not isinstance(paths, list):
@@ -1080,7 +1109,7 @@ def api_staging_add():
 
 @app.route("/api/staging/remove", methods=["POST"])
 def api_staging_remove():
-    from staging import remove_item  # noqa: PLC0415
+    from staging import remove_item
     data = request.get_json(silent=True) or {}
     path = data.get("path", "")
     if not path:
@@ -1090,19 +1119,19 @@ def api_staging_remove():
 
 @app.route("/api/staging/clear", methods=["POST"])
 def api_staging_clear():
-    from staging import clear_items  # noqa: PLC0415
+    from staging import clear_items
     return jsonify(clear_items())
 
 
 @app.route("/api/staging/batch", methods=["GET"])
 def api_staging_batch_list():
-    from staging import list_batches  # noqa: PLC0415
+    from staging import list_batches
     return jsonify(list_batches())
 
 
 @app.route("/api/staging/batch/save", methods=["POST"])
 def api_staging_batch_save():
-    from staging import save_batch  # noqa: PLC0415
+    from staging import save_batch
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     if not name:
@@ -1112,7 +1141,7 @@ def api_staging_batch_save():
 
 @app.route("/api/staging/batch/load", methods=["POST"])
 def api_staging_batch_load():
-    from staging import load_batch  # noqa: PLC0415
+    from staging import load_batch
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     if not name:
@@ -1122,7 +1151,7 @@ def api_staging_batch_load():
 
 @app.route("/api/staging/batch/delete", methods=["POST"])
 def api_staging_batch_delete():
-    from staging import delete_batch  # noqa: PLC0415
+    from staging import delete_batch
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     if not name:
@@ -1185,7 +1214,7 @@ def _load_setup_state(*, repair: bool = True) -> dict:
             _FABLEGEAR_STATE.parent.mkdir(parents=True, exist_ok=True)
             _FABLEGEAR_STATE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
         except OSError as exc:
-            import logging as _logging  # noqa: PLC0415
+            import logging as _logging
             _logging.getLogger(__name__).warning(
                 "Could not persist repaired setup-state file %s: %s", _FABLEGEAR_STATE, exc,
             )
@@ -1203,7 +1232,7 @@ def _setup_gate_status(*, repair: bool = True) -> tuple[bool, str, dict]:
       - config_check_failed
       - setup_incomplete
     """
-    from user_config import config_exists  # noqa: PLC0415
+    from user_config import config_exists
 
     state = _load_setup_state(repair=repair)
 
@@ -1236,7 +1265,7 @@ def api_setup_status():
 def api_set_music_root():
     """Update music_root in ~/.fablegear/config.json."""
     try:
-        from user_config import load_user_config, save_user_config  # noqa: PLC0415
+        from user_config import load_user_config, save_user_config
         data = request.get_json(silent=True) or {}
         path = str(data.get("path", "")).strip()
         if not path:
@@ -1257,7 +1286,7 @@ def api_drives_autodetect():
     can confirm and apply them with one click via /api/drives/apply-fix.
     Works on macOS, Windows, and Linux.
     """
-    from user_config import discover_music_roots  # noqa: PLC0415
+    from user_config import discover_music_roots
 
     device_db_candidates: list[str] = []
 
@@ -1292,8 +1321,9 @@ def api_drives_apply_fix():
     Safe to call with partial updates — only provided keys are changed.
     """
     try:
-        from user_config import CONFIG_FILE, REQUIRED_KEYS, DEFAULTS  # noqa: PLC0415
-        import json as _json  # noqa: PLC0415
+        import json as _json
+
+        from user_config import CONFIG_FILE, DEFAULTS, REQUIRED_KEYS
 
         data = request.get_json(silent=True) or {}
         patchable = {"local_db", "device_db", "music_root", "backup_dir"}
@@ -1374,7 +1404,7 @@ def api_drives_first_aid():
 @app.route("/onboarding")
 def onboarding():
     """Serve the first-run setup wizard."""
-    from flask import redirect as _redirect  # noqa: PLC0415
+    from flask import redirect as _redirect
     ready, reason, _state = _setup_gate_status(repair=True)
     already_configured = bool(ready)
 
@@ -1393,7 +1423,7 @@ def onboarding():
 @app.route("/api/onboarding/dep-check")
 def api_onboarding_dep_check():
     """Return dependency check results for the onboarding wizard."""
-    from user_config import check_dependencies  # noqa: PLC0415
+    from user_config import check_dependencies
     deps = check_dependencies()
     return jsonify({
         "deps": deps,
@@ -1416,7 +1446,7 @@ def api_onboarding_install_deps():
 
 def _pin_to_dock(app_path: str) -> None:
     """Add *app_path* to the macOS Dock persistent-apps list."""
-    import plistlib  # noqa: PLC0415
+    import plistlib
     dock_plist = Path.home() / "Library" / "Preferences" / "com.apple.dock.plist"
     try:
         with open(dock_plist, "rb") as _f:
@@ -1446,8 +1476,8 @@ def _pin_to_dock(app_path: str) -> None:
 @app.route("/api/onboarding/install-app", methods=["POST"])
 def api_onboarding_install_app():
     """Build FableGear.app in ~/Applications using osacompile and optionally pin to Dock."""
-    import tempfile  # noqa: PLC0415
-    import shutil   # noqa: PLC0415
+    import shutil
+    import tempfile
 
     data = request.get_json(silent=True) or {}
     add_to_dock = bool(data.get("dock", True))
@@ -1523,7 +1553,7 @@ def api_onboarding_install_app():
 @app.route("/api/onboarding/scan-library")
 def api_onboarding_scan_library():
     """Scan local machine and mounted volumes for Rekordbox assets."""
-    from user_config import scan_for_rekordbox_assets  # noqa: PLC0415
+    from user_config import scan_for_rekordbox_assets
     return jsonify(scan_for_rekordbox_assets())
 
 
@@ -1556,8 +1586,8 @@ def api_onboarding_import_sources():
         _OB_IMPORT.update(running=True, phase="scanning", done=0, total=0,
                           result=None, error=None)
         try:
-            from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
-            from fablegear_database.importer import FileImporter  # noqa: PLC0415
+            from fablegear_database.database import FableGearDatabase
+            from fablegear_database.importer import FileImporter
 
             def _progress(done, total):
                 _OB_IMPORT.update(phase="importing", done=done, total=total)
@@ -1566,7 +1596,7 @@ def api_onboarding_import_sources():
             _OB_IMPORT["result"] = FileImporter(db).import_files(
                 roots, progress_callback=_progress
             )
-        except Exception as exc:  # noqa: BLE001 — surfaced to the wizard UI
+        except Exception as exc:
             _OB_IMPORT["error"] = str(exc)
         finally:
             _OB_IMPORT.update(running=False, phase="done")
@@ -1615,12 +1645,12 @@ def api_onboarding_open_fda_prefs():
 @app.route("/api/onboarding/save-config", methods=["POST"])
 def api_onboarding_save_config():
     """Save confirmed paths to config.json and mark setup complete."""
-    from user_config import (  # noqa: PLC0415
+    from user_config import (
         DEFAULTS,
-        archive_root_for_music_root,
-        save_user_config,
-        normalize_snapshot_cadence,
         _coerce_bool,
+        archive_root_for_music_root,
+        normalize_snapshot_cadence,
+        save_user_config,
     )
 
     data = request.get_json(silent=True) or {}
@@ -1698,14 +1728,14 @@ def api_quit():
 @app.route("/api/mcp/status")
 def api_mcp_status():
     """Return current MCP server status and config."""
-    from user_config import load_user_config, MCP_PORT_DEFAULT  # noqa: PLC0415
+    from user_config import MCP_PORT_DEFAULT, load_user_config
     try:
         cfg = load_user_config()
     except Exception:
         cfg = {}
 
     try:
-        from mcp_server import get_embedded_status  # noqa: PLC0415
+        from mcp_server import get_embedded_status
         status = get_embedded_status()
     except Exception:
         status = {"running": False, "host": None, "port": None, "dev_mode": False, "url": None}
@@ -1720,10 +1750,14 @@ def api_mcp_status():
 @app.route("/api/mcp/start", methods=["POST"])
 def api_mcp_start():
     """Start the embedded MCP server."""
-    from user_config import (  # noqa: PLC0415
-        load_user_config, enable_mcp, save_user_config, find_available_mcp_port, NotConfiguredError,
+    from mcp_server import is_running, start_embedded
+    from user_config import (
+        NotConfiguredError,
+        enable_mcp,
+        find_available_mcp_port,
+        load_user_config,
+        save_user_config,
     )
-    from mcp_server import start_embedded, is_running  # noqa: PLC0415
 
     if is_running():
         return jsonify({"ok": True, "message": "Already running"})
@@ -1758,7 +1792,7 @@ def api_mcp_start():
 @app.route("/api/mcp/stop", methods=["POST"])
 def api_mcp_stop():
     """Stop the embedded MCP server."""
-    from mcp_server import stop_embedded  # noqa: PLC0415
+    from mcp_server import stop_embedded
     was_running = stop_embedded()
     return jsonify({"ok": True, "was_running": was_running})
 
@@ -1766,8 +1800,11 @@ def api_mcp_stop():
 @app.route("/api/mcp/enable", methods=["POST"])
 def api_mcp_enable():
     """Enable MCP and configure it. Body: {autostart?, expose?}"""
-    from user_config import (  # noqa: PLC0415
-        load_user_config, enable_mcp, save_user_config, NotConfiguredError,
+    from user_config import (
+        NotConfiguredError,
+        enable_mcp,
+        load_user_config,
+        save_user_config,
     )
     try:
         cfg = load_user_config()
@@ -1796,8 +1833,8 @@ def api_mcp_enable():
 @app.route("/api/mcp/disable", methods=["POST"])
 def api_mcp_disable():
     """Disable MCP. Stops the server if running."""
-    from user_config import load_user_config, save_user_config  # noqa: PLC0415
-    from mcp_server import stop_embedded  # noqa: PLC0415
+    from mcp_server import stop_embedded
+    from user_config import load_user_config, save_user_config
 
     stop_embedded()
     try:
@@ -1815,7 +1852,7 @@ def api_mcp_config_snippet():
     """Return a ready-to-paste config snippet for the given client.
     Query param: ?client=claude-desktop|claude-code|cursor|generic
     """
-    from user_config import load_user_config, mcp_config_snippet  # noqa: PLC0415
+    from user_config import load_user_config, mcp_config_snippet
     client = request.args.get("client", "generic")
     try:
         cfg = load_user_config()

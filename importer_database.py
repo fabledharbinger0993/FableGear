@@ -12,9 +12,10 @@ This provides:
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 try:
     from fablegear_database import FableGearDatabase, FileImporter
@@ -37,8 +38,8 @@ class ImportReport:
     skipped_files: int = 0
     error_files: int = 0
     rekordbox_exported: int = 0
-    errors: List[str] = None
-    
+    errors: list[str] = None
+
     def __post_init__(self):
         if self.errors is None:
             self.errors = []
@@ -49,28 +50,28 @@ def import_directory_database_first(
     *,
     batch_size: int = BATCH_SIZE,
     export_to_rekordbox: bool = True,
-    progress_callback: Optional[callable] = None,
+    progress_callback: Callable | None = None,
     force_refresh: bool = False,
 ) -> ImportReport:
     """
     Import directory using database-first approach.
-    
+
     This function uses the FableGear database as the primary import target,
     providing fast and reliable file indexing with optional export to
     Rekordbox for compatibility.
-    
+
     Args:
         root: Directory to import
         batch_size: Batch size for operations
         export_to_rekordbox: Whether to export to Rekordbox database
         progress_callback: Optional callback for progress updates
         force_refresh: Force re-import of existing files
-        
+
     Returns:
         ImportReport with import statistics
     """
     report = ImportReport()
-    
+
     if not DATABASE_AVAILABLE:
         log.warning("Database not available, use legacy import_directory")
         # Fallback to legacy import
@@ -81,30 +82,30 @@ def import_directory_database_first(
         report.new_files = legacy_report.added_count
         report.error_files = legacy_report.error_count
         return report
-    
+
     try:
         # Initialize database
         db = FableGearDatabase()
         importer = FileImporter(db)
-        
+
         # Import files to FableGear database
         def progress_handler(current, total):
             if progress_callback:
                 progress_callback(current, total)
-        
+
         import_stats = importer.import_files(
             root_paths=[root],
             progress_callback=progress_handler,
             force_refresh=force_refresh,
         )
-        
+
         report.total_files = import_stats["total_files"]
         report.new_files = import_stats["new_files"]
         report.updated_files = import_stats["updated_files"]
         report.skipped_files = import_stats["skipped_files"]
         report.error_files = import_stats["error_files"]
         report.errors = import_stats["errors"]
-        
+
         if report.new_files > 0 or report.updated_files > 0:
             try:
                 from fablegear_database.undo import DatabaseUndoManager
@@ -123,7 +124,7 @@ def import_directory_database_first(
             report.skipped_files,
             report.error_files
         )
-        
+
         # Export to Rekordbox if requested — writes directly into the real
         # Rekordbox master.db via sync_fablegear_to_rekordbox(), which itself
         # goes through db_connection.write_db() (Rekordbox-closed check +
@@ -141,9 +142,9 @@ def import_directory_database_first(
             except Exception as exc:
                 log.error("Rekordbox sync failed: %s", exc)
                 report.errors.append(f"Rekordbox sync failed: {exc}")
-        
+
         return report
-        
+
     except Exception as exc:
         log.error("Database-first import failed: %s", exc)
         report.errors.append(f"Import failed: {exc}")
@@ -151,38 +152,42 @@ def import_directory_database_first(
 
 
 def import_multi_drive_database_first(
-    roots: List[Path],
+    roots: list[Path],
     *,
     batch_size: int = BATCH_SIZE,
     export_to_rekordbox: bool = True,
-    progress_callback: Optional[callable] = None,
+    progress_callback: Callable | None = None,
     force_refresh: bool = False,
 ) -> ImportReport:
     """
     Import multiple drives using database-first approach.
-    
+
     This function handles importing from multiple drive locations
     in a single session, as required by the enhancement specification.
-    
+
     Args:
         roots: List of directories to import
         batch_size: Batch size for operations
         export_to_rekordbox: Whether to export to Rekordbox database
         progress_callback: Optional callback for progress updates
         force_refresh: Force re-import of existing files
-        
+
     Returns:
         ImportReport with combined statistics
     """
     combined_report = ImportReport()
-    
+
     for i, root in enumerate(roots):
         log.info("Importing drive %d/%d: %s", i + 1, len(roots), root)
-        
-        def drive_progress(current, total):
+
+        # `i` is bound as a default so the closure captures this iteration's
+        # value. It is called synchronously below, so today the late-binding
+        # would be harmless — but imports also run on background threads here,
+        # and a deferred call would report the wrong drive index.
+        def drive_progress(current, total, i=i):
             if progress_callback:
                 progress_callback(current, total, i, len(roots))
-        
+
         report = import_directory_database_first(
             root,
             batch_size=batch_size,
@@ -190,7 +195,7 @@ def import_multi_drive_database_first(
             progress_callback=drive_progress,
             force_refresh=force_refresh,
         )
-        
+
         # Combine reports
         combined_report.total_files += report.total_files
         combined_report.new_files += report.new_files
@@ -199,7 +204,7 @@ def import_multi_drive_database_first(
         combined_report.error_files += report.error_files
         combined_report.rekordbox_exported += report.rekordbox_exported
         combined_report.errors.extend(report.errors)
-    
+
     log.info(
         "Multi-drive import complete: %d total, %d new, %d updated, %d skipped, %d errors",
         combined_report.total_files,
@@ -208,41 +213,41 @@ def import_multi_drive_database_first(
         combined_report.skipped_files,
         combined_report.error_files
     )
-    
+
     return combined_report
 
 
 def sync_fablegear_to_rekordbox(
-    db: Optional[FableGearDatabase] = None,
-) -> Dict[str, Any]:
+    db: FableGearDatabase | None = None,
+) -> dict[str, Any]:
     """
     Sync FableGear database to Rekordbox database.
-    
+
     Loads new/updated tracks from FableGear database and writes them
     directly into the Rekordbox SQLite database using pyrekordbox.
-    
+
     Args:
         db: FableGear database instance (default: create new)
-        
+
     Returns:
         Dictionary with sync statistics
     """
     if db is None:
         db = FableGearDatabase()
-    
+
     stats = {
         "total_exported": 0,
         "errors": [],
     }
-    
+
     try:
-        from db_connection import write_db
         from config import LOCAL_DB
-        from scanner import TrackInfo
+        from db_connection import write_db
         from importer import _import_track, clear_caches
-        
+        from scanner import TrackInfo
+
         clear_caches()
-        
+
         with write_db(LOCAL_DB) as rdb:
             # Load existing FolderPaths in Rekordbox to avoid redundant imports
             existing_paths = {row.FolderPath for row in rdb.get_content().all()}
@@ -298,9 +303,9 @@ def sync_fablegear_to_rekordbox(
                 rdb.commit()
 
                 offset += limit
-                
+
     except Exception as exc:
         stats["errors"].append(f"Sync failed: {exc}")
         log.error("FableGear to Rekordbox sync failed: %s", exc)
-    
+
     return stats

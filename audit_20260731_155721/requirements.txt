@@ -1,0 +1,72 @@
+# rekordbox-toolkit Python dependencies
+#
+# Install with: pip install -r requirements.txt
+#
+# System binaries required separately (see README):
+#   macOS:   brew install ffmpeg chromaprint
+#   Windows: winget install ffmpeg  (fpcalc: https://acoustid.org/chromaprint)
+#
+# pyrekordbox 0.4.4 is the tested version. The add_content, add_to_playlist,
+# and update_content_path call signatures are version-sensitive — test after
+# any pyrekordbox upgrade before distributing a new release.
+
+flask>=3.0
+flask-sock>=0.7
+flask-limiter>=3.5
+werkzeug>=3.0
+# Web framework — routes, SSE streaming, JSON responses, rate limiting.
+# werkzeug is a Flask dependency but is imported directly in app.py.
+
+waitress>=3.0
+# Production WSGI server (Automator-safe: no stdout bleed unlike dev server)
+
+numpy>=1.26
+# Required by librosa for audio analysis
+
+pyrekordbox==0.4.4
+# Pin any pyrekordbox upgrade before distributing a new release.
+
+mutagen==1.47
+# Audio tag reading and writing
+
+librosa>=0.10.2
+# Key detection, chroma analysis, waveform generation, and the BPM fallback.
+# Always required: essentia is the accuracy upgrade, librosa is the floor that
+# works on every platform.
+
+# essentia is deliberately NOT listed here — see requirements_optional.txt.
+# Its wheel coverage is narrow enough that a hard dependency would abort this
+# entire install on a supported machine, so it is installed best-effort.
+
+soundfile>=0.12.1
+# Audio file I/O — sf.info() for source bit-depth detection and for verifying
+# normalisation output
+
+psutil>=5.9
+# System info: disk partitions and usage for the drives panel in app.py
+
+pyacoustid==1.3
+# Acoustic fingerprinting wrapper; requires fpcalc binary (see above)
+
+yt-dlp>=2024.1
+# Audio download from Bandcamp, Beatport, Soundcloud, and direct URLs.
+# Requires ffmpeg (already a system dep) for post-download format conversion.
+
+qrcode>=7.4
+# QR code generation for the FableGo pairing panel (SVG output is built in;
+# the old [svg] extra was removed in qrcode 8.x). No Pillow needed.
+
+mcp>=1.0
+# Anthropic Model Context Protocol SDK — used by mcp_server.py to expose
+# FableGear tools to Claude Desktop, Cursor, Windsurf, and other MCP clients.
+# Supports both stdio transport (local agents) and SSE transport (HTTP clients).
+
+pywebview>=5.0
+# Native OS window (WKWebView on macOS) — replaces the browser launch step.
+# Enables real drag-and-drop path delivery and a proper .app experience.
+
+# pytest lives in requirements-dev.txt — it is a development tool and every
+# end user was installing it (and its dependencies) for no reason.
+
+# PyQt5 removed — splash_player.py was dead code, never invoked by launch.sh
+# pyinstaller removed — build-only tool, see requirements_build.txt

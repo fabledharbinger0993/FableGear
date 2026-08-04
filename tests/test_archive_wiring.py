@@ -154,8 +154,8 @@ def test_relocate_with_archive_logs_operations(archive, tmp_path):
     then tries to access r.old_path again, causing a second AttributeError that
     propagates out.
     """
+
     from relocator import relocate_directory
-    from pathlib import Path
 
     # Set up minimal Rekordbox db mock
     class MockQuery:

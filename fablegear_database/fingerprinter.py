@@ -24,8 +24,9 @@ chop_shop.duplicate_detector.fingerprint_file (no parallel mechanism).
 """
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from .database import FableGearDatabase
 
@@ -38,7 +39,7 @@ class LibraryFingerprinter:
     def __init__(
         self,
         database: FableGearDatabase,
-        fingerprint_fn: Optional[Callable[[Path], Optional[str]]] = None,
+        fingerprint_fn: Callable[[Path], str | None] | None = None,
     ):
         """
         Args:
@@ -50,17 +51,17 @@ class LibraryFingerprinter:
         self.database = database
         self._fingerprint_fn = fingerprint_fn
 
-    def _fp(self, path: Path) -> Optional[str]:
+    def _fp(self, path: Path) -> str | None:
         if self._fingerprint_fn is None:
-            from chop_shop.duplicate_detector import fingerprint_file  # noqa: PLC0415
+            from chop_shop.duplicate_detector import fingerprint_file
             self._fingerprint_fn = fingerprint_file
         return self._fingerprint_fn(path)
 
     def fingerprint_missing(
         self,
         limit: int = 1_000_000,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
-    ) -> Dict[str, Any]:
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> dict[str, Any]:
         """
         Fingerprint every record that has no fingerprint yet, persisting each
         result and logging it. Safe to re-run and to interrupt.
@@ -96,7 +97,7 @@ class LibraryFingerprinter:
                         error_message="no fingerprint produced",
                     )
                     stats["failed"] += 1
-            except Exception as exc:  # noqa: BLE001 — never abort the batch
+            except Exception as exc:
                 stats["failed"] += 1
                 self.database.log_operation(
                     "fingerprint", rec.file_path, status="failed",
@@ -116,8 +117,8 @@ class LibraryFingerprinter:
     def duplicate_groups(
         self,
         compute_missing: bool = True,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
-    ) -> Dict[str, List[List[int]]]:
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> dict[str, list[list[int]]]:
         """
         Return duplicate groups read FROM the Archive.
 

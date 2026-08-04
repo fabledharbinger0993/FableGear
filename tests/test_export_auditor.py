@@ -23,10 +23,11 @@ for p in (REPO_ROOT, REPO_ROOT / "chop_shop"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-from export_auditor import audit_export  # noqa: E402
-from usb_inspector import NotAMountError  # noqa: E402
-from fablegear_database.database import FableGearDatabase, ContentRecord  # noqa: E402
-from fablegear_database.schema import DatabaseConfig  # noqa: E402
+from export_auditor import audit_export
+from usb_inspector import NotAMountError
+
+from fablegear_database.database import ContentRecord, FableGearDatabase
+from fablegear_database.schema import DatabaseConfig
 
 
 def _anlz_tag(fourcc: bytes, body: bytes, len_header: int = 12) -> bytes:
@@ -45,7 +46,7 @@ def _ppth_tag(path: str) -> bytes:
 def _pqtz_tag(beats) -> bytes:
     body = struct.pack(">III", 0, 0, len(beats))
     for beat_no, tempo_bpm, time_ms in beats:
-        body += struct.pack(">HHI", beat_no, int(round(tempo_bpm * 100)), time_ms)
+        body += struct.pack(">HHI", beat_no, round(tempo_bpm * 100), time_ms)
     return _anlz_tag(b"PQTZ", body)
 
 

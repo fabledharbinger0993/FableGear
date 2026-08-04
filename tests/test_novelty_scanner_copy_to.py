@@ -25,7 +25,7 @@ CHOP_SHOP = REPO_ROOT / "chop_shop"
 if str(CHOP_SHOP) not in sys.path:
     sys.path.insert(0, str(CHOP_SHOP))
 
-from novelty_scanner import scan_novel  # noqa: E402
+from novelty_scanner import scan_novel
 
 
 def _write(path: Path, content: bytes = b"not-real-audio-but-thats-fine") -> Path:

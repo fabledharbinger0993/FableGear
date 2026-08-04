@@ -12,7 +12,7 @@ import logging
 import shutil
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -29,11 +29,11 @@ _status = {
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _state_path() -> Path:
-    from config import SNAPSHOT_STATE_FILE  # noqa: PLC0415
+    from config import SNAPSHOT_STATE_FILE
     return SNAPSHOT_STATE_FILE
 
 
@@ -68,7 +68,7 @@ def _save_state(payload: dict) -> None:
 
 
 def _snapshot_master_db(timestamp: str) -> str:
-    from config import BACKUP_DIR, LOCAL_DB  # noqa: PLC0415
+    from config import BACKUP_DIR, LOCAL_DB
 
     if not LOCAL_DB.exists():
         raise RuntimeError(f"Local Rekordbox DB not found at {LOCAL_DB}")
@@ -79,8 +79,8 @@ def _snapshot_master_db(timestamp: str) -> str:
 
 
 def _snapshot_device_db() -> str:
-    from db_connection import _backup_db  # noqa: PLC0415
-    from config import DEVICE_DB  # noqa: PLC0415
+    from config import DEVICE_DB
+    from db_connection import _backup_db
 
     return str(_backup_db(DEVICE_DB))
 
@@ -91,7 +91,7 @@ def _sync_fablegear_db() -> str | None:
     database, not Rekordbox's, so it isn't gated by rekordbox_is_running().
     Returns the archive destination path on an actual sync, None on a
     no-op (drive unmounted, archive disabled, nothing to sync yet)."""
-    from fablegear_database.archive_sync import sync_db_to_archive  # noqa: PLC0415
+    from fablegear_database.archive_sync import sync_db_to_archive
 
     result = sync_db_to_archive()
     if not result.ok:
@@ -102,8 +102,8 @@ def _sync_fablegear_db() -> str | None:
 
 
 def _perform_snapshot() -> dict:
-    from config import SNAPSHOT_INCLUDE_MASTER_DB, SNAPSHOT_INTERVAL_SECONDS  # noqa: PLC0415
-    from db_connection import rekordbox_is_running  # noqa: PLC0415
+    from config import SNAPSHOT_INCLUDE_MASTER_DB, SNAPSHOT_INTERVAL_SECONDS
+    from db_connection import rekordbox_is_running
 
     timestamp = _now().strftime("%Y%m%d_%H%M%S")
     paths: list[str] = []
@@ -181,7 +181,7 @@ def _due(last_run: str | None, interval_seconds: int) -> bool:
     except ValueError:
         return True
     if then.tzinfo is None:
-        then = then.replace(tzinfo=timezone.utc)
+        then = then.replace(tzinfo=UTC)
     return (_now() - then).total_seconds() >= interval_seconds
 
 
@@ -189,7 +189,7 @@ def _background_loop() -> None:
     time.sleep(_STARTUP_DELAY)
     while True:
         try:
-            from config import SNAPSHOT_INTERVAL_SECONDS  # noqa: PLC0415
+            from config import SNAPSHOT_INTERVAL_SECONDS
         except Exception as exc:
             log.warning("snapshot_scheduler: config unavailable — %s", exc)
             time.sleep(_POLL_INTERVAL)

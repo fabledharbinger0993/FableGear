@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: FableGear (Claude + Marshall Guthrie)
 """
 playlist_recovery.py — reconstruct a DJ's playlists ("crates") from the
@@ -31,10 +30,8 @@ Public interface:
 import logging
 import os
 import re
-import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
 
 # Trailing Rekordbox duplicate-name suffix, e.g. "best of house (2)" / "  (3)".
 _NUM_SUFFIX = re.compile(r"\s*\(\d+\)\s*$")
@@ -52,12 +49,12 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class CrateTrack:
-    title: Optional[str] = None
-    artist: Optional[str] = None
-    filename: Optional[str] = None       # basename of the export path
-    source_path: Optional[str] = None    # path as recorded in the export
+    title: str | None = None
+    artist: str | None = None
+    filename: str | None = None       # basename of the export path
+    source_path: str | None = None    # path as recorded in the export
     order: int = 0
-    content_id: Optional[int] = None     # resolved FableGear archive id (or None)
+    content_id: int | None = None     # resolved FableGear archive id (or None)
 
     @property
     def key(self) -> str:
@@ -71,8 +68,8 @@ class CrateTrack:
 @dataclass
 class RecoveredCrate:
     name: str
-    tracks: List[CrateTrack] = field(default_factory=list)
-    sources: List[str] = field(default_factory=list)
+    tracks: list[CrateTrack] = field(default_factory=list)
+    sources: list[str] = field(default_factory=list)
 
     @property
     def norm_name(self) -> str:
@@ -95,20 +92,20 @@ class ResolutionStats:
 
 @dataclass
 class RecoveryReport:
-    sources: List[ExportSource] = field(default_factory=list)
-    crates: List[RecoveredCrate] = field(default_factory=list)
+    sources: list[ExportSource] = field(default_factory=list)
+    crates: list[RecoveredCrate] = field(default_factory=list)
     resolution: ResolutionStats = field(default_factory=ResolutionStats)
-    notes: List[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
 
 _EXPORT_NAMES = ("exportLibrary.db", "export.pdb", "master.db")
 
 
-def find_export_sources(roots) -> List[ExportSource]:
+def find_export_sources(roots) -> list[ExportSource]:
     """Find every exportLibrary.db / export.pdb under the given roots. When a
     PIONEER/rekordbox/ dir has both, prefer the OneLibrary DB (richer) and skip
     the sibling pdb. A root may also be a direct path to an export file."""
-    found: Dict[str, ExportSource] = {}
+    found: dict[str, ExportSource] = {}
     pdb_dirs_with_onelib = set()
     def _kind(name: str) -> str:
         return {"exportLibrary.db": "onelibrary", "export.pdb": "pdb",
@@ -150,12 +147,13 @@ def _mtime(p) -> float:
 
 # ── Readers ────────────────────────────────────────────────────────────────
 
-def _read_onelibrary(path: str) -> List[RecoveredCrate]:
+def _read_onelibrary(path: str) -> list[RecoveredCrate]:
     """Read crates from an exportLibrary.db (OneLibrary/SQLCipher)."""
     try:
         import sqlcipher3
-        from fablegear_database.onelibrary_writer import _ONELIBRARY_KEY, _CIPHER_COMPATIBILITY
-    except Exception as exc:  # noqa: BLE001
+
+        from fablegear_database.onelibrary_writer import _CIPHER_COMPATIBILITY, _ONELIBRARY_KEY
+    except Exception as exc:
         log.warning("OneLibrary read unavailable (%s): %s", type(exc).__name__, exc)
         return []
     try:
@@ -174,12 +172,12 @@ def _read_onelibrary(path: str) -> List[RecoveredCrate]:
             "LEFT JOIN artist a ON a.artist_id = c.artist_id_artist "
         ).fetchall()
         conn.close()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("Could not read OneLibrary %s: %s", path, exc)
         return []
 
     name_by_id = {pid: name for pid, name, attr in pls if attr != 1}
-    by_pl: Dict[int, List[CrateTrack]] = {}
+    by_pl: dict[int, list[CrateTrack]] = {}
     for pid, seq, title, artist, cpath, fname in rows:
         if pid not in name_by_id:
             continue
@@ -196,7 +194,7 @@ def _read_onelibrary(path: str) -> List[RecoveredCrate]:
     return crates
 
 
-def _read_pdb(path: str) -> List[RecoveredCrate]:
+def _read_pdb(path: str) -> list[RecoveredCrate]:
     """Read crates from an export.pdb via the read-only devicesql reader."""
     try:
         import sys
@@ -204,7 +202,7 @@ def _read_pdb(path: str) -> List[RecoveredCrate]:
         if cs not in sys.path:
             sys.path.insert(0, cs)
         import devicesql_reader as D
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("pdb reader unavailable: %s", exc)
         return []
     rep = D.read_playlists(path)
@@ -222,31 +220,31 @@ def _read_pdb(path: str) -> List[RecoveredCrate]:
     return crates
 
 
-def _read_master_db(path: str) -> List[RecoveredCrate]:
+def _read_master_db(path: str) -> list[RecoveredCrate]:
     """Read crates from a full rekordbox master.db (SQLCipher, via pyrekordbox).
     This is the richest source — the whole library's playlists with membership,
     not just what one stick carried. Folders (no song links) are skipped."""
     try:
         from pyrekordbox import Rekordbox6Database
         from pyrekordbox.db6 import tables
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("pyrekordbox unavailable for master.db read: %s", exc)
         return []
     try:
         db = Rekordbox6Database(path=path)
-        cinfo: Dict[int, tuple] = {}
+        cinfo: dict[int, tuple] = {}
         for c in db.query(tables.DjmdContent).with_entities(
                 tables.DjmdContent.ID, tables.DjmdContent.Title, tables.DjmdContent.FolderPath):
             fn = os.path.basename(c.FolderPath) if c.FolderPath else None
             cinfo[c.ID] = (c.Title, fn)
         names = {pl.ID: (pl.Name or f"playlist_{pl.ID}") for pl in db.query(tables.DjmdPlaylist)}
-        mem: Dict[int, list] = {}
+        mem: dict[int, list] = {}
         for sp in db.query(tables.DjmdSongPlaylist).with_entities(
                 tables.DjmdSongPlaylist.PlaylistID, tables.DjmdSongPlaylist.ContentID,
                 tables.DjmdSongPlaylist.TrackNo):
             mem.setdefault(sp.PlaylistID, []).append((sp.TrackNo or 0, sp.ContentID))
         db.close()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("Could not read master.db %s: %s", path, exc)
         return []
 
@@ -263,7 +261,7 @@ def _read_master_db(path: str) -> List[RecoveredCrate]:
     return crates
 
 
-def read_crates(source: ExportSource) -> List[RecoveredCrate]:
+def read_crates(source: ExportSource) -> list[RecoveredCrate]:
     if source.kind == "onelibrary":
         return _read_onelibrary(source.path)
     if source.kind == "masterdb":
@@ -273,8 +271,8 @@ def read_crates(source: ExportSource) -> List[RecoveredCrate]:
 
 # ── Union ──────────────────────────────────────────────────────────────────
 
-def union_crates(crates: List[RecoveredCrate], strategy: str = "richest",
-                 merge_numbered: bool = False) -> List[RecoveredCrate]:
+def union_crates(crates: list[RecoveredCrate], strategy: str = "richest",
+                 merge_numbered: bool = False) -> list[RecoveredCrate]:
     """Combine crates sharing a normalised name. 'richest': base on the version
     with the most tracks, then union in any track (by CrateTrack.key) that other
     versions have and the base lacks, appended in their original order.
@@ -286,11 +284,11 @@ def union_crates(crates: List[RecoveredCrate], strategy: str = "richest",
         n = c.norm_name
         return _NUM_SUFFIX.sub("", n).strip() if merge_numbered else n
 
-    by_name: Dict[str, List[RecoveredCrate]] = {}
+    by_name: dict[str, list[RecoveredCrate]] = {}
     for c in crates:
         by_name.setdefault(group_key(c), []).append(c)
 
-    out: List[RecoveredCrate] = []
+    out: list[RecoveredCrate] = []
     for _norm, versions in by_name.items():
         versions.sort(key=lambda c: len(c.tracks), reverse=True)
         base = versions[0]
@@ -314,11 +312,11 @@ def union_crates(crates: List[RecoveredCrate], strategy: str = "richest",
 
 # ── Resolve against the FableGear archive ──────────────────────────────────
 
-def resolve_against_archive(crates: List[RecoveredCrate], database) -> ResolutionStats:
+def resolve_against_archive(crates: list[RecoveredCrate], database) -> ResolutionStats:
     """Match each crate track to an archive content_id by filename, then by
     title+artist. Sets CrateTrack.content_id in place. Returns counts."""
-    by_filename: Dict[str, int] = {}
-    by_titleartist: Dict[str, int] = {}
+    by_filename: dict[str, int] = {}
+    by_titleartist: dict[str, int] = {}
     for rec in database.get_content_with_relations(None):
         if rec.id is None:
             continue
@@ -358,11 +356,11 @@ class PushReport:
     crates_junk_filtered: int = 0    # Rekordbox auto-generated report/scratch crate
     links_planned: int = 0           # track links to add
     unresolved_placements: int = 0   # tracks not in the live collection (need import)
-    created_folder_id: Optional[str] = None
-    created_playlist_ids: List = field(default_factory=list)
+    created_folder_id: str | None = None
+    created_playlist_ids: list = field(default_factory=list)
     written: bool = False
     detail: str = ""
-    sample: List = field(default_factory=list)  # (name, link_count) preview
+    sample: list = field(default_factory=list)  # (name, link_count) preview
 
     @property
     def crates_filtered(self) -> int:
@@ -384,7 +382,7 @@ class PushReport:
         return "; ".join(parts) if parts else "none"
 
 
-def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str] = None,
+def push_to_rekordbox(crates: list[RecoveredCrate], target_db_path: str | None = None,
                       dry_run: bool = True, folder_name: str = "Recovered",
                       skip_existing: bool = True, min_tracks: int = 1):
     """Write recovered crates into a Rekordbox master.db via pyrekordbox.
@@ -402,7 +400,7 @@ def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str
     db = Rekordbox6Database(path=target_db_path) if target_db_path else Rekordbox6Database()
     rep = PushReport(target=target_db_path or "(live master.db)", total_crates=len(crates))
     try:
-        by_fn: Dict[str, object] = {}
+        by_fn: dict[str, object] = {}
         for c in db.query(tables.DjmdContent).with_entities(
                 tables.DjmdContent.ID, tables.DjmdContent.FolderPath):
             if c.FolderPath:
@@ -478,7 +476,7 @@ def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str
                         ua = _dt.now()
                     try:
                         xmlobj.add(p.ID, par, int(p.Attribute or 0), ua)
-                    except Exception as exc:  # noqa: BLE001
+                    except Exception as exc:
                         # Non-fatal: the DjmdPlaylist row is already committed to
                         # master.db — only the XML display tree entry is missing,
                         # so the crate may not show up until Rekordbox re-syncs it.
@@ -488,7 +486,7 @@ def push_to_rekordbox(crates: List[RecoveredCrate], target_db_path: Optional[str
                         )
             try:
                 xmlobj.save()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.warning(
                     "playlist_recovery: could not save masterPlaylists6.xml after "
                     "recovery — recovered crates may not appear until Rekordbox "
@@ -514,14 +512,14 @@ class ImportReport:
     locatable: int = 0               # missing AND findable (current path, file exists)
     not_locatable: int = 0           # missing but no current path (drive unmounted / gone)
     added: int = 0
-    added_content_ids: List = field(default_factory=list)
+    added_content_ids: list = field(default_factory=list)
     written: bool = False
     detail: str = ""
-    sample: List = field(default_factory=list)
+    sample: list = field(default_factory=list)
 
 
-def import_missing_to_rekordbox(crates: List[RecoveredCrate], fg_database,
-                                target_db_path: Optional[str] = None, dry_run: bool = True,
+def import_missing_to_rekordbox(crates: list[RecoveredCrate], fg_database,
+                                target_db_path: str | None = None, dry_run: bool = True,
                                 commit_every: int = 200):
     """Add the audio files a recovery references but the Rekordbox collection
     lacks — located via FableGear's archive (current paths) since the crates'
@@ -549,7 +547,7 @@ def import_missing_to_rekordbox(crates: List[RecoveredCrate], fg_database,
         rep.missing = len(missing)
 
         # locate current paths via FableGear's archive
-        fg_by_fn: Dict[str, str] = {}
+        fg_by_fn: dict[str, str] = {}
         for t in fg_database.get_content_with_relations(None):
             if t.file_name and t.file_path:
                 fg_by_fn.setdefault(t.file_name.strip().lower(), t.file_path)
@@ -573,7 +571,7 @@ def import_missing_to_rekordbox(crates: List[RecoveredCrate], fg_database,
             try:
                 c = db.add_content(path)
                 added.append(c.ID)
-            except Exception as exc:  # noqa: BLE001 — one bad file must not abort
+            except Exception as exc:
                 log.warning("  add_content failed for %s: %s", os.path.basename(path), exc)
             if i % commit_every == 0:
                 db.commit()
@@ -592,11 +590,11 @@ def recover(roots, database=None, strategy: str = "richest",
     """Full read-only recovery: scan → read → union → (optionally) resolve."""
     report = RecoveryReport()
     report.sources = find_export_sources(roots)
-    all_crates: List[RecoveredCrate] = []
+    all_crates: list[RecoveredCrate] = []
     for src in report.sources:
         try:
             all_crates.extend(read_crates(src))
-        except Exception as exc:  # noqa: BLE001 — one bad source must not abort
+        except Exception as exc:
             report.notes.append(f"{src.path}: {exc}")
     report.crates = union_crates(all_crates, strategy=strategy, merge_numbered=merge_numbered)
     if database is not None:

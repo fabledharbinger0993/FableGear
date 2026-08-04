@@ -41,31 +41,37 @@ Public interface:
 
 import difflib
 import hashlib
+import json
 import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
-from typing import Literal, TYPE_CHECKING
-import json
+from typing import TYPE_CHECKING, Literal
 
-from pyrekordbox import Rekordbox6Database
-
-from config import (
-    ARCHIVE_CHUNK_SIZE as _ARCHIVE_CHUNK_SIZE,
-    AUDIO_EXTENSIONS,
-    BATCH_SIZE,
-    PROGRESS_ITEM_INTERVAL as _PROGRESS_ITEM_INTERVAL,
-    PROGRESS_MIN_SECONDS as _PROGRESS_MIN_SECONDS,
-    SKIP_DIRS,
-    SKIP_PREFIXES,
-)
 # Format-quality ranking, reused from pruner.py's FORMAT_TIER so relocator's
 # fuzzy-collision tie-break agrees with the same "higher = better" ordering
 # duplicate-pruning uses elsewhere. pruner.py's module-level imports are
 # stdlib-only (csv/logging/shutil/dataclasses/datetime/pathlib/typing) so
 # this import carries no mutagen/CSV runtime cost.
 from pruner import FORMAT_TIER as _FORMAT_PREFERENCE
+from pyrekordbox import Rekordbox6Database
+
+from config import (
+    ARCHIVE_CHUNK_SIZE as _ARCHIVE_CHUNK_SIZE,
+)
+from config import (
+    AUDIO_EXTENSIONS,
+    BATCH_SIZE,
+    SKIP_DIRS,
+    SKIP_PREFIXES,
+)
+from config import (
+    PROGRESS_ITEM_INTERVAL as _PROGRESS_ITEM_INTERVAL,
+)
+from config import (
+    PROGRESS_MIN_SECONDS as _PROGRESS_MIN_SECONDS,
+)
 
 if TYPE_CHECKING:
     # DjmdContent is an ORM row type from pyrekordbox's SQLAlchemy models.

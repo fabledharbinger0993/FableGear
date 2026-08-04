@@ -22,9 +22,10 @@ Design notes:
 
 import hashlib
 import logging
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any
 
 from .database import ContentRecord, FableGearDatabase
 
@@ -65,7 +66,7 @@ class FileImporter:
     def __init__(
         self,
         database: FableGearDatabase,
-        scanner_module: Optional[Any] = None,
+        scanner_module: Any | None = None,
     ):
         """
         Initialize the file importer.
@@ -82,16 +83,16 @@ class FileImporter:
     def _get_scanner(self) -> Any:
         """Lazily import the app scanner module if one was not injected."""
         if self._scanner is None:
-            import scanner as _scanner  # noqa: PLC0415 — deferred: needs app config
+            import scanner as _scanner
             self._scanner = _scanner
         return self._scanner
 
     def import_files(
         self,
-        root_paths: List[Path],
-        progress_callback: Optional[Callable[[int, int], None]] = None,
+        root_paths: list[Path],
+        progress_callback: Callable[[int, int], None] | None = None,
         force_refresh: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Import audio files from the given root directories.
 
@@ -103,7 +104,7 @@ class FileImporter:
         Returns:
             Dictionary with import statistics
         """
-        stats: Dict[str, Any] = {
+        stats: dict[str, Any] = {
             "total_files": 0,
             "new_files": 0,
             "updated_files": 0,
@@ -114,7 +115,7 @@ class FileImporter:
 
         scanner = self._get_scanner()
 
-        valid_roots: List[Path] = []
+        valid_roots: list[Path] = []
         for root in root_paths:
             root = Path(root)
             if not root.is_dir():
@@ -142,17 +143,17 @@ class FileImporter:
 
     def import_paths(
         self,
-        file_paths: List[Path],
-        progress_callback: Optional[Callable[[int, int], None]] = None,
+        file_paths: list[Path],
+        progress_callback: Callable[[int, int], None] | None = None,
         force_refresh: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Import specific audio files (not directories) into the database.
 
         Used by the Record Room's drag-to-import: the split view hands over
         individual novelty tracks rather than a scan root.
         """
-        stats: Dict[str, Any] = {
+        stats: dict[str, Any] = {
             "total_files": 0,
             "new_files": 0,
             "updated_files": 0,
@@ -191,13 +192,13 @@ class FileImporter:
     def _import_tracks(
         self,
         tracks: Iterable[Any],
-        stats: Dict[str, Any],
+        stats: dict[str, Any],
         total: int,
         *,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
+        progress_callback: Callable[[int, int], None] | None = None,
         force_refresh: bool = False,
-        source_label: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        source_label: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Shared pipeline: change-detect, hash, upsert in batches, log.
 
         ``tracks`` may be a one-shot generator (import_files streams straight
@@ -208,7 +209,7 @@ class FileImporter:
         # One query for change detection instead of a lookup per file.
         existing = self.database.get_path_index()
 
-        batch: List[ContentRecord] = []
+        batch: list[ContentRecord] = []
         processed = 0
         for track in tracks:
             processed += 1
@@ -320,7 +321,7 @@ class FileImporter:
         return "local"
 
     @staticmethod
-    def _is_corrupt(errors: Optional[List[str]]) -> bool:
+    def _is_corrupt(errors: list[str] | None) -> bool:
         """True only for read failures, not merely missing tags."""
         if not errors:
             return False

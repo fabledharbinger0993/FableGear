@@ -1,5 +1,6 @@
 import shutil
-import subprocess, sys
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -136,10 +137,11 @@ def test_journal_records_per_effect_counts(tmp_path):
     if str(REPO_ROOT / "chop_shop") not in sys.path:
         sys.path.insert(0, str(REPO_ROOT / "chop_shop"))
 
+    import json
+
     import cli
     from fablegear_database.database import FableGearDatabase
     from fablegear_database.schema import DatabaseConfig
-    import json
 
     archive = FableGearDatabase(DatabaseConfig(db_path=tmp_path / "archive.db"))
     r1 = ap.ProcessResult(path=tmp_path / "a.mp3", bpm_detected=120.0,

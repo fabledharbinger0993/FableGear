@@ -34,15 +34,13 @@ if str(REPO_ROOT) not in sys.path:
 # module-level config load is cached before any test monkeypatches Path.home.
 # Otherwise the e2e tests' home redirect makes config re-read from an empty
 # sandbox and raise NotConfiguredError.
-import config  # noqa: E402,F401
-import scanner  # noqa: E402,F401
-
-from chop_shop.library_organizer import (  # noqa: E402
+import config  # noqa: F401
+import scanner  # noqa: F401
+from chop_shop.library_organizer import (
     _resolve_dest,
     _sha256_file,
     organize_library,
 )
-
 
 # ── _sha256_file: the proof-of-identity primitive ────────────────────────────
 

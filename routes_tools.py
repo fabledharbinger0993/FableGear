@@ -25,21 +25,21 @@ from pathlib import Path
 from flask import Blueprint, Response, jsonify, request, send_file
 
 from helpers import (
+    _MAX_PREVIEW_JOBS,
+    _MAX_PRUNE_TOKENS,
     CLI_PATH,
-    _sse_response,
-    _sse_done,
-    _sse_smart_skip_process,
-    _stream_pipeline,
-    _require_rb_closed,
+    _evict_old_jobs,
     _get_library_root,
     _rb_is_running,
-    _evict_old_jobs,
-    _MAX_PRUNE_TOKENS,
-    _MAX_PREVIEW_JOBS,
-    mark_step_complete,
-    list_running_managed_subprocesses,
-    terminate_managed_subprocesses,
+    _require_rb_closed,
+    _sse_done,
+    _sse_response,
+    _sse_smart_skip_process,
+    _stream_pipeline,
     api_error_from_exc,
+    list_running_managed_subprocesses,
+    mark_step_complete,
+    terminate_managed_subprocesses,
 )
 
 bp = Blueprint("tools", __name__)
@@ -98,7 +98,7 @@ _PREVIEW_MAX_FILES: int = 400
 
 def _default_duplicates_report_path() -> Path:
     try:
-        from config import REPORTS_DIR  # noqa: PLC0415
+        from config import REPORTS_DIR
         return REPORTS_DIR / "Duplicates" / "duplicate_report.csv"
     except Exception:
         return Path.home() / ".fablegear" / "Reports" / "Duplicates" / "duplicate_report.csv"
@@ -147,13 +147,13 @@ def _load_duplicate_cache(csv_path: Path, *, include_db: bool = True) -> dict:
     ):
         return cached
 
-    from pruner import load_report  # noqa: PLC0415
+    from pruner import load_report
 
     db_warning = None
     if include_db:
         try:
-            from db_connection import read_db  # noqa: PLC0415
-            from config import DEVICE_DB as _DB  # noqa: PLC0415
+            from config import DEVICE_DB as _DB
+            from db_connection import read_db
             with read_db(_DB) as db:
                 groups = load_report(csv_path, db)
         except Exception as db_exc:
@@ -752,7 +752,7 @@ def api_rename_probe():
     except ValueError:
         return jsonify({"error": "top_n and sample_size must be integers"}), 400
 
-    from renamer import probe_ambiguous  # noqa: PLC0415
+    from renamer import probe_ambiguous
 
     candidates = probe_ambiguous(root, top_n=top_n_int, sample_size=sample_size_int)
     return jsonify({
@@ -777,8 +777,8 @@ def api_rename_preflight_apply():
     if not root.is_dir():
         return jsonify({"error": f"Not a directory: {root}"}), 400
 
-    import renamer_learned as _learned  # noqa: PLC0415
-    from renamer import quarantine_track  # noqa: PLC0415
+    import renamer_learned as _learned
+    from renamer import quarantine_track
 
     rules = _learned.load()
     results = []
@@ -843,7 +843,7 @@ def api_checkpoint_check():
        total, roots, config, is_partial}
     """
     try:
-        from checkpoint import Checkpoint  # noqa: PLC0415
+        from checkpoint import Checkpoint
     except ImportError:
         return jsonify({"exists": False, "error": "checkpoint module not available"}), 200
 
@@ -890,7 +890,7 @@ def api_checkpoint_reset():
       tool — tool name: duplicates, process, convert, organize, novelty, rename
     """
     try:
-        from checkpoint import reset_all  # noqa: PLC0415
+        from checkpoint import reset_all
     except ImportError:
         return jsonify({"ok": False, "error": "checkpoint module not available"}), 200
 
@@ -919,7 +919,7 @@ def api_duplicates():
             "Use Interrupt/Emergency Stop before starting another duplicate run.",
         ], exit_code=1)
 
-    cmd = [sys.executable, str(CLI_PATH), "duplicates"] + paths
+    cmd = [sys.executable, str(CLI_PATH), "duplicates", *paths]
     # Tier select: quick = instant cached-hash match, deep = acoustic fpcalc (default).
     scan_mode = request.args.get("scan_mode", "").strip().lower()
     if scan_mode in ("quick", "deep"):
@@ -1153,7 +1153,7 @@ def api_run_prune():
                 log_q.put(("done", 1))
                 return
 
-            from pruner import prune_files, trash_rescue_preflight, TrashRescueRequired  # noqa: PLC0415
+            from pruner import TrashRescueRequired, prune_files, trash_rescue_preflight
 
             staged_csv_path = staged.get("csv_path", "")
             if staged_csv_path:
@@ -1166,14 +1166,15 @@ def api_run_prune():
                     log_q.put(("line", "Resolve the rescue report before pruning again."))
                     log_q.put(("done", 1))
                     return
-            from db_connection import write_db  # noqa: PLC0415
-            from config import DEVICE_DB as _DEVICE_DB, LOCAL_DB as _LOCAL_DB  # noqa: PLC0415
+            from config import DEVICE_DB as _DEVICE_DB
+            from config import LOCAL_DB as _LOCAL_DB
+            from db_connection import write_db
 
             # Use the device DB (Pioneer drive) when it's mounted — that's where
             # the actual library lives. Fall back to LOCAL_DB only if DEVICE_DB is absent.
             _prune_db_path = _DEVICE_DB if (_DEVICE_DB and _DEVICE_DB.exists()) else _LOCAL_DB
 
-            from helpers import get_archive, get_archive_error  # noqa: PLC0415
+            from helpers import get_archive, get_archive_error
             _fg_archive = get_archive()
             if _fg_archive is None:
                 log_q.put(("line", f"[WARN] FableGear archive unavailable — this prune will not be recorded ({get_archive_error() or 'unknown'})"))
@@ -1203,7 +1204,7 @@ def api_run_prune():
             _prune_root = staged.get("library_root", "")
             if not _prune_root:
                 try:
-                    from config import MUSIC_ROOT as _MR  # noqa: PLC0415
+                    from config import MUSIC_ROOT as _MR
                     _prune_root = str(_MR)
                 except Exception:
                     pass

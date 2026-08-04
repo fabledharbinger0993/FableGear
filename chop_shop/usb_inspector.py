@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: FableGear (Claude + Marshall Guthrie)
 # Date:   2026-06-12
 """
@@ -31,11 +30,10 @@ import logging
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
-PathLike = Union[str, Path]
+PathLike = str | Path
 
 SQLITE_MAGIC = b"SQLite format 3\x00"
 
@@ -71,8 +69,8 @@ class FormatFinding:
     """One database format's presence and validation state."""
 
     present: bool = False
-    path: Optional[str] = None
-    valid: Optional[bool] = None     # None = present but unverifiable
+    path: str | None = None
+    valid: bool | None = None     # None = present but unverifiable
     detail: str = ""
 
 
@@ -85,8 +83,8 @@ class UsbInspectionReport:
     devicesql: FormatFinding = field(default_factory=FormatFinding)
     onelibrary: FormatFinding = field(default_factory=FormatFinding)
     anlz_track_count: int = 0
-    settings_files: List[str] = field(default_factory=list)
-    notes: List[str] = field(default_factory=list)
+    settings_files: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
     @property
     def cdj3000_ready(self) -> bool:

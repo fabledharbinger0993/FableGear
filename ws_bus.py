@@ -39,11 +39,11 @@ def broadcast(message: str) -> None:
     cannot block delivery to healthy ones.  Any exception on a particular
     socket causes the socket to be removed from the registry immediately,
     rather than waiting for the receive loop to notice.
-    
+
     """
     with _lock:
         targets = set(_clients)          # snapshot so we don't hold the lock during sends
-    
+
     log.debug("WebSocket broadcast to %d clients: %s", len(targets), message[:100])
 
     dead: set = set()

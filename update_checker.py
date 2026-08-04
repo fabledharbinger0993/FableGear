@@ -23,14 +23,14 @@ Status dict shape:
     }
 """
 
+import json
 import logging
+import ssl
 import subprocess
 import threading
 import time
-import urllib.request
 import urllib.error
-import json
-import ssl
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -64,7 +64,7 @@ def check_now() -> dict:
     Returns the new status dict.
     """
     log.info("update_checker: checking for FableGear updates …")
-    
+
     # 1. Update local git knowledge
     script_dir = Path(__file__).parent
     subprocess.run(["git", "fetch", "--tags"], cwd=script_dir, capture_output=True)
@@ -170,7 +170,7 @@ def _is_newer(latest_tag: str, current: str | None, is_git: bool) -> bool:
     if git_answer is False:
         return True
 
-    # REWRITE: If we don't know the ancestry, compare tags directly 
+    # REWRITE: If we don't know the ancestry, compare tags directly
     # if both are semver, OR assume latest is newer if local is just a SHA.
     if _is_semver_tag(latest_tag):
         if _is_semver_tag(current):

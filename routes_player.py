@@ -6,14 +6,14 @@ Handles all read/write operations on the Rekordbox library tree, plus
 in-process audio playback for the desktop UI.
 """
 
-from pathlib import Path
 import logging
+import mimetypes
 import os
 import platform
-import mimetypes
 import threading
 import time
 import uuid
+from pathlib import Path
 
 _SYSTEM = platform.system()
 
@@ -35,7 +35,6 @@ from helpers import (
     _detect_pioneer_drive_layout,
     _evict_old_jobs,
     _run_export,
-    get_connected_volumes,
 )
 
 bp = Blueprint("player", __name__)
@@ -47,7 +46,7 @@ def get_connected_volumes() -> list[dict]:
     """Return list of user-mountable volumes with name/path.
     Used by filesystem scan and export routes.
     """
-    import psutil  # noqa: PLC0415
+    import psutil
 
     volumes = []
     try:
@@ -67,7 +66,7 @@ def get_connected_volumes() -> list[dict]:
 # ── Library payload helpers ───────────────────────────────────────────────────
 
 def _library_track_payload(track, *, track_no=None):
-    import datetime  # noqa: PLC0415
+    import datetime
 
     date_added = None
     stock_date = getattr(track, "StockDate", None)
@@ -208,7 +207,7 @@ def _fs_track_payload(path: Path) -> dict:
         "duration_s":  None,
     }
     try:
-        import mutagen  # noqa: PLC0415
+        import mutagen
         f = mutagen.File(str(path), easy=True)
         if f:
             payload["title"]  = (f.get("title")  or [path.stem])[0]
@@ -219,7 +218,7 @@ def _fs_track_payload(path: Path) -> dict:
             raw_bpm = (f.get("bpm") or [""])[0]
             if raw_bpm:
                 try:
-                    payload["bpm"] = str(int(round(float(raw_bpm))))
+                    payload["bpm"] = str(round(float(raw_bpm)))
                 except (ValueError, TypeError):
                     payload["bpm"] = raw_bpm
             # Key: easy=True maps TKEY→"initialkey"
@@ -296,7 +295,7 @@ def _enumerate_drive_audio(
     scan_roots: list[tuple[Path, str, str]] = []  # (root, drive_name, drive_path)
     seen_roots: set[str] = set()
     try:
-        from config import MUSIC_ROOT as _MR  # noqa: PLC0415
+        from config import MUSIC_ROOT as _MR
         mr = Path(str(_MR))
         if mr.is_dir():
             scan_roots.append((mr, mr.name or "Music", str(mr)))
@@ -343,7 +342,7 @@ def _enumerate_drive_audio(
 
 def _resolve_db(db_param):
     """Return the DB path for a ?db= query param.  'device' → DEVICE_DB, else LOCAL_DB."""
-    from config import LOCAL_DB, DEVICE_DB  # noqa: PLC0415
+    from config import DEVICE_DB, LOCAL_DB
     if db_param and str(db_param).lower() in ("device",):
         return DEVICE_DB
     return LOCAL_DB
@@ -366,7 +365,7 @@ def _fablegear_db(create: bool = False):
     global _FABLEGEAR_DB
     if _FABLEGEAR_DB is not None:
         return _FABLEGEAR_DB
-    from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
+    from fablegear_database.database import FableGearDatabase
     if not create and not FableGearDatabase.default_db_path().exists():
         return None
     _FABLEGEAR_DB = FableGearDatabase(create=create)
@@ -426,7 +425,7 @@ def api_library_tracks():
 
     # The Rekordbox databases remain reachable as explicit, demoted sources.
     if source in ("local", "device"):
-        from db_connection import read_db  # noqa: PLC0415
+        from db_connection import read_db
         _DB = _resolve_db(source)
         try:
             with read_db(_DB) as db:
@@ -459,14 +458,14 @@ def api_library_db_sync():
         _FG_SYNC.update(running=True, phase="scanning", done=0, total=0,
                         result=None, error=None)
         try:
-            from config import MUSIC_ROOT  # noqa: PLC0415
-            from fablegear_database.importer import FileImporter  # noqa: PLC0415
-            from fablegear_database.sync import DatabaseSync  # noqa: PLC0415
+            from config import MUSIC_ROOT
+            from fablegear_database.importer import FileImporter
+            from fablegear_database.sync import DatabaseSync
             db = _fablegear_db(create=True)  # sync is an explicit write/seed op
             sync = DatabaseSync(db, importer=FileImporter(db))
             _FG_SYNC.update(phase="reconciling")
             _FG_SYNC["result"] = sync.reconcile([Path(str(MUSIC_ROOT))])
-        except Exception as exc:  # noqa: BLE001 — surfaced to the UI
+        except Exception as exc:
             _FG_SYNC["error"] = str(exc)
         finally:
             _FG_SYNC.update(running=False, phase="done")
@@ -483,10 +482,11 @@ def api_library_db_sync_status():
 @bp.route("/api/library/fs-browse")
 def api_library_fs_browse():
     """Browse a directory for audio files — filesystem-first, no rekordbox needed."""
-    
+
     # 1. Standard imports needed for this route
-    from config import MUSIC_ROOT as _MR
     import shutil
+
+    from config import MUSIC_ROOT as _MR
 
     # 2. Extract inputs
     path_str = request.args.get("path", "")
@@ -496,9 +496,9 @@ def api_library_fs_browse():
     # configured library root or /Volumes); see forbidden_browse_reason().
     if path_str:
         try:
-            from path_guard import forbidden_browse_reason  # noqa: PLC0415
+            from path_guard import forbidden_browse_reason
         except ImportError:  # imported via the chop_shop package
-            from chop_shop.path_guard import forbidden_browse_reason  # noqa: PLC0415
+            from chop_shop.path_guard import forbidden_browse_reason
         if forbidden_browse_reason(Path(path_str)) is not None:
             return jsonify({"error": "Access denied"}), 403
 
@@ -517,19 +517,19 @@ def api_library_fs_browse():
         _is_vol_root = not path_str or Path(path_str).resolve() == volumes_root
     else:
         # Linux: prefer /media/<user>, fall back to /mnt
-        import getpass as _gp  # noqa: PLC0415
+        import getpass as _gp
         _user_media = Path("/media") / _gp.getuser()
         volumes_root = _user_media if _user_media.is_dir() else Path("/media")
         _is_vol_root = not path_str or Path(path_str).resolve() in (volumes_root, Path("/mnt"))
 
     if _is_vol_root:
-        from user_config import discover_music_roots  # noqa: PLC0415
+        from user_config import discover_music_roots
 
         volumes = []
 
         # Build the list of root dirs to scan — platform-specific
         if _SYSTEM == "Windows":
-            import string as _str  # noqa: PLC0415
+            import string as _str
             scan_roots = [
                 Path(f"{d}:\\") for d in _str.ascii_uppercase
                 if d not in ("A", "B") and Path(f"{d}:\\").exists()
@@ -723,8 +723,9 @@ def api_library_split_data():
     One shared filesystem scan feeds the novelty column, so it is exactly
     "what's on disk minus what each database already knows about".
     """
-    from db_connection import read_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB, MUSIC_ROOT as _MR  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from config import MUSIC_ROOT as _MR
+    from db_connection import read_db
 
     music_root = str(_MR)
 
@@ -769,7 +770,7 @@ def api_library_split_data():
     tag_limit = _FS_TAG_LIMIT if not truncated else min(_FS_TAG_LIMIT, len(entries))
 
     novelty: list = []
-    for item, drive_name, drive_path in entries[:tag_limit]:
+    for item, drive_name, _drive_path in entries[:tag_limit]:
         path_str = str(item)
         name_lc = item.name.lower()
         in_rb = path_str in db_path_set or name_lc in db_name_set
@@ -814,7 +815,7 @@ def api_library_db_import():
         return jsonify({"error": "paths list is required"}), 400
 
     try:
-        from fablegear_database.importer import FileImporter  # noqa: PLC0415
+        from fablegear_database.importer import FileImporter
         db = _fablegear_db(create=True)  # drag-to-import is an explicit write op
         stats = FileImporter(db).import_paths([Path(p) for p in paths])
         if stats.get("new_files", 0) > 0 or stats.get("updated_files", 0) > 0:
@@ -853,9 +854,9 @@ def api_library_integrity_canonical_paths_plan():
     disk. It never fingerprints or reads an audio file — see
     database_dedup.py for the full physical-vs-database distinction.
     """
-    from db_connection import read_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
-    from database_dedup import build_plan  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from database_dedup import build_plan
+    from db_connection import read_db
 
     try:
         try:
@@ -900,9 +901,9 @@ def api_library_integrity_canonical_paths_execute():
     Requires Rekordbox to be closed and creates a timestamped database
     backup before writing (enforced by db_connection.write_db()).
     """
-    from db_connection import write_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
-    from database_dedup import build_plan, execute_plan  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from database_dedup import build_plan, execute_plan
+    from db_connection import write_db
 
     data = request.get_json(silent=True) or {}
     signatures = data.get("signatures")
@@ -969,8 +970,8 @@ def api_library_track_stream(track_id):
             return jsonify({"error": str(exc)}), 500
 
     # Rekordbox fallback
-    from db_connection import read_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import read_db
 
     try:
         with read_db(_DB) as db:
@@ -1048,7 +1049,7 @@ def api_library_track_cues_set(track_id):
     if kind not in (0, 1, 2, 3):
         return jsonify({"error": "kind must be 0 (memory), 1 (hotcue), 2 (loop), or 3 (active loop)"}), 400
 
-    from fablegear_database.database import CueRecord  # noqa: PLC0415
+    from fablegear_database.database import CueRecord
     try:
         existing = db.get_cues_for_content(content_id)
         kept = [c for c in existing if not (c.kind == kind and c.slot == slot)]
@@ -1081,7 +1082,7 @@ def api_library_playlists():
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
 
-    from db_connection import read_db  # noqa: PLC0415
+    from db_connection import read_db
     _DB = _resolve_db(source)  # 'device' → DEVICE_DB, everything else → LOCAL_DB
     if not _DB or not os.path.exists(_DB):
         return jsonify([])  # no Rekordbox DB yet → empty tree, never an error
@@ -1095,8 +1096,8 @@ def api_library_playlists():
 
 @bp.route("/api/library/playlists", methods=["POST"])
 def api_library_create_playlist():
-    from db_connection import write_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import write_db
 
     data = request.get_json(silent=True) or {}
     name = str(data.get("name", "")).strip()
@@ -1156,8 +1157,8 @@ def api_library_playlist_tracks(playlist_id):
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
 
-    from db_connection import read_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import read_db
 
     try:
         with read_db(_DB) as db:
@@ -1181,8 +1182,8 @@ def api_library_playlist_tracks(playlist_id):
 
 @bp.route("/api/library/playlists/<playlist_id>/tracks", methods=["POST"])
 def api_library_add_tracks_to_playlist(playlist_id):
-    from db_connection import write_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import write_db
 
     data = request.get_json(silent=True) or {}
     track_ids = data.get("track_ids")
@@ -1261,8 +1262,8 @@ def api_library_add_tracks_to_playlist(playlist_id):
 
 @bp.route("/api/library/playlists/<playlist_id>", methods=["PUT"])
 def api_library_rename_playlist(playlist_id):
-    from db_connection import write_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import write_db
 
     data = request.get_json(silent=True) or {}
     name = str(data.get("name", "")).strip()
@@ -1293,8 +1294,8 @@ def api_library_rename_playlist(playlist_id):
 
 @bp.route("/api/library/playlists/<playlist_id>", methods=["DELETE"])
 def api_library_delete_playlist(playlist_id):
-    from db_connection import write_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import write_db
 
     source = (request.args.get("db") or "").lower()
     if source not in ("local", "device"):
@@ -1320,8 +1321,8 @@ def api_library_delete_playlist(playlist_id):
 
 @bp.route("/api/library/playlists/<playlist_id>/tracks", methods=["DELETE"])
 def api_library_remove_tracks_from_playlist(playlist_id):
-    from db_connection import write_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import write_db
 
     data = request.get_json(silent=True) or {}
     track_ids = data.get("track_ids")
@@ -1378,8 +1379,8 @@ def api_library_remove_tracks_from_playlist(playlist_id):
 @bp.route("/api/library/playlists/<playlist_id>/tracks/order", methods=["PUT"])
 def api_library_reorder_playlist_tracks(playlist_id):
     """Reorder tracks in a playlist. Body: {track_ids: [id, id, ...]} in desired order."""
-    from db_connection import write_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import write_db
 
     data = request.get_json(silent=True) or {}
     track_ids = data.get("track_ids")
@@ -1434,8 +1435,8 @@ def api_library_reorder_playlist_tracks(playlist_id):
 
 @bp.route("/api/library/tracks/<track_id>", methods=["PATCH"])
 def api_library_patch_track(track_id):
-    from db_connection import write_db  # noqa: PLC0415
-    from config import LOCAL_DB as _DB  # noqa: PLC0415
+    from config import LOCAL_DB as _DB
+    from db_connection import write_db
 
     data = request.get_json(silent=True) or {}
     if "title" not in data:
@@ -1464,7 +1465,7 @@ def api_library_patch_track(track_id):
 @bp.route("/api/library/export/drives")
 def api_library_export_drives():
     try:
-        import psutil  # noqa: PLC0415
+        import psutil
         drives = []
         for part in psutil.disk_partitions():
             mountpoint = part.mountpoint

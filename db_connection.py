@@ -15,10 +15,10 @@ import platform
 import shutil
 import subprocess
 import threading
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Generator
 
 from pyrekordbox import Rekordbox6Database
 
@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 def _get_config():
     """Lazily import config constants. Raises RuntimeError if not configured."""
-    from config import BACKUP_DIR, DEVICE_DB, LOCAL_DB  # noqa: PLC0415
+    from config import BACKUP_DIR, DEVICE_DB, LOCAL_DB
     return BACKUP_DIR, DEVICE_DB, LOCAL_DB
 
 # ─── Process detection ────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ def _backup_db(db_path: Path) -> Path:
     Returns the path of the backup file.
     Raises RuntimeError if the source file doesn't exist.
     """
-    BACKUP_DIR, DEVICE_DB, LOCAL_DB = _get_config()
+    BACKUP_DIR, _DEVICE_DB, _LOCAL_DB = _get_config()
     if not db_path.exists():
         # Give a friendly hint if it looks like a drive-mount issue
         parts = db_path.parts
@@ -154,7 +154,7 @@ def open_db(
     RuntimeError
         If write=True and backup creation fails.
     """
-    BACKUP_DIR, DEVICE_DB, LOCAL_DB = _get_config()
+    _BACKUP_DIR, _DEVICE_DB, LOCAL_DB = _get_config()
     target = db_path or LOCAL_DB
 
     lock_acquired = False

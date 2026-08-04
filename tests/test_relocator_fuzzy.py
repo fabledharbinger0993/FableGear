@@ -26,8 +26,8 @@ if str(REPO_ROOT) not in sys.path:
 if str(REPO_ROOT / "chop_shop") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "chop_shop"))
 
-from relocator import build_fuzzy_index
 from pruner import FORMAT_TIER
+from relocator import build_fuzzy_index
 
 # Sanity-check the assumption the tests below rely on, rather than hardcoding
 # "aiff beats mp3" without verifying it against the real constant.

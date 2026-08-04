@@ -16,16 +16,15 @@ import sys
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
 from pyrekordbox import Rekordbox6Database
 from pyrekordbox.db6 import tables as rb_tables
+from sqlalchemy import create_engine
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from rekordbox_meta_support import relaxed_rekordbox_nullability
-
 
 # ── Shared Rekordbox test-DB fixture (mirrors test_sync_fablegear_to_rekordbox.py) ──
 
@@ -150,8 +149,9 @@ def test_cmd_import_routes_both_and_fablegear_to_database_first_path(tmp_path, m
 
 def test_cmd_import_defaults_to_both_when_target_omitted(tmp_path, monkeypatch):
     """argparse default is 'both' (see p_import.add_argument('--target', default='both'))."""
-    import cli
     import argparse
+
+    import cli
 
     music_dir = tmp_path / "music"
     music_dir.mkdir()

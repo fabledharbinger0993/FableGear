@@ -14,14 +14,12 @@ import builtins
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 for p in (REPO_ROOT, REPO_ROOT / "chop_shop"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-from devicesql_reader import read_pdb  # noqa: E402
+from devicesql_reader import read_pdb
 
 
 def _header(page_size: int = 4096, num_tables: int = 20, next_unused_page: int = 47) -> bytes:

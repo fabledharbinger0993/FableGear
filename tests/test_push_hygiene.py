@@ -17,7 +17,7 @@ if str(REPO_ROOT) not in sys.path:
 
 # playlist_recovery keeps pyrekordbox imports lazy (inside functions), so the
 # module imports cleanly without the heavy DB deps.
-import playlist_recovery as P  # noqa: E402
+import playlist_recovery as P
 
 
 def test_crates_filtered_sums_all_reasons():

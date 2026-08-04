@@ -70,7 +70,7 @@ def test_successful_migration_verifies_size_and_symlinks(tmp_path, monkeypatch):
     src = _make_source(tmp_path)
     drive_root, target = _drive_target(tmp_path, monkeypatch)
 
-    lines, done = _run(db_migrator.migrate(target))
+    _lines, done = _run(db_migrator.migrate(target))
 
     assert done == {"done": True, "exit_code": 0}
     assert src.is_symlink()
@@ -82,7 +82,7 @@ def test_successful_migration_verifies_size_and_symlinks(tmp_path, monkeypatch):
 def test_aborts_before_deleting_source_on_size_mismatch(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     src = _make_source(tmp_path, master_db_content=b"x" * 1000)
-    drive_root, target = _drive_target(tmp_path, monkeypatch)
+    _drive_root, target = _drive_target(tmp_path, monkeypatch)
 
     # Simulate a truncated copy: after the real copytree runs, shrink the
     # destination master.db to look like a short/interrupted copy.

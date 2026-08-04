@@ -23,7 +23,7 @@ import json
 import signal
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -75,7 +75,7 @@ OMNIS_DUO_INIT_PROBES = [
 
 
 def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 def find_controllers() -> list[dict[str, Any]]:
@@ -380,7 +380,6 @@ def main(argv: list[str] | None = None) -> int:
         interfaces_to_try = [chosen]
 
     device = None
-    active_interface = None
 
     for candidate in interfaces_to_try:
         usage_page = candidate.get("usage_page", 0)
@@ -403,13 +402,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  Connected: {manufacturer} — {product}")
 
         if args.activate:
-            print(f"  Sending activation probes...")
+            print("  Sending activation probes...")
             probe_results = activate_device(dev, verbose=args.verbose)
             responded = [r for r in probe_results if r.get("response_length", 0) > 0]
             if responded:
                 print(f"  ✓ Device responded to {len(responded)} probe(s)!")
             else:
-                print(f"  No probe responses (device may need Rekordbox-specific handshake)")
+                print("  No probe responses (device may need Rekordbox-specific handshake)")
 
         # quick check: can we read anything?
         time.sleep(0.2)
@@ -417,15 +416,13 @@ def main(argv: list[str] | None = None) -> int:
         if test_read:
             print(f"  ✓ Receiving data! ({len(test_read)} bytes)")
             device = dev
-            active_interface = candidate
             break
         else:
             if not args.try_all:
                 # only one interface to try, use it anyway
                 device = dev
-                active_interface = candidate
                 break
-            print(f"  No data on this interface, trying next...")
+            print("  No data on this interface, trying next...")
             dev.close()
 
     if device is None:
@@ -447,7 +444,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if output_path:
         print(f"Writing to: {output_path}")
-    print(f"Capturing... (Ctrl-C to stop)\n")
+    print("Capturing... (Ctrl-C to stop)\n")
 
     summary = capture_loop(
         device,
@@ -460,7 +457,7 @@ def main(argv: list[str] | None = None) -> int:
 
     device.close()
 
-    print(f"\n--- Capture Summary ---")
+    print("\n--- Capture Summary ---")
     print(f"Reports:   {summary['report_count']}")
     print(f"Bytes:     {summary['byte_count']}")
     print(f"Duration:  {summary['elapsed_seconds']}s")
