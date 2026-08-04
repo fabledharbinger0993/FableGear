@@ -249,19 +249,52 @@ function runNormalize(_skipConfirm = false) {
     ec => { if (ec === 0) _clearToolCkpt('normalize'); }, true, false);
 }
 
+/* ── Import target (rekordbox / both / fablegear) ─────────────────────────── */
+
+function _importTarget() {
+  return document.querySelector('input[name="import-target"]:checked')?.value || 'both';
+}
+
+// Pre-select the saved default when the Import panel opens, and persist any
+// change immediately as the new default — "FableGear only" is meant to stick
+// for future imports too, not just this one run.
+function _importPanelLoadTarget() {
+  fetch('/api/config').then(r => r.json()).then(cfg => {
+    const target = cfg.import_target || 'both';
+    const input = document.querySelector(`input[name="import-target"][value="${target}"]`);
+    if (input) input.checked = true;
+  }).catch(() => {});
+}
+
+document.addEventListener('change', e => {
+  if (e.target.name !== 'import-target') return;
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ import_target: e.target.value }),
+  }).catch(() => {});
+});
+
 function runImportDry() {
   const paths = getFolderPaths('import-pills');
   if (!paths.length) { _flashNeedsInput('import-pills'); showToast('Add at least one music folder first.', 'warning'); return; }
-  const p = new URLSearchParams({ dry_run: '1' });
+  const p = new URLSearchParams({ dry_run: '1', target: _importTarget() });
   paths.forEach(path => p.append('path', path));
   runCommand(`/api/run/import?${p}`, 'Preview Import — Dry Run', null, true, false, null);
 }
 
 function runImport() {
-  if (checkRbBlock('import-rb-block')) return;
+  const target = _importTarget();
+  // target=fablegear never touches RekordBox, so it isn't blocked by RekordBox
+  // being open — every other target is.
+  if (target === 'fablegear') {
+    document.getElementById('import-rb-block')?.classList.remove('visible');
+  } else if (checkRbBlock('import-rb-block')) {
+    return;
+  }
   const paths = getFolderPaths('import-pills');
   if (!paths.length) { _flashNeedsInput('import-pills'); showToast('Add at least one music folder first.', 'warning'); return; }
-  const p = new URLSearchParams();
+  const p = new URLSearchParams({ target });
   paths.forEach(path => p.append('path', path));
   runCommand(`/api/run/import?${p}`, 'Import — Writing Tracks to Database', null, true);
 }

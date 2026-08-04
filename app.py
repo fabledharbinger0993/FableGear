@@ -544,6 +544,7 @@ def api_config():
             "excluded_dirs":    _ucfg.get("excluded_dirs", []),
             "acoustid_api_key_configured": bool(_ucfg.get("acoustid_api_key", "").strip()),
             "mode":             current_mode,
+            "import_target":    _ucfg.get("import_target", "both"),
             "configured":       True,
         })
     except Exception:
@@ -561,6 +562,7 @@ def api_config():
             "snapshot_cadence": "monthly",
             "snapshot_include_master_db": False,
             "mode":            current_mode,
+            "import_target":   "both",
             "configured":      False,
         })
 
@@ -596,6 +598,7 @@ def api_settings():
             CONFIG_PATH,
             normalize_snapshot_cadence,
             _coerce_bool,
+            IMPORT_TARGET_CHOICES,
         )
         import json as _json
         data = request.get_json(force=True) or {}
@@ -632,6 +635,14 @@ def api_settings():
                 data.get("snapshot_include_master_db"),
                 cfg.get("snapshot_include_master_db", False),
             )
+        if "import_target" in data:
+            import_target = str(data.get("import_target", "")).strip()
+            if import_target not in IMPORT_TARGET_CHOICES:
+                return jsonify({
+                    "ok": False,
+                    "error": f"Invalid import_target. Must be one of: {', '.join(IMPORT_TARGET_CHOICES)}",
+                }), 400
+            cfg["import_target"] = import_target
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             _json.dump(cfg, f, indent=2)
         return jsonify({"ok": True, "note": "Restart FableGear for changes to take effect."})

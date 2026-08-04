@@ -36,6 +36,8 @@ function openDbPanel(tool) {
   document.body.classList.add('sidebar-open');
   document.getElementById('nav-btn-rb-' + tool)?.classList.add('active');
   _dbPanelActive = tool;
+
+  if (tool === 'import' && typeof _importPanelLoadTarget === 'function') _importPanelLoadTarget();
 }
 
 function closeDbPanel() {

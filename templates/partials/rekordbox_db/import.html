@@ -3,8 +3,8 @@
       <div class="db-panel-tool-head">
         <div class="db-panel-icon warn"><img src="/static/icon-queue.png" alt="Import"></div>
         <div>
-          <div class="db-panel-tool-title">Import — Add Tracks to RekordBox</div>
-          <div class="db-panel-tool-blurb">Preview first to see what will be added, then import. <strong>RekordBox must be closed.</strong> A timestamped backup is created automatically.</div>
+          <div class="db-panel-tool-title">Import — Add Tracks</div>
+          <div class="db-panel-tool-blurb">Preview first to see what will be added, then import. <strong>RekordBox must be closed for the Both and RekordBox Only targets</strong> below (FableGear Only never touches RekordBox, so it isn't blocked by this). A timestamped backup is created automatically before any RekordBox write.</div>
         </div>
       </div>
       <div class="field audit-row-mt">
@@ -22,6 +22,38 @@
         </div>
         <div class="folder-pills" id="import-pills"></div>
       </div>
+
+      <div class="field audit-row-mt">
+        <label>Where should this import write?</label>
+        <div class="settings-radio-group" id="import-target-group">
+
+          <label class="settings-radio">
+            <input type="radio" name="import-target" value="both" checked>
+            <div>
+              <div class="settings-radio-label">Both — FableGear's database and RekordBox (recommended)</div>
+              <div class="settings-radio-desc">Adds tracks to FableGear's own database, then syncs them into RekordBox. This is what every other Record Room tool expects.</div>
+            </div>
+          </label>
+
+          <label class="settings-radio">
+            <input type="radio" name="import-target" value="rekordbox">
+            <div>
+              <div class="settings-radio-label">RekordBox only</div>
+              <div class="settings-radio-desc">Writes straight into RekordBox's database. FableGear's own database is not updated — Consolidate Duplicates, the Novelty Scanner, and other FableGear-database tools won't see these tracks.</div>
+            </div>
+          </label>
+
+          <label class="settings-radio">
+            <input type="radio" name="import-target" value="fablegear">
+            <div>
+              <div class="settings-radio-label">FableGear only — don't touch RekordBox</div>
+              <div class="settings-radio-desc">Builds FableGear's own library. RekordBox is never written to by this import, and this choice is remembered as the default for future imports too, until you change it here.</div>
+            </div>
+          </label>
+
+        </div>
+      </div>
+
       <div class="btn-row audit-btn-mt">
         <button type="button" class="btn btn-ghost" onclick="runImportDry()">Preview Import</button>
         <button type="button" class="btn btn-neon" id="btn-import" onclick="runImport()">Import Tracks</button>

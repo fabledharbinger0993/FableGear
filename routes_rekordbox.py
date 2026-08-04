@@ -62,8 +62,27 @@ def api_audit():
 
 @bp.route("/api/run/import")
 def api_import():
+    from user_config import load_user_config, IMPORT_TARGET_CHOICES  # noqa: PLC0415
+
     dry_run = request.args.get("dry_run") == "1"
-    if not dry_run:
+
+    target = request.args.get("target", "").strip()
+    if not target:
+        # No explicit choice on this request — fall back to the persisted
+        # default (Settings / the Import panel's last saved choice).
+        try:
+            target = load_user_config().get("import_target", "both")
+        except Exception:
+            target = "both"
+    if target not in IMPORT_TARGET_CHOICES:
+        return jsonify({
+            "error": f"Invalid target. Must be one of: {', '.join(IMPORT_TARGET_CHOICES)}",
+        }), 400
+
+    # target == "fablegear" never writes to Rekordbox at all, so there's
+    # nothing for this gate to protect — don't force Rekordbox closed for an
+    # operation that can't touch it.
+    if not dry_run and target != "fablegear":
         err = _require_rb_closed()
         if err:
             return err
@@ -72,7 +91,7 @@ def api_import():
     if not paths:
         return jsonify({"error": "path is required"}), 400
 
-    cmd = [sys.executable, str(CLI_PATH), "import", paths[0]]
+    cmd = [sys.executable, str(CLI_PATH), "import", paths[0], "--target", target]
     for extra in paths[1:]:
         cmd += ["--also-scan", extra]
     if dry_run:

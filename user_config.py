@@ -75,7 +75,20 @@ DEFAULTS: dict = {
     # can still substitute their own key in settings or the setup wizard.
     "acoustid_api_key":    "wAbRWVEfls",
     "mode": "suburban",  # 'rural' (no AI) or 'suburban' (AI enabled)
+    # Where "Import Tracks" writes, and the sticky default the Import panel's
+    # radio group pre-selects next time. "both" matches the app's original
+    # behavior. See IMPORT_TARGET_CHOICES.
+    "import_target": "both",
 }
+
+# "rekordbox"  — write directly into Rekordbox's master.db only; FableGear's
+#                own database is never touched.
+# "both"       — import into FableGear's database, then sync those tracks
+#                into Rekordbox too (the original default behavior).
+# "fablegear"  — import into FableGear's own database only; Rekordbox is
+#                never written to, now or on any future import that keeps
+#                this as the saved default.
+IMPORT_TARGET_CHOICES = ("rekordbox", "both", "fablegear")
 
 SNAPSHOT_CADENCE_CHOICES = ("weekly", "biweekly", "monthly", "quarterly")
 SNAPSHOT_CADENCE_SECONDS = {
