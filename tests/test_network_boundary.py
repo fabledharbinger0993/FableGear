@@ -572,3 +572,62 @@ def test_fs_browse_recursive_path_uses_guarded_walk(client, monkeypatch, tmp_pat
     assert data["track_count"] == 1
     assert [item["filename"] for item in data["tracks"]] == ["song.mp3"]
     assert scanned_roots == [os.path.realpath(str(browse_root))]
+
+
+# ── /api/update/apply: dirty-tree gate ───────────────────────────────────────
+#
+# Untracked files (scratch notes, tool working-state dirs, generated reports
+# that predate a .gitignore entry, ...) can never conflict with a fast-forward
+# pull. Only tracked-file modifications — which a pull could silently
+# overwrite — should block the update. Regression test for the bug where any
+# `git status --porcelain` output at all, including untracked-only trees,
+# permanently blocked the updater.
+
+def _fake_git_run(porcelain_output, pull_returncode=1, pull_stderr="stopped for test"):
+    """Build a subprocess.run stand-in that answers git status/pull calls
+    without touching the real repo, and passes everything else through."""
+    import subprocess as _subprocess
+
+    real_run = _subprocess.run
+
+    def _run(cmd, *args, **kwargs):
+        if isinstance(cmd, (list, tuple)) and len(cmd) >= 2 and cmd[0] == "git":
+            if cmd[1] == "status":
+                return _subprocess.CompletedProcess(cmd, 0, stdout=porcelain_output, stderr="")
+            if cmd[1] == "pull":
+                # Never actually pull/relaunch from a test.
+                return _subprocess.CompletedProcess(cmd, pull_returncode, stdout="", stderr=pull_stderr)
+        return real_run(cmd, *args, **kwargs)
+
+    return _run
+
+
+def test_update_apply_blocked_by_tracked_modification(client, monkeypatch):
+    import app as _app  # noqa: PLC0415
+
+    monkeypatch.setattr(_app.subprocess, "run", _fake_git_run(" M app.py\n"))
+    resp = _hit(client, "/api/update/apply", LOOPBACK, method="POST")
+    data = resp.get_json()
+
+    assert resp.status_code == 409
+    assert data["ok"] is False
+    assert "uncommitted changes" in data["error"]
+
+
+def test_update_apply_not_blocked_by_untracked_only(client, monkeypatch):
+    import app as _app  # noqa: PLC0415
+
+    # Only untracked files present (e.g. DESIGN.md, .impeccable/) — this used
+    # to trip the same 409 as a real tracked-file conflict.
+    monkeypatch.setattr(
+        _app.subprocess, "run",
+        _fake_git_run("?? DESIGN.md\n?? .impeccable/\n"),
+    )
+    resp = _hit(client, "/api/update/apply", LOOPBACK, method="POST")
+    data = resp.get_json()
+
+    # Falls through to the (stubbed) git pull, which we made fail on purpose —
+    # the point is it's NOT rejected at the dirty-tree gate with 409.
+    assert resp.status_code != 409
+    assert data["ok"] is False
+    assert "uncommitted changes" not in data["error"]
