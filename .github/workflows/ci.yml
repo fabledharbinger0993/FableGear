@@ -32,6 +32,23 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
+      # config.py calls load_user_config() at import time, and nearly every
+      # module under test imports config transitively. A fresh runner has no
+      # ~/.fablegear/config.json, so collection fails before any test runs.
+      # Write a stub config with the required keys (values are never read
+      # from disk by the unit tests) so import succeeds.
+      - name: Create stub FableGear config
+        run: |
+          mkdir -p ~/.fablegear
+          cat > ~/.fablegear/config.json <<'EOF'
+          {
+            "local_db": "/tmp/fablegear-ci/local_master.db",
+            "device_db": "/tmp/fablegear-ci/device_master.db",
+            "music_root": "/tmp/fablegear-ci/Music",
+            "backup_dir": "/tmp/fablegear-ci/backups"
+          }
+          EOF
+
       - name: Run tests
         run: python -m pytest -q
 
