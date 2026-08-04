@@ -801,20 +801,23 @@ input[type="range"] { -webkit-app-region: no-drag; }
   color: var(--text);
 }
 
+/* Deliberately quieter than #fablegear-update-banner: a Homebrew package
+   bump is lower-priority than a FableGear app update, and this used to
+   borrow the Signal Cyan room-accent for a banner that belongs to neither
+   room — both a visual-hierarchy bug and a "One Room, One Light" violation. */
 #brew-banner {
   display: none;
   align-items: center;
-  gap: 12px;
-  padding: 8px 24px;
-  background: var(--accent-dim, rgba(255, 102, 0, 0.12));
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
-  border-bottom: 1px solid rgba(0, 194, 255, 0.35);
-  font-size: .82rem;
-  color: var(--text);
+  gap: 10px;
+  padding: 5px 24px;
+  background: var(--surface-hi);
+  border-bottom: 1px solid var(--border);
+  font-size: .76rem;
+  color: var(--text-muted);
 }
-#brew-banner .brew-icon { font-size: 1rem; flex-shrink: 0; }
+#brew-banner .brew-icon { font-size: .85rem; flex-shrink: 0; opacity: .8; }
 #brew-banner .brew-msg  { flex: 1; line-height: 1.4; }
-#brew-banner .brew-msg strong { color: var(--accent); }
+#brew-banner .brew-msg strong { color: var(--text); }
 #brew-banner .brew-btn {
   background: var(--accent); color: #000;
   border: none; border-radius: var(--radius);
@@ -2682,6 +2685,14 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 @keyframes sb-toast-out { from { opacity:1; } to { opacity:0; translate: 0 6px; } }
 @keyframes sb-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes sb-modal-in    { from { opacity: 0; scale: 0.95; translate: 0 20px; } to { opacity: 1; scale: 1; translate: 0 0; } }
+/* _sbAnim()'s close path (static/shared/modals.js) sets these two by name and
+   waits on `animationend` to fire its hide callback — without them defined,
+   no animation ever runs, `animationend` never fires, and every modal using
+   the shared close helper (welcome, settings, health, ...) silently fails to
+   close. Mirror the -in pair in reverse; keep durations in sync with the .18s
+   used by the JS callers. */
+@keyframes sb-backdrop-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes sb-modal-out    { from { opacity: 1; scale: 1; translate: 0 0; } to { opacity: 0; scale: 0.95; translate: 0 20px; } }
 
 #welcome-backdrop {
   position: fixed; inset: 0; z-index: 10100;

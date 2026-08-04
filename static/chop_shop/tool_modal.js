@@ -55,14 +55,16 @@ function openToolFloatModal(toolId) {
   const body = document.getElementById('tool-float-modal-body');
   if (body) body.appendChild(card);
 
-  // Spell out the "what is this?" help inline above the form when idle. When a
-  // tool is running we leave the explainers collapsed so the running tool's
-  // modal stays focused on progress.
+  // "What is this?" help stays collapsed by default — the disclosure triangle
+  // already promises "click to expand"; auto-opening it forced two paragraphs
+  // of algorithm detail past the folder-drop input on every tool open. Force
+  // it fully closed while a tool is running so a running modal never expands
+  // help under the user's cursor.
   const _tfmRunning = (typeof isRunning !== 'undefined' && isRunning);
   const _tfmExpl = card.querySelector('.explainers');
   if (_tfmExpl) {
-    _tfmExpl.classList.toggle('explainers-expanded', !_tfmRunning);
-    _tfmExpl.querySelectorAll('details').forEach(d => { d.open = !_tfmRunning; });
+    _tfmExpl.classList.remove('explainers-expanded');
+    if (_tfmRunning) _tfmExpl.querySelectorAll('details').forEach(d => { d.open = false; });
   }
   modal.classList.toggle('tfm-help-inline', !_tfmRunning);
 
