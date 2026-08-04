@@ -695,7 +695,15 @@ def api_update_apply():
             text=True,
             timeout=15,
         )
-        if status_check.returncode == 0 and status_check.stdout.strip():
+        # Untracked files (scratch notes, tool working-state dirs, generated
+        # reports that predate a .gitignore entry, ...) can never conflict
+        # with a fast-forward pull — only block on actual changes to tracked
+        # files, which a pull could silently overwrite.
+        dirty_tracked = [
+            line for line in status_check.stdout.splitlines()
+            if line and not line.startswith("??")
+        ]
+        if status_check.returncode == 0 and dirty_tracked:
             return jsonify({
                 "ok": False,
                 "error": "Working tree has uncommitted changes — commit or stash them before updating.",
