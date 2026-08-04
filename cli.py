@@ -4443,6 +4443,17 @@ def main() -> None:
     log.debug("Command: %s", args.command)
     log.debug("Args: %s", vars(args))
 
+    if args.command != "setup":
+        from user_config import config_exists  # noqa: PLC0415
+
+        if not config_exists():
+            print(
+                "FableGear has not been configured yet.\n"
+                "Run:  python3 cli.py setup\n",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
     args.func(args)
 
 
