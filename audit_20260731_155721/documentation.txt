@@ -1,3 +1,0 @@
-Found: README.md
-      22
-Found: IMPLEMENTATION_COMPLETE.md

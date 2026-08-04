@@ -97,3 +97,7 @@ static/icon-welcome-info.png
 
 # impeccable design-skill working state (critique notes, live preview snapshots)
 .impeccable/
+
+# Local audit/coverage artifacts — generated, not source.
+.coverage
+audit_*/
