@@ -24,11 +24,10 @@ import json
 import logging
 import shutil
 import sqlite3
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
-from typing import Optional
 
 from .database import DEFAULT_DB_PATH
 
@@ -45,7 +44,7 @@ class SyncResult:
     ok: bool
     action: str  # "synced" | "hydrated" | "skipped" | "seeded" | "error"
     reason: str = ""
-    detail: Optional[dict] = None
+    detail: dict | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -53,20 +52,20 @@ class SyncResult:
 
 # ── Paths ───────────────────────────────────────────────────────────────────
 
-def _archive_root() -> Optional[Path]:
+def _archive_root() -> Path | None:
     """Return config.ARCHIVE_ROOT, or None if the archive is disabled.
 
     Imported lazily (matches the rest of the codebase's pattern for reading
     ``config`` inside functions) so importing this module never requires a
     configured environment.
     """
-    from config import ARCHIVE_ENABLED, ARCHIVE_ROOT  # noqa: PLC0415
+    from config import ARCHIVE_ENABLED, ARCHIVE_ROOT
     if not ARCHIVE_ENABLED:
         return None
     return ARCHIVE_ROOT
 
 
-def archive_db_dir() -> Optional[Path]:
+def archive_db_dir() -> Path | None:
     """Return ``<ARCHIVE_ROOT>/Database``, or None if archive is disabled."""
     root = _archive_root()
     if root is None:
@@ -74,18 +73,18 @@ def archive_db_dir() -> Optional[Path]:
     return root / _ARCHIVE_DB_SUBDIR
 
 
-def archive_db_path() -> Optional[Path]:
+def archive_db_path() -> Path | None:
     """Return the authoritative archive copy's path, or None if disabled."""
     d = archive_db_dir()
     return None if d is None else d / _ARCHIVE_DB_NAME
 
 
-def archive_db_prev_path() -> Optional[Path]:
+def archive_db_prev_path() -> Path | None:
     d = archive_db_dir()
     return None if d is None else d / _ARCHIVE_DB_PREV_NAME
 
 
-def archive_db_meta_path() -> Optional[Path]:
+def archive_db_meta_path() -> Path | None:
     d = archive_db_dir()
     return None if d is None else d / _ARCHIVE_DB_META_NAME
 
@@ -148,20 +147,20 @@ def _write_meta(meta_path: Path, payload: dict) -> None:
 
 def _app_version() -> str:
     try:
-        from _version import __version__  # noqa: PLC0415
+        from _version import __version__
         return __version__
     except Exception:
         return "unknown"
 
 
-def _savepoint_aside(path: Path, *, reason: str) -> Optional[Path]:
+def _savepoint_aside(path: Path, *, reason: str) -> Path | None:
     """Move an existing (possibly damaged) local DB aside to a timestamped
     Savepoint instead of deleting it. Returns the savepoint path, or None if
     there was nothing to move or the move failed."""
     if not path.exists():
         return None
     try:
-        from config import SAVEPOINTS_DIR  # noqa: PLC0415
+        from config import SAVEPOINTS_DIR
         SAVEPOINTS_DIR.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d%H%M%S")
         dest = SAVEPOINTS_DIR / f"fablegear.local.{reason}.{stamp}.db"
@@ -272,7 +271,7 @@ def sync_db_to_archive(*, local_path: Path = DEFAULT_DB_PATH, history_keep: int 
         tmp = db_dir / f".{_ARCHIVE_DB_NAME}.tmp"
         shutil.copy2(local_path, tmp)
         with open(tmp, "rb") as f:
-            import os as _os  # noqa: PLC0415
+            import os as _os
             _os.fsync(f.fileno())
 
         source_checksum = _checksum(local_path)
@@ -288,7 +287,7 @@ def sync_db_to_archive(*, local_path: Path = DEFAULT_DB_PATH, history_keep: int 
 
         tmp.replace(a_path)
         _write_meta(meta_path, {
-            "synced_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "synced_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "app_version": _app_version(),
             "checksum_sha256": source_checksum,
             "size_bytes": local_path.stat().st_size,

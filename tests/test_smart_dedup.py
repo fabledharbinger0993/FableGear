@@ -14,13 +14,11 @@ playlist. These pin the two guarantees that deliver that:
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import smart_dedup as SD  # noqa: E402
+import smart_dedup as SD
 
 
 def _t(i, title="Song", artist="Artist", path=None, playlists=(), duration=200):

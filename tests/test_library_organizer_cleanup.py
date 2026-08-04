@@ -22,14 +22,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from chop_shop.library_organizer import (  # noqa: E402
+from chop_shop.library_organizer import (
     _MAX_NAME_BYTES,
     _collapse_repeats,
     _normalize_artist,
     _prune_emptied_dirs,
     _sanitize_filename,
 )
-
 
 # ── _sanitize_filename ───────────────────────────────────────────────────────
 

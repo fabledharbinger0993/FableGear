@@ -33,7 +33,6 @@ import shutil
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 LIVE_DB = Path.home() / "Library" / "Pioneer" / "rekordbox" / "master.db"
 BACKUP_ROOT = Path.home() / ".fablegear" / "rekordbox_master_backups"
@@ -54,7 +53,7 @@ def rekordbox_running() -> bool:
     in cli.py, and in db_connection.py itself, with inconsistent
     fail-safe behavior between them).
     """
-    from db_connection import rekordbox_is_running  # noqa: PLC0415
+    from db_connection import rekordbox_is_running
     return rekordbox_is_running()
 
 
@@ -87,11 +86,11 @@ class SafeWriteContext:
     """Handle yielded by :func:`safe_master_write`. Carries the resolved target
     and the verified backup dir, and writes the undo manifest."""
 
-    def __init__(self, target: Path, backup_dir: Path, manifest_dir: Optional[Path]):
+    def __init__(self, target: Path, backup_dir: Path, manifest_dir: Path | None):
         self.target = target
         self.backup_dir = backup_dir
         self.manifest_dir = Path(manifest_dir) if manifest_dir else BACKUP_ROOT
-        self.manifest_path: Optional[Path] = None
+        self.manifest_path: Path | None = None
 
     def record_manifest(self, data: dict) -> Path:
         """Write an undo manifest. ``target``/``backup``/``timestamp`` are filled
@@ -108,8 +107,8 @@ class SafeWriteContext:
 
 
 @contextmanager
-def safe_master_write(target: Optional[str | Path] = None, *, tag: str = "write",
-                      manifest_dir: Optional[str | Path] = None,
+def safe_master_write(target: str | Path | None = None, *, tag: str = "write",
+                      manifest_dir: str | Path | None = None,
                       require_closed: bool = True):
     """Context manager wrapping a live ``master.db`` write.
 

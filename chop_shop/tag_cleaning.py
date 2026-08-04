@@ -53,7 +53,7 @@ GENRE_WORDS = {
 }
 
 # Camelot wheel keys (1A–12B), any case — reject when found in the artist field.
-_CAMELOT = {f"{n}{l}" for n in range(1, 13) for l in ("A", "B")}
+_CAMELOT = {f"{n}{side}" for n in range(1, 13) for side in ("A", "B")}
 
 
 def _base_clean(raw) -> str | None:

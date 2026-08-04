@@ -12,14 +12,11 @@ contract with lightweight fakes — no real Rekordbox database required.
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from database_dedup import choose_keeper, execute_plan, scan_conflicts
-
 
 # ── Fakes ────────────────────────────────────────────────────────────────────
 

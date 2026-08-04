@@ -23,23 +23,20 @@ _walk_table_pages / _parse_index_entries. The populated-index-page case
 synthetic-only below — no real sample with populated tables was available.
 """
 
-import struct
 import sys
 from pathlib import Path
-
-import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 for p in (REPO_ROOT, REPO_ROOT / "chop_shop"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-from devicesql_reader import (  # noqa: E402
+from devicesql_reader import (
     _DATA_PAGE_HEADER_SIZE,
-    _decode_pdb_string,
     _FILE_HEADER_SIZE,
-    read_pdb,
     TABLE_TYPE_TRACKS,
+    _decode_pdb_string,
+    read_pdb,
 )
 
 PAGE_SIZE = 4096

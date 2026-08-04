@@ -186,8 +186,8 @@ def test_hydrate_savepoints_corrupt_local_before_restoring(archive_env):
     """Conflict path: a damaged local file is never deleted outright — it's
     moved aside to a timestamped Savepoint, then a good archive copy takes
     its place."""
-    from fablegear_database import archive_sync
     import config
+    from fablegear_database import archive_sync
 
     local = archive_env["local"]
     seed = archive_env["local"].parent / "seed.db"

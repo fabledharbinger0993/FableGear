@@ -299,6 +299,7 @@ def test_health_warns_when_beat_tracker_degraded(monkeypatch):
 def test_beat_tracker_check_is_registered():
     """A check that exists but is never run is worse than no check."""
     import inspect
+
     import health
     src = inspect.getsource(health.run_health_checks)
     assert "_check_beat_tracker" in src

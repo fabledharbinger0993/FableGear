@@ -58,6 +58,7 @@ import logging
 import os
 import re
 import shutil
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -307,7 +308,8 @@ def _copy_novel(src: Path, destination: Path, dry_run: bool) -> NovelTrack:
 
     # Derive a sensible destination path
     try:
-        from library_organizer import _canonical_dest, MIX_THRESHOLD_SEC
+        from library_organizer import MIX_THRESHOLD_SEC, _canonical_dest
+
         from scanner import scan_directory
         # scan just this one file
         tracks = list(scan_directory(src.parent))
@@ -356,10 +358,10 @@ def scan_novel(
     dry_run:     bool = True,
     max_workers: int  = 1,
     match_mode:  str  = "fingerprint",
-    progress_cb: "callable | None" = None,
+    progress_cb: "Callable | None" = None,
     archive=None,
     skip_paths: "set[str] | None" = None,
-    on_result: "callable | None" = None,
+    on_result: "Callable | None" = None,
 ) -> NovelScanResult:
     """
     Scan *source* for tracks that do not exist in *destination* and copy them
@@ -542,7 +544,7 @@ def scan_novel(
                     on_result(r)
                 done += 1; _emit()
     else:
-        for i, src in enumerate(src_tracks):
+        for _i, src in enumerate(src_tracks):
             try:
                 r = _process(src)
             except Exception as exc:

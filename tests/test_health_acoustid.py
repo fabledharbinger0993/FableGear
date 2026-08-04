@@ -5,8 +5,9 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import health_acoustid as ha
 import pytest
+
+import health_acoustid as ha
 
 
 def test_find_fpcalc_honors_env_override():

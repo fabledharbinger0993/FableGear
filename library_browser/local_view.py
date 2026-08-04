@@ -7,7 +7,8 @@ and organization options.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from library_browser.core import FileData
 
 log = logging.getLogger(__name__)
@@ -16,12 +17,12 @@ log = logging.getLogger(__name__)
 class LocalView:
     """
     Filesystem-centric library view.
-    
+
     Shows all audio files from connected drives in a shallow display
     with flexible sorting and organization options.
     """
-    
-    def __init__(self, database: Optional[Any] = None):
+
+    def __init__(self, database: Any | None = None):
         """
         Initialize the Local view.
 
@@ -31,12 +32,12 @@ class LocalView:
                 re-scanning the filesystem.
         """
         self._database = database
-        self._files: List[FileData] = []
-        self._filtered_files: List[FileData] = []
-        self._filters: Dict[str, Any] = {}
+        self._files: list[FileData] = []
+        self._filtered_files: list[FileData] = []
+        self._filters: dict[str, Any] = {}
         self._sort_field = "file_name"
         self._sort_ascending = True
-        self._roots: List[Path] = []
+        self._roots: list[Path] = []
 
     def load_from_database(self, limit: int = 1_000_000, offset: int = 0) -> None:
         """
@@ -80,25 +81,25 @@ class LocalView:
             drive=rec.drive,
         )
 
-    def load_data(self, roots: List[Path]) -> None:
+    def load_data(self, roots: list[Path]) -> None:
         """
         Load file data from filesystem.
-        
+
         Args:
             roots: Root paths to scan
         """
         try:
             from library_browser.scanner import LibraryScanner
-            
+
             self._roots = roots
             scanner = LibraryScanner()
-            
+
             file_paths = scanner.scan_local_files(roots)
-            
+
             self._files = []
             for file_path in file_paths:
                 metadata = scanner.get_file_metadata(file_path)
-                
+
                 file_data = FileData(
                     file_path=file_path,
                     file_name=metadata.get("file_name", file_path.name),
@@ -115,47 +116,47 @@ class LocalView:
                     key=metadata.get("key"),
                     drive=self._get_drive_identifier(file_path),
                 )
-                
+
                 # Check if file is in Rekordbox
                 file_data.in_rekordbox = self._check_in_rekordbox(file_path)
-                
+
                 self._files.append(file_data)
-            
+
             self._apply_filters_and_sort()
             log.info("Loaded %d files from %d roots", len(self._files), len(roots))
-            
+
         except Exception as exc:
             log.error("Failed to load Local view data: %s", exc)
-    
-    def get_files(self, limit: int = 1000, offset: int = 0) -> List[FileData]:
+
+    def get_files(self, limit: int = 1000, offset: int = 0) -> list[FileData]:
         """
         Get files from the view.
-        
+
         Args:
             limit: Maximum number of files to return
             offset: Number of files to skip
-            
+
         Returns:
             List of file data
         """
         return self._filtered_files[offset:offset + limit]
-    
-    def search(self, query: str, search_fields: Optional[List[str]] = None) -> List[FileData]:
+
+    def search(self, query: str, search_fields: list[str] | None = None) -> list[FileData]:
         """
         Search files by query string.
-        
+
         Args:
             query: Search query
             search_fields: Fields to search in (None = all fields)
-            
+
         Returns:
             List of matching files
         """
         query_lower = query.lower()
-        
+
         if not search_fields:
             search_fields = ["file_name", "artist", "album", "title"]
-        
+
         results = []
         for file in self._files:
             for field in search_fields:
@@ -163,13 +164,13 @@ class LocalView:
                 if value and query_lower in str(value).lower():
                     results.append(file)
                     break
-        
+
         return results
-    
+
     def sort(self, field: str, ascending: bool = True) -> None:
         """
         Sort files by the specified field.
-        
+
         Args:
             field: Field to sort by
             ascending: Sort direction
@@ -177,45 +178,45 @@ class LocalView:
         self._sort_field = field
         self._sort_ascending = ascending
         self._apply_filters_and_sort()
-    
-    def filter(self, filters: Dict[str, Any]) -> None:
+
+    def filter(self, filters: dict[str, Any]) -> None:
         """
         Apply filters to the view.
-        
+
         Args:
             filters: Dictionary of field:value filters
         """
         self._filters = filters
         self._apply_filters_and_sort()
-    
+
     def refresh(self) -> None:
         """Refresh the view data."""
         if self._roots:
             self.load_data(self._roots)
-    
-    def get_statistics(self) -> Dict[str, Any]:
+
+    def get_statistics(self) -> dict[str, Any]:
         """
         Get view statistics.
-        
+
         Returns:
             Dictionary with view statistics
         """
         total_files = len(self._files)
         in_rekordbox = sum(1 for f in self._files if f.in_rekordbox)
         not_in_rekordbox = total_files - in_rekordbox
-        
+
         # Count by format
         format_counts = {}
         for file in self._files:
             fmt = file.format or "unknown"
             format_counts[fmt] = format_counts.get(fmt, 0) + 1
-        
+
         # Count by drive
         drive_counts = {}
         for file in self._files:
             drive = file.drive or "unknown"
             drive_counts[drive] = drive_counts.get(drive, 0) + 1
-        
+
         return {
             "total_files": total_files,
             "in_rekordbox": in_rekordbox,
@@ -223,14 +224,14 @@ class LocalView:
             "format_counts": format_counts,
             "drive_counts": drive_counts,
         }
-    
+
     def _get_drive_identifier(self, file_path: Path) -> str:
         """
         Get a drive identifier for a file path.
-        
+
         Args:
             file_path: File path
-            
+
         Returns:
             Drive identifier string
         """
@@ -244,20 +245,20 @@ class LocalView:
             # Path.parts is a pure in-memory property and shouldn't raise;
             # this is just a defensive fallback for unexpected path shapes.
             return "unknown"
-    
+
     def _check_in_rekordbox(self, file_path: Path) -> bool:
         """
         Check if a file is in the Rekordbox database.
-        
+
         Args:
             file_path: File path to check
-            
+
         Returns:
             True if file is in Rekordbox
         """
         try:
             from db_connection import read_db
-            
+
             with read_db() as db:
                 # Check if there's a content entry with this path
                 rows = db.get_content(FolderPath=str(file_path)).all()
@@ -273,18 +274,18 @@ class LocalView:
             # would silently mislabel the entire library as out of sync.
             log.debug("Rekordbox lookup failed for %s: %s", file_path, exc)
             return False
-    
+
     def _apply_filters_and_sort(self) -> None:
         """Apply current filters and sorting to the file list."""
         # Apply filters
         self._filtered_files = self._files.copy()
-        
+
         for field, value in self._filters.items():
             self._filtered_files = [
                 f for f in self._filtered_files
                 if getattr(f, field, None) == value
             ]
-        
+
         # Apply sorting
         reverse = not self._sort_ascending
         self._filtered_files.sort(

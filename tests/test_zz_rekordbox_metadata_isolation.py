@@ -24,7 +24,7 @@ import pytest
 
 pytest.importorskip("pyrekordbox", reason="pyrekordbox not installed")
 
-from pyrekordbox.db6 import tables as rb_tables  # noqa: E402
+from pyrekordbox.db6 import tables as rb_tables
 
 
 def test_shared_rekordbox_metadata_nullability_not_leaked():

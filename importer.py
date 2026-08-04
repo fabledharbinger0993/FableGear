@@ -38,7 +38,7 @@ import json
 import logging
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
 
@@ -57,10 +57,15 @@ except Exception:  # pragma: no cover - defensive fallback
 
 from config import (
     BATCH_SIZE,
+)
+from config import (
     PROGRESS_ITEM_INTERVAL as _PROGRESS_ITEM_INTERVAL,
+)
+from config import (
     PROGRESS_MIN_SECONDS as _PROGRESS_MIN_SECONDS,
 )
-from key_mapper import clear_cache as clear_key_cache, resolve_key_id
+from key_mapper import clear_cache as clear_key_cache
+from key_mapper import resolve_key_id
 from scanner import TrackInfo, scan_directory
 
 log = logging.getLogger(__name__)
@@ -107,14 +112,14 @@ def _save_progress(root: Path, completed: set[str]) -> None:
     Merges into the existing file so parallel imports of other roots are
     preserved. Silently swallows write errors — a failed progress save must
     never abort an import that is otherwise succeeding.
-    
+
     CONCURRENCY FIX: Uses fcntl file locking on POSIX systems to prevent
     corruption when multiple processes write simultaneously.
     """
     key = str(root.resolve())
     try:
         _PROGRESS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Use file locking if available (POSIX systems)
         if _HAS_FCNTL:
             lock_file = _PROGRESS_FILE.parent / ".import_progress.lock"
@@ -140,7 +145,7 @@ def _save_progress_unsafe(root: Path, completed: set[str], key: str) -> None:
             data = json.loads(_PROGRESS_FILE.read_text(encoding="utf-8"))
         except Exception:
             pass  # Corrupt file — overwrite it
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     if key not in data or not isinstance(data[key], dict):
         data[key] = {"started_at": now}
     data[key]["completed_paths"] = sorted(completed)
@@ -252,11 +257,11 @@ def _get_or_create_artist(name: str, db: Rekordbox6Database) -> str | None:
     if not name or not name.strip():
         return None
     name = name.strip()
-    
+
     with _artist_cache_lock:
         if name in _artist_cache:
             return _artist_cache[name]
-    
+
     existing = _find_existing_artist(name, db)
     if existing is not None:
         with _artist_cache_lock:
@@ -313,7 +318,7 @@ def _import_track(track: TrackInfo, db: Rekordbox6Database) -> TrackImportResult
     if track.bpm is not None:
         # Rekordbox stores BPM as int(round(bpm * 100)) for precision without floats.
         # FableGear DB stores raw float. Any cross-DB code must transform.
-        kwargs["BPM"] = int(round(track.bpm * 100))
+        kwargs["BPM"] = round(track.bpm * 100)
 
     if track.key:
         key_id = resolve_key_id(track.key, db)
@@ -368,7 +373,7 @@ def _import_track(track: TrackInfo, db: Rekordbox6Database) -> TrackImportResult
         # Correct the FolderPath for .aif files: add_content stored the .aiff
         # path; set it back to the real on-disk .aif path before flush.
         if is_aif:
-            setattr(content_row, "FolderPath", str(actual_path))
+            content_row.FolderPath = str(actual_path)
             log.debug("FolderPath corrected for .aif: %s", actual_path.name)
 
         result.success = True
@@ -573,7 +578,7 @@ if __name__ == "__main__":
 
     print("\n=== METADATA PREVIEW ===")
     for track in scan_directory(test_root):
-        bpm_db = int(round(track.bpm * 100)) if track.bpm else "None"
+        bpm_db = round(track.bpm * 100) if track.bpm else "None"
         dur_db = int(track.duration_seconds) if track.duration_seconds else "None"
         print(f"  {track.path.name}")
         print(f"    Title    : {track.title}")

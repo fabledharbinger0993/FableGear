@@ -9,8 +9,8 @@ import json
 import logging
 import os
 import threading
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 
 STATE_FILENAME = ".fablegear_state.json"
 log = logging.getLogger(__name__)
@@ -28,10 +28,10 @@ def load_state(library_root: str) -> dict:
             "library_root": str(library_root),
             "fablegear_version": os.environ.get("FABLEGEAR_VERSION", "unknown"),
             "steps_completed": {},
-            "last_updated": datetime.now(timezone.utc).isoformat()
+            "last_updated": datetime.now(UTC).isoformat()
         }
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except Exception as exc:
         # corrupt file → graceful fallback
@@ -49,7 +49,7 @@ def save_state(library_root: str, state: dict):
     if not os.access(path.parent, os.W_OK):
         log.warning("state_tracker: %s is not writable — skipping state save", path.parent)
         return
-    state["last_updated"] = datetime.now(timezone.utc).isoformat()
+    state["last_updated"] = datetime.now(UTC).isoformat()
     tmp = path.with_name(f".{path.name}.tmp")
     try:
         payload = json.dumps(state, indent=2)
@@ -76,7 +76,7 @@ def mark_step_complete(library_root: str, step: str, exit_code: int):
     if "steps_completed" not in state:
         state["steps_completed"] = {}
     state["steps_completed"][step] = {
-        "last_run": datetime.now(timezone.utc).isoformat(),
+        "last_run": datetime.now(UTC).isoformat(),
         "exit_code": exit_code
     }
     save_state(library_root, state)

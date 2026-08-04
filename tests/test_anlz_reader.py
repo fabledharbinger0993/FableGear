@@ -15,14 +15,12 @@ import struct
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 for p in (REPO_ROOT, REPO_ROOT / "chop_shop"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-from anlz_reader import parse_anlz_file, read_anlz_set  # noqa: E402
+from anlz_reader import parse_anlz_file, read_anlz_set
 
 
 def _tag(fourcc: bytes, body: bytes, len_header: int = 12) -> bytes:
@@ -46,7 +44,7 @@ def _ppth_tag(path: str) -> bytes:
 def _pqtz_tag(beats: list) -> bytes:
     body = struct.pack(">III", 0, 0, len(beats))
     for beat_no, tempo_bpm, time_ms in beats:
-        body += struct.pack(">HHI", beat_no, int(round(tempo_bpm * 100)), time_ms)
+        body += struct.pack(">HHI", beat_no, round(tempo_bpm * 100), time_ms)
     return _tag(b"PQTZ", body)
 
 
@@ -174,7 +172,7 @@ def test_pqtz_truncates_when_declared_beats_exceed_body(tmp_path):
     # return only the beats that fit and must not raise.
     body = struct.pack(">III", 0, 0, 10)  # declares 10 beats
     for beat_no, tempo_bpm, time_ms in [(1, 124.0, 110), (2, 124.0, 594)]:  # only 2 present
-        body += struct.pack(">HHI", beat_no, int(round(tempo_bpm * 100)), time_ms)
+        body += struct.pack(">HHI", beat_no, round(tempo_bpm * 100), time_ms)
     tags = _tag(b"PQTZ", body)
 
     anlz_path = tmp_path / "ANLZ0000.DAT"

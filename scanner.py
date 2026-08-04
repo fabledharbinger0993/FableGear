@@ -18,9 +18,9 @@ BPM is returned as a float (e.g. 126.0) — the importer applies ×100.
 import logging
 import os
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
 
 from mutagen import File as MutagenFile
 from mutagen.id3 import ID3

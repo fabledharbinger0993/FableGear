@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: FableGear (Claude + Marshall Guthrie)
 """
 chop_shop/waveform_generator.py
@@ -82,8 +81,10 @@ def analyze_audio(path, block_seconds: int = 60) -> WaveformData:
     _tmp = None
     try:
         sf.info(str(path))
-    except Exception:  # noqa: BLE001 — unreadable by libsndfile; try the ffmpeg path
-        import tempfile, librosa
+    except Exception:
+        import tempfile
+
+        import librosa
         y, sr0 = librosa.load(str(path), sr=None, mono=True)
         fd, _tmp = tempfile.mkstemp(suffix=".wav")
         import os as _os
@@ -107,7 +108,7 @@ def _analyze_readable(path, block_seconds: int = 60) -> WaveformData:
     info = sf.info(str(path))
     sr = info.samplerate
     duration = info.frames / info.samplerate
-    n_cols = max(1, int(round(duration * DETAIL_COLS_PER_SEC)))
+    n_cols = max(1, round(duration * DETAIL_COLS_PER_SEC))
 
     peak = np.zeros(n_cols, dtype=np.float32)
     band_low = np.zeros(n_cols, dtype=np.float32)
@@ -124,20 +125,20 @@ def _analyze_readable(path, block_seconds: int = 60) -> WaveformData:
     with sf.SoundFile(str(path)) as f:
         while col < n_cols:
             cols_here = min(cols_per_block, n_cols - col)
-            frames = int(round(cols_here * spc))
+            frames = round(cols_here * spc)
             data = f.read(frames, dtype="float32", always_2d=True)
             if len(data) == 0:
                 break
             mono = data.mean(axis=1)
             # trim to whole columns
-            usable = int((len(mono) // spc)) if spc != int(spc) else len(mono) // int(spc)
+            usable = int(len(mono) // spc) if spc != int(spc) else len(mono) // int(spc)
             usable = min(usable, cols_here)
             if usable == 0:
                 break
-            width = int(round(spc))
+            width = round(spc)
             mat = np.zeros((usable, width), dtype=np.float32)
             for c in range(usable):
-                a = int(round(c * spc)); b = a + width
+                a = round(c * spc); b = a + width
                 seg = mono[a:b]
                 mat[c, :len(seg)] = seg[:width]
             peak[col:col + usable] = np.abs(mat).max(axis=1)
@@ -204,7 +205,7 @@ def build_color_tags(wf: WaveformData) -> dict:
     for i in range(_COLOR_PREVIEW_COLS):
         a, e = idx[i], max(idx[i] + 1, idx[i + 1])
         hh = int(wf.height[a:e].max())
-        rr = int(round(r[a:e].mean() * 31 / 7)); gg = int(round(g[a:e].mean() * 31 / 7)); bb = int(round(b[a:e].mean() * 31 / 7))
+        rr = round(r[a:e].mean() * 31 / 7); gg = round(g[a:e].mean() * 31 / 7); bb = round(b[a:e].mean() * 31 / 7)
         pv += bytes((hh, hh, rr & 0x1f, gg & 0x1f, bb & 0x1f, 0))
     pwv4 = _tag("PWV4", struct.pack(">III", 6, _COLOR_PREVIEW_COLS, 0), bytes(pv), 24)
     return {"PWV5": pwv5, "PWV4": pwv4}
@@ -257,7 +258,7 @@ def _extract_tag(anlz_bytes: bytes, fourcc: str):
     n = len(anlz_bytes)
     while off + 12 <= n:
         fc = anlz_bytes[off:off + 4]
-        lh, lt = struct.unpack_from(">II", anlz_bytes, off + 4)
+        _lh, lt = struct.unpack_from(">II", anlz_bytes, off + 4)
         if lt < 12 or off + lt > n:
             break
         if fc == fourcc.encode("ascii"):
@@ -348,7 +349,7 @@ def estimate_first_beat_ms(path, bpm: float, probe_seconds: float = 40.0) -> flo
             return 0.0
         beat_ms = 60000.0 / float(bpm)
         return float((beats[0] * 1000.0) % beat_ms)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("first-beat estimate failed (%s): %s", type(exc).__name__, exc)
         return 0.0
 
@@ -368,7 +369,7 @@ def _downsample(height: np.ndarray, whiteness: np.ndarray, out_cols: int):
     for i in range(out_cols):
         a, b = idx[i], max(idx[i] + 1, idx[i + 1])
         h_out[i] = height[a:b].max() if b > a else 0
-        w_out[i] = int(round(whiteness[a:b].mean())) if b > a else 0
+        w_out[i] = round(whiteness[a:b].mean()) if b > a else 0
     return h_out, w_out
 
 

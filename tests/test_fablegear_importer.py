@@ -21,7 +21,6 @@ import sys
 import wave
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
 
 import pytest
 
@@ -33,7 +32,6 @@ from fablegear_database.database import FableGearDatabase
 from fablegear_database.importer import _COMMIT_BATCH_SIZE, FileImporter
 from fablegear_database.schema import DatabaseConfig
 
-
 # --------------------------------------------------------------------------- #
 # Test doubles
 # --------------------------------------------------------------------------- #
@@ -42,20 +40,20 @@ from fablegear_database.schema import DatabaseConfig
 class FakeTrack:
     """Mirrors the attribute surface of scanner.TrackInfo."""
     path: Path
-    title: Optional[str] = None
-    artist: Optional[str] = None
-    album: Optional[str] = None
-    genre: Optional[str] = None
-    year: Optional[int] = None
-    track_number: Optional[int] = None
-    bpm: Optional[float] = None
-    key: Optional[str] = None
-    duration_seconds: Optional[float] = None
-    bitrate: Optional[int] = None
-    sample_rate: Optional[int] = None
-    file_size: Optional[int] = None
-    file_type: Optional[str] = None
-    errors: List[str] = field(default_factory=list)
+    title: str | None = None
+    artist: str | None = None
+    album: str | None = None
+    genre: str | None = None
+    year: int | None = None
+    track_number: int | None = None
+    bpm: float | None = None
+    key: str | None = None
+    duration_seconds: float | None = None
+    bitrate: int | None = None
+    sample_rate: int | None = None
+    file_size: int | None = None
+    file_type: str | None = None
+    errors: list[str] = field(default_factory=list)
 
 
 class FakeScanner:
@@ -348,7 +346,7 @@ def test_integration_real_scanner_imports_wav(tmp_path, monkeypatch):
     for mod in ("config", "scanner"):
         sys.modules.pop(mod, None)
     try:
-        import scanner  # noqa: PLC0415 — imported under the redirected HOME
+        import scanner
 
         _write_wav(music / "one.wav")
         _write_wav(music / "nested" / "two.wav")

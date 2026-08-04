@@ -1,26 +1,65 @@
 # FableGear lint configuration.
 #
-# Goal: `ruff check .` passes clean so it can act as a gate, while
-# acknowledging two deliberate house patterns:
+# Goal: `ruff check .` passes clean, so CI can gate on it instead of printing
+# a wall of findings nobody reads.
 #
-#   1. Entry-point modules (app.py, main.py, cli.py, routes_*, helpers.py)
-#      mutate sys.path BEFORE importing — required so bare-name imports
-#      resolve into chop_shop/ in both dev and PyInstaller bundles.
-#      That makes E402 (import not at top) intentional in those files.
-#
-#   2. Aligned single-line conditionals (`if x: do()`) are used for
-#      readable flag-to-CLI-arg mapping blocks. E701/E702 are ignored.
+# This file previously set `ignore` but never `select`. Without an explicit
+# selection the effective rule set ballooned to ~413 rules and the lint job
+# reported roughly 1,700 findings on every run — permanently red, therefore
+# unable to tell anyone when something NEW broke. The rules below are chosen
+# deliberately; anything not listed is off on purpose, not by accident.
 
 line-length = 120
 target-version = "py311"
 
 [lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes — undefined names, unused imports, real bugs
+    "I",    # import sorting (auto-fixable, keeps merge diffs small)
+    "UP",   # pyupgrade — modern syntax for the pinned target-version
+    "B",    # bugbear — likely bugs (mutable defaults, etc.)
+    "RUF",  # ruff-specific, including RUF100 unused-noqa
+]
+
 ignore = [
     "E701",  # multiple statements on one line (colon) — intentional aligned style
     "E702",  # multiple statements on one line (semicolon) — same
+    "E501",  # line length is enforced by the formatter, not as an error here
+    "B008",  # function call in default argument — used deliberately by Flask routes
+
+    # Ambiguous-unicode rules. This codebase uses —, →, and box-drawing
+    # characters throughout its section headers and prose comments. That is
+    # deliberate typography in comments and docstrings, not a homoglyph
+    # hazard in identifiers.
+    "RUF001", "RUF002", "RUF003",
+
+    # zip-without-explicit-strict. Adding strict= to 15 existing call sites
+    # changes runtime behaviour (it raises on length mismatch). That is a
+    # correctness review of each site, not something to sweep in with a lint
+    # pass. Worth doing deliberately, separately.
+    "B905",
 ]
 
+# Deliberately NOT selected, with reasons, so nobody re-adds them by reflex:
+#
+#   BLE001 (blind-except)   389 hits. This codebase catches broad exceptions on
+#                           purpose: drive access, audio decode, and Rekordbox
+#                           reads must degrade rather than crash a long batch.
+#                           Several helpers document "never raises" as their
+#                           contract. The rule fights the architecture.
+#   S110   (try-except-pass) 58 hits, same reasoning.
+#   DTZ    (naive datetime)  72 hits. Worth revisiting, but changing timezone
+#                           handling touches the archive and snapshot logic and
+#                           belongs in its own change, not a lint sweep.
+#   PLW1510 (subprocess check) 35 hits. Return codes here are inspected by hand
+#                           so a failure can be reported instead of raised.
+
 [lint.per-file-ignores]
+# Entry-point modules mutate sys.path BEFORE importing so bare-name imports
+# resolve into chop_shop/ in both dev and PyInstaller bundles. E402 is
+# intentional there.
 "app.py" = ["E402"]
 "main.py" = ["E402"]
 "cli.py" = ["E402"]
@@ -29,3 +68,7 @@ ignore = [
 "routes_player.py" = ["E402"]
 "routes_tools.py" = ["E402"]
 "routes_rekordbox.py" = ["E402"]
+
+# Every test inserts REPO_ROOT into sys.path before importing the module under
+# test — the same deliberate pattern as the entry points above.
+"tests/*" = ["E402"]

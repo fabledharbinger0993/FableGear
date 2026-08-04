@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: FableGear (Claude + Marshall Guthrie)
 # Date:   2026-07-13
 """
@@ -87,13 +86,14 @@ Public interface:
 
 import logging
 import struct
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import BinaryIO, Iterator, List, Optional, Union
+from typing import BinaryIO
 
 logger = logging.getLogger(__name__)
 
-PathLike = Union[str, Path]
+PathLike = str | Path
 
 PDB_PAGE_SIZES = {512, 1024, 2048, 4096, 8192, 16384}
 PDB_MAX_TABLES = 64
@@ -142,17 +142,17 @@ class TrackRow:
     kept as raw foreign keys so a future pass can resolve them without
     re-walking the tracks table.
     """
-    anlz_folder_path: Optional[str] = None
-    title: Optional[str] = None
-    artist: Optional[str] = None
-    drive_relative_path: Optional[str] = None
-    bpm: Optional[float] = None
-    key: Optional[str] = None
+    anlz_folder_path: str | None = None
+    title: str | None = None
+    artist: str | None = None
+    drive_relative_path: str | None = None
+    bpm: float | None = None
+    key: str | None = None
     # Raw foreign keys, for a future artists/keys resolution pass.
-    track_id: Optional[int] = None
-    artist_id: Optional[int] = None
-    album_id: Optional[int] = None
-    key_id: Optional[int] = None
+    track_id: int | None = None
+    artist_id: int | None = None
+    album_id: int | None = None
+    key_id: int | None = None
 
 
 @dataclass
@@ -162,14 +162,14 @@ class PdbReport:
     exists: bool = False
     readable: bool = False
     file_size: int = 0
-    valid_header: Optional[bool] = None
-    page_size: Optional[int] = None
-    num_tables: Optional[int] = None
-    next_unused_page: Optional[int] = None
-    tracks: List[TrackRow] = field(default_factory=list)
+    valid_header: bool | None = None
+    page_size: int | None = None
+    num_tables: int | None = None
+    next_unused_page: int | None = None
+    tracks: list[TrackRow] = field(default_factory=list)
     partial: bool = True
     detail: str = ""
-    notes: List[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
 
 # ─── Table pointer array ────────────────────────────────────────────────────
@@ -181,10 +181,10 @@ class _TablePointer:
     last_page: int
 
 
-def _read_table_pointers(fh: BinaryIO, num_tables: int) -> List[_TablePointer]:
+def _read_table_pointers(fh: BinaryIO, num_tables: int) -> list[_TablePointer]:
     """Parse the table pointer array immediately following the file header."""
     fh.seek(_FILE_HEADER_SIZE)
-    pointers: List[_TablePointer] = []
+    pointers: list[_TablePointer] = []
     for _ in range(num_tables):
         entry = fh.read(_TABLE_POINTER_SIZE)
         if len(entry) < _TABLE_POINTER_SIZE:
@@ -245,7 +245,7 @@ _INDEX_ENTRIES_START = 0x3C
 _INDEX_EMPTY_ENTRY = 0x1FFFFFF8
 
 
-def _parse_index_entries(buf: bytes) -> List[int]:
+def _parse_index_entries(buf: bytes) -> list[int]:
     """Return the list of page indices referenced by an index page's entry
     array (skipping empty slots).
 
@@ -268,7 +268,7 @@ def _parse_index_entries(buf: bytes) -> List[int]:
     num_entries = int.from_bytes(
         buf[_INDEX_NUM_ENTRIES_OFFSET:_INDEX_NUM_ENTRIES_OFFSET + 2], "little"
     )
-    pages: List[int] = []
+    pages: list[int] = []
     for i in range(num_entries):
         p = _INDEX_ENTRIES_START + i * 4
         if p + 4 > len(buf):
@@ -321,7 +321,7 @@ def _walk_table_pages(fh: BinaryIO, page_size: int, first_page: int, last_page: 
 
 # ─── Row offset / presence index ───────────────────────────────────────────
 
-def _row_slots(buf: bytes, page_size: int, num_row_offsets: int) -> List[tuple]:
+def _row_slots(buf: bytes, page_size: int, num_row_offsets: int) -> list[tuple]:
     """
     Return (offset_from_data_header_end, present) for every allocated row
     slot in a data page, in row-index order.
@@ -338,7 +338,7 @@ def _row_slots(buf: bytes, page_size: int, num_row_offsets: int) -> List[tuple]:
     if num_row_offsets <= 0:
         return []
     num_groups = (num_row_offsets + _ROW_GROUP_SIZE - 1) // _ROW_GROUP_SIZE
-    slots: List[Optional[tuple]] = [None] * num_row_offsets
+    slots: list[tuple | None] = [None] * num_row_offsets
 
     for g in range(num_groups):
         group_end = page_size - g * _ROW_GROUP_BYTES
@@ -360,7 +360,7 @@ def _row_slots(buf: bytes, page_size: int, num_row_offsets: int) -> List[tuple]:
 
 # ─── DeviceSQL string decoding ──────────────────────────────────────────────
 
-def _decode_pdb_string(buf: bytes, pos: int) -> Optional[str]:
+def _decode_pdb_string(buf: bytes, pos: int) -> str | None:
     """
     Decode a DeviceSQL string at absolute byte position `pos` within `buf`.
 
@@ -417,7 +417,7 @@ _TRACK_STRING_IDX_TITLE = 17
 _TRACK_STRING_IDX_FILE_PATH = 20
 
 
-def _parse_track_row(page_buf: bytes, row_start_in_page: int) -> Optional[TrackRow]:
+def _parse_track_row(page_buf: bytes, row_start_in_page: int) -> TrackRow | None:
     """Parse one tracks-table row given its absolute byte offset within the
     page buffer. Returns None if the row doesn't look like a track row
     (subtype mismatch) or is truncated."""
@@ -430,7 +430,7 @@ def _parse_track_row(page_buf: bytes, row_start_in_page: int) -> Optional[TrackR
     if subtype != _TRACK_ROW_SUBTYPE:
         return None
 
-    def u32(off: int) -> Optional[int]:
+    def u32(off: int) -> int | None:
         p = row_start_in_page + off
         if p + 4 > len(page_buf):
             return None
@@ -452,7 +452,7 @@ def _parse_track_row(page_buf: bytes, row_start_in_page: int) -> Optional[TrackR
         for i in range(_TRACK_STRING_OFFSET_COUNT)
     ]
 
-    def resolve_string(idx: int) -> Optional[str]:
+    def resolve_string(idx: int) -> str | None:
         # String offsets are relative to the row's own start position —
         # same convention as row offsets being relative to the data-page
         # header end (see module docstring / _row_slots).
@@ -475,7 +475,7 @@ def _parse_track_row(page_buf: bytes, row_start_in_page: int) -> Optional[TrackR
     )
 
 
-def _read_tracks_table(fh: BinaryIO, page_size: int, pointers: List[_TablePointer]) -> List[TrackRow]:
+def _read_tracks_table(fh: BinaryIO, page_size: int, pointers: list[_TablePointer]) -> list[TrackRow]:
     """Walk the tracks table and parse every present row.
 
     _walk_table_pages already resolves index pages transparently and only
@@ -486,7 +486,7 @@ def _read_tracks_table(fh: BinaryIO, page_size: int, pointers: List[_TablePointe
     if tracks_ptr is None:
         return []
 
-    rows: List[TrackRow] = []
+    rows: list[TrackRow] = []
     for page_buf in _walk_table_pages(fh, page_size, tracks_ptr.first_page, tracks_ptr.last_page):
         header = _parse_page_header(page_buf)
         for ofs, present in _row_slots(page_buf, page_size, header.num_row_offsets):
@@ -513,7 +513,7 @@ _PLTREE_NAME_OFFSET = 20  # after parent_id, unknown, sort_order, id, raw_is_fol
 class PlaylistNode:
     id: int
     parent_id: int
-    name: Optional[str]
+    name: str | None
     is_folder: bool
 
 
@@ -521,8 +521,8 @@ class PlaylistNode:
 class PlaylistTrackRef:
     entry_index: int
     track_id: int
-    title: Optional[str] = None
-    path: Optional[str] = None
+    title: str | None = None
+    path: str | None = None
 
 
 @dataclass
@@ -530,7 +530,7 @@ class RecoveredPlaylist:
     id: int
     name: str
     folder_path: str            # "Parent/Child/Name"
-    tracks: List[PlaylistTrackRef] = field(default_factory=list)
+    tracks: list[PlaylistTrackRef] = field(default_factory=list)
 
 
 @dataclass
@@ -542,12 +542,12 @@ class PdbPlaylistsReport:
     playlist_count: int = 0
     entry_count: int = 0
     resolved_tracks: int = 0    # entries whose track_id resolved to a title/path
-    playlists: List[RecoveredPlaylist] = field(default_factory=list)
+    playlists: list[RecoveredPlaylist] = field(default_factory=list)
     detail: str = ""
-    notes: List[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
 
-def _parse_playlist_tree_row(page_buf: bytes, row_start: int) -> Optional[PlaylistNode]:
+def _parse_playlist_tree_row(page_buf: bytes, row_start: int) -> PlaylistNode | None:
     if row_start < 0 or row_start + _PLTREE_NAME_OFFSET > len(page_buf):
         return None
     parent_id, _unknown, _sort, node_id, raw_folder = struct.unpack_from(
@@ -564,7 +564,7 @@ def _parse_playlist_entry_row(page_buf: bytes, row_start: int):
     return (playlist_id, entry_index, track_id)
 
 
-def _read_table_rows(fh: BinaryIO, page_size: int, pointers: List[_TablePointer],
+def _read_table_rows(fh: BinaryIO, page_size: int, pointers: list[_TablePointer],
                      table_type: int, parser):
     """Walk one table's present rows through ``parser`` (same full-scan path as
     the tracks table: next_page chain, skip index pages, honor presence bits)."""
@@ -621,7 +621,7 @@ def read_playlists(path: PathLike) -> PdbPlaylistsReport:
             entry_rows = _read_table_rows(fh, page_size, pointers,
                                           TABLE_TYPE_PLAYLIST_ENTRIES, _parse_playlist_entry_row)
             tracks = _read_tracks_table(fh, page_size, pointers)
-    except Exception as exc:  # noqa: BLE001 — recovery must degrade, never crash
+    except Exception as exc:
         report.detail = f"parse failed: {exc}"
         report.notes.append(str(exc))
         return report
@@ -648,7 +648,7 @@ def read_playlists(path: PathLike) -> PdbPlaylistsReport:
         return "/".join(reversed(parts))
 
     resolved = 0
-    playlists: List[RecoveredPlaylist] = []
+    playlists: list[RecoveredPlaylist] = []
     folder_count = 0
     for node in node_by_id.values():
         if node.is_folder:
@@ -763,7 +763,7 @@ def read_pdb(path: PathLike) -> PdbReport:
             "Parsed PDB tracks table %s: %d row(s) recovered",
             p.name, len(tracks),
         )
-    except Exception as exc:  # noqa: BLE001 — any row-walk failure degrades to partial, never crashes the caller
+    except Exception as exc:
         report.tracks = []
         report.partial = True
         report.notes.append(f"Track row extraction failed, falling back to header-only: {exc}")

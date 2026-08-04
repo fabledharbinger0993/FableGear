@@ -47,7 +47,6 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
@@ -107,7 +106,7 @@ _WIZARD_DEFAULTS: dict = {
 }
 
 # Human-readable labels for each key, used in setup prompts and error messages
-KEY_LABELS: Dict[str, str] = {
+KEY_LABELS: dict[str, str] = {
     "local_db":      "Rekordbox local database",
     "device_db":     "Device (DJ drive) database",
     "music_root":    "Music root on the DJ drive",
@@ -313,7 +312,7 @@ def _ffmpeg_ok() -> bool:
     Result is cached after the first call so repeated dependency checks
     don't spawn a new subprocess each time.
     """
-    global _ffmpeg_ok_cache  # noqa: PLW0603
+    global _ffmpeg_ok_cache
     if _ffmpeg_ok_cache is None:
         if not _has_binary("ffmpeg"):
             _ffmpeg_ok_cache = False
@@ -329,7 +328,7 @@ def _ffmpeg_ok() -> bool:
     return _ffmpeg_ok_cache
 
 
-_ffmpeg_ok_cache: Optional[bool] = None
+_ffmpeg_ok_cache: bool | None = None
 
 def _fpcalc_ok() -> bool:
     if not _has_binary("fpcalc"):
@@ -356,7 +355,7 @@ def _install_hint(mac: str = "", win: str = "", linux: str = "") -> str:
 # (display_name, check_fn, system_install_hint, pip_hint, used_by)
 # system_install_hint is platform-specific (brew / winget / apt).
 # pip_hint is the same on all platforms.
-DEPENDENCIES: List[Tuple[str, object, str, str, str]] = [
+DEPENDENCIES: list[tuple[str, object, str, str, str]] = [
     (
         "ffmpeg",
         _ffmpeg_ok,
@@ -421,7 +420,7 @@ DEPENDENCIES: List[Tuple[str, object, str, str, str]] = [
 ]
 
 
-def check_dependencies() -> List[Dict]:
+def check_dependencies() -> list[dict]:
     """
     Check all required dependencies and return a list of result dicts.
 
@@ -448,7 +447,7 @@ def check_dependencies() -> List[Dict]:
     return results
 
 
-def print_dependency_report(results: Optional[List[Dict]] = None) -> bool:
+def print_dependency_report(results: list[dict] | None = None) -> bool:
     """
     Print a formatted dependency report.
     Returns True if all dependencies are satisfied, False otherwise.
@@ -489,7 +488,7 @@ def print_dependency_report(results: Optional[List[Dict]] = None) -> bool:
 
 # ─── Setup wizard ─────────────────────────────────────────────────────────────
 
-def _prompt(label: str, default: Optional[str] = None, must_exist: bool = False) -> str:
+def _prompt(label: str, default: str | None = None, must_exist: bool = False) -> str:
     """
     Prompt the user for a path string. Repeats until non-empty input is given.
     If must_exist=True, verifies the path exists on disk before accepting.

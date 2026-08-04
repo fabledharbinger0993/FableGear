@@ -24,8 +24,8 @@ if str(REPO_ROOT) not in sys.path:
 if str(REPO_ROOT / "chop_shop") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "chop_shop"))
 
-from duplicate_detector import _rank_group, _rank_file, _RANK_LABELS  # noqa: E402
-from pruner import dedupe_sort_key  # noqa: E402
+from duplicate_detector import _RANK_LABELS, _rank_file, _rank_group
+from pruner import dedupe_sort_key
 
 
 def _pruner_keeper(paths):

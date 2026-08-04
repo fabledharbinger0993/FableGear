@@ -26,8 +26,8 @@ for p in (REPO_ROOT, REPO_ROOT / "chop_shop"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-import library_organizer as L  # noqa: E402
-from tag_cleaning import clean_label, clean_artist, clean_album, clean_value  # noqa: E402
+import library_organizer as L
+from tag_cleaning import clean_album, clean_artist, clean_label, clean_value
 
 
 def _track(**kw):

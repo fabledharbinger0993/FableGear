@@ -31,7 +31,6 @@ if str(REPO_ROOT) not in sys.path:
 
 import cli
 
-
 # The commands FableGear ships. Pinned as a literal so that *removing* one is a
 # test failure rather than a silently smaller set — a set derived from the
 # parser itself could never catch a deletion.

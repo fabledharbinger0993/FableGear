@@ -24,12 +24,13 @@ if str(REPO_ROOT) not in sys.path:
 pytest.importorskip("sqlcipher3", reason="SQLCipher driver not installed")
 pytest.importorskip("pyrekordbox", reason="pyrekordbox not installed")
 
-from fablegear_database.rekordbox_fixture import (  # noqa: E402
+from pyrekordbox import Rekordbox6Database
+
+from fablegear_database.rekordbox_fixture import (
     FixtureTrack,
     build_rekordbox_db,
     default_key,
 )
-from pyrekordbox import Rekordbox6Database  # noqa: E402
 
 
 def _open(path: Path) -> Rekordbox6Database:
@@ -113,7 +114,7 @@ def test_path_update_persists_through_encryption(tmp_path):
 def test_fablegear_db_connection_opens_fixture(tmp_path):
     """FableGear opens libraries through db_connection.read_db — the fixture
     must satisfy that path too, not just a raw pyrekordbox handle."""
-    from db_connection import read_db  # noqa: PLC0415
+    from db_connection import read_db
 
     db_path = build_rekordbox_db(
         tmp_path / "master.db",

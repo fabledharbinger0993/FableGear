@@ -10,7 +10,6 @@ if str(REPO_ROOT) not in sys.path:
 
 from user_config import archive_root_for_music_root, discover_music_roots
 
-
 RENAMER_PATH = REPO_ROOT / "chop_shop" / "renamer.py"
 
 

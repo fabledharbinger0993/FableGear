@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from chop_shop.pruner import trash_rescue_preflight, TrashRescueRequired
+from chop_shop.pruner import TrashRescueRequired, trash_rescue_preflight
 
 
 def _write_csv(path: Path, rows: str) -> None:
@@ -60,9 +60,11 @@ def test_preflight_blocks_on_keep_in_trash_row(tmp_path):
 def test_cmd_prune_refuses_when_rescue_pending(tmp_path, monkeypatch):
     """cli.py cmd_prune must call trash_rescue_preflight and stop before prune_files."""
     import argparse
-    import cli
+
     import pruner as pruner_module
-    from pruner import DupeGroup, DupeEntry
+    from pruner import DupeEntry, DupeGroup
+
+    import cli
 
     keep_file = tmp_path / "keep.mp3"
     remove_file = tmp_path / "remove.mp3"
@@ -89,8 +91,9 @@ def test_cmd_prune_refuses_when_rescue_pending(tmp_path, monkeypatch):
     monkeypatch.setattr(pruner_module, "prune_files", _fake_prune_files)
     monkeypatch.setattr(pruner_module, "trash_rescue_preflight", _fake_preflight)
 
-    import db_connection
     from contextlib import contextmanager
+
+    import db_connection
 
     @contextmanager
     def _fake_read_db(path=None):

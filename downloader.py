@@ -22,7 +22,6 @@ import time
 import uuid
 from collections import OrderedDict
 from pathlib import Path
-from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +34,7 @@ _MAX_JOBS = 200
 
 # ─── yt-dlp path cache ────────────────────────────────────────────────────────
 # Resolved once on first use; safe to cache because yt-dlp doesn't move at runtime.
-_YTDLP_PATH: Optional[str] = None
+_YTDLP_PATH: str | None = None
 _YTDLP_LOCK: threading.Lock = threading.Lock()
 
 # ─── Supported formats ────────────────────────────────────────────────────────
@@ -82,7 +81,7 @@ LEGACY_CONVERSION_MAP = {
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 
-def enqueue(url: str, destination: str, filename: Optional[str] = None,
+def enqueue(url: str, destination: str, filename: str | None = None,
             fmt: str = DEFAULT_FORMAT) -> str:
     """
     Enqueue a download job and return its job_id immediately.
@@ -123,7 +122,7 @@ def get_all_jobs() -> list:
         return list(reversed(list(_JOBS.values())))
 
 
-def get_job(job_id: str) -> Optional[dict]:
+def get_job(job_id: str) -> dict | None:
     """Return a single job dict or None if not found."""
     with _LOCK:
         job = _JOBS.get(job_id)
@@ -163,7 +162,7 @@ def cancel_job(job_id: str) -> bool:
                 log.warning("cancel_job: could not kill yt-dlp process for job %s: %s", job_id, exc)
 
     try:
-        from ws_bus import broadcast  # noqa: PLC0415
+        from ws_bus import broadcast
         with _LOCK:
             snapshot = dict(_JOBS.get(job_id, {}))
         if snapshot:
@@ -179,7 +178,7 @@ def cancel_job(job_id: str) -> bool:
 def _update(job_id: str, **kwargs) -> None:
     """Mutate job fields and broadcast the update to all WebSocket clients."""
     try:
-        from ws_bus import broadcast  # noqa: PLC0415
+        from ws_bus import broadcast
         with _LOCK:
             if job_id not in _JOBS:
                 return
@@ -316,7 +315,7 @@ def _run(job_id: str) -> None:
         return
 
     # yt-dlp prints the final file path via --print after_move:filepath
-    downloaded_path: Optional[Path] = None
+    downloaded_path: Path | None = None
     for line in stdout.splitlines():
         line = line.strip()
         if line and Path(line).exists():
@@ -350,7 +349,7 @@ def _run(job_id: str) -> None:
 
     # Try to read title/artist from tags to surface in the job summary
     try:
-        from mutagen import File as MutagenFile  # noqa: PLC0415
+        from mutagen import File as MutagenFile
         mf = MutagenFile(str(downloaded_path), easy=True)
         if mf:
             title  = (mf.get("title")  or [None])[0]
@@ -362,10 +361,10 @@ def _run(job_id: str) -> None:
     # ── Auto-import into Rekordbox DB ─────────────────────────────────────────
     _update(job_id, status="importing", progress=85)
     try:
-        from scanner import extract_metadata       # noqa: PLC0415
-        from importer import _import_track         # noqa: PLC0415
-        from db_connection import write_db         # noqa: PLC0415
-        from config import DEVICE_DB as _DB          # noqa: PLC0415
+        from config import DEVICE_DB as _DB
+        from db_connection import write_db
+        from importer import _import_track
+        from scanner import extract_metadata
 
         track_info = extract_metadata(downloaded_path)
         if track_info.is_valid:

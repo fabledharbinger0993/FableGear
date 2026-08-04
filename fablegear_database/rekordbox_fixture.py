@@ -37,24 +37,26 @@ from __future__ import annotations
 import datetime as _dt
 import os
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any
+
+import pyrekordbox.db6.database as _rbdb
 
 # pyrekordbox + its SQLCipher driver are already required dependencies of the
 # database layer; importing them here keeps the fixture self-contained.
 import sqlcipher3.dbapi2 as _sqlcipher
-from sqlalchemy import DateTime as _SADateTime, Float, Integer, create_engine
-
-import pyrekordbox.db6.database as _rbdb
 from pyrekordbox.db6 import tables as _tables
+from sqlalchemy import DateTime as _SADateTime
+from sqlalchemy import Float, Integer, create_engine
 
 # pyrekordbox stores timestamps as strings via a custom TypeDecorator (also
 # named DateTime); its bind processor requires a real datetime, not "". Match
 # both it and the plain SQLAlchemy DateTime.
 _DATETIME_TYPES = (_SADateTime, _tables.DateTime)
 
-__all__ = ["FixtureTrack", "default_key", "build_rekordbox_db"]
+__all__ = ["FixtureTrack", "build_rekordbox_db", "default_key"]
 
 # Rekordbox stores BPM as an integer hundredths of a beat (128.00 → 12800).
 _BPM_SCALE = 100
@@ -73,10 +75,10 @@ class FixtureTrack:
     any other ``DjmdContent`` column directly (raw rekordbox units).
     """
     folder_path: str
-    title: Optional[str] = None
-    artist: Optional[str] = None
-    bpm: Optional[float] = None
-    key: Optional[str] = None            # written to the Comment field for lookup convenience
+    title: str | None = None
+    artist: str | None = None
+    bpm: float | None = None
+    key: str | None = None            # written to the Comment field for lookup convenience
     columns: dict = field(default_factory=dict)
 
 
@@ -186,7 +188,7 @@ def _build_plaintext(db_path: Path, tracks: Iterable[FixtureTrack]) -> None:
                 rb_local_usn=usn,
             )
             if track.bpm is not None:
-                row["BPM"] = int(round(track.bpm * _BPM_SCALE))
+                row["BPM"] = round(track.bpm * _BPM_SCALE)
             if track.key:
                 row["Commnt"] = track.key
             row.update(track.columns)
@@ -231,10 +233,10 @@ def _encrypt(plaintext: Path, target: Path, key: str) -> None:
 
 
 def build_rekordbox_db(
-    path: "str | Path",
+    path: str | Path,
     tracks: Iterable[FixtureTrack] = (),
     *,
-    key: Optional[str] = None,
+    key: str | None = None,
     overwrite: bool = True,
 ) -> Path:
     """

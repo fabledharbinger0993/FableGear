@@ -1,15 +1,14 @@
 import logging
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
-from datetime import datetime
+from typing import Any
 
 from pyrekordbox import Rekordbox6Database
-from pyrekordbox.db6 import tables
-from pyrekordbox.db6.tables import DjmdContent, DjmdCue, DjmdArtist, DjmdAlbum, DjmdGenre, DjmdLabel, DjmdKey
+from pyrekordbox.db6.tables import DjmdCue
 
-from .database import FableGearDatabase, ContentRecord, CueRecord, BeatGridRecord
 from key_mapper import resolve_key_id
+
+from .database import ContentRecord, CueRecord, FableGearDatabase
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +25,7 @@ HEX_TO_COLOR_ID = {
 COLOR_ID_TO_HEX = {v: k for k, v in HEX_TO_COLOR_ID.items()}
 
 
-def _get_or_create_artist(name: str, db: Rekordbox6Database) -> Optional[str]:
+def _get_or_create_artist(name: str, db: Rekordbox6Database) -> str | None:
     if not name or not name.strip():
         return None
     name = name.strip()
@@ -41,7 +40,7 @@ def _get_or_create_artist(name: str, db: Rekordbox6Database) -> Optional[str]:
         return str(existing.ID) if existing else None
 
 
-def _get_or_create_album(name: str, db: Rekordbox6Database) -> Optional[str]:
+def _get_or_create_album(name: str, db: Rekordbox6Database) -> str | None:
     if not name or not name.strip():
         return None
     name = name.strip()
@@ -56,7 +55,7 @@ def _get_or_create_album(name: str, db: Rekordbox6Database) -> Optional[str]:
         return str(existing.ID) if existing else None
 
 
-def _get_or_create_genre(name: str, db: Rekordbox6Database) -> Optional[str]:
+def _get_or_create_genre(name: str, db: Rekordbox6Database) -> str | None:
     if not name or not name.strip():
         return None
     name = name.strip()
@@ -71,7 +70,7 @@ def _get_or_create_genre(name: str, db: Rekordbox6Database) -> Optional[str]:
         return str(existing.ID) if existing else None
 
 
-def _get_or_create_label(name: str, db: Rekordbox6Database) -> Optional[str]:
+def _get_or_create_label(name: str, db: Rekordbox6Database) -> str | None:
     if not name or not name.strip():
         return None
     name = name.strip()
@@ -95,7 +94,7 @@ class RekordboxSyncAdapter:
     def __init__(self, fg_db: FableGearDatabase):
         self.fg_db = fg_db
 
-    def sync_bidirectional(self, rekordbox_db_path: Path, dry_run: bool = False) -> Dict[str, Any]:
+    def sync_bidirectional(self, rekordbox_db_path: Path, dry_run: bool = False) -> dict[str, Any]:
         """
         Reconcile and merge track metadata, cues, and loops.
         """
@@ -111,7 +110,7 @@ class RekordboxSyncAdapter:
         }
 
         # 1. Open Rekordbox Database Transaction
-        from db_connection import write_db, read_db
+        from db_connection import read_db, write_db
         db_context = read_db if dry_run else write_db
 
         try:
@@ -174,7 +173,7 @@ class RekordboxSyncAdapter:
                     # BPM
                     rdb_bpm = rdb_row.BPM / 100.0 if rdb_row.BPM else 0.0
                     if fg_rec.bpm and abs(fg_rec.bpm - rdb_bpm) > 0.01:
-                        rdb_row.BPM = int(round(fg_rec.bpm * 100))
+                        rdb_row.BPM = round(fg_rec.bpm * 100)
                         rdb_updated = True
                         stats["details"].append(f"Update BPM in Rekordbox for {path}")
                     elif not fg_rec.bpm and rdb_bpm > 0:
@@ -291,7 +290,7 @@ class RekordboxSyncAdapter:
                             "GenreID": _get_or_create_genre(fg_rec.genre, rdb) if fg_rec.genre else None,
                             "LabelID": _get_or_create_label(fg_rec.label, rdb) if fg_rec.label else None,
                             "KeyID": resolve_key_id(fg_rec.key, rdb) if fg_rec.key else None,
-                            "BPM": int(round(fg_rec.bpm * 100)) if fg_rec.bpm else None,
+                            "BPM": round(fg_rec.bpm * 100) if fg_rec.bpm else None,
                             "Length": int(fg_rec.duration) if fg_rec.duration else None,
                             "Rating": fg_rec.rating or 0,
                             "Commnt": fg_rec.comment or "",
@@ -300,7 +299,7 @@ class RekordboxSyncAdapter:
 
                         new_row = rdb.add_content(import_path, **kwargs)
                         if is_aif:
-                            setattr(new_row, "FolderPath", str(Path(path)))
+                            new_row.FolderPath = str(Path(path))
 
                         # Synchronize its cues immediately
                         if fg_rec.cues:
@@ -357,17 +356,17 @@ class RekordboxSyncAdapter:
         self,
         rdb_content_id: str,
         rdb_content_uuid: str,
-        fg_cues: List[CueRecord],
-        rdb_cues: List[DjmdCue],
+        fg_cues: list[CueRecord],
+        rdb_cues: list[DjmdCue],
         rdb: Rekordbox6Database,
         dry_run: bool,
-        fg_content_id: Optional[int] = None
-    ) -> Dict[str, Any]:
+        fg_content_id: int | None = None
+    ) -> dict[str, Any]:
         """
         Reconcile cue points for a single track between FableGear and Rekordbox databases.
         """
         cstats = {"synchronized": 0, "deleted": 0, "details": []}
-        
+
         fg_cues_updated = list(fg_cues)
         fg_modified = False
 
@@ -467,7 +466,7 @@ class RekordboxSyncAdapter:
                 rdb_loop = rc.OutMsec > 0
                 loop_mismatch = (fgc.out_msec or -1) != rc.OutMsec if fg_loop else rdb_loop
                 comment_mismatch = (fgc.comment or "") != (rc.Comment or "")
-                
+
                 rc_color = f"#{rc.Color & 0xFFFFFF:06X}" if rc.Color != -1 else ""
                 color_mismatch = fgc.color and fgc.color.lower() != rc_color.lower()
 
@@ -484,7 +483,7 @@ class RekordboxSyncAdapter:
                                 pass
                         else:
                             rc.Color = -1
-                        
+
                         if fg_loop:
                             rc.OutMsec = fgc.out_msec if fgc.out_msec is not None else -1
                             rc.Kind = 4
@@ -503,7 +502,7 @@ class RekordboxSyncAdapter:
                             cue_color = int(fgc.color.lstrip("#"), 16)
                         except Exception:
                             pass
-                    
+
                     cue_row = DjmdCue(
                         ID=new_id,
                         ContentID=rdb_content_id,

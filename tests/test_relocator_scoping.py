@@ -16,7 +16,7 @@ the old include-everything behavior for deliberate mid-migration use.
 
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -29,11 +29,9 @@ if str(REPO_ROOT / "chop_shop") not in sys.path:
 
 from pyrekordbox import Rekordbox6Database
 from pyrekordbox.db6 import tables as rb_tables
-
 from rekordbox_meta_support import relaxed_rekordbox_nullability
-from sqlalchemy import create_engine
-
 from relocator import relocate_directory
+from sqlalchemy import create_engine
 
 
 @pytest.fixture
@@ -54,7 +52,7 @@ def db(tmp_path):
     # have it; a from-scratch schema doesn't.
     # Every DateTime column must be non-None: pyrekordbox's custom DateTime
     # decorator calls astimezone() on bind with no None guard.
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     handle.session.add(
         rb_tables.AgentRegistry(
             registry_id="localUpdateCount", int_1=1,

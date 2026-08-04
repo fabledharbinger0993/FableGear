@@ -11,15 +11,15 @@ database-first architecture with:
 """
 
 import logging
-import sqlite3
 import shutil
+import sqlite3
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-from dataclasses import dataclass, field
+from typing import Any
 
-from .schema import DatabaseSchema, DatabaseConfig
+from .schema import DatabaseConfig, DatabaseSchema
 
 log = logging.getLogger(__name__)
 
@@ -40,94 +40,94 @@ class LibraryNotInitializedError(RuntimeError):
 @dataclass
 class CueRecord:
     """Database record for a cue point or loop in fg_cue table."""
-    id: Optional[int] = None
-    content_id: Optional[int] = None
+    id: int | None = None
+    content_id: int | None = None
     kind: int = 0  # 0 = Memory, 1 = Hotcue, 2 = Loop, 3 = Active Loop
-    slot: Optional[int] = None  # 0-7 for hotcues
+    slot: int | None = None  # 0-7 for hotcues
     in_msec: int = 0
-    out_msec: Optional[int] = None
-    color: Optional[str] = None
-    comment: Optional[str] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    out_msec: int | None = None
+    color: str | None = None
+    comment: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if v is not None}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CueRecord":
+    def from_dict(cls, data: dict[str, Any]) -> "CueRecord":
         return cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
 
 
 @dataclass
 class BeatGridRecord:
     """Database record for a beatgrid marker in fg_beatgrid table."""
-    id: Optional[int] = None
-    content_id: Optional[int] = None
+    id: int | None = None
+    content_id: int | None = None
     beat_number: int = 0
     time_msec: int = 0
     bpm: float = 120.0
     meter_numerator: int = 4
     meter_denominator: int = 4
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    created_at: str | None = None
+    updated_at: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if v is not None}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "BeatGridRecord":
+    def from_dict(cls, data: dict[str, Any]) -> "BeatGridRecord":
         return cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
 
 
 @dataclass
 class ContentRecord:
     """Database record for a track in fg_content table."""
-    id: Optional[int] = None
+    id: int | None = None
     file_path: str = ""
     file_name: str = ""
     file_size: int = 0
-    duration: Optional[float] = None
-    format: Optional[str] = None
-    bit_rate: Optional[int] = None
-    sample_rate: Optional[int] = None
-    modified_date: Optional[str] = None
-    file_hash: Optional[str] = None
-    acoustic_fingerprint: Optional[str] = None
-    artist: Optional[str] = None
-    album: Optional[str] = None
-    title: Optional[str] = None
-    bpm: Optional[float] = None
-    key: Optional[str] = None
-    genre: Optional[str] = None
-    label: Optional[str] = None
-    year: Optional[int] = None
-    track_number: Optional[int] = None
-    disc_number: Optional[int] = None
-    comment: Optional[str] = None
+    duration: float | None = None
+    format: str | None = None
+    bit_rate: int | None = None
+    sample_rate: int | None = None
+    modified_date: str | None = None
+    file_hash: str | None = None
+    acoustic_fingerprint: str | None = None
+    artist: str | None = None
+    album: str | None = None
+    title: str | None = None
+    bpm: float | None = None
+    key: str | None = None
+    genre: str | None = None
+    label: str | None = None
+    year: int | None = None
+    track_number: int | None = None
+    disc_number: int | None = None
+    comment: str | None = None
     rating: int = 0
-    drive: Optional[str] = None
-    relative_path: Optional[str] = None
-    rekordbox_id: Optional[int] = None
-    rekordbox_playlist_id: Optional[int] = None
+    drive: str | None = None
+    relative_path: str | None = None
+    rekordbox_id: int | None = None
+    rekordbox_playlist_id: int | None = None
     in_rekordbox: bool = False
-    last_scanned: Optional[str] = None
+    last_scanned: str | None = None
     fingerprint_quality: int = 0
     is_corrupted: bool = False
     processing_status: str = "unprocessed"
-    color: Optional[str] = None
-    cues: List[CueRecord] = field(default_factory=list)
-    beatgrid: List[BeatGridRecord] = field(default_factory=list)
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
+    color: str | None = None
+    cues: list[CueRecord] = field(default_factory=list)
+    beatgrid: list[BeatGridRecord] = field(default_factory=list)
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for database operations."""
         exclude = {"cues", "beatgrid"}
         return {k: v for k, v in self.__dict__.items() if v is not None and k not in exclude}
-    
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ContentRecord":
+    def from_dict(cls, data: dict[str, Any]) -> "ContentRecord":
         """Create ContentRecord from dictionary."""
         return cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
 
@@ -135,15 +135,15 @@ class ContentRecord:
 class FableGearDatabase:
     """
     Main database interface for FableGear.
-    
+
     Provides high-level database operations with safety features:
     - Transaction management
     - Automatic backups
     - Duplicate detection
     - Fast queries via indexed fields
     """
-    
-    def __init__(self, config: Optional[DatabaseConfig] = None, *, create: bool = True):
+
+    def __init__(self, config: DatabaseConfig | None = None, *, create: bool = True):
         """
         Initialize the database connection.
 
@@ -155,7 +155,7 @@ class FableGearDatabase:
                 then raises ``LibraryNotInitializedError``.
         """
         self.config = config or self._default_config()
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
         self._in_transaction = False
 
         # Initialize database if needed
@@ -209,30 +209,30 @@ class FableGearDatabase:
                         log.warning("Database schema still has errors after upgrade: %s", errors)
                 else:
                     log.warning("Database schema upgrade failed. Validation errors: %s", errors)
-    
+
     @contextmanager
     def connection(self):
         """
         Context manager for database connection.
-        
+
         Yields a connection with proper configuration applied.
         """
         conn = sqlite3.connect(self.config.db_path)
-        
+
         # Apply configuration pragmas
         for pragma, value in self.config.get_pragmas().items():
             conn.execute(f"PRAGMA {pragma} = {value}")
-        
+
         try:
             yield conn
         finally:
             conn.close()
-    
+
     @contextmanager
     def transaction(self):
         """
         Context manager for database transactions.
-        
+
         Automatically commits on success, rolls back on failure.
         """
         with self.connection() as conn:
@@ -246,48 +246,48 @@ class FableGearDatabase:
                 self._in_transaction = False
                 log.error("Transaction failed, rolled back: %s", exc)
                 raise
-    
+
     def insert_content(self, record: ContentRecord) -> int:
         """
         Insert a content record into the database.
-        
+
         Args:
             record: ContentRecord to insert
-            
+
         Returns:
             ID of the inserted record
         """
         with self.transaction() as conn:
             cursor = conn.cursor()
-            
+
             data = record.to_dict()
             columns = ", ".join(data.keys())
             placeholders = ", ".join(["?"] * len(data))
-            
+
             cursor.execute(
                 f"INSERT INTO fg_content ({columns}) VALUES ({placeholders})",
                 list(data.values())
             )
-            
+
             return cursor.lastrowid
-    
-    def update_content(self, record_id: int, updates: Dict[str, Any]) -> bool:
+
+    def update_content(self, record_id: int, updates: dict[str, Any]) -> bool:
         """
         Update a content record.
-        
+
         Args:
             record_id: ID of the record to update
             updates: Dictionary of field:value pairs to update
-            
+
         Returns:
             True if update succeeded
         """
         with self.transaction() as conn:
             cursor = conn.cursor()
-            
+
             set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
-            values = list(updates.values()) + [record_id]
-            
+            values = [*list(updates.values()), record_id]
+
             cursor.execute(
                 f"UPDATE fg_content SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 values
@@ -298,7 +298,7 @@ class FableGearDatabase:
     # Columns written by bulk_upsert_content, in a fixed order. Excludes id
     # (autoincrement) and the created_at/updated_at timestamps (managed by the
     # table defaults and the upsert clause respectively).
-    _UPSERT_COLUMNS: Tuple[str, ...] = (
+    _UPSERT_COLUMNS: tuple[str, ...] = (
         "file_path", "file_name", "file_size", "duration", "format",
         "bit_rate", "sample_rate", "modified_date", "file_hash",
         "acoustic_fingerprint", "artist", "album", "title", "bpm", "key",
@@ -308,7 +308,7 @@ class FableGearDatabase:
         "fingerprint_quality", "is_corrupted", "processing_status", "color",
     )
 
-    def bulk_upsert_content(self, records: List[ContentRecord]) -> int:
+    def bulk_upsert_content(self, records: list[ContentRecord]) -> int:
         """
         Insert or update many content records in a single transaction.
 
@@ -344,7 +344,7 @@ class FableGearDatabase:
 
         return len(rows)
 
-    def get_path_index(self) -> Dict[str, Tuple[int, Optional[str], Optional[str]]]:
+    def get_path_index(self) -> dict[str, tuple[int, str | None, str | None]]:
         """
         Return a map of file_path -> (file_size, modified_date, file_hash).
 
@@ -358,7 +358,7 @@ class FableGearDatabase:
             )
             return {row[0]: (row[1], row[2], row[3]) for row in cursor.fetchall()}
 
-    def get_fingerprint_index(self) -> Dict[str, Tuple[Optional[str], int, Optional[float]]]:
+    def get_fingerprint_index(self) -> dict[str, tuple[str | None, int, float | None]]:
         """
         Return a map of file_path -> (acoustic_fingerprint, file_size, duration).
 
@@ -374,7 +374,7 @@ class FableGearDatabase:
             return {row[0]: (row[1], row[2], row[3]) for row in cursor.fetchall()}
 
     def bulk_set_fingerprints(
-        self, entries: List[Tuple[str, str, Optional[float], int]]
+        self, entries: list[tuple[str, str, float | None, int]]
     ) -> int:
         """
         Persist computed fingerprints without clobbering other columns.
@@ -404,7 +404,7 @@ class FableGearDatabase:
         return len(rows)
 
     def bulk_set_analysis(
-        self, entries: List[Tuple[str, Optional[float], Optional[str], int]]
+        self, entries: list[tuple[str, float | None, str | None, int]]
     ) -> int:
         """
         Persist tagger analysis (BPM / musical key) without clobbering other
@@ -469,7 +469,7 @@ class FableGearDatabase:
 
     def bulk_relink_content(
         self,
-        updates: List[Tuple[int, str]],
+        updates: list[tuple[int, str]],
         *,
         chunk_size: int = 500,
     ) -> int:
@@ -516,8 +516,8 @@ class FableGearDatabase:
         the new file, and acoustic_fingerprint is cleared so it is recomputed
         lazily on the next dedup/tag pass instead of being trusted while stale.
         """
-        import os  # noqa: PLC0415
-        import hashlib  # noqa: PLC0415
+        import hashlib
+        import os
         # Format is derived from the new extension — the conversion's whole point
         # is a format change, so leaving the old `format` would make every
         # downstream consumer (e.g. the OneLibrary fileType code) mislabel the
@@ -525,7 +525,7 @@ class FableGearDatabase:
         new_fmt = Path(new_path).suffix.lstrip(".").lower()
         if new_fmt == "aif":
             new_fmt = "aiff"
-        updates: Dict[str, Any] = {
+        updates: dict[str, Any] = {
             "file_path": new_path,
             "file_name": Path(new_path).name,
             "format": new_fmt,
@@ -547,7 +547,7 @@ class FableGearDatabase:
             log.warning("Could not re-hash converted file %s: %s", new_path, exc)
         return self.update_content(record_id, updates)
 
-    def get_paths_for_ids(self, ids) -> Dict[int, str]:
+    def get_paths_for_ids(self, ids) -> dict[int, str]:
         """Batch-resolve content ids to file paths in one query (chunked under
         SQLite's variable limit). Lets the fast hash-based duplicate scan avoid
         one query per id."""
@@ -559,7 +559,7 @@ class FableGearDatabase:
                 continue
         if not id_list:
             return {}
-        out: Dict[int, str] = {}
+        out: dict[int, str] = {}
         with self.connection() as conn:
             cur = conn.cursor()
             for start in range(0, len(id_list), 900):
@@ -573,13 +573,13 @@ class FableGearDatabase:
                     out[rid] = fp
         return out
 
-    def get_content_by_path(self, file_path: str) -> Optional[ContentRecord]:
+    def get_content_by_path(self, file_path: str) -> ContentRecord | None:
         """
         Get a content record by file path.
-        
+
         Args:
             file_path: File path to search for
-            
+
         Returns:
             ContentRecord or None if not found
         """
@@ -590,19 +590,19 @@ class FableGearDatabase:
                 (file_path,)
             )
             row = cursor.fetchone()
-            
+
             if row:
                 columns = [desc[0] for desc in cursor.description]
                 return ContentRecord.from_dict(dict(zip(columns, row)))
             return None
-    
-    def get_content_by_id(self, record_id: int) -> Optional[ContentRecord]:
+
+    def get_content_by_id(self, record_id: int) -> ContentRecord | None:
         """
         Get a content record by ID.
-        
+
         Args:
             record_id: ID of the record
-            
+
         Returns:
             ContentRecord or None if not found
         """
@@ -613,7 +613,7 @@ class FableGearDatabase:
                 (record_id,)
             )
             row = cursor.fetchone()
-            
+
             if row:
                 columns = [desc[0] for desc in cursor.description]
                 return ContentRecord.from_dict(dict(zip(columns, row)))
@@ -626,7 +626,7 @@ class FableGearDatabase:
     # from their actual tracks. These are the source of truth the Record Room
     # uses by default; Rekordbox playlists remain reachable as a demoted source.
 
-    def list_playlists(self) -> List[dict]:
+    def list_playlists(self) -> list[dict]:
         """Return the playlist/folder tree as nested dicts (Record Room shape)."""
         with self.connection() as conn:
             cur = conn.cursor()
@@ -648,7 +648,7 @@ class FableGearDatabase:
                 "children": [],
             }
         roots = []
-        for pid, node in nodes.items():
+        for _pid, node in nodes.items():
             parent = node["parent_id"]
             if parent is not None and parent in nodes:
                 nodes[parent]["children"].append(node)
@@ -665,7 +665,7 @@ class FableGearDatabase:
 
         return [_clean(n) for n in roots]
 
-    def get_playlist(self, playlist_id) -> Optional[dict]:
+    def get_playlist(self, playlist_id) -> dict | None:
         """Return one playlist/folder as a dict, or None if it doesn't exist."""
         with self.connection() as conn:
             cur = conn.cursor()
@@ -714,7 +714,7 @@ class FableGearDatabase:
             cur.execute("DELETE FROM fg_playlist WHERE id = ?", (int(playlist_id),))
             return cur.rowcount > 0
 
-    def get_playlist_songs(self, playlist_id) -> List[ContentRecord]:
+    def get_playlist_songs(self, playlist_id) -> list[ContentRecord]:
         """Return the playlist's tracks as ContentRecords in playlist order."""
         with self.connection() as conn:
             cur = conn.cursor()
@@ -768,7 +768,7 @@ class FableGearDatabase:
             self._refresh_playlist_count(cur, playlist_id)
             return removed
 
-    def reorder_playlist(self, playlist_id, ordered_content_ids: List) -> int:
+    def reorder_playlist(self, playlist_id, ordered_content_ids: list) -> int:
         """Set track_number from the given content-id order. Returns rows touched."""
         with self.transaction() as conn:
             cur = conn.cursor()
@@ -791,10 +791,10 @@ class FableGearDatabase:
             (int(playlist_id), int(playlist_id)),
         )
 
-    def find_duplicates_by_hash(self) -> List[Tuple[str, List[int]]]:
+    def find_duplicates_by_hash(self) -> list[tuple[str, list[int]]]:
         """
         Find duplicate files by file hash (fast).
-        
+
         Returns:
             List of (hash, [record_ids]) tuples for duplicates
         """
@@ -807,19 +807,19 @@ class FableGearDatabase:
                 GROUP BY file_hash
                 HAVING COUNT(*) > 1
             """)
-            
+
             results = []
             for row in cursor.fetchall():
                 file_hash, ids_str = row
                 record_ids = [int(id_str) for id_str in ids_str.split(",")]
                 results.append((file_hash, record_ids))
-            
+
             return results
-    
-    def find_duplicates_by_fingerprint(self) -> List[Tuple[str, List[int]]]:
+
+    def find_duplicates_by_fingerprint(self) -> list[tuple[str, list[int]]]:
         """
         Find duplicate files by acoustic fingerprint (medium speed).
-        
+
         Returns:
             List of (fingerprint, [record_ids]) tuples for duplicates
         """
@@ -832,7 +832,7 @@ class FableGearDatabase:
                 GROUP BY acoustic_fingerprint
                 HAVING COUNT(*) > 1
             """)
-            
+
             results = []
             for row in cursor.fetchall():
                 fingerprint, ids_str = row
@@ -841,7 +841,7 @@ class FableGearDatabase:
 
             return results
 
-    def get_unfingerprinted(self, limit: int = 1_000_000) -> List[ContentRecord]:
+    def get_unfingerprinted(self, limit: int = 1_000_000) -> list[ContentRecord]:
         """
         Return content records that have no acoustic fingerprint yet.
 
@@ -866,10 +866,10 @@ class FableGearDatabase:
     def log_operation(
         self,
         operation_type: str,
-        file_path: Optional[str] = None,
+        file_path: str | None = None,
         status: str = "ok",
-        error_message: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        error_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> int:
         """
         Append a row to the fg_processing_log — the Archive's audit trail.
@@ -878,7 +878,7 @@ class FableGearDatabase:
         history of what touched a file is durable and queryable. Returns the
         log row id.
         """
-        import json  # noqa: PLC0415
+        import json
 
         with self.transaction() as conn:
             cursor = conn.cursor()
@@ -921,7 +921,7 @@ class FableGearDatabase:
         if chunk_size < 1:
             raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
 
-        import json  # noqa: PLC0415
+        import json
 
         total = 0
         for start in range(0, len(operations), chunk_size):
@@ -961,7 +961,7 @@ class FableGearDatabase:
                 total += len(chunk)
         return total
 
-    def count_operations(self, operation_type: Optional[str] = None) -> int:
+    def count_operations(self, operation_type: str | None = None) -> int:
         """Count rows in the processing log, optionally by operation type."""
         with self.connection() as conn:
             cursor = conn.cursor()
@@ -977,105 +977,105 @@ class FableGearDatabase:
     def search_content(
         self,
         query: str,
-        fields: Optional[List[str]] = None,
+        fields: list[str] | None = None,
         limit: int = 1000,
         offset: int = 0,
-    ) -> List[ContentRecord]:
+    ) -> list[ContentRecord]:
         """
         Search content records by query string.
-        
+
         Args:
             query: Search query
             fields: Fields to search in (None = all text fields)
             limit: Maximum results
             offset: Result offset
-            
+
         Returns:
             List of matching ContentRecords
         """
         if not fields:
             fields = ["title", "artist", "album", "file_name"]
-        
+
         where_clauses = [f"{field} LIKE ?" for field in fields]
         where_sql = " OR ".join(where_clauses)
         like_pattern = f"%{query}%"
-        
+
         with self.connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 f"SELECT * FROM fg_content WHERE {where_sql} LIMIT ? OFFSET ?",
                 [like_pattern] * len(fields) + [limit, offset]
             )
-            
+
             results = []
             columns = [desc[0] for desc in cursor.description]
             for row in cursor.fetchall():
                 results.append(ContentRecord.from_dict(dict(zip(columns, row))))
-            
+
             return results
-    
+
     def get_all_content(
         self,
         limit: int = 1000,
         offset: int = 0,
         order_by: str = "id",
         ascending: bool = True,
-    ) -> List[ContentRecord]:
+    ) -> list[ContentRecord]:
         """
         Get all content records with pagination.
-        
+
         Args:
             limit: Maximum results
             offset: Result offset
             order_by: Field to order by
             ascending: Sort direction
-            
+
         Returns:
             List of ContentRecords
         """
         direction = "ASC" if ascending else "DESC"
-        
+
         with self.connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 f"SELECT * FROM fg_content ORDER BY {order_by} {direction} LIMIT ? OFFSET ?",
                 (limit, offset)
             )
-            
+
             results = []
             columns = [desc[0] for desc in cursor.description]
             for row in cursor.fetchall():
                 results.append(ContentRecord.from_dict(dict(zip(columns, row))))
-            
+
             return results
-    
-    def get_statistics(self) -> Dict[str, Any]:
+
+    def get_statistics(self) -> dict[str, Any]:
         """
         Get database statistics.
-        
+
         Returns:
             Dictionary with database statistics
         """
         with self.connection() as conn:
             cursor = conn.cursor()
-            
+
             # Get counts
             cursor.execute("SELECT COUNT(*) FROM fg_content")
             total_tracks = cursor.fetchone()[0]
-            
+
             cursor.execute("SELECT COUNT(*) FROM fg_content WHERE in_rekordbox = 1")
             in_rekordbox = cursor.fetchone()[0]
-            
+
             cursor.execute("SELECT COUNT(*) FROM fg_content WHERE is_corrupted = 1")
             corrupted = cursor.fetchone()[0]
-            
+
             cursor.execute("SELECT COUNT(*) FROM fg_content WHERE acoustic_fingerprint IS NOT NULL")
             fingerprinted = cursor.fetchone()[0]
-            
+
             # Get format distribution
             cursor.execute("SELECT format, COUNT(*) FROM fg_content GROUP BY format")
             format_counts = {row[0]: row[1] for row in cursor.fetchall()}
-            
+
             return {
                 "total_tracks": total_tracks,
                 "in_rekordbox": in_rekordbox,
@@ -1084,11 +1084,11 @@ class FableGearDatabase:
                 "fingerprinted": fingerprinted,
                 "format_counts": format_counts,
             }
-    
+
     def create_backup(self) -> Path:
         """
         Create a timestamped backup of the database.
-        
+
         Returns:
             Path to the backup file
         """
@@ -1117,21 +1117,21 @@ class FableGearDatabase:
         log.info("Database backup created: %s", backup_path)
 
         return backup_path
-    
+
     def restore_backup(self, backup_path: Path) -> bool:
         """
         Restore database from backup.
-        
+
         Args:
             backup_path: Path to backup file
-            
+
         Returns:
             True if restore succeeded
         """
         if not backup_path.exists():
             log.error("Backup file not found: %s", backup_path)
             return False
-        
+
         try:
             # Create backup of current state before restore
             current_backup = self.create_backup()
@@ -1150,11 +1150,11 @@ class FableGearDatabase:
             log.info("Previous state backed up to: %s", current_backup)
 
             return True
-            
+
         except Exception as exc:
             log.error("Failed to restore database: %s", exc)
             return False
-    
+
     def _set_metadata(self, key: str, value: str) -> None:
         """Set metadata value."""
         with self.transaction() as conn:
@@ -1163,8 +1163,8 @@ class FableGearDatabase:
                 INSERT OR REPLACE INTO fg_metadata (key, value, updated_at)
                 VALUES (?, ?, CURRENT_TIMESTAMP)
             """, (key, value))
-    
-    def _get_metadata(self, key: str) -> Optional[str]:
+
+    def _get_metadata(self, key: str) -> str | None:
         """Get metadata value."""
         with self.connection() as conn:
             cursor = conn.cursor()
@@ -1174,7 +1174,7 @@ class FableGearDatabase:
 
     # ── Performance Metadata APIs (Cues, Loops, Beatgrids) ────────────────
 
-    def get_cues_for_content(self, content_id: int) -> List[CueRecord]:
+    def get_cues_for_content(self, content_id: int) -> list[CueRecord]:
         """Get all cues and loops for a content record, sorted by position."""
         with self.connection() as conn:
             cursor = conn.cursor()
@@ -1187,7 +1187,7 @@ class FableGearDatabase:
             columns = [col[0] for col in cursor.description]
             return [CueRecord.from_dict(dict(zip(columns, row))) for row in cursor.fetchall()]
 
-    def get_beatgrid_for_content(self, content_id: int) -> List[BeatGridRecord]:
+    def get_beatgrid_for_content(self, content_id: int) -> list[BeatGridRecord]:
         """Get beatgrid markers for a content record, sorted by beat number."""
         with self.connection() as conn:
             cursor = conn.cursor()
@@ -1200,13 +1200,13 @@ class FableGearDatabase:
             columns = [col[0] for col in cursor.description]
             return [BeatGridRecord.from_dict(dict(zip(columns, row))) for row in cursor.fetchall()]
 
-    def bulk_upsert_cues(self, content_id: int, cues: List[CueRecord]) -> None:
+    def bulk_upsert_cues(self, content_id: int, cues: list[CueRecord]) -> None:
         """Replace all cues and loops for a content record in a single transaction."""
         with self.transaction() as conn:
             cursor = conn.cursor()
             # Clear existing cues
             cursor.execute("DELETE FROM fg_cue WHERE content_id = ?", (content_id,))
-            
+
             # Insert new cues
             for cue in cues:
                 cursor.execute("""
@@ -1222,13 +1222,13 @@ class FableGearDatabase:
                     cue.comment
                 ))
 
-    def bulk_upsert_beatgrids(self, content_id: int, beatgrid: List[BeatGridRecord]) -> None:
+    def bulk_upsert_beatgrids(self, content_id: int, beatgrid: list[BeatGridRecord]) -> None:
         """Replace all beatgrid markers for a content record in a single transaction."""
         with self.transaction() as conn:
             cursor = conn.cursor()
             # Clear existing beatgrid
             cursor.execute("DELETE FROM fg_beatgrid WHERE content_id = ?", (content_id,))
-            
+
             # Insert new beatgrid
             for grid in beatgrid:
                 cursor.execute("""
@@ -1243,7 +1243,7 @@ class FableGearDatabase:
                     grid.meter_denominator
                 ))
 
-    def get_content_with_relations(self, content_ids: Optional[List[int]] = None) -> List[ContentRecord]:
+    def get_content_with_relations(self, content_ids: list[int] | None = None) -> list[ContentRecord]:
         """
         Fetch multiple ContentRecords along with all their related cues and beatgrids.
         IDs are processed in chunks of 500 to stay within SQLite's host-parameter

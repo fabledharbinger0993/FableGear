@@ -1,19 +1,21 @@
 import sys
 import uuid
 from pathlib import Path
+
 import pytest
-from sqlalchemy import create_engine
 from pyrekordbox import Rekordbox6Database
 from pyrekordbox.db6 import tables as rb_tables
+from sqlalchemy import create_engine
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from fablegear_database.database import FableGearDatabase, ContentRecord, CueRecord, BeatGridRecord
-from fablegear_database.schema import DatabaseConfig
-from fablegear_database.rekordbox_sync import RekordboxSyncAdapter
 from rekordbox_meta_support import relaxed_rekordbox_nullability
+
+from fablegear_database.database import ContentRecord, CueRecord, FableGearDatabase
+from fablegear_database.rekordbox_sync import RekordboxSyncAdapter
+from fablegear_database.schema import DatabaseConfig
 
 
 @pytest.fixture
@@ -34,7 +36,7 @@ def rdb_path(tmp_path):
     with relaxed_rekordbox_nullability():
         rb_tables.Base.metadata.create_all(engine)
     engine.dispose()
-    
+
     # Add menu item and device required by pyrekordbox add_content
     handle = Rekordbox6Database(path=str(db_path), unlock=False)
     from datetime import datetime
@@ -86,11 +88,11 @@ def patch_db_connection(rdb_path, tmp_path, monkeypatch):
 def force_unencrypted_rekordbox(monkeypatch):
     from pyrekordbox import Rekordbox6Database
     original_init = Rekordbox6Database.__init__
-    
+
     def mocked_init(self, *args, **kwargs):
         kwargs["unlock"] = False
         original_init(self, *args, **kwargs)
-        
+
     monkeypatch.setattr(Rekordbox6Database, "__init__", mocked_init)
 
 
@@ -113,14 +115,14 @@ def test_sync_new_fg_track_to_rekordbox(fg_db, rdb_path, tmp_path):
         CueRecord(kind=0, in_msec=1000, comment="Intro Memory"),
         CueRecord(kind=1, slot=0, in_msec=5000, comment="Hot Cue A", color="#00ff00")
     ])
-    
+
     adapter = RekordboxSyncAdapter(fg_db)
     stats = adapter.sync_bidirectional(rdb_path, dry_run=False)
-    
+
     assert stats["tracks_imported_to_rekordbox"] == 1
     assert stats["tracks_imported_to_fablegear"] == 0
     assert stats["cues_synchronized"] == 2
-    
+
     # Check Rekordbox database contains the new track and cues
     rdb = Rekordbox6Database(rdb_path, unlock=False)
     rdb_content = rdb.get_content(FolderPath=str(track_file)).first()
@@ -128,26 +130,26 @@ def test_sync_new_fg_track_to_rekordbox(fg_db, rdb_path, tmp_path):
     assert rdb_content.Title == "FableGear Track"
     assert rdb_content.Artist.Name == "Antigravity"
     assert rdb_content.ColorID == "1" # Pink ID is "1"
-    
+
     # Verify cues are populated in Rekordbox
     cues = rdb.get_cue(ContentID=rdb_content.ID).all()
     assert len(cues) == 2
-    mem_cue = [c for c in cues if c.Kind == 0][0]
+    mem_cue = next(c for c in cues if c.Kind == 0)
     assert mem_cue.InMsec == 1000
     assert mem_cue.Comment == "Intro Memory"
-    
-    hot_cue = [c for c in cues if c.Kind == 1][0]
+
+    hot_cue = next(c for c in cues if c.Kind == 1)
     assert hot_cue.InMsec == 5000
     assert hot_cue.Comment == "Hot Cue A"
     assert hot_cue.Color == 0x00FF00 # Green
-    
+
     rdb.close()
 
 
 def test_sync_new_rdb_track_to_fablegear(fg_db, rdb_path):
     # Insert a track with cues directly to Rekordbox
     rdb = Rekordbox6Database(rdb_path, unlock=False)
-    
+
     # Create artist
     artist = rdb.add_artist("Antigravity")
     # Add track
@@ -163,7 +165,7 @@ def test_sync_new_rdb_track_to_fablegear(fg_db, rdb_path):
         Commnt="Import me"
     )
     rdb.session.add(content)
-    
+
     # Add cues
     cue_id1 = str(uuid.uuid4())
     cue1 = rb_tables.DjmdCue(
@@ -192,14 +194,14 @@ def test_sync_new_rdb_track_to_fablegear(fg_db, rdb_path):
     rdb.session.add(cue2)
     rdb.session.commit()
     rdb.close()
-    
+
     adapter = RekordboxSyncAdapter(fg_db)
     stats = adapter.sync_bidirectional(rdb_path, dry_run=False)
-    
+
     assert stats["tracks_imported_to_rekordbox"] == 0
     assert stats["tracks_imported_to_fablegear"] == 1
     assert stats["cues_synchronized"] == 2
-    
+
     # Check FableGear database contains the track and cues
     tracks = fg_db.get_content_with_relations()
     assert len(tracks) == 1
@@ -209,13 +211,13 @@ def test_sync_new_rdb_track_to_fablegear(fg_db, rdb_path):
     assert track.artist == "Antigravity"
     assert track.rating == 4
     assert track.comment == "Import me"
-    
+
     assert len(track.cues) == 2
-    mem = [c for c in track.cues if c.kind == 0][0]
+    mem = next(c for c in track.cues if c.kind == 0)
     assert mem.in_msec == 2000
     assert mem.comment == "Rdb Memory"
-    
-    hot = [c for c in track.cues if c.kind == 1][0]
+
+    hot = next(c for c in track.cues if c.kind == 1)
     assert hot.slot == 1
     assert hot.in_msec == 6000
     assert hot.comment == "Rdb Hot Cue B"
@@ -237,7 +239,7 @@ def test_sync_metadata_merging(fg_db, rdb_path):
         comment="FableGear Comment"
     )
     fg_db.insert_content(track)
-    
+
     rdb = Rekordbox6Database(rdb_path, unlock=False)
     content = rb_tables.DjmdContent(
         ID="match-id",
@@ -250,12 +252,12 @@ def test_sync_metadata_merging(fg_db, rdb_path):
     rdb.session.add(content)
     rdb.session.commit()
     rdb.close()
-    
+
     adapter = RekordboxSyncAdapter(fg_db)
     stats = adapter.sync_bidirectional(rdb_path, dry_run=False)
-    
+
     assert stats["tracks_updated_in_rekordbox"] == 1
-    
+
     # Verify Rekordbox is updated with FableGear's properties
     rdb = Rekordbox6Database(rdb_path, unlock=False)
     content = rdb.get_content(FolderPath="/music/match.mp3").first()
@@ -285,13 +287,13 @@ def test_sync_dry_run_safety(fg_db, rdb_path, tmp_path):
         title="Dry Run Title"
     )
     fg_db.insert_content(track)
-    
+
     adapter = RekordboxSyncAdapter(fg_db)
     stats = adapter.sync_bidirectional(rdb_path, dry_run=True)
-    
+
     # Stats should show a simulated import
     assert stats["tracks_imported_to_rekordbox"] == 1
-    
+
     # Check that it was NOT actually written to Rekordbox
     rdb = Rekordbox6Database(rdb_path, unlock=False)
     content = rdb.get_content(FolderPath=str(track_file)).first()

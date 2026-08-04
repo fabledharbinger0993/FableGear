@@ -30,7 +30,6 @@ from flask_sock import Sock
 from mutagen import File as MutagenFile
 
 from pioneer_export_validator import (
-    PioneerExportError,
     validate_copied_file_exists,
     validate_export_paths,
 )
@@ -52,7 +51,7 @@ def api_error_response(
     }
     if details:
         payload["details"] = details
-    
+
     # Use Flask's jsonify when available and in context
     # Fall back to simple JSON if outside Flask context
     try:
@@ -102,7 +101,7 @@ def _is_user_mount(mountpoint: str) -> bool:
 def get_connected_volumes() -> list[dict]:
     """Return connected user volumes with stable name/path fields."""
     try:
-        import psutil  # noqa: PLC0415
+        import psutil
     except Exception:
         return []
 
@@ -159,11 +158,11 @@ def get_archive():
     with _archive_lock:
         if _ARCHIVE is None and _ARCHIVE_ERROR is None:
             try:
-                from fablegear_database.database import FableGearDatabase  # noqa: PLC0415
+                from fablegear_database.database import FableGearDatabase
                 _ARCHIVE = FableGearDatabase()
             except Exception as exc:
                 _ARCHIVE_ERROR = f"{type(exc).__name__}: {exc}"
-                import logging  # noqa: PLC0415
+                import logging
                 logging.getLogger(__name__).warning(
                     "FableGear archive unavailable — in-process tool runs will NOT be recorded: %s",
                     _ARCHIVE_ERROR,
@@ -538,7 +537,7 @@ def terminate_managed_subprocesses(force: bool = False, include_orphans: bool = 
 # ── Step state tracker ────────────────────────────────────────────────────────
 
 try:
-    from state_tracker import mark_step_complete, get_step_status  # noqa: PLC0415
+    from state_tracker import get_step_status, mark_step_complete
     _STATE_TRACKER_AVAILABLE = True
 except ImportError:
     _STATE_TRACKER_AVAILABLE = False
@@ -578,7 +577,7 @@ def _evict_old_jobs(store: dict, max_size: int) -> None:
 def _backup_dir() -> Path:
     """Return the configured backup directory, with a sensible fallback."""
     try:
-        from config import BACKUP_DIR  # noqa: PLC0415
+        from config import BACKUP_DIR
         return BACKUP_DIR
     except Exception:
         return Path.home() / "rekordbox-toolkit" / "backups"
@@ -610,7 +609,7 @@ def _drives_guard(*needs: str):
     if guard:
         return guard
     """
-    from user_config import get_drive_status  # noqa: PLC0415
+    from user_config import get_drive_status
     status = get_drive_status()
 
     if not status["configured"]:
@@ -648,7 +647,7 @@ def _drives_guard(*needs: str):
 
 def _current_fablegear_mode() -> str:
     try:
-        from config import FABLEGEAR_MODE  # noqa: PLC0415
+        from config import FABLEGEAR_MODE
         return str(FABLEGEAR_MODE).strip() or "rural"
     except Exception:
         return "rural"
@@ -709,7 +708,7 @@ def _detect_pioneer_drive_layout(drive_path: str | Path) -> dict:
 def _rb_is_running() -> bool:
     """Return True if a Rekordbox process is currently active."""
     try:
-        from db_connection import rekordbox_is_running  # noqa: PLC0415
+        from db_connection import rekordbox_is_running
         return rekordbox_is_running()
     except Exception as exc:
         # Fails "open" (assume not running) to match db_connection's own
@@ -931,7 +930,7 @@ def _sse_smart_skip_process(
     process that is registered in _active_procs — making it cancellable and
     keeping log lines flowing to the UI throughout.
     """
-    cmd = base_cmd + ["--smart-skip"]
+    cmd = [*base_cmd, "--smart-skip"]
     return _sse_response(
         cmd,
         library_root=library_root,
@@ -993,8 +992,8 @@ def _track_needs_tag_work(path: Path, detect_bpm: bool, detect_key: bool) -> tup
 
 def _smart_skip_candidates(roots: list[Path], detect_bpm: bool, detect_key: bool) -> dict:
     """Build process candidate list excluding tracks already complete for requested tag ops."""
-    from scanner import scan_directory  # noqa: PLC0415
-    from config import AUDIO_EXTENSIONS  # noqa: PLC0415
+    from config import AUDIO_EXTENSIONS
+    from scanner import scan_directory
 
     pending: list[str] = []
     total = 0
@@ -1131,7 +1130,7 @@ def _stream_pipeline(steps: list[dict]):
         try:
             _pipe_root = step.get("library_root", "")
             if not _pipe_root:
-                from config import MUSIC_ROOT as _MR  # noqa: PLC0415
+                from config import MUSIC_ROOT as _MR
                 _pipe_root = str(_MR)
         except Exception:
             _pipe_root = ""
@@ -1168,7 +1167,7 @@ def _get_library_root(req, primary_field: str) -> str:
     if path:
         return str(Path(path))
     try:
-        from config import MUSIC_ROOT  # noqa: PLC0415
+        from config import MUSIC_ROOT
         return str(MUSIC_ROOT)
     except Exception:
         return ""
@@ -1184,8 +1183,8 @@ def export_target_reachable(drive_path: str) -> bool:
     OSError/FileNotFoundError copy failures, or a cryptic failure deep
     inside a pyrekordbox commit() call against a vanished volume.
     """
-    import os as _os  # noqa: PLC0415
-    from pathlib import Path as _Path  # noqa: PLC0415
+    import os as _os
+    from pathlib import Path as _Path
 
     try:
         return _os.path.ismount(drive_path) or _Path(drive_path).exists()
@@ -1205,13 +1204,16 @@ def _run_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
     Unsupported Pioneer USB exports such as exportLibrary.db/export.pdb are
     detected and rejected up front rather than being mis-written.
     """
-    import shutil as _shutil  # noqa: PLC0415
-    import json as _json  # noqa: PLC0415
-    from pathlib import Path as _Path  # noqa: PLC0415
-    from db_connection import read_db, rekordbox_is_running  # noqa: PLC0415
-    from config import LOCAL_DB as _DB, MUSIC_ROOT as _MUSIC_ROOT  # noqa: PLC0415
-    from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
-    import ws_bus as _ws  # noqa: PLC0415
+    import json as _json
+    import shutil as _shutil
+    from pathlib import Path as _Path
+
+    from pyrekordbox import Rekordbox6Database
+
+    import ws_bus as _ws
+    from config import LOCAL_DB as _DB
+    from config import MUSIC_ROOT as _MUSIC_ROOT
+    from db_connection import read_db, rekordbox_is_running
 
     def _safe_segment(value: str, fallback: str) -> str:
         text = str(value or "").strip().replace("/", "_").replace("\\", "_")
@@ -1220,10 +1222,10 @@ def _run_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
     def _export_relative_path(src_path: _Path, track) -> _Path:
         """
         Compute path relative to Contents directory on USB drive.
-        
+
         For files under MUSIC_ROOT: use relative path from root (Artist/Album/track.mp3)
         For files outside MUSIC_ROOT: use hash-based name to avoid collisions
-        
+
         All paths are validated by pioneer_export_validator before DB insertion.
         """
         try:
@@ -1232,14 +1234,14 @@ def _run_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
         except (ValueError, OSError):
             # File is outside MUSIC_ROOT (e.g., external drive)
             # Use a deterministic path based on filename + hash to avoid collisions
-            import hashlib  # noqa: PLC0415
-            
+            import hashlib
+
             file_stem = src_path.stem or "track"
             file_ext = src_path.suffix or ""
-            
+
             # Hash the full source path to create a unique identifier
             path_hash = hashlib.md5(str(src_path.resolve()).encode()).hexdigest()[:8]
-            
+
             # Return: External/<filename>-<hash>.<ext>
             # This ensures deterministic, collision-free names
             safe_name = _safe_segment(file_stem, "track")
@@ -1332,19 +1334,19 @@ def _run_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
         try:
             export_entries = list(export_tracks.values())
             validated_entries = validate_export_paths(export_entries)
-            
+
             # Update export_tracks with validated metadata
             for entry in validated_entries:
                 dest_key = str(entry["dest_path"])
                 export_tracks[dest_key] = entry
         except Exception as exc:
-            from pioneer_export_validator import PioneerExportError  # noqa: PLC0415
-            
+            from pioneer_export_validator import PioneerExportError
+
             if isinstance(exc, PioneerExportError):
                 error_msg = str(exc)
             else:
                 error_msg = f"Path validation failed: {exc}"
-            
+
             _update({"status": "failed", "errors": [error_msg], "current_track": ""})
             return
 
@@ -1385,7 +1387,7 @@ def _run_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
                     dest_path.parent.mkdir(parents=True, exist_ok=True)
                     if (not dest_path.exists()) or dest_path.stat().st_size != source_path.stat().st_size:
                         _shutil.copy2(str(source_path), str(dest_path))
-                    
+
                     # Validate copy succeeded (post-copy check)
                     validate_copied_file_exists(str(dest_path))
                 except Exception as exc:
@@ -1399,7 +1401,7 @@ def _run_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
                     legacy_row = path_to_usb_row.get(str(source_path))
                     if legacy_row is not None:
                         try:
-                            setattr(legacy_row, "FolderPath", dest_key)
+                            legacy_row.FolderPath = dest_key
                             usb.flush()
                             usb_row = legacy_row
                             path_to_usb_row[dest_key] = usb_row

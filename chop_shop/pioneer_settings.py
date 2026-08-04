@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: FableGear (Claude + Marshall Guthrie)
 # Date:   2026-07-13
 """
@@ -34,11 +33,10 @@ import logging
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
-PathLike = Union[str, Path]
+PathLike = str | Path
 
 # Filenames pyrekordbox.mysettings recognizes (mirrors usb_inspector.py's
 # SETTINGS_FILES basenames exactly).
@@ -58,16 +56,16 @@ class SettingsFileReport:
     filename: str = ""
     present: bool = False
     readable: bool = False
-    valid: Optional[bool] = None
+    valid: bool | None = None
     parsed_via: str = ""  # "pyrekordbox" | "hand-parsed header" | ""
-    brand: Optional[str] = None
-    entry_count: Optional[int] = None
-    settings: Dict[str, str] = field(default_factory=dict)
+    brand: str | None = None
+    entry_count: int | None = None
+    settings: dict[str, str] = field(default_factory=dict)
     detail: str = ""
-    notes: List[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
 
-def _read_via_pyrekordbox(path: Path) -> Optional[SettingsFileReport]:
+def _read_via_pyrekordbox(path: Path) -> SettingsFileReport | None:
     """Try the real pyrekordbox parser.
 
     Returns None if the filename isn't one pyrekordbox recognizes (caller
@@ -192,7 +190,7 @@ def read_settings_file(path: PathLike) -> SettingsFileReport:
     return report
 
 
-def read_settings_tree(pioneer_dir: PathLike) -> List[SettingsFileReport]:
+def read_settings_tree(pioneer_dir: PathLike) -> list[SettingsFileReport]:
     """Parse every known settings file found under a PIONEER/ dir.
 
     Parameters
@@ -211,7 +209,7 @@ def read_settings_tree(pioneer_dir: PathLike) -> List[SettingsFileReport]:
         real player yet.
     """
     root = Path(pioneer_dir)
-    reports: List[SettingsFileReport] = []
+    reports: list[SettingsFileReport] = []
     for filename in KNOWN_SETTINGS_FILENAMES:
         for candidate in (root / filename, root / "PIONEER" / filename):
             if candidate.is_file():

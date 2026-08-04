@@ -47,10 +47,10 @@ class ProLinkActiveProtocol(asyncio.DatagramProtocol):
         header = PIONEER_MAGIC + self.mac_address
         packet_type = b'\x06' # Keep Alive
         packet_length = struct.pack(">H", 54) # Typical length
-        
+
         # 0x01 (Rekordbox type identifier), 0x02 (Sub-identifier), assigned ID
         device_sig = b'\x01\x02' + struct.pack("B", self.device_id)
-        
+
         # Combine structural bytes (simplified POC)
         packet = header + packet_type + b'\x00\x00' + packet_length + device_sig + b'\x00'*4 + self.device_name
         return packet.ljust(54, b'\x00')
@@ -77,7 +77,7 @@ async def main():
     loop = asyncio.get_running_loop()
 
     protocol = ProLinkActiveProtocol(device_name="FableGear Live", device_id=5)
-    transport, prot = await loop.create_datagram_endpoint(
+    transport, _prot = await loop.create_datagram_endpoint(
         lambda: protocol,
         local_addr=('0.0.0.0', 0), # Ephemeral port for sending
         allow_broadcast=True

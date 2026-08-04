@@ -11,7 +11,6 @@ machine regardless of actual hardware. The goal is to verify:
 """
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -25,7 +24,6 @@ if str(REPO_ROOT) not in sys.path:
 # system_probe runs detect_system_profile() at module level; we import it
 # once here but call detect_system_profile() fresh in each test with mocks.
 import system_probe as sp
-
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: FableGear (Claude + Marshall Guthrie)
 # Date:   2026-07-13
 """
@@ -28,16 +27,15 @@ Public interface:
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Union
 
-from anlz_reader import read_anlz_set, AnlzSetReport
-from devicesql_reader import read_pdb, PdbReport
-from pioneer_settings import read_settings_tree, SettingsFileReport
-from usb_inspector import inspect_usb, UsbInspectionReport, NotAMountError
+from anlz_reader import AnlzSetReport, read_anlz_set
+from devicesql_reader import PdbReport, read_pdb
+from pioneer_settings import SettingsFileReport, read_settings_tree
+from usb_inspector import UsbInspectionReport, inspect_usb
 
 logger = logging.getLogger(__name__)
 
-PathLike = Union[str, Path]
+PathLike = str | Path
 
 # Batch size for archive writes. Falls back to a sane default if config.py's
 # system-tiered value isn't available in a given context — config.py raises
@@ -45,7 +43,7 @@ PathLike = Union[str, Path]
 # yet, which this read-only auditor should not require just to run its tests.
 try:
     from config import ARCHIVE_CHUNK_SIZE as _ARCHIVE_CHUNK_SIZE
-except Exception:  # noqa: BLE001 - config.py's unconfigured-state error isn't a fixed type
+except Exception:
     _ARCHIVE_CHUNK_SIZE = 250
 
 # Token blobs of unknown role — presence/size reported, never opened.
@@ -83,8 +81,8 @@ class EncryptionFinding:
     """Presence/size record for an opaque or encrypted file. Never decoded."""
     name: str
     present: bool
-    path: Optional[str] = None
-    size: Optional[int] = None
+    path: str | None = None
+    size: int | None = None
     note: str = ""
 
 
@@ -92,30 +90,30 @@ class EncryptionFinding:
 class ExportAuditReport:
     """Consolidated Phase B findings for one mounted export."""
     mount: str = ""
-    usb_inspection: Optional[UsbInspectionReport] = None
-    anlz_sets: List[AnlzSetReport] = field(default_factory=list)
+    usb_inspection: UsbInspectionReport | None = None
+    anlz_sets: list[AnlzSetReport] = field(default_factory=list)
     anlz_summary: AnlzAuditSummary = field(default_factory=AnlzAuditSummary)
-    settings_files: List[SettingsFileReport] = field(default_factory=list)
-    pdb_report: Optional[PdbReport] = None
+    settings_files: list[SettingsFileReport] = field(default_factory=list)
+    pdb_report: PdbReport | None = None
     library_cross_match: LibraryCrossMatch = field(default_factory=LibraryCrossMatch)
-    encryption_findings: List[EncryptionFinding] = field(default_factory=list)
+    encryption_findings: list[EncryptionFinding] = field(default_factory=list)
     archive_logged: bool = False
-    notes: List[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
 
-def _scan_anlz_tree(root: Path) -> List[AnlzSetReport]:
+def _scan_anlz_tree(root: Path) -> list[AnlzSetReport]:
     """Walk PIONEER/USBANLZ/*/*/ for per-track ANLZ sets (same glob shape
     usb_inspector.py uses to count tracks)."""
     usbanlz = root / "PIONEER" / "USBANLZ"
     if not usbanlz.is_dir():
         return []
-    sets: List[AnlzSetReport] = []
+    sets: list[AnlzSetReport] = []
     for dat_path in sorted(usbanlz.glob("*/*/ANLZ0000.DAT")):
         sets.append(read_anlz_set(dat_path.parent))
     return sets
 
 
-def _summarize_anlz(sets: List[AnlzSetReport]) -> AnlzAuditSummary:
+def _summarize_anlz(sets: list[AnlzSetReport]) -> AnlzAuditSummary:
     summary = AnlzAuditSummary(tracks_scanned=len(sets))
     for s in sets:
         if s.dat is None:
@@ -131,8 +129,8 @@ def _summarize_anlz(sets: List[AnlzSetReport]) -> AnlzAuditSummary:
     return summary
 
 
-def _find_encryption_artifacts(root: Path, usb_inspection: UsbInspectionReport) -> List[EncryptionFinding]:
-    findings: List[EncryptionFinding] = []
+def _find_encryption_artifacts(root: Path, usb_inspection: UsbInspectionReport) -> list[EncryptionFinding]:
+    findings: list[EncryptionFinding] = []
 
     if usb_inspection.onelibrary.present:
         size = None
@@ -173,7 +171,7 @@ def _find_encryption_artifacts(root: Path, usb_inspection: UsbInspectionReport) 
     return findings
 
 
-def _onelibrary_note(valid: Optional[bool]) -> str:
+def _onelibrary_note(valid: bool | None) -> str:
     if valid is None:
         return "SQLCipher-suspected (not plain SQLite) — decryption NOT attempted."
     if valid is False:
@@ -181,7 +179,7 @@ def _onelibrary_note(valid: Optional[bool]) -> str:
     return "readable SQLite — not encrypted."
 
 
-def _cross_match_library(anlz_sets: List[AnlzSetReport], archive) -> LibraryCrossMatch:
+def _cross_match_library(anlz_sets: list[AnlzSetReport], archive) -> LibraryCrossMatch:
     match = LibraryCrossMatch()
     if archive is None:
         return match

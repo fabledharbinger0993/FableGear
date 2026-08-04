@@ -1147,7 +1147,7 @@ def scan_duplicates(
     # The tagger/deduper persist fingerprints into fg_content; read them back
     # here and compute only the misses. file_size mismatch = stale → recompute.
     archive_reused = 0
-    computed_entries: list[tuple[str, str, "float | None", int]] = []
+    computed_entries: list[tuple[str, str, float | None, int]] = []
     computed_total = 0
     if archive is not None:
         try:

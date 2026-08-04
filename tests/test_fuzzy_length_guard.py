@@ -21,7 +21,7 @@ if str(REPO_ROOT) not in sys.path:
 if str(REPO_ROOT / "chop_shop") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "chop_shop"))
 
-from duplicate_detector import _hamming_similarity, _FP_LENGTH_RATIO_MIN  # noqa: E402
+from duplicate_detector import _FP_LENGTH_RATIO_MIN, _hamming_similarity
 
 
 def test_short_prefix_of_long_track_is_not_a_match():

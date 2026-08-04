@@ -11,10 +11,9 @@ structure while being FableGear-specific. This enables:
 
 import logging
 import sqlite3
-from pathlib import Path
-from typing import Dict, List, Optional
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -37,11 +36,11 @@ class TableType(Enum):
 class DatabaseSchema:
     """
     Rekordbox-compatible database schema for FableGear.
-    
+
     Tables mirror Rekordbox structure where appropriate for compatibility,
     while adding FableGear-specific fields for enhanced functionality.
     """
-    
+
     # Main content table (similar to Rekordbox's djmdContent)
     CONTENT_TABLE = """
     CREATE TABLE IF NOT EXISTS fg_content (
@@ -56,7 +55,7 @@ class DatabaseSchema:
         modified_date TEXT,
         file_hash TEXT,
         acoustic_fingerprint TEXT,
-        
+
         -- Metadata fields
         artist TEXT,
         album TEXT,
@@ -70,15 +69,15 @@ class DatabaseSchema:
         disc_number INTEGER,
         comment TEXT,
         rating INTEGER DEFAULT 0,
-        
+
         -- Drive/location tracking
         drive TEXT,
         relative_path TEXT,
-        
+
         -- Rekordbox compatibility fields
         rekordbox_id INTEGER,
         rekordbox_playlist_id INTEGER,
-        
+
         -- FableGear-specific fields
         in_rekordbox BOOLEAN DEFAULT 0,
         last_scanned TEXT,
@@ -86,12 +85,12 @@ class DatabaseSchema:
         is_corrupted BOOLEAN DEFAULT 0,
         processing_status TEXT DEFAULT 'unprocessed',
         color TEXT,
-        
+
         -- Standard timestamps
         created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_file_path ON fg_content(file_path);
     CREATE INDEX IF NOT EXISTS idx_file_hash ON fg_content(file_hash);
     CREATE INDEX IF NOT EXISTS idx_acoustic_fp ON fg_content(acoustic_fingerprint);
@@ -104,7 +103,7 @@ class DatabaseSchema:
     CREATE INDEX IF NOT EXISTS idx_rekordbox_id ON fg_content(rekordbox_id);
     CREATE INDEX IF NOT EXISTS idx_processing_status ON fg_content(processing_status);
     """
-    
+
     # Artist table (similar to djmdArtist)
     ARTIST_TABLE = """
     CREATE TABLE IF NOT EXISTS fg_artist (
@@ -114,10 +113,10 @@ class DatabaseSchema:
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_artist_name ON fg_artist(name);
     """
-    
+
     # Album table (similar to djmdAlbum)
     ALBUM_TABLE = """
     CREATE TABLE IF NOT EXISTS fg_album (
@@ -130,10 +129,10 @@ class DatabaseSchema:
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_album_name ON fg_album(name);
     """
-    
+
     # Genre table (similar to djmdGenre)
     GENRE_TABLE = """
     CREATE TABLE IF NOT EXISTS fg_genre (
@@ -142,10 +141,10 @@ class DatabaseSchema:
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_genre_name ON fg_genre(name);
     """
-    
+
     # Key table (similar to djmdKey)
     KEY_TABLE = """
     CREATE TABLE IF NOT EXISTS fg_key (
@@ -156,10 +155,10 @@ class DatabaseSchema:
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_key_name ON fg_key(scale_name);
     """
-    
+
     # Label table (similar to djmdLabel)
     LABEL_TABLE = """
     CREATE TABLE IF NOT EXISTS fg_label (
@@ -168,10 +167,10 @@ class DatabaseSchema:
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_label_name ON fg_label(name);
     """
-    
+
     # Playlist table (similar to djmdPlaylist)
     PLAYLIST_TABLE = """
     CREATE TABLE IF NOT EXISTS fg_playlist (
@@ -184,11 +183,11 @@ class DatabaseSchema:
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_playlist_name ON fg_playlist(name);
     CREATE INDEX IF NOT EXISTS idx_playlist_parent ON fg_playlist(parent_id);
     """
-    
+
     # Playlist song mapping table (similar to djmdSongPlaylist)
     PLAYLIST_SONG_TABLE = """
     CREATE TABLE IF NOT EXISTS fg_playlist_song (
@@ -201,11 +200,11 @@ class DatabaseSchema:
         FOREIGN KEY (playlist_id) REFERENCES fg_playlist(id) ON DELETE CASCADE,
         FOREIGN KEY (content_id) REFERENCES fg_content(id) ON DELETE CASCADE
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_playlist_song_playlist ON fg_playlist_song(playlist_id);
     CREATE INDEX IF NOT EXISTS idx_playlist_song_content ON fg_playlist_song(content_id);
     """
-    
+
     # Database metadata table
     METADATA_TABLE = """
     CREATE TABLE IF NOT EXISTS fg_metadata (
@@ -214,7 +213,7 @@ class DatabaseSchema:
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     """
-    
+
     # Processing log table (for tracking operations)
     PROCESSING_LOG_TABLE = """
     CREATE TABLE IF NOT EXISTS fg_processing_log (
@@ -227,11 +226,11 @@ class DatabaseSchema:
         completed_at TEXT,
         metadata TEXT
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_processing_log_operation ON fg_processing_log(operation_type);
     CREATE INDEX IF NOT EXISTS idx_processing_log_status ON fg_processing_log(status);
     """
-    
+
     # Cue and loop table
     CUE_TABLE = """
     CREATE TABLE IF NOT EXISTS fg_cue (
@@ -247,11 +246,11 @@ class DatabaseSchema:
         updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
         FOREIGN KEY (content_id) REFERENCES fg_content(id) ON DELETE CASCADE
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_cue_content_id ON fg_cue(content_id);
     CREATE INDEX IF NOT EXISTS idx_cue_content_in ON fg_cue(content_id, in_msec);
     """
-    
+
     # Beatgrid table (variable tempo support)
     BEATGRID_TABLE = """
     CREATE TABLE IF NOT EXISTS fg_beatgrid (
@@ -266,26 +265,26 @@ class DatabaseSchema:
         updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
         FOREIGN KEY (content_id) REFERENCES fg_content(id) ON DELETE CASCADE
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_beatgrid_content_id ON fg_beatgrid(content_id);
     CREATE INDEX IF NOT EXISTS idx_beatgrid_content_time ON fg_beatgrid(content_id, time_msec);
     """
-    
+
     @staticmethod
     def create_schema(db_path: Path) -> bool:
         """
         Create all tables in the database.
-        
+
         Args:
             db_path: Path to the database file
-            
+
         Returns:
             True if schema creation succeeded
         """
         try:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
-            
+
             # Enable foreign keys
             cursor.execute("PRAGMA foreign_keys = ON")
 
@@ -308,54 +307,54 @@ class DatabaseSchema:
 
             conn.commit()
             conn.close()
-            
+
             return True
-            
+
         except Exception as exc:
             print(f"Failed to create database schema: {exc}")
             return False
-    
+
     @staticmethod
     def get_schema_version() -> str:
         """Get the current schema version."""
         return "1.1.0"
-    
+
     @staticmethod
-    def validate_schema(db_path: Path) -> List[str]:
+    def validate_schema(db_path: Path) -> list[str]:
         """
         Validate that the database schema is correct.
-        
+
         Args:
             db_path: Path to the database file
-            
+
         Returns:
             List of validation errors (empty if valid)
         """
         errors = []
-        
+
         try:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
-            
+
             # Check for required tables
             required_tables = [
                 "fg_content", "fg_artist", "fg_album", "fg_genre",
                 "fg_key", "fg_label", "fg_playlist", "fg_playlist_song",
                 "fg_cue", "fg_beatgrid"
             ]
-            
+
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
             existing_tables = {row[0] for row in cursor.fetchall()}
-            
+
             for table in required_tables:
                 if table not in existing_tables:
                     errors.append(f"Missing required table: {table}")
-            
+
             conn.close()
-            
+
         except Exception as exc:
             errors.append(f"Schema validation failed: {exc}")
-        
+
         return errors
 
     @staticmethod
@@ -367,18 +366,18 @@ class DatabaseSchema:
         try:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
-            
+
             # Check if color column exists in fg_content
             cursor.execute("PRAGMA table_info(fg_content)")
             columns = {row[1] for row in cursor.fetchall()}
             if "color" not in columns:
                 log.info("Migrating database: adding color column to fg_content")
                 cursor.execute("ALTER TABLE fg_content ADD COLUMN color TEXT")
-            
+
             # Create new tables
             cursor.executescript(DatabaseSchema.CUE_TABLE)
             cursor.executescript(DatabaseSchema.BEATGRID_TABLE)
-            
+
             # Update schema version metadata if metadata table exists
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='fg_metadata'")
             if cursor.fetchone():
@@ -392,7 +391,7 @@ class DatabaseSchema:
                         "INSERT OR REPLACE INTO fg_metadata (key, value) VALUES ('schema_version', ?)",
                         (DatabaseSchema.get_schema_version(),)
                     )
-            
+
             conn.commit()
             conn.close()
             return True
@@ -410,8 +409,8 @@ class DatabaseConfig:
     cache_size: int = -2000  # SQLite cache size (negative = KiB)
     synchronous: str = "NORMAL"  # Safety vs performance balance
     foreign_keys: bool = True
-    
-    def get_pragmas(self) -> Dict[str, str]:
+
+    def get_pragmas(self) -> dict[str, str]:
         """Get SQLite pragmas for configuration."""
         return {
             "journal_mode": self.journal_mode,

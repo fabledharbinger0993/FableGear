@@ -56,7 +56,7 @@ def client(tmp_path_factory):
     sys.path.insert(0, str(REPO_ROOT))
     sys.path.insert(0, str(REPO_ROOT / "chop_shop"))
 
-    from app import app  # noqa: PLC0415
+    from app import app
     app.config["TESTING"] = True
     return app.test_client()
 

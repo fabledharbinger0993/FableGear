@@ -62,7 +62,7 @@ def flask_app(tmp_path_factory):
     sys.path.insert(0, str(REPO_ROOT))
     sys.path.insert(0, str(REPO_ROOT / "chop_shop"))
 
-    from app import app  # noqa: PLC0415
+    from app import app
     app.config["TESTING"] = True
     return app
 
@@ -171,7 +171,7 @@ def test_setup_status_includes_gate_reason_for_incomplete_state(client):
 
 
 def test_setup_gate_logs_and_falls_back_when_config_check_fails(client, monkeypatch, caplog):
-    import user_config as _user_config  # noqa: PLC0415
+    import user_config as _user_config
 
     _write_setup_state(setup_complete=True, db_read=True, db_write=True)
 
@@ -340,7 +340,7 @@ def test_api_settings_coerces_snapshot_include_master_db(client, input_value, ex
 
 
 def test_api_error_contract_is_sanitized(client, monkeypatch):
-    import audit as _audit  # noqa: PLC0415
+    import audit as _audit
 
     def _boom(*args, **kwargs):
         raise RuntimeError("/Users/dj/Secrets/rekordbox/master.db exploded")
@@ -363,7 +363,7 @@ def test_dead_file_scan_raises_on_unreadable_db(flask_app, tmp_path):
     """Regression for the shadowed-fix consolidation: an existing-but-corrupt
     DB must abort the scan (RuntimeError), never warn-and-continue, because a
     silently shrunken known-paths set misclassifies tracked files as dead."""
-    from dead_file_scanner import scan_dead_files  # noqa: PLC0415
+    from dead_file_scanner import scan_dead_files
 
     corrupt_db = tmp_path / "corrupt.db"
     corrupt_db.write_bytes(b"this is not a rekordbox database")
@@ -378,7 +378,7 @@ def test_dead_file_scan_raises_on_unreadable_db(flask_app, tmp_path):
 def test_dead_file_scan_skips_missing_db(flask_app, tmp_path):
     """A db path that doesn't exist is skipped (debug log), not fatal —
     only existing-but-unreadable databases abort."""
-    from dead_file_scanner import scan_dead_files  # noqa: PLC0415
+    from dead_file_scanner import scan_dead_files
 
     music = tmp_path / "music"
     music.mkdir()
@@ -414,7 +414,7 @@ def _fake_stick(tmp_path, devicesql=True, onelibrary=True):
 
 
 def test_usb_inspector_dual_format(flask_app, tmp_path):
-    from usb_inspector import inspect_usb  # noqa: PLC0415
+    from usb_inspector import inspect_usb
 
     report = inspect_usb(_fake_stick(tmp_path))
     assert report.has_pioneer_dir
@@ -425,7 +425,7 @@ def test_usb_inspector_dual_format(flask_app, tmp_path):
 
 
 def test_usb_inspector_rejects_garbage_pdb(flask_app, tmp_path):
-    from usb_inspector import inspect_usb  # noqa: PLC0415
+    from usb_inspector import inspect_usb
 
     root = _fake_stick(tmp_path, devicesql=False, onelibrary=False)
     (root / "PIONEER" / "rekordbox" / "export.pdb").write_bytes(b"NOTAPDB!" * 8)
@@ -437,7 +437,7 @@ def test_usb_inspector_rejects_garbage_pdb(flask_app, tmp_path):
 
 def test_usb_inspector_not_a_mount(flask_app, tmp_path):
     import pytest as _pt
-    from usb_inspector import inspect_usb, NotAMountError  # noqa: PLC0415
+    from usb_inspector import NotAMountError, inspect_usb
 
     with _pt.raises(NotAMountError):
         inspect_usb(tmp_path / "does-not-exist")
@@ -448,7 +448,7 @@ def test_usb_inspector_not_a_mount(flask_app, tmp_path):
 def test_update_sha_not_misparsed_as_version(flask_app):
     """SHAs starting with a digit (12aff07, 9abf982) must NOT be read as
     versions older than every release — that caused the perpetual update loop."""
-    from update_checker import _is_newer, _is_semver_tag  # noqa: PLC0415
+    from update_checker import _is_newer, _is_semver_tag
     for sha in ("12aff07", "9abf982", "7d62c0a", "0deadbe"):
         assert _is_semver_tag(sha) is False
         # tag not locally resolvable as the SHA -> semver guard rejects SHA -> False
@@ -456,26 +456,26 @@ def test_update_sha_not_misparsed_as_version(flask_app):
 
 
 def test_update_equal_version_no_loop(flask_app):
-    from update_checker import _is_newer  # noqa: PLC0415
+    from update_checker import _is_newer
     assert _is_newer("v1.0.0", "v1.0.0", is_git=True) is False
 
 
 def test_update_real_upgrade_detected(flask_app):
-    from update_checker import _is_newer, _semver_gt  # noqa: PLC0415
+    from update_checker import _semver_gt
     assert _semver_gt("v1.1.0", "v1.0.0") is True
     assert _semver_gt("v1.0.0", "v1.0") is False  # length-tolerant
 
 
 def test_update_zip_no_nag_without_version(flask_app):
-    from update_checker import _is_newer  # noqa: PLC0415
+    from update_checker import _is_newer
     assert _is_newer("v1.0.0", None, is_git=False) is False
     assert _is_newer("v1.0.0", "v1.0.0", is_git=False) is False
     assert _is_newer("v1.0.0", "v0.9", is_git=False) is True
 
 
 def test_fs_browse_root_skips_boot_volume_alias(client, monkeypatch, tmp_path):
-    import config as _config  # noqa: PLC0415
-    import routes_player as _player  # noqa: PLC0415
+    import config as _config
+    import routes_player as _player
 
     boot_alias = tmp_path / "boot-alias"
     boot_alias.symlink_to("/", target_is_directory=True)
@@ -496,8 +496,8 @@ def test_fs_browse_root_skips_boot_volume_alias(client, monkeypatch, tmp_path):
 
 
 def test_enumerate_drive_audio_skips_boot_volume_alias(monkeypatch, tmp_path):
-    import config as _config  # noqa: PLC0415
-    import routes_player as _player  # noqa: PLC0415
+    import config as _config
+    import routes_player as _player
 
     music_root = tmp_path / "music"
     music_root.mkdir()
@@ -537,8 +537,8 @@ def test_enumerate_drive_audio_skips_boot_volume_alias(monkeypatch, tmp_path):
 
 
 def test_fs_browse_recursive_path_uses_guarded_walk(client, monkeypatch, tmp_path):
-    import config as _config  # noqa: PLC0415
-    import routes_player as _player  # noqa: PLC0415
+    import config as _config
+    import routes_player as _player
 
     music_root = tmp_path / "music"
     browse_root = music_root / "crate"
@@ -603,7 +603,7 @@ def _fake_git_run(porcelain_output, pull_returncode=1, pull_stderr="stopped for 
 
 
 def test_update_apply_blocked_by_tracked_modification(client, monkeypatch):
-    import app as _app  # noqa: PLC0415
+    import app as _app
 
     monkeypatch.setattr(_app.subprocess, "run", _fake_git_run(" M app.py\n"))
     resp = _hit(client, "/api/update/apply", LOOPBACK, method="POST")
@@ -615,7 +615,7 @@ def test_update_apply_blocked_by_tracked_modification(client, monkeypatch):
 
 
 def test_update_apply_not_blocked_by_untracked_only(client, monkeypatch):
-    import app as _app  # noqa: PLC0415
+    import app as _app
 
     # Only untracked files present (e.g. DESIGN.md, .impeccable/) — this used
     # to trip the same 409 as a real tracked-file conflict.

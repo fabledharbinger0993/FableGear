@@ -27,9 +27,9 @@ SEVERITY levels (stored as string)
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 log = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class HealthFinding:
 def _disk_partitions() -> list:
     """Return psutil disk partitions; falls back to [] on import failure."""
     try:
-        import psutil  # noqa: PLC0415
+        import psutil
         return psutil.disk_partitions(all=True)
     except Exception as exc:
         # Feeds _check_readonly_mounts / _check_backup_same_volume — log so a
@@ -103,7 +103,7 @@ def _is_readonly_mount(path: Path) -> bool:
 def _free_bytes(path: Path) -> int | None:
     """Return free bytes on the volume containing *path*, or None on error."""
     try:
-        import psutil  # noqa: PLC0415
+        import psutil
         return psutil.disk_usage(str(path)).free
     except Exception as exc:
         log.debug("could not read free space for %s: %s", path, exc)
@@ -180,7 +180,7 @@ def _most_recent_backup(backup_dir: Path) -> Path | None:
 
 def _check_rekordbox_running() -> HealthFinding | None:
     try:
-        from db_connection import rekordbox_is_running  # noqa: PLC0415
+        from db_connection import rekordbox_is_running
         if not rekordbox_is_running():
             return None
         return HealthFinding(
@@ -214,7 +214,7 @@ def _check_rekordbox_running() -> HealthFinding | None:
 def _check_cloud_sync() -> list[HealthFinding]:
     findings = []
     try:
-        from user_config import get_drive_status  # noqa: PLC0415
+        from user_config import get_drive_status
         status = get_drive_status()
         if not status["configured"]:
             return findings
@@ -281,7 +281,7 @@ def _check_cloud_sync() -> list[HealthFinding]:
 def _check_db_size_regression() -> HealthFinding | None:
     """Warn if the current DB is >30 % smaller than the most recent backup."""
     try:
-        from config import BACKUP_DIR, LOCAL_DB  # noqa: PLC0415
+        from config import BACKUP_DIR, LOCAL_DB
         db_path = Path(LOCAL_DB)
         if not db_path.exists():
             return None
@@ -340,8 +340,8 @@ def _check_db_size_regression() -> HealthFinding | None:
 def _check_readonly_mounts() -> list[HealthFinding]:
     findings = []
     try:
-        from user_config import get_drive_status  # noqa: PLC0415
-        from config import BACKUP_DIR  # noqa: PLC0415
+        from config import BACKUP_DIR
+        from user_config import get_drive_status
         status = get_drive_status()
         if not status["configured"]:
             return findings
@@ -382,7 +382,7 @@ def _check_readonly_mounts() -> list[HealthFinding]:
 
 def _check_backup_same_volume() -> HealthFinding | None:
     try:
-        from config import BACKUP_DIR, LOCAL_DB  # noqa: PLC0415
+        from config import BACKUP_DIR, LOCAL_DB
         db_path = Path(LOCAL_DB)
         backup_path = Path(BACKUP_DIR)
         if not db_path.exists():
@@ -417,7 +417,7 @@ def _check_backup_same_volume() -> HealthFinding | None:
 def _check_free_space() -> HealthFinding | None:
     """Warn if less than 500 MB is free on the music root volume."""
     try:
-        from user_config import get_drive_status  # noqa: PLC0415
+        from user_config import get_drive_status
         status = get_drive_status()
         if not status.get("music_root_ok"):
             return None
@@ -445,7 +445,7 @@ def _check_free_space() -> HealthFinding | None:
 
 def _check_backup_dir_missing() -> HealthFinding | None:
     try:
-        from config import BACKUP_DIR  # noqa: PLC0415
+        from config import BACKUP_DIR
         backup_path = Path(BACKUP_DIR)
         if backup_path.exists():
             return None
@@ -492,8 +492,9 @@ def _check_archive_available() -> HealthFinding | None:
     reads from. If it cannot open, tool runs silently leave no record —
     surface that as a warn finding instead of letting the wiring rot."""
     try:
-        from fablegear_database.database import (  # noqa: PLC0415
-            FableGearDatabase, LibraryNotInitializedError,
+        from fablegear_database.database import (
+            FableGearDatabase,
+            LibraryNotInitializedError,
         )
         # Read-only probe: a library that simply hasn't been built yet is not a
         # fault, and the startup health check must never create it as a side
@@ -517,7 +518,7 @@ def _check_archive_available() -> HealthFinding | None:
 
 def _check_db_symlink() -> HealthFinding | None:
     try:
-        from user_config import get_drive_status  # noqa: PLC0415
+        from user_config import get_drive_status
         status = get_drive_status()
         for key in ("local_db_path", "device_db_path"):
             p_str = status.get(key)
@@ -566,7 +567,7 @@ def _check_beat_tracker() -> HealthFinding | None:
     regression shows up as a warning rather than as wrong beat grids at a gig.
     """
     try:
-        import audio_processor  # noqa: PLC0415
+        import audio_processor
         if audio_processor._essentia_available():
             return None
     except Exception as exc:

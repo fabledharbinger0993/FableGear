@@ -8,12 +8,12 @@ import subprocess
 import sys
 import threading
 import uuid
+from collections import defaultdict
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
-from collections import defaultdict
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Literal
 
 MAX_WORKERS = 4
 LIVE_JOBS_FILENAME = ".live_jobs.json"
@@ -30,40 +30,40 @@ class JobRecord:
     job_id: str
     tool: str
     state: Literal["pending", "running", "done", "error", "cancelled"]
-    scope: Optional[str]
-    cli_args: List[str]
+    scope: str | None
+    cli_args: list[str]
     dispatched_at: str
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
-    duration_seconds: Optional[float] = None
-    result: Optional[str] = None
-    exit_code: Optional[int] = None
-    checkpoint_path: Optional[str] = None
-    result_blob_path: Optional[str] = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    duration_seconds: float | None = None
+    result: str | None = None
+    exit_code: int | None = None
+    checkpoint_path: str | None = None
+    result_blob_path: str | None = None
 
 
 _executor = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="fablegear")
-_jobs: Dict[str, JobRecord] = {}
+_jobs: dict[str, JobRecord] = {}
 _jobs_lock = threading.Lock()
 
 # Cancellation support. A job can be cancelled two ways: still queued behind
 # other work in the 4-worker pool (Future.cancel() removes it before it ever
 # runs), or already running as a cli.py subprocess (terminate()/kill() it).
 # _cancel_lock guards all three of the dicts/sets below.
-_futures: Dict[str, "Future"] = {}
-_running_procs: Dict[str, "subprocess.Popen"] = {}
+_futures: dict[str, "Future"] = {}
+_running_procs: dict[str, "subprocess.Popen"] = {}
 _cancel_requested: set = set()
 _cancel_lock = threading.Lock()
 
-_archive_checkpoints_dir: Optional[Path] = None
-_repo_dir: Optional[Path] = None
-_db_path: Optional[Path] = None
-_persistence_dir: Optional[Path] = None
+_archive_checkpoints_dir: Path | None = None
+_repo_dir: Path | None = None
+_db_path: Path | None = None
+_persistence_dir: Path | None = None
 _db_lock = threading.Lock()
 _log = logging.getLogger("fablegear.job_dispatcher")
 
 
-def init(repo_dir: Path, archive_checkpoints_dir: Optional[Path]) -> None:
+def init(repo_dir: Path, archive_checkpoints_dir: Path | None) -> None:
     """
     Called once at MCP server startup.
     repo_dir                  — Path to the FableGear repo root (for cli.py)
@@ -98,8 +98,8 @@ def reconfigure(archive_checkpoints_dir: Path) -> None:
 
 def dispatch(
     tool: str,
-    cli_args: List[str],
-    scope: Optional[str] = None,
+    cli_args: list[str],
+    scope: str | None = None,
     timeout: int = 600,
 ) -> str:
     """
@@ -327,7 +327,7 @@ def cancel(job_id: str) -> dict:
     return {"ok": True, "state": current_state, "detail": "Cancellation requested; will take effect as soon as the subprocess starts."}
 
 
-def _write_checkpoint(record: JobRecord) -> Optional[str]:
+def _write_checkpoint(record: JobRecord) -> str | None:
     """
     Write a completion checkpoint JSON to Archive/Checkpoints/.
     Returns the path written, or None if the archive dir is unavailable.
@@ -364,7 +364,7 @@ def _write_checkpoint(record: JobRecord) -> Optional[str]:
         if alias not in scope_variants:
             scope_variants.append(alias)
 
-    primary_written_path: Optional[str] = None
+    primary_written_path: str | None = None
     for checkpoint_dir in candidate_dirs:
         for idx, scoped in enumerate(scope_variants):
             scope_hash = hashlib.sha256(scoped.encode()).hexdigest()[:8] if scoped else "global"
@@ -422,7 +422,7 @@ def _broadcast(record: JobRecord) -> None:
     Designed to be a stub here; Stage 2 wires the actual clients.
     """
     try:
-        import ws_bus  # noqa: PLC0415
+        import ws_bus
 
         payload = json.dumps(
             {
@@ -440,7 +440,7 @@ def _broadcast(record: JobRecord) -> None:
         pass
 
 
-def get_status(job_id: str) -> Optional[Dict]:
+def get_status(job_id: str) -> dict | None:
     """Return the JobRecord dict for job_id, or None if not found.
 
     Looks up the in-memory job table first (active or just-finished jobs in this
@@ -482,7 +482,7 @@ def get_status(job_id: str) -> Optional[Dict]:
             conn.close()
 
 
-def list_all(state_filter: Optional[str] = None) -> List[Dict]:
+def list_all(state_filter: str | None = None) -> list[dict]:
     """Return all job records, optionally filtered by state string."""
     with _jobs_lock:
         records = list(_jobs.values())
@@ -492,7 +492,7 @@ def list_all(state_filter: Optional[str] = None) -> List[Dict]:
     return sorted(result, key=lambda r: r["dispatched_at"], reverse=True)
 
 
-def find_checkpoint(tool: str, scope: str = "") -> Optional[Dict]:
+def find_checkpoint(tool: str, scope: str = "") -> dict | None:
     """
     Return the most recent completed checkpoint for tool + scope, or None.
     Searches Archive/Checkpoints/ by filename pattern.
@@ -553,10 +553,10 @@ def find_checkpoint(tool: str, scope: str = "") -> Optional[Dict]:
 
 def get_history(
     limit: int = 50,
-    tool: Optional[str] = None,
-    state: Optional[str] = None,
-    scope: Optional[str] = None,
-) -> List[Dict]:
+    tool: str | None = None,
+    state: str | None = None,
+    scope: str | None = None,
+) -> list[dict]:
     """Return persisted job history from SQLite, newest first."""
     if limit < 1:
         limit = 1
@@ -569,7 +569,7 @@ def get_history(
             return []
         try:
             where = []
-            params: List[object] = []
+            params: list[object] = []
             if tool:
                 where.append("tool = ?")
                 params.append(tool)
@@ -602,15 +602,15 @@ def get_history(
             conn.close()
 
 
-def get_output(job_id: str, max_chars: int = 0) -> Optional[Dict]:
+def get_output(job_id: str, max_chars: int = 0) -> dict | None:
     """Return job output details including persisted result blob content when available."""
-    output: Optional[str] = None
+    output: str | None = None
     source = "none"
 
     with _jobs_lock:
         in_mem = _jobs.get(job_id)
 
-    record: Optional[Dict] = None
+    record: dict | None = None
     if in_mem is not None:
         record = asdict(in_mem)
         if in_mem.result:
@@ -664,7 +664,7 @@ def get_output(job_id: str, max_chars: int = 0) -> Optional[Dict]:
     return response
 
 
-def _persisted_row_to_dict(row) -> Dict:
+def _persisted_row_to_dict(row) -> dict:
     """Map a persisted jobs row to the JobRecord dict shape.
 
     cli_args_json is stored on every upsert; decode it back to cli_args so
@@ -680,15 +680,15 @@ def _persisted_row_to_dict(row) -> Dict:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def _scope_hash(scope: Optional[str]) -> str:
+def _scope_hash(scope: str | None) -> str:
     normalized = _canonical_scope(scope)
     return hashlib.sha256(normalized.encode()).hexdigest()[:8] if normalized else "global"
 
 
-def _canonical_scope(scope: Optional[str]) -> str:
+def _canonical_scope(scope: str | None) -> str:
     if not scope:
         return ""
     try:
@@ -697,8 +697,8 @@ def _canonical_scope(scope: Optional[str]) -> str:
         return str(scope).strip()
 
 
-def _resolve_persistence_dir() -> Optional[Path]:
-    preferred: List[Path] = []
+def _resolve_persistence_dir() -> Path | None:
+    preferred: list[Path] = []
     if _archive_checkpoints_dir is not None:
         preferred.append(_archive_checkpoints_dir)
 
@@ -726,7 +726,7 @@ def _setup_persistence(startup: bool) -> None:
         _db_mark_stale_jobs()
 
 
-def _db_connect() -> Optional[sqlite3.Connection]:
+def _db_connect() -> sqlite3.Connection | None:
     if _db_path is None:
         return None
     try:
@@ -907,7 +907,7 @@ def _db_upsert_job(record: JobRecord) -> None:
             conn.close()
 
 
-def _db_insert_event(job_id: str, event_type: str, state: Optional[str], payload: Dict) -> None:
+def _db_insert_event(job_id: str, event_type: str, state: str | None, payload: dict) -> None:
     with _db_lock:
         conn = _db_connect()
         if conn is None:
@@ -931,7 +931,7 @@ def _db_record_dependency_check(
     tool: str,
     scope: str,
     checkpoint_found: bool,
-    checkpoint_path: Optional[str],
+    checkpoint_path: str | None,
 ) -> None:
     with _db_lock:
         conn = _db_connect()
@@ -1017,11 +1017,11 @@ def _db_mark_stale_jobs() -> None:
             conn.close()
 
 
-def _write_result_blob(record: JobRecord) -> Optional[str]:
+def _write_result_blob(record: JobRecord) -> str | None:
     candidate_dirs = _checkpoint_dirs()
     if not candidate_dirs:
         return None
-    when = datetime.now(timezone.utc)
+    when = datetime.now(UTC)
     for checkpoints_dir in candidate_dirs:
         try:
             blob_dir = checkpoints_dir / RESULTS_DIRNAME / when.strftime("%Y") / when.strftime("%m") / when.strftime("%d")
@@ -1037,8 +1037,8 @@ def _write_result_blob(record: JobRecord) -> Optional[str]:
     return None
 
 
-def _checkpoint_dirs() -> List[Path]:
-    dirs: List[Path] = []
+def _checkpoint_dirs() -> list[Path]:
+    dirs: list[Path] = []
     for candidate in (_archive_checkpoints_dir, _persistence_dir):
         if candidate is None or candidate in dirs:
             continue
@@ -1097,7 +1097,7 @@ def _prune_checkpoint_archive(checkpoint_dir: Path, tool: str) -> None:
         paths.sort(key=_mtime_or_zero, reverse=True)
         for path in paths[CHECKPOINT_RECENT_LIMIT:]:
             try:
-                mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+                mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
                 archive_dir = (
                     checkpoint_dir
                     / CHECKPOINT_ARCHIVE_DIRNAME
@@ -1146,8 +1146,8 @@ def _is_allowed_blob_path(blob_path: Path) -> bool:
     return False
 
 
-def _checkpoint_scope_aliases(record: JobRecord) -> List[str]:
-    aliases: List[str] = []
+def _checkpoint_scope_aliases(record: JobRecord) -> list[str]:
+    aliases: list[str] = []
     if record.tool == "organize_library" and len(record.cli_args) >= 3 and record.cli_args[0] == "organize":
         source_scope = _canonical_scope(record.cli_args[1])
         target_scope = _canonical_scope(record.cli_args[2])

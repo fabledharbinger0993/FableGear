@@ -13,8 +13,7 @@ to the database. This ensures fail-fast behavior and clear error reporting.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List
-
+from typing import Any
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -70,16 +69,16 @@ def validate_folderpath_length(path: str) -> None:
         raise FolderPathTooLongError(path, len(path))
 
 
-def validate_no_collisions(paths: List[str]) -> None:
+def validate_no_collisions(paths: list[str]) -> None:
     """
     Raise PathCollisionError if two paths would map to the same sanitized FolderPath.
-    
+
     Example collision:
       - /Contents/Artist_Album.mp3  (original)
       - /Contents/Artist-Album.mp3  (would sanitize to same path if not careful)
     """
-    seen: Dict[str, str] = {}
-    
+    seen: dict[str, str] = {}
+
     for path in paths:
         # Use the actual path as-is; collisions only occur if two DIFFERENT
         # source paths would map to identical FolderPath values in the database.
@@ -100,27 +99,27 @@ def validate_file_exists(path: str) -> None:
 
 # ─── Export Path Builders ──────────────────────────────────────────────────────
 
-def validate_export_paths(export_entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def validate_export_paths(export_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Validate all paths in an export batch before committing to database.
-    
+
     This is the PRE-COPY validation phase. Checks:
     - FolderPath length constraint (≤255 chars)
     - Path collision detection
     - Source files exist locally
-    
+
     Post-copy existence checks happen in the copy loop after files are written to USB.
-    
+
     Parameters
     ----------
     export_entries : list[dict]
         Each entry should have: dest_path (intended USB location), source_path (original).
-    
+
     Returns
     -------
     list[dict]
         Same entries but with validated and populated metadata.
-    
+
     Raises
     ------
     PioneerExportError
@@ -128,19 +127,19 @@ def validate_export_paths(export_entries: List[Dict[str, Any]]) -> List[Dict[str
     """
     validated = []
     dest_paths = []
-    
+
     for entry in export_entries:
         dest_path = entry.get("dest_path", "")
         source_path = entry.get("source_path", "")
-        
+
         if not dest_path or not source_path:
             raise PioneerExportError(
                 f"Export entry missing dest_path or source_path: {entry}"
             )
-        
+
         # Validate length (will be the FolderPath in DB)
         validate_folderpath_length(dest_path)
-        
+
         # Validate SOURCE file exists (files haven't been copied to USB yet)
         # Post-copy existence checks happen later in the copy loop
         source_p = Path(source_path)
@@ -148,10 +147,10 @@ def validate_export_paths(export_entries: List[Dict[str, Any]]) -> List[Dict[str
             raise PioneerExportError(
                 f"Source file not found locally: {source_path}"
             )
-        
+
         # Track for collision detection
         dest_paths.append(dest_path)
-        
+
         # Build metadata (OrgFolderPath, rb_LocalFolderPath)
         # Note: we don't call validate_file_exists() here—that happens post-copy
         metadata = {
@@ -161,25 +160,25 @@ def validate_export_paths(export_entries: List[Dict[str, Any]]) -> List[Dict[str
         }
         entry.update(metadata)
         validated.append(entry)
-    
+
     # Check for collisions after all individual validations pass
     validate_no_collisions(dest_paths)
-    
+
     return validated
 
 
 def validate_copied_file_exists(dest_path: str) -> None:
     """
     Validate that a file was successfully copied to the USB drive.
-    
+
     This is the POST-COPY validation phase, called in the export loop after
     each file is copied.
-    
+
     Parameters
     ----------
     dest_path : str
         Path on USB drive where file should have been copied.
-    
+
     Raises
     ------
     FileNotFoundError

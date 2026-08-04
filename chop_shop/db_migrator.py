@@ -160,7 +160,7 @@ def migrate(target_path: str):
             f"✗ master.db copy size mismatch (source {src_master_size} bytes, "
             f"destination {dst_master_size} bytes) — aborting before removing source."
         )
-        yield _line(f"  Possible causes: destination drive full, or copy interrupted.")
+        yield _line("  Possible causes: destination drive full, or copy interrupted.")
         yield _line(f"  The incomplete copy is at {dst} — safe to delete and retry.")
         yield _done(1)
         return

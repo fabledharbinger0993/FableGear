@@ -1,0 +1,408 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/camalama/FableGear
+plugins: anyio-4.12.1, cov-7.1.0
+collected 559 items
+
+tests/test_anlz_reader.py ..........                                     [  1%]
+tests/test_archive_sync.py ...............                               [  4%]
+tests/test_archive_wiring.py .................                           [  7%]
+tests/test_audio_processor.py ...................                        [ 10%]
+tests/test_bidirectional_sync.py ....                                    [ 11%]
+tests/test_cli_surface.py .............................................. [ 19%]
+................                                                         [ 22%]
+tests/test_content_relations_chunking.py ..                              [ 23%]
+tests/test_database_dedup.py ...........                                 [ 25%]
+tests/test_database_undo.py ..                                           [ 25%]
+tests/test_device_identity.py .....                                      [ 26%]
+tests/test_devicesql_pdb_rowwalk.py .........                            [ 27%]
+tests/test_devicesql_reader.py .......                                   [ 29%]
+tests/test_drive_and_renamer_regressions.py .............                [ 31%]
+tests/test_export_auditor.py ......                                      [ 32%]
+tests/test_fablegear_database.py .........................               [ 37%]
+tests/test_fablegear_fingerprint.py ......                               [ 38%]
+tests/test_fablegear_importer.py ................                        [ 40%]
+tests/test_fablegear_sync.py .........                                   [ 42%]
+tests/test_fuzzy_length_guard.py ....                                    [ 43%]
+tests/test_health_acoustid.py ....                                       [ 44%]
+tests/test_importer_progress.py ...                                      [ 44%]
+tests/test_js_slice_globals.py .                                         [ 44%]
+tests/test_keeper_ranking_unified.py ..                                  [ 45%]
+tests/test_key_mapper_locking.py ..                                      [ 45%]
+tests/test_library_browser.py .......                                    [ 46%]
+tests/test_library_organizer_cleanup.py ................                 [ 49%]
+tests/test_network_boundary.py ......................................... [ 56%]
+......                                                                   [ 57%]
+tests/test_novelty_scanner_copy_to.py ...                                [ 58%]
+tests/test_novelty_scanner_filename_fallback.py ...                      [ 59%]
+tests/test_onboarding_import.py .....                                    [ 59%]
+tests/test_onelibrary_writer.py ............                             [ 62%]
+tests/test_organize_schemes.py ...........................               [ 66%]
+tests/test_organizer_dedupe_safety.py ......                             [ 67%]
+tests/test_organizer_scope.py ........................                   [ 72%]
+tests/test_parse_preflight.py ....                                       [ 72%]
+tests/test_path_guard.py .....                                           [ 73%]
+tests/test_pioneer_settings.py .......                                   [ 75%]
+tests/test_pruner_associations.py ............                           [ 77%]
+tests/test_push_hygiene.py ....                                          [ 77%]
+tests/test_rekordbox_fixture.py ....                                     [ 78%]
+tests/test_relocator_fuzzy.py ...                                        [ 79%]
+tests/test_relocator_scoping.py ....                                     [ 79%]
+tests/test_renamer_archive.py ....                                       [ 80%]
+tests/test_safe_write.py .....                                           [ 81%]
+tests/test_scanner_count.py ....                                         [ 82%]
+tests/test_single_instance.py ..                                         [ 82%]
+tests/test_smart_dedup.py .................                              [ 85%]
+tests/test_snapshot_storage.py ....                                      [ 86%]
+tests/test_static_js_syntax.py ...............................           [ 91%]
+tests/test_system_probe.py .......................                       [ 96%]
+tests/test_tagger_dedupe_edge.py ......                                  [ 97%]
+tests/test_tagger_effects.py ........                                    [ 98%]
+tests/test_undo_path_safety.py .......                                   [ 99%]
+tests/test_zz_rekordbox_metadata_isolation.py ./Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/collections/__init__.py:455: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x10e5632e0>
+  result = tuple_new(cls, iterable)
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+                          [100%]
+
+=============================== warnings summary ===============================
+tests/test_bidirectional_sync.py::test_sync_new_fg_track_to_rekordbox
+tests/test_bidirectional_sync.py::test_sync_new_rdb_track_to_fablegear
+tests/test_bidirectional_sync.py::test_sync_metadata_merging
+tests/test_bidirectional_sync.py::test_sync_dry_run_safety
+  /Users/camalama/FableGear/tests/test_bidirectional_sync.py:52: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at=datetime.utcnow(),
+
+tests/test_bidirectional_sync.py::test_sync_new_fg_track_to_rekordbox
+tests/test_bidirectional_sync.py::test_sync_new_rdb_track_to_fablegear
+tests/test_bidirectional_sync.py::test_sync_metadata_merging
+tests/test_bidirectional_sync.py::test_sync_dry_run_safety
+  /Users/camalama/FableGear/tests/test_bidirectional_sync.py:53: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    updated_at=datetime.utcnow()
+
+tests/test_bidirectional_sync.py::test_sync_new_fg_track_to_rekordbox
+tests/test_bidirectional_sync.py::test_sync_new_rdb_track_to_fablegear
+tests/test_bidirectional_sync.py::test_sync_metadata_merging
+tests/test_bidirectional_sync.py::test_sync_dry_run_safety
+  /Users/camalama/FableGear/tests/test_bidirectional_sync.py:65: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at=datetime.utcnow(),
+
+tests/test_bidirectional_sync.py::test_sync_new_fg_track_to_rekordbox
+tests/test_bidirectional_sync.py::test_sync_new_rdb_track_to_fablegear
+tests/test_bidirectional_sync.py::test_sync_metadata_merging
+tests/test_bidirectional_sync.py::test_sync_dry_run_safety
+  /Users/camalama/FableGear/tests/test_bidirectional_sync.py:66: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    updated_at=datetime.utcnow()
+
+tests/test_bidirectional_sync.py::test_sync_new_fg_track_to_rekordbox
+tests/test_bidirectional_sync.py::test_sync_new_fg_track_to_rekordbox
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/engine/default.py:952: DeprecationWarning: The default date adapter is deprecated as of Python 3.12; see the sqlite3 documentation for suggested replacement recipes
+    cursor.execute(statement, parameters)
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x10e563f10>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x10e0cf790>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x10e1b04f0>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x10e1b0e50>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x10e1b3e20>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x10e2445e0>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x10e245210>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x10e245a80>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x10e2d8a90>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x10e2d95d0>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x10e2dae30>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x10e2dad40>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x115ebc310>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x115ebd3f0>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x115ebe5c0>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x115ebf790>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x115fc89a0>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x115fc9e40>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x115fcaf20>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x1160a0310>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x1160a16c0>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x1160a2a70>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x1160a3b50>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_rekordbox_fixture.py::test_empty_fixture_opens_and_is_writable
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/compiler.py:7739: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x116194c70>
+    or not self.legal_characters.match(str(value))
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_tagger_dedupe_edge.py::test_tagger_persists_bpm_key_and_logs
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/functools.py:594: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x1160a04f0>
+    wrapper = _lru_cache_wrapper(user_function, maxsize, typed, _CacheInfo)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_tagger_dedupe_edge.py::test_tagger_persists_bpm_key_and_logs
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/functools.py:594: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x115fcb6a0>
+    wrapper = _lru_cache_wrapper(user_function, maxsize, typed, _CacheInfo)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_tagger_dedupe_edge.py::test_tagger_persists_bpm_key_and_logs
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/functools.py:594: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x115fc9d50>
+    wrapper = _lru_cache_wrapper(user_function, maxsize, typed, _CacheInfo)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_tagger_dedupe_edge.py::test_tagger_persists_bpm_key_and_logs
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/functools.py:594: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x115fc85e0>
+    wrapper = _lru_cache_wrapper(user_function, maxsize, typed, _CacheInfo)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform darwin, python 3.14.2-final-0 _______________
+
+Name                                              Stmts   Miss  Cover
+---------------------------------------------------------------------
+app.py                                              960    621    35%
+audio_processor.py                                  744    454    39%
+audit.py                                            243    182    25%
+brew_updater.py                                      79     52    34%
+checkpoint.py                                       114     51    55%
+chop_shop/anlz_reader.py                            160     15    91%
+chop_shop/dead_file_scanner.py                       96     23    76%
+chop_shop/devicesql_reader.py                       389    127    67%
+chop_shop/duplicate_detector.py                     813    575    29%
+chop_shop/export_auditor.py                         147     28    81%
+chop_shop/library_organizer.py                      382     94    75%
+chop_shop/novelty_scanner.py                        266     89    67%
+chop_shop/path_guard.py                              36      5    86%
+chop_shop/pioneer_settings.py                       105     12    89%
+chop_shop/pruner.py                                 425    259    39%
+chop_shop/relocator.py                              260    100    62%
+chop_shop/renamer.py                                734    455    38%
+chop_shop/renamer_learned.py                        193    149    23%
+chop_shop/tag_cleaning.py                            54      4    93%
+chop_shop/usb_inspector.py                          126     27    79%
+cli.py                                             2412   2099    13%
+config.py                                            60      9    85%
+database_dedup.py                                   106     18    83%
+db_connection.py                                    104     35    66%
+downloader.py                                       190    161    15%
+fablegear_database/__init__.py                        8      0   100%
+fablegear_database/archive_sync.py                  178     23    87%
+fablegear_database/database.py                      560     90    84%
+fablegear_database/device_identity.py                26      0   100%
+fablegear_database/examples.py                      107    107     0%
+fablegear_database/exporter.py                      257    124    52%
+fablegear_database/fingerprinter.py                  46      6    87%
+fablegear_database/importer.py                      131     35    73%
+fablegear_database/onelibrary_writer.py             204     33    84%
+fablegear_database/rekordbox_fixture.py             114      4    96%
+fablegear_database/rekordbox_sync.py                330    139    58%
+fablegear_database/schema.py                        108      8    93%
+fablegear_database/sync.py                           96      5    95%
+fablegear_database/undo.py                          129     23    82%
+health.py                                           269     76    72%
+health_acoustid.py                                   52     20    62%
+helpers.py                                          822    661    20%
+importer.py                                         314    220    30%
+importer_database.py                                126    126     0%
+job_dispatcher.py                                   528    409    23%
+key_mapper.py                                        92     47    49%
+library_browser/__init__.py                           7      0   100%
+library_browser/cache.py                            100     78    22%
+library_browser/core.py                             144     41    72%
+library_browser/examples.py                          69     69     0%
+library_browser/integrated_view.py                  102     81    21%
+library_browser/local_view.py                        99     35    65%
+library_browser/rekordbox_view.py                    61     42    31%
+library_browser/scanner.py                          149    127    15%
+main.py                                             123    123     0%
+mcp_server.py                                       462    462     0%
+pioneer_export_validator.py                          55     37    33%
+playlist_linker.py                                  233    233     0%
+playlist_recovery.py                                394    299    24%
+rekordbox_safe_write.py                              55      5    91%
+routes_mobile.py                                    594    497    16%
+routes_player.py                                    964    790    18%
+routes_rekordbox.py                                 210    173    18%
+routes_tools.py                                     897    792    12%
+routes_undo.py                                      414    349    16%
+scanner.py                                          246    124    50%
+single_instance.py                                   31      9    71%
+smart_dedup.py                                      167     37    78%
+snapshot_scheduler.py                               139    104    25%
+staging.py                                           64     64     0%
+state_tracker.py                                     56     42    25%
+system_probe.py                                     161     41    75%
+tests/conftest.py                                    17      4    76%
+tests/rekordbox_meta_support.py                      15      0   100%
+tests/test_anlz_reader.py                           121      0   100%
+tests/test_archive_sync.py                          183      0   100%
+tests/test_archive_wiring.py                        141      8    94%
+tests/test_audio_processor.py                       145      2    99%
+tests/test_bidirectional_sync.py                    144      1    99%
+tests/test_cli_surface.py                            59     12    80%
+tests/test_content_relations_chunking.py             41      1    98%
+tests/test_database_dedup.py                        133      1    99%
+tests/test_database_undo.py                          48      0   100%
+tests/test_device_identity.py                        37      1    97%
+tests/test_devicesql_pdb_rowwalk.py                 171      1    99%
+tests/test_devicesql_reader.py                       66      2    97%
+tests/test_drive_and_renamer_regressions.py         113      1    99%
+tests/test_export_auditor.py                        101      1    99%
+tests/test_fablegear_database.py                    287      1    99%
+tests/test_fablegear_fingerprint.py                  96      1    99%
+tests/test_fablegear_importer.py                    216      3    99%
+tests/test_fablegear_sync.py                        157      3    98%
+tests/test_fuzzy_length_guard.py                     26      2    92%
+tests/test_health_acoustid.py                        33      1    97%
+tests/test_importer_progress.py                      24      0   100%
+tests/test_js_slice_globals.py                       19      0   100%
+tests/test_keeper_ranking_unified.py                 31      2    94%
+tests/test_key_mapper_locking.py                     79      1    99%
+tests/test_library_browser.py                        60      1    98%
+tests/test_library_organizer_cleanup.py              76      0   100%
+tests/test_network_boundary.py                      301      2    99%
+tests/test_novelty_scanner_copy_to.py                43      2    95%
+tests/test_novelty_scanner_filename_fallback.py      51      2    96%
+tests/test_onboarding_import.py                      31      1    97%
+tests/test_onelibrary_writer.py                     164      1    99%
+tests/test_organize_schemes.py                       96      1    99%
+tests/test_organizer_dedupe_safety.py                87      1    99%
+tests/test_organizer_scope.py                       101      2    98%
+tests/test_parse_preflight.py                        47      1    98%
+tests/test_path_guard.py                             25      1    96%
+tests/test_pioneer_settings.py                       72      1    99%
+tests/test_pruner_associations.py                   176      2    99%
+tests/test_push_hygiene.py                           23      1    96%
+tests/test_rekordbox_fixture.py                      55      1    98%
+tests/test_relocator_fuzzy.py                        42      2    95%
+tests/test_relocator_scoping.py                      78      2    97%
+tests/test_renamer_archive.py                        39      1    97%
+tests/test_safe_write.py                             56      3    95%
+tests/test_scanner_count.py                          33      2    94%
+tests/test_single_instance.py                        19      1    95%
+tests/test_smart_dedup.py                            91      1    99%
+tests/test_snapshot_storage.py                       51      0   100%
+tests/test_static_js_syntax.py                       36      4    89%
+tests/test_system_probe.py                          134      2    99%
+tests/test_tagger_dedupe_edge.py                     91      4    96%
+tests/test_tagger_effects.py                        117      5    96%
+tests/test_undo_path_safety.py                       47      0   100%
+tests/test_zz_rekordbox_metadata_isolation.py        12      1    92%
+update_checker.py                                   144     49    66%
+user_config.py                                      448    310    31%
+ws_bus.py                                            25     25     0%
+---------------------------------------------------------------------
+TOTAL                                             25065  12935    48%
+====================== 559 passed, 46 warnings in 14.89s =======================

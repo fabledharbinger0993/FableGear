@@ -30,7 +30,6 @@ Rules
 import hashlib
 import json
 import logging
-import os
 import re
 import shutil
 import time
@@ -57,16 +56,16 @@ _KEY_PREFIX = re.compile(r'^(?:\d{1,2}[ABab]\s+)*\d{1,2}[ABab]\s*[-–]\s*')
 # Dual import so this works whether loaded as `library_organizer` (chop_shop on
 # sys.path) or as `chop_shop.library_organizer`.
 try:
-    from tag_cleaning import clean_value, clean_artist  # noqa: E402
+    from tag_cleaning import clean_artist, clean_value
 except ImportError:  # pragma: no cover
-    from chop_shop.tag_cleaning import clean_value, clean_artist  # noqa: E402
+    from chop_shop.tag_cleaning import clean_artist, clean_value
 
 # Grouping keys the Organize tool can build a folder hierarchy from, and the
 # default (backward-compatible) Artist / Album layout. "playlist" is special:
 # it mirrors the archive's playlist tree (one-to-many, copy-based) rather than
 # deriving a folder from the file's own tags, so it can't be nested with others.
 _TAG_SCHEME_KEYS = ("label", "artist", "album", "title", "genre", "year", "filetype")
-SCHEME_KEYS   = _TAG_SCHEME_KEYS + ("playlist",)
+SCHEME_KEYS   = (*_TAG_SCHEME_KEYS, "playlist")
 DEFAULT_SCHEME = ("artist", "album")
 
 
@@ -397,9 +396,9 @@ def _resolve_dest(src: Path, dest: Path) -> tuple[Path | None, str]:
 # ─── Main organizer ───────────────────────────────────────────────────────────
 
 try:
-    from path_guard import forbidden_source_reason as _forbidden_source_reason  # noqa: E402
+    from path_guard import forbidden_source_reason as _forbidden_source_reason
 except ImportError:  # imported as chop_shop.library_organizer
-    from chop_shop.path_guard import forbidden_source_reason as _forbidden_source_reason  # noqa: E402
+    from chop_shop.path_guard import forbidden_source_reason as _forbidden_source_reason
 
 
 def mirror_playlists_to_folders(
@@ -425,7 +424,7 @@ def mirror_playlists_to_folders(
     def _under_sources(p: "str | Path") -> bool:
         try:
             rp = Path(p).resolve()
-        except Exception:  # noqa: BLE001
+        except Exception:
             return False
         return any(rp == r or r in rp.parents for r in src_roots)
 
@@ -461,7 +460,7 @@ def mirror_playlists_to_folders(
                     else:
                         shutil.copy2(str(srcp), str(final))  # always copy: one-to-many
                         r = MoveResult(src=srcp, dest=final, action=action)
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     r = MoveResult(src=srcp, dest=dest, action="error", reason=str(e))
             results.append(r)
             if on_result:

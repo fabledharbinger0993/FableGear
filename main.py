@@ -79,6 +79,7 @@ def _server_running() -> bool:
 
 def _start_server() -> None:
     from waitress import serve
+
     from app import app as flask_app
     serve(flask_app, host=_HOST, port=_PORT, threads=16)
 
@@ -156,7 +157,8 @@ if __name__ == '__main__':
     # OS-level exclusive lock; released automatically on process exit/crash.
     # Placed AFTER the frozen-CLI dispatch above so bundled CLI subprocesses
     # (which re-enter this binary) are never blocked by the guard.
-    from single_instance import acquire as _acquire_single_instance, lock_path as _si_lock_path
+    from single_instance import acquire as _acquire_single_instance
+    from single_instance import lock_path as _si_lock_path
     if not _acquire_single_instance():
         print(
             'FableGear is already running — switch to the existing window. '
@@ -175,7 +177,7 @@ if __name__ == '__main__':
 
     # ── MCP server (AI agent access) ─────────────────────────────────────────
     try:
-        from user_config import load_user_config, find_available_mcp_port
+        from user_config import find_available_mcp_port, load_user_config
         _cfg = load_user_config()
         if _cfg.get('mcp_enabled') and _cfg.get('mcp_autostart'):
             from mcp_server import start_embedded as _start_mcp

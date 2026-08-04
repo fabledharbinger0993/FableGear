@@ -32,9 +32,9 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 import librosa
 import numpy as np
@@ -43,7 +43,11 @@ from mutagen import File as MutagenFile
 from mutagen.id3 import TBPM, TKEY
 
 from config import (
-    AUDIO_EXTENSIONS, BPM_MAX, BPM_MIN, LUFS_TOLERANCE, TARGET_LUFS,
+    AUDIO_EXTENSIONS,
+    BPM_MAX,
+    BPM_MIN,
+    LUFS_TOLERANCE,
+    TARGET_LUFS,
     TRUE_PEAK_CEILING_DBTP,
 )
 from health_acoustid import collect_health
@@ -228,7 +232,7 @@ def _essentia_available() -> bool:
     global _ESSENTIA_OK
     if _ESSENTIA_OK is None:
         try:
-            import essentia.standard  # noqa: F401,PLC0415
+            import essentia.standard  # noqa: F401
             _ESSENTIA_OK = True
         except Exception as exc:
             log.info(
@@ -259,7 +263,7 @@ def _detect_bpm_essentia(path: Path) -> "tuple[float, float] | None":
     Returns None on decode or extraction failure so the caller falls back.
     """
     try:
-        import essentia.standard as es  # noqa: PLC0415
+        import essentia.standard as es
         audio = es.MonoLoader(filename=str(path), sampleRate=44100)()
         bpm, _beats, conf, _, _ = es.RhythmExtractor2013(method="multifeature")(audio)
         bpm = float(bpm)
@@ -683,8 +687,9 @@ def _enrich_from_acoustid(path: Path, *, force: bool = False) -> dict | None:
     previous_fpcalc = os.environ.get("FPCALC")
     try:
         os.environ["FPCALC"] = fpcalc_path
-        import acoustid  # noqa: PLC0415
-        from config import ACOUSTID_API_KEY  # noqa: PLC0415
+        import acoustid
+
+        from config import ACOUSTID_API_KEY
 
         duration, fingerprint = acoustid.fingerprint_file(str(path))
         if not fingerprint:
@@ -750,8 +755,8 @@ def _write_enriched_tags(path: Path, meta: dict, *, force: bool = False) -> list
       b) currently empty in the file (or force=True).
     Returns list of field names written.
     """
-    from mutagen import File as MutagenFile  # noqa: PLC0415
-    from mutagen.id3 import TIT2, TPE1, TALB  # noqa: PLC0415
+    from mutagen import File as MutagenFile
+    from mutagen.id3 import TALB, TIT2, TPE1
 
     audio = MutagenFile(str(path), easy=False)
     if audio is None:
@@ -821,12 +826,12 @@ def _write_tags(path: Path, bpm: float | None, key: str | None) -> None:
     """Write BPM and/or key to file tags via mutagen. Raises on failure."""
     audio = MutagenFile(str(path), easy=False)
     if audio is None:
-        raise RuntimeError(f"mutagen could not open {path.name}")
+        raise RuntimeError(f"mutagen could not open {path.name}") from None
     if audio.tags is None:
         try:
             audio.add_tags()
         except Exception as e:
-            raise RuntimeError(f"Cannot create tag block for {path.name}: {e}")
+            raise RuntimeError(f"Cannot create tag block for {path.name}: {e}") from e
 
     tag_type = type(audio.tags).__name__
     is_vorbis = "VCFLACDict" in tag_type or "VComment" in tag_type
@@ -834,13 +839,13 @@ def _write_tags(path: Path, bpm: float | None, key: str | None) -> None:
 
     if is_vorbis:
         if bpm is not None:
-            audio.tags["bpm"] = [str(int(round(bpm)))]
+            audio.tags["bpm"] = [str(round(bpm))]
         if key is not None:
             audio.tags["initialkey"] = [key]
     elif is_mp4:
         # MP4/M4A uses atom keys — tmpo for BPM (integer list), freeform atom for key
         if bpm is not None:
-            audio.tags["tmpo"] = [int(round(bpm))]
+            audio.tags["tmpo"] = [round(bpm)]
         if key is not None:
             from mutagen.mp4 import MP4FreeForm
             audio.tags["----:com.apple.iTunes:initialkey"] = [
@@ -851,7 +856,7 @@ def _write_tags(path: Path, bpm: float | None, key: str | None) -> None:
         # existing frame's encoding or format (handles WAV + force-overwrite).
         if bpm is not None:
             audio.tags.delall("TBPM")
-            audio.tags["TBPM"] = TBPM(encoding=3, text=[str(int(round(bpm)))])
+            audio.tags["TBPM"] = TBPM(encoding=3, text=[str(round(bpm))])
         if key is not None:
             audio.tags.delall("TKEY")
             audio.tags["TKEY"] = TKEY(encoding=3, text=[key])
@@ -935,7 +940,7 @@ def process_file(
     # Key always needs the decode; BPM needs it only as the librosa fallback,
     # i.e. when essentia is absent or came back empty. A BPM-only run where
     # essentia succeeded skips the decode entirely.
-    _audio: "tuple[np.ndarray, int] | None" = None
+    _audio: tuple[np.ndarray, int] | None = None
     if needs_key or (needs_bpm and _es_bpm is None):
         _audio = _load_audio_ffmpeg(path)
         if _audio is None:
@@ -1095,6 +1100,7 @@ def process_directory(
         finishes — process_directory() itself has no notion of checkpoints.
     """
     import concurrent.futures
+
     from scanner import scan_directory
 
     tracks = list(scan_directory(root))
@@ -1268,7 +1274,7 @@ def process_directory(
                         existing[entry["path"]] = entry
             for entry in scan_index:
                 existing[entry["path"]] = entry
-            
+
             # Atomic write: write to temp file then rename
             import tempfile
             temp_fd, temp_path = tempfile.mkstemp(
@@ -1336,7 +1342,7 @@ if __name__ == "__main__":
 
     test_files = [Path(arg) for arg in sys.argv[1:]]
     if not test_files:
-        from config import MUSIC_ROOT  # noqa: PLC0415
+        from config import MUSIC_ROOT
         test_files = []
         for candidate in MUSIC_ROOT.rglob("*"):
             if candidate.suffix.lower() in AUDIO_EXTENSIONS:

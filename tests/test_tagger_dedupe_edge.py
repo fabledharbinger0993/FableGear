@@ -24,10 +24,10 @@ if str(REPO_ROOT) not in sys.path:
 if str(REPO_ROOT / "chop_shop") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "chop_shop"))
 
+import duplicate_detector
+
 from fablegear_database.database import FableGearDatabase
 from fablegear_database.schema import DatabaseConfig
-
-import duplicate_detector
 
 
 @pytest.fixture
@@ -117,7 +117,7 @@ def test_deduper_reuses_archive_fingerprints(archive, tmp_path, monkeypatch):
 
 def test_deduper_writes_back_computed_fingerprints(archive, tmp_path, monkeypatch):
     a = _make_file(tmp_path, "a.mp3")
-    b = _make_file(tmp_path, "b.mp3")
+    _make_file(tmp_path, "b.mp3")
     stub, calls = _fp_stub({"a.mp3": "FP_NEW", "b.mp3": "FP_NEW"})
     monkeypatch.setattr(duplicate_detector, "_fingerprint_with_duration", stub)
 

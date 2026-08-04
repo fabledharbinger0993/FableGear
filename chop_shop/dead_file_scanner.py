@@ -13,9 +13,9 @@ Public interface:
 import logging
 import os
 import platform
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 from config import AUDIO_EXTENSIONS, SKIP_DIRS, SKIP_PREFIXES
 
@@ -144,7 +144,7 @@ def scan_dead_files(
     """
     _guard_sources(roots, "the dead-file scanner")
     if db_paths is None:
-        from config import LOCAL_DB, DEVICE_DB
+        from config import DEVICE_DB, LOCAL_DB
         db_paths = [p for p in (LOCAL_DB, DEVICE_DB) if p is not None]
 
     result = DeadFileScanResult(

@@ -102,7 +102,7 @@ async def _write_snapshots(state: LiveBridgeState, path: Path, interval: float, 
         path.write_text(json.dumps(state.snapshot(), indent=2, sort_keys=True), encoding="utf-8")
         try:
             await asyncio.wait_for(stop.wait(), timeout=interval)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             continue
     path.write_text(json.dumps(state.snapshot(), indent=2, sort_keys=True), encoding="utf-8")
 
@@ -142,7 +142,7 @@ async def run_daemon(args: argparse.Namespace) -> int:
                 continue
             bound_host, bound_port = sock.getsockname()[:2]
             transport, _ = await loop.create_datagram_endpoint(
-                lambda: LiveBridgeProtocol(
+                lambda bound_host=bound_host, bound_port=bound_port: LiveBridgeProtocol(
                     state=state,
                     writer=writer,
                     label=args.label,

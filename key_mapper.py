@@ -213,8 +213,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(message)s")
     sys.path.insert(0, ".")
 
-    from db_connection import read_db
     from config import DEVICE_DB
+    from db_connection import read_db
 
     # ── Part 1: notation_to_scale_name (no DB needed) ──
     print("=== notation_to_scale_name ===")
@@ -235,7 +235,7 @@ if __name__ == "__main__":
         status = "✓" if result == expected else "✗"
         if result != expected:
             all_ok = False
-        print(f"  {status}  {str(raw):8} → {str(result):8}  (expected {str(expected)})")
+        print(f"  {status}  {raw!s:8} → {result!s:8}  (expected {expected!s})")
 
     print(f"\nNotation tests: {'ALL PASSED' if all_ok else 'FAILURES ABOVE'}")
 

@@ -64,22 +64,22 @@ def _find_brew() -> str | None:
     """Find brew executable in common macOS locations."""
     import shutil
     from pathlib import Path
-    
+
     # Try shutil.which first (checks PATH)
     brew_in_path = shutil.which("brew")
     if brew_in_path:
         return brew_in_path
-    
+
     # Try common Homebrew install locations
     common_paths = [
         "/opt/homebrew/bin/brew",      # Apple Silicon (M1/M2/M3)
         "/usr/local/bin/brew",          # Intel Macs
     ]
-    
+
     for path in common_paths:
         if Path(path).exists():
             return path
-    
+
     return None
 
 
@@ -93,14 +93,14 @@ def check_now() -> dict:
     if not _ON_MAC:
         return get_status()
     log.info("brew_updater: checking for Homebrew updates …")
-    
+
     brew_cmd = _find_brew()
     if not brew_cmd:
         msg = "brew not found — Homebrew may not be installed"
         log.warning("brew_updater: %s", msg)
         _update_cache(error=msg)
         return get_status()
-    
+
     try:
         result = subprocess.run(
             [brew_cmd, "outdated", "--json=v2"],

@@ -8,8 +8,7 @@ for the three-view library system.
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 
 class ViewMode(Enum):
@@ -28,20 +27,20 @@ class TrackData:
     album: str                           # Album name
     file_path: Path                      # Full file path
     duration: float                      # Duration in seconds
-    bpm: Optional[float] = None          # BPM value
-    key: Optional[str] = None            # Musical key
-    bit_rate: Optional[int] = None       # Bit rate
-    sample_rate: Optional[int] = None    # Sample rate
-    file_size: Optional[int] = None      # File size in bytes
-    date_added: Optional[str] = None     # Date added to Rekordbox
+    bpm: float | None = None          # BPM value
+    key: str | None = None            # Musical key
+    bit_rate: int | None = None       # Bit rate
+    sample_rate: int | None = None    # Sample rate
+    file_size: int | None = None      # File size in bytes
+    date_added: str | None = None     # Date added to Rekordbox
     play_count: int = 0                  # Play count
     rating: int = 0                      # Rating (0-5)
-    genre: Optional[str] = None          # Genre
-    label: Optional[str] = None          # Record label
+    genre: str | None = None          # Genre
+    label: str | None = None          # Record label
     file_status: str = "unknown"         # "valid", "missing", "corrupted"
-    playlist_ids: List[str] = field(default_factory=list)  # Playlist memberships
-    
-    def to_dict(self) -> Dict[str, Any]:
+    playlist_ids: list[str] = field(default_factory=list)  # Playlist memberships
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "id": self.id,
@@ -71,21 +70,21 @@ class FileData:
     file_path: Path                      # Full file path
     file_name: str                       # Filename only
     file_size: int                       # File size in bytes
-    duration: Optional[float] = None    # Duration in seconds
-    format: Optional[str] = None         # Audio format (mp3, wav, etc.)
-    bit_rate: Optional[int] = None       # Bit rate
-    sample_rate: Optional[int] = None    # Sample rate
-    modified_date: Optional[str] = None  # Last modified date
-    artist: Optional[str] = None         # Artist from metadata
-    album: Optional[str] = None          # Album from metadata
-    title: Optional[str] = None          # Title from metadata
-    bpm: Optional[float] = None          # BPM from metadata
-    key: Optional[str] = None            # Key from metadata
+    duration: float | None = None    # Duration in seconds
+    format: str | None = None         # Audio format (mp3, wav, etc.)
+    bit_rate: int | None = None       # Bit rate
+    sample_rate: int | None = None    # Sample rate
+    modified_date: str | None = None  # Last modified date
+    artist: str | None = None         # Artist from metadata
+    album: str | None = None          # Album from metadata
+    title: str | None = None          # Title from metadata
+    bpm: float | None = None          # BPM from metadata
+    key: str | None = None            # Key from metadata
     in_rekordbox: bool = False          # Whether file is in Rekordbox
     is_duplicate: bool = False           # Whether file is a duplicate
-    drive: Optional[str] = None          # Drive identifier
-    
-    def to_dict(self) -> Dict[str, Any]:
+    drive: str | None = None          # Drive identifier
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "file_path": str(self.file_path),
@@ -111,11 +110,11 @@ class FileData:
 class IntegratedData:
     """Data structure for Integrated View three-column layout."""
     rekordbox_path: str                 # Path as seen by Rekordbox
-    local_files: List[FileData] = field(default_factory=list)  # Matching local files
-    orphan_files: List[FileData] = field(default_factory=list)  # Files not in Rekordbox
+    local_files: list[FileData] = field(default_factory=list)  # Matching local files
+    orphan_files: list[FileData] = field(default_factory=list)  # Files not in Rekordbox
     sync_status: str = "unknown"         # "synced", "mismatched", "broken"
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "rekordbox_path": self.rekordbox_path,
@@ -128,12 +127,12 @@ class IntegratedData:
 class LibraryBrowser:
     """
     Main library browser interface.
-    
+
     Provides unified access to the three view modes and handles
     view switching, caching, and data management.
     """
-    
-    def __init__(self, database: Optional[Any] = None, cache_dir: Optional[Path] = None):
+
+    def __init__(self, database: Any | None = None, cache_dir: Path | None = None):
         """
         Initialize the library browser.
 
@@ -155,10 +154,10 @@ class LibraryBrowser:
 
     def _initialize_views(self):
         """Initialize view objects."""
-        from library_browser.rekordbox_view import RekordboxView
-        from library_browser.local_view import LocalView
-        from library_browser.integrated_view import IntegratedView
         from library_browser.cache import ViewCache
+        from library_browser.integrated_view import IntegratedView
+        from library_browser.local_view import LocalView
+        from library_browser.rekordbox_view import RekordboxView
 
         self._rekordbox_view = RekordboxView()
         self._local_view = LocalView(database=self._database)
@@ -175,28 +174,28 @@ class LibraryBrowser:
             raise ValueError("LibraryBrowser has no database; construct it with one")
         self._current_mode = ViewMode.LOCAL
         self._local_view.load_from_database(limit=limit, offset=offset)
-    
+
     def set_view_mode(self, mode: ViewMode) -> None:
         """
         Set the current view mode.
-        
+
         Args:
             mode: View mode to switch to
         """
         self._current_mode = mode
-    
+
     def get_view_mode(self) -> ViewMode:
         """Get the current view mode."""
         return self._current_mode
-    
-    def get_tracks(self, limit: int = 1000, offset: int = 0) -> List[TrackData]:
+
+    def get_tracks(self, limit: int = 1000, offset: int = 0) -> list[TrackData]:
         """
         Get tracks from the current view.
-        
+
         Args:
             limit: Maximum number of tracks to return
             offset: Number of tracks to skip
-            
+
         Returns:
             List of track data
         """
@@ -208,15 +207,15 @@ class LibraryBrowser:
             return self._file_data_to_track_data(files)
         else:
             return []
-    
-    def get_files(self, limit: int = 1000, offset: int = 0) -> List[FileData]:
+
+    def get_files(self, limit: int = 1000, offset: int = 0) -> list[FileData]:
         """
         Get files from the current view.
-        
+
         Args:
             limit: Maximum number of files to return
             offset: Number of files to skip
-            
+
         Returns:
             List of file data
         """
@@ -228,30 +227,30 @@ class LibraryBrowser:
             return self._track_data_to_file_data(tracks)
         else:
             return []
-    
-    def get_integrated_view(self, limit: int = 1000, offset: int = 0) -> List[IntegratedData]:
+
+    def get_integrated_view(self, limit: int = 1000, offset: int = 0) -> list[IntegratedData]:
         """
         Get integrated view data.
-        
+
         Args:
             limit: Maximum number of entries to return
             offset: Number of entries to skip
-            
+
         Returns:
             List of integrated data
         """
         if self._current_mode == ViewMode.INTEGRATED:
             return self._integrated_view.get_integrated_data(limit, offset)
         return []
-    
-    def search(self, query: str, search_fields: List[str] = None) -> List[Any]:
+
+    def search(self, query: str, search_fields: list[str] | None = None) -> list[Any]:
         """
         Search across the current view.
-        
+
         Args:
             query: Search query string
             search_fields: Fields to search in (None = all fields)
-            
+
         Returns:
             List of matching tracks or files
         """
@@ -262,11 +261,11 @@ class LibraryBrowser:
         elif self._current_mode == ViewMode.INTEGRATED:
             return self._integrated_view.search(query, search_fields)
         return []
-    
+
     def sort(self, field: str, ascending: bool = True) -> None:
         """
         Sort the current view by the specified field.
-        
+
         Args:
             field: Field to sort by
             ascending: Sort direction
@@ -277,11 +276,11 @@ class LibraryBrowser:
             self._local_view.sort(field, ascending)
         elif self._current_mode == ViewMode.INTEGRATED:
             self._integrated_view.sort(field, ascending)
-    
-    def filter(self, filters: Dict[str, Any]) -> None:
+
+    def filter(self, filters: dict[str, Any]) -> None:
         """
         Apply filters to the current view.
-        
+
         Args:
             filters: Dictionary of field:value filters
         """
@@ -291,7 +290,7 @@ class LibraryBrowser:
             self._local_view.filter(filters)
         elif self._current_mode == ViewMode.INTEGRATED:
             self._integrated_view.filter(filters)
-    
+
     def refresh(self) -> None:
         """Refresh the current view data."""
         if self._current_mode == ViewMode.REKORDBOX:
@@ -300,11 +299,11 @@ class LibraryBrowser:
             self._local_view.refresh()
         elif self._current_mode == ViewMode.INTEGRATED:
             self._integrated_view.refresh()
-    
-    def get_statistics(self) -> Dict[str, Any]:
+
+    def get_statistics(self) -> dict[str, Any]:
         """
         Get statistics for the current view.
-        
+
         Returns:
             Dictionary with view statistics
         """
@@ -315,8 +314,8 @@ class LibraryBrowser:
         elif self._current_mode == ViewMode.INTEGRATED:
             return self._integrated_view.get_statistics()
         return {}
-    
-    def _track_data_to_file_data(self, tracks: List[TrackData]) -> List[FileData]:
+
+    def _track_data_to_file_data(self, tracks: list[TrackData]) -> list[FileData]:
         """Convert TrackData objects to FileData objects."""
         files = []
         for track in tracks:
@@ -334,8 +333,8 @@ class LibraryBrowser:
             )
             files.append(file_data)
         return files
-    
-    def _file_data_to_track_data(self, files: List[FileData]) -> List[TrackData]:
+
+    def _file_data_to_track_data(self, files: list[FileData]) -> list[TrackData]:
         """Convert FileData objects to TrackData objects."""
         tracks = []
         for file in files:

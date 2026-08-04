@@ -31,7 +31,11 @@ from pyrekordbox import Rekordbox6Database
 from config import (
     BATCH_SIZE,
     MUSIC_ROOT,
+)
+from config import (
     PROGRESS_ITEM_INTERVAL as _PROGRESS_ITEM_INTERVAL,
+)
+from config import (
     PROGRESS_MIN_SECONDS as _PROGRESS_MIN_SECONDS,
 )
 

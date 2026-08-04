@@ -16,18 +16,18 @@ from pathlib import Path
 from flask import Blueprint, Response, jsonify, request
 
 from helpers import (
-    REPO_ROOT,
     CLI_PATH,
-    _proc_lock,
+    REPO_ROOT,
     _active_procs,
-    _sse_response,
-    _require_rb_closed,
     _get_library_root,
-    _subprocess_env,
-    mark_step_complete,
+    _proc_lock,
     _register_active_process,
+    _require_rb_closed,
+    _sse_response,
+    _subprocess_env,
     _unregister_active_process,
     api_error_from_exc,
+    mark_step_complete,
 )
 
 bp = Blueprint("rekordbox", __name__)
@@ -62,7 +62,7 @@ def api_audit():
 
 @bp.route("/api/run/import")
 def api_import():
-    from user_config import load_user_config, IMPORT_TARGET_CHOICES  # noqa: PLC0415
+    from user_config import IMPORT_TARGET_CHOICES, load_user_config
 
     dry_run = request.args.get("dry_run") == "1"
 
@@ -128,7 +128,7 @@ def api_link():
 
 @bp.route("/api/run/relocate")
 def api_relocate():
-    import subprocess  # noqa: PLC0415
+    import subprocess
 
     err = _require_rb_closed()
     if err:
@@ -222,9 +222,9 @@ def api_audit_path_roots():
     Used by the UI to pre-fill the Relocate form.
     """
     try:
-        from audit import find_dead_roots  # noqa: PLC0415
-        from db_connection import read_db  # noqa: PLC0415
-        from config import LOCAL_DB as _DB  # noqa: PLC0415
+        from audit import find_dead_roots
+        from config import LOCAL_DB as _DB
+        from db_connection import read_db
         with read_db(_DB) as db:
             report = find_dead_roots(db)
         return jsonify({
@@ -305,7 +305,7 @@ def api_migrate_pioneer_db():
     target = str(data.get("target", "")).strip()
     if not target:
         return jsonify({"error": "target is required"}), 400
-    from db_migrator import migrate  # noqa: PLC0415
+    from db_migrator import migrate
     return Response(
         migrate(target),
         mimetype="text/event-stream",
@@ -320,7 +320,7 @@ def api_export_audit():
     mount = request.args.get("mount", "").strip()
     if not mount:
         return jsonify({"error": "mount is required"}), 400
-        
+
     cmd = [sys.executable, str(CLI_PATH), "export-audit", mount]
     return _sse_response(cmd, library_root=mount, step_name="export-audit")
 

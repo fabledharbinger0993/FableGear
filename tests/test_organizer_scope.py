@@ -29,7 +29,6 @@ if str(REPO_ROOT / "chop_shop") not in sys.path:
 import library_organizer
 from library_organizer import _forbidden_source_reason, _prune_emptied_dirs, organize_library
 
-
 # ── 1. Forbidden sources ──────────────────────────────────────────────────────
 # "HOME/" prefixes resolve at RUN time (another test module reassigns $HOME
 # mid-suite; capturing Path.home() at collection would race it).
@@ -163,9 +162,9 @@ def test_moves_are_journaled_per_file_not_at_the_end(tmp_path, monkeypatch):
 # (or worse) must refuse before a single file is read.
 
 def _entry_calls(tmp_path):
-    from novelty_scanner import scan_novel
     from dead_file_scanner import scan_dead_files
     from duplicate_detector import scan_duplicates
+    from novelty_scanner import scan_novel
     from renamer import rename_directory
     home = Path.home()
     return {
@@ -182,16 +181,17 @@ def _entry_calls(tmp_path):
     "scan_duplicates", "rename_directory",
 ])
 def test_every_scanning_tool_refuses_home_folder(tool, tmp_path):
-    with pytest.raises(ValueError, match="Refusing to run|Refusing to organize"):
+    with pytest.raises(ValueError, match=r"Refusing to run|Refusing to organize"):
         _entry_calls(tmp_path)[tool]()
 
 
 # ── Journal-as-you-go: novelty copies are recorded per file ──────────────────
 
 def test_novelty_journals_each_copy(tmp_path):
+    from novelty_scanner import scan_novel
+
     from fablegear_database.database import FableGearDatabase
     from fablegear_database.schema import DatabaseConfig
-    from novelty_scanner import scan_novel
 
     archive = FableGearDatabase(DatabaseConfig(db_path=tmp_path / "archive.db"))
     src = tmp_path / "downloads"

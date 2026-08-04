@@ -44,11 +44,11 @@ def acquire() -> bool:
     f = open(_LOCK_PATH, "a+")
     try:
         if sys.platform == "win32":
-            import msvcrt  # noqa: PLC0415
+            import msvcrt
             f.seek(0)
             msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
         else:
-            import fcntl  # noqa: PLC0415
+            import fcntl
             fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         f.close()

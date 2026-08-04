@@ -1,0 +1,50 @@
+./routes_player.py:@bp.route("/api/library/playlists/<playlist_id>", methods=["DELETE"])
+./routes_player.py:@bp.route("/api/library/playlists/<playlist_id>/tracks", methods=["DELETE"])
+./playlist_recovery.py:        cur.execute(f"PRAGMA key = '{_ONELIBRARY_KEY}';")
+./playlist_recovery.py:        cur.execute(f"PRAGMA cipher_compatibility = {_CIPHER_COMPATIBILITY};")
+./tests/test_pruner_associations.py:relationships, and pyrekordbox never turns on `PRAGMA foreign_keys`). Hard-
+./tests/test_pruner_associations.py:            "INSERT INTO djmdCloudExportSongPlaylist "
+./tests/test_pruner_associations.py:        text("INSERT INTO djmdRecommendLike (ID, ContentID1, ContentID2, LikeRate) VALUES (:id, :a, :b, 3)"),
+./tests/test_pruner_associations.py:        text("INSERT INTO djmdRecommendLike (ID, ContentID1, ContentID2, LikeRate) VALUES (:id, :a, :b, 5)"),
+./tests/test_fablegear_database.py:    conn.execute("INSERT INTO fg_metadata (key, value) VALUES ('schema_version', '1.0.0');")
+./tests/test_fablegear_database.py:        cursor.execute("PRAGMA table_info(fg_content)")
+./tests/test_archive_sync.py:            conn.execute("INSERT INTO t (v) VALUES (?)", (f"row{i}",))
+./tests/fixtures/rekordbox_ground_truth_export/tools/capture_export.py:        cur.execute(f"PRAGMA key = '{_ONELIBRARY_KEY}';")
+./tests/fixtures/rekordbox_ground_truth_export/tools/capture_export.py:        cur.execute(f"PRAGMA cipher_compatibility = {_CIPHER_COMPATIBILITY};")
+./tests/fixtures/rekordbox_ground_truth_export/tools/capture_export.py:        cur.execute("PRAGMA wal_checkpoint(FULL);")
+./tests/fixtures/rekordbox_ground_truth_export/tools/capture_export.py:            c.execute(f"PRAGMA key = '{_ONELIBRARY_KEY}';")
+./tests/fixtures/rekordbox_ground_truth_export/tools/capture_export.py:            c.execute(f"PRAGMA cipher_compatibility = {_CIPHER_COMPATIBILITY};")
+./tests/test_content_relations_chunking.py:                INSERT INTO fg_content (file_path, file_name, file_size, title, artist)
+./tests/test_content_relations_chunking.py:                    INSERT INTO fg_cue (content_id, kind, slot, in_msec)
+./tests/test_content_relations_chunking.py:                    INSERT INTO fg_beatgrid (content_id, beat_number, time_msec, bpm)
+./tests/test_onelibrary_writer.py:connection (the same PRAGMA key + cipher_compatibility a real device or
+./tests/test_onelibrary_writer.py:    """A fresh sqlcipher3 connection using only the public key + PRAGMA —
+./tests/test_onelibrary_writer.py:    cur.execute(f"PRAGMA key = '{_ONELIBRARY_KEY}';")
+./tests/test_onelibrary_writer.py:    cur.execute(f"PRAGMA cipher_compatibility = {_CIPHER_COMPATIBILITY};")
+./cli.py:                    "INSERT INTO fg_playlist_song (playlist_id, content_id, track_number) VALUES (?,?,?)",
+./cli.py:                cur.execute("UPDATE fg_playlist SET track_count = ? WHERE id = ?", (len(ids), pid))
+./cli.py:        cur.execute(f"PRAGMA key = '{_ONELIBRARY_KEY}';")
+./cli.py:        cur.execute(f"PRAGMA cipher_compatibility = {_CIPHER_COMPATIBILITY};")
+./chop_shop/pruner.py:                text("DELETE FROM djmdCloudExportSongPlaylist WHERE ID = :id"), {"id": row_id}
+./chop_shop/pruner.py:                text("UPDATE djmdCloudExportSongPlaylist SET ContentID = :kid WHERE ID = :id"),
+./chop_shop/pruner.py:                db.session.execute(text("DELETE FROM djmdRecommendLike WHERE ID = :id"), {"id": row_id})
+./chop_shop/pruner.py:                db.session.execute(text("DELETE FROM djmdRecommendLike WHERE ID = :id"), {"id": row_id})
+./chop_shop/pruner.py:                    text(f"UPDATE djmdRecommendLike SET {col_self} = :kid WHERE ID = :id"),
+./venv/bin/bottle.py:    def delete(self, path=None, method='DELETE', **options):
+./venv/bin/bottle.py:        """ Equals :meth:`route` with a ``DELETE`` method parameter. """
+./venv/lib/python3.13/site-packages/librosa/util/utils.py:      UPDATEIFCOPY : False
+./venv/lib/python3.13/site-packages/librosa/util/utils.py:      UPDATEIFCOPY : False
+./venv/lib/python3.13/site-packages/flask/sansio/scaffold.py:        """Shortcut for :meth:`route` with ``methods=["DELETE"]``.
+./venv/lib/python3.13/site-packages/flask/sansio/scaffold.py:        return self._method_route("DELETE", rule, options)
+./venv/lib/python3.13/site-packages/truststore/_windows.py:FORMAT_MESSAGE_IGNORE_INSERTS = 0x00000200
+./venv/lib/python3.13/site-packages/truststore/_windows.py:                FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+./venv/lib/python3.13/site-packages/httpcore/_api.py:            `"OPTIONS"`, `"HEAD"`, `"POST"`, `"PUT"`, `"PATCH"`, or `"DELETE"`.
+./venv/lib/python3.13/site-packages/httpcore/_api.py:            `"OPTIONS"`, `"HEAD"`, `"POST"`, `"PUT"`, `"PATCH"`, or `"DELETE"`.
+./venv/lib/python3.13/site-packages/yt_dlp/update.py:    UPDATE_HINT,
+./venv/lib/python3.13/site-packages/yt_dlp/update.py:UPDATE_SOURCES = {
+./venv/lib/python3.13/site-packages/yt_dlp/update.py:REPOSITORY = UPDATE_SOURCES['stable']
+./venv/lib/python3.13/site-packages/yt_dlp/update.py:_INVERSE_UPDATE_SOURCES = {value: key for key, value in UPDATE_SOURCES.items()}
+./venv/lib/python3.13/site-packages/yt_dlp/update.py:_NON_UPDATEABLE_REASONS = {
+./venv/lib/python3.13/site-packages/yt_dlp/update.py:    if UPDATE_HINT:
+./venv/lib/python3.13/site-packages/yt_dlp/update.py:        return UPDATE_HINT
+./venv/lib/python3.13/site-packages/yt_dlp/update.py:    return _NON_UPDATEABLE_REASONS.get(

@@ -27,14 +27,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from fablegear_database.database import FableGearDatabase, ContentRecord, CueRecord  # noqa: E402
-from fablegear_database.schema import DatabaseConfig  # noqa: E402
-from fablegear_database.onelibrary_writer import (  # noqa: E402
-    OneLibraryWriter,
-    _ONELIBRARY_KEY,
+from fablegear_database.database import ContentRecord, CueRecord, FableGearDatabase
+from fablegear_database.onelibrary_writer import (
     _CIPHER_COMPATIBILITY,
+    _ONELIBRARY_KEY,
+    OneLibraryWriter,
     _anlz_path_for,
 )
+from fablegear_database.schema import DatabaseConfig
 
 
 @pytest.fixture

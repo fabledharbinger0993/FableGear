@@ -93,7 +93,7 @@ async def main():
             local_addr=('0.0.0.0', PROLINK_DISCOVERY_PORT),
             reuse_port=True
         )
-        
+
         transport_stat, _ = await loop.create_datagram_endpoint(
             lambda: ProLinkProtocol("STATUS_50001", log_everything=True),
             local_addr=('0.0.0.0', PROLINK_STATUS_PORT),
