@@ -52,10 +52,14 @@ import job_dispatcher
 
 from user_config import (
     DEFAULTS as USER_CONFIG_DEFAULTS,
+    generate_mcp_token,
     get_drive_status as probe_drive_status,
     load_user_config,
     save_user_config,
 )
+
+# Hosts that never require a bearer token — only reachable from this machine.
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 
 # ── MCP SDK ───────────────────────────────────────────────────────────────────
 
@@ -1230,15 +1234,44 @@ def main() -> None:
         default="127.0.0.1",
         help="Bind address. Use 0.0.0.0 for network access. (default: 127.0.0.1)",
     )
+    parser.add_argument(
+        "--token",
+        default="",
+        help=(
+            "Bearer token required on every request when --host is not loopback. "
+            "If omitted on a non-loopback host, one is generated and printed once "
+            "at startup. Clients send it as 'Authorization: Bearer <token>' or "
+            "'?token=<token>'."
+        ),
+    )
     args = parser.parse_args()
 
     if args.transport == "sse":
-        mcp.settings.host = "0.0.0.0"
+        mcp.settings.host = args.host
         mcp.settings.port = args.port
         mcp.settings.transport_security = TransportSecuritySettings(
             enable_dns_rebinding_protection=False,
         )
-        mcp.run(transport="sse")
+
+        app = mcp.sse_app()
+        if args.host not in _LOOPBACK_HOSTS:
+            token = args.token or generate_mcp_token()
+            if not args.token:
+                print(
+                    "\n"
+                    "  No --token supplied for a non-loopback host — generated one:\n"
+                    f"\n  {token}\n\n"
+                    "  Every request must include it as 'Authorization: Bearer <token>' "
+                    "or '?token=<token>'.\n"
+                    "  Anyone with this token has full read/write access to your "
+                    "Rekordbox library and filesystem — treat it like a password.\n",
+                    file=sys.stderr,
+                )
+            app = _make_token_auth_app(app, token)
+
+        import uvicorn  # noqa: PLC0415
+
+        uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     else:
         mcp.run(transport="stdio")
 
