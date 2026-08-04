@@ -171,7 +171,7 @@ def test_concurrent_create_is_serialized_by_lock():
     scale_name = "Bbm"
     assert scale_name in key_mapper.CANONICAL_SCALE_NAMES
 
-    results = [None, None]
+    results: list[object] = [None, None]
 
     def worker(i):
         results[i] = key_mapper._get_or_create_key_row(scale_name, db)

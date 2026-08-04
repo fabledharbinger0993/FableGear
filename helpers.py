@@ -328,7 +328,7 @@ def _list_orphaned_cli_pids(tool: str | None = None) -> list[int]:
             text=True,
             timeout=1.0,
         )
-        pids: set[int] = set()
+        pgrep_pids: set[int] = set()
         for line in out.splitlines():
             try:
                 pid = int(line.strip())
@@ -336,9 +336,9 @@ def _list_orphaned_cli_pids(tool: str | None = None) -> list[int]:
                 continue
             if pid <= 0 or pid == os.getpid() or not _pid_exists(pid):
                 continue
-            pids.add(pid)
-        if pids:
-            return sorted(pids)
+            pgrep_pids.add(pid)
+        if pgrep_pids:
+            return sorted(pgrep_pids)
     except (subprocess.SubprocessError, OSError):
         # pgrep unavailable/failed — fall through to the ps-based scan below.
         pass

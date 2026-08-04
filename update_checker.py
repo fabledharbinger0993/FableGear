@@ -152,32 +152,11 @@ def get_status() -> dict:
 
 # ── Addition ─────────────────────────────────────────────────────────────────
 
-def _is_newer(latest_tag: str, current: str | None, is_git: bool) -> bool:
-    if not latest_tag:
-        return False
-
-    if not is_git:
-        return bool(current) and _is_semver_tag(current) and _is_semver_tag(latest_tag) \
-            and _semver_gt(latest_tag, current)
-
-    if not current:
-        return False
-
-    # Authoritative: does HEAD already contain the release commit?
-    git_answer = _local_tag_is_current(latest_tag)
-    if git_answer is True:
-        return False
-    if git_answer is False:
-        return True
-
-    # REWRITE: If we don't know the ancestry, compare tags directly
-    # if both are semver, OR assume latest is newer if local is just a SHA.
-    if _is_semver_tag(latest_tag):
-        if _is_semver_tag(current):
-            return _semver_gt(latest_tag, current)
-        return True # Remote is a version, local is just a SHA/unknown -> Update!
-
-    return False
+# NOTE: a second, conflicting `def _is_newer` used to sit here. It was a
+# rewrite that returned True whenever the local version was a commit SHA,
+# which is exactly the 'banner never clears' bug the surviving version
+# below was written to fix. Python keeps the LAST definition, so the
+# rewrite never ran — it looked applied and did nothing. Removed.
 
 # ── Internals ─────────────────────────────────────────────────────────────────
 

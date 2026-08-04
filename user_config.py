@@ -46,6 +46,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
@@ -355,7 +356,7 @@ def _install_hint(mac: str = "", win: str = "", linux: str = "") -> str:
 # (display_name, check_fn, system_install_hint, pip_hint, used_by)
 # system_install_hint is platform-specific (brew / winget / apt).
 # pip_hint is the same on all platforms.
-DEPENDENCIES: list[tuple[str, object, str, str, str]] = [
+DEPENDENCIES: list[tuple[str, Callable[[], bool], str, str, str]] = [
     (
         "ffmpeg",
         _ffmpeg_ok,

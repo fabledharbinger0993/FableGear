@@ -877,7 +877,7 @@ def _generate_filename(
     return f"{FILENAME_SEPARATOR.join(parts)}{suffix_str}{ext}"
 
 
-def _resolve_filename_collision(dest: Path) -> Path:
+def _resolve_filename_collision(dest: Path) -> Path | None:
     """
     If dest already exists, append (2), (3), ... until a free slot is found.
     Returns the new collision-safe path or None if no slot found within 100 attempts.

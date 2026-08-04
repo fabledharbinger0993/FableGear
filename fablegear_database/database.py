@@ -269,7 +269,8 @@ class FableGearDatabase:
                 list(data.values())
             )
 
-            return cursor.lastrowid
+            # lastrowid is Optional in the stubs; an INSERT always sets it.
+            return int(cursor.lastrowid or 0)
 
     def update_content(self, record_id: int, updates: dict[str, Any]) -> bool:
         """
@@ -693,7 +694,8 @@ class FableGearDatabase:
                 "INSERT INTO fg_playlist (name, playlist_type, parent_id) VALUES (?, ?, ?)",
                 (name, ptype, int(parent_id) if parent_id else None),
             )
-            return cur.lastrowid
+            # lastrowid is Optional in the stubs; an INSERT always sets it.
+            return int(cur.lastrowid or 0)
 
     def rename_playlist(self, playlist_id, name: str) -> bool:
         with self.transaction() as conn:
@@ -895,7 +897,8 @@ class FableGearDatabase:
                     json.dumps(metadata) if metadata is not None else None,
                 ),
             )
-            return cursor.lastrowid
+            # lastrowid is Optional in the stubs; an INSERT always sets it.
+            return int(cursor.lastrowid or 0)
 
     def bulk_log_operations(
         self,

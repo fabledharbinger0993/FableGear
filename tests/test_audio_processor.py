@@ -127,7 +127,9 @@ def test_no_headroom_skips_the_rewrite_entirely(tmp_path):
     _require_ffmpeg()
     path = _quiet_but_hot_mp3(tmp_path)
 
-    lufs, tp = ap._measure_lufs(path)
+    measured = ap._measure_lufs(path)
+    assert measured is not None
+    lufs, tp = measured
     assert lufs < config.TARGET_LUFS - config.LUFS_TOLERANCE   # a boost is wanted
     assert tp > config.TRUE_PEAK_CEILING_DBTP                  # but no headroom exists
     before_bytes = path.read_bytes()

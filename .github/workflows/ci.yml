@@ -9,8 +9,10 @@ name: CI
 # rule selection and `ruff check .` passes clean, so a new finding means a new
 # problem rather than one more line in a wall nobody reads.
 #
-# `typecheck` (pyright) stays informational — its backlog has not been assessed.
-# Flip its continue-on-error to false once it reports clean.
+# `typecheck` (pyright) also gates now. Its 429-error backlog was mostly a
+# configuration gap: pyright could not resolve first-party modules imported by
+# bare name out of chop_shop/. pyrightconfig.json supplies extraPaths and the
+# venv, which took it to 0 errors.
 
 on:
   push:
@@ -95,12 +97,14 @@ jobs:
       - name: ruff check
         run: ruff check .
 
-  # pyright still has a backlog that has not been assessed, so it stays
-  # advisory. Flip continue-on-error to false once it reports clean.
+  # pyright reports 0 errors and now gates. It still emits ~305 warnings,
+  # almost all reportOptionalMemberAccess against pyrekordbox / mutagen /
+  # SQLAlchemy objects whose attributes are dynamically typed — a library
+  # shape problem, not a defect here. Those are set to "warning" in
+  # pyrightconfig.json deliberately so the error signal stays meaningful.
   typecheck:
-    name: Type-check (pyright, informational)
+    name: Type-check (pyright)
     runs-on: macos-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
