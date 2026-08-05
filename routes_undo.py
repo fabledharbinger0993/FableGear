@@ -69,10 +69,17 @@ def _list_savepoints(directory: Path, limit: int = 100):
         stat = p.stat()
         name = p.name
         ts_part = name.replace("master.backup_", "").replace(".db", "")
-        try:
-            dt = datetime.strptime(ts_part, "%Y%m%d_%H%M%S")
-            display = dt.strftime("%b %d, %Y  %I:%M %p")
-        except ValueError:
+        # New backups carry microseconds (db_connection.backup_timestamp) so
+        # two taken within the same second can't collide on filename;
+        # existing backups on disk predate that and have none. Try both.
+        for fmt in ("%Y%m%d_%H%M%S_%f", "%Y%m%d_%H%M%S"):
+            try:
+                dt = datetime.strptime(ts_part, fmt)
+                display = dt.strftime("%b %d, %Y  %I:%M %p")
+                break
+            except ValueError:
+                continue
+        else:
             display = ts_part
         results.append({
             "filename": name,
@@ -149,6 +156,34 @@ def undo_restore_savepoint():
             tmp_path.replace(Path(DEVICE_DB))
         finally:
             tmp_path.unlink(missing_ok=True)
+
+        # master.db is WAL-mode. A -wal/-shm left over from the state we are
+        # restoring AWAY FROM holds transactions newer than this savepoint —
+        # SQLite does not detect that mismatch and will silently replay them
+        # on the next open, undoing the restore. (Reproduced directly: a
+        # restore over a live -wal brought the pre-restore data straight
+        # back, with no error of any kind.) Every sidecar at the target must
+        # therefore end this restore in one of exactly two states: replaced
+        # with the matching sidecar from THIS savepoint, or removed entirely
+        # — never left over from the state being restored away from.
+        for suffix in ("-wal", "-shm"):
+            sp_sidecar = sp.parent / (sp.name + suffix)
+            live_sidecar = Path(DEVICE_DB).parent / (Path(DEVICE_DB).name + suffix)
+            if sp_sidecar.is_file():
+                with tempfile.NamedTemporaryFile(
+                    prefix=".fablegear_restore_", suffix=suffix,
+                    dir=str(target_dir), delete=False,
+                ) as tmpf:
+                    tmp_sidecar = Path(tmpf.name)
+                try:
+                    shutil.copy2(str(sp_sidecar), str(tmp_sidecar))
+                    with open(tmp_sidecar, "rb") as verify_f:
+                        os.fsync(verify_f.fileno())
+                    tmp_sidecar.replace(live_sidecar)
+                finally:
+                    tmp_sidecar.unlink(missing_ok=True)
+            else:
+                live_sidecar.unlink(missing_ok=True)
     except OSError as exc:
         return jsonify({"error": f"Restore failed: {exc}"}), 500
 

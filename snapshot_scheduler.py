@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 import threading
 import time
 from datetime import UTC, datetime
@@ -69,12 +68,20 @@ def _save_state(payload: dict) -> None:
 
 def _snapshot_master_db(timestamp: str) -> str:
     from config import BACKUP_DIR, LOCAL_DB
+    from db_connection import copy_db_with_sidecars
 
     if not LOCAL_DB.exists():
         raise RuntimeError(f"Local Rekordbox DB not found at {LOCAL_DB}")
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     target = BACKUP_DIR / f"rekordbox.master.backup_{timestamp}.db"
-    shutil.copy2(LOCAL_DB, target)
+    # copy_db_with_sidecars, not a bare shutil.copy2: master.db is WAL-mode,
+    # and this periodic, unattended snapshot is exactly the backup a user
+    # relies on without checking it — a bare main-file copy taken while a
+    # real -wal held real committed data can capture a database missing that
+    # data entirely (reproduced directly: a table that existed only in the
+    # WAL was simply gone from a bare copy, not stale — absent). Also
+    # verifies the main file's copy against the source size.
+    copy_db_with_sidecars(LOCAL_DB, target)
     return str(target)
 
 
@@ -105,7 +112,7 @@ def _perform_snapshot() -> dict:
     from config import SNAPSHOT_INCLUDE_MASTER_DB, SNAPSHOT_INTERVAL_SECONDS
     from db_connection import rekordbox_is_running
 
-    timestamp = _now().strftime("%Y%m%d_%H%M%S")
+    timestamp = _now().strftime("%Y%m%d_%H%M%S_%f")
     paths: list[str] = []
     errors: list[str] = []
 
