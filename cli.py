@@ -4563,6 +4563,32 @@ def main() -> None:
             )
             sys.exit(1)
 
+        # Archive-first DB home (docs/archive_first_architecture.md §3): the
+        # GUI app runs this at startup via app.py, but the CLI is a separate
+        # entry point and never did — every command using FableGearDatabase()
+        # opened ~/.fablegear/fablegear.db directly with create=True and no
+        # archive awareness. On a machine where that file is missing (fresh
+        # install, cleared cache) but the archive drive holds the real,
+        # healthy library, that silently created an empty database and every
+        # CLI command ran against zero data with no warning of any kind.
+        # This restores the local working copy from the archive first when
+        # it's missing/corrupt, or seeds the archive on first run — a no-op
+        # (action="skipped") whenever the drive isn't mounted, so it never
+        # blocks or slows down a command that doesn't touch the archive.
+        try:
+            from fablegear_database.archive_sync import startup_sync_check
+
+            _sync_result = startup_sync_check()
+            if not _sync_result.ok:
+                log.warning("Archive DB sync check: %s", _sync_result.reason)
+            elif _sync_result.action != "skipped":
+                log.info(
+                    "Archive DB sync check: %s (%s)",
+                    _sync_result.action, _sync_result.reason,
+                )
+        except Exception:
+            log.exception("Archive DB startup sync check failed")
+
     args.func(args)
 
 
