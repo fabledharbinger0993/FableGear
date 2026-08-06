@@ -92,12 +92,67 @@ def rekordbox_is_running() -> bool:
 
 # ─── Backup ───────────────────────────────────────────────────────────────────
 
+# master.db is opened in WAL mode. A committed transaction can sit in the
+# -wal sidecar, un-checkpointed into the main file, for as long as the
+# process holding it stays open — and if that process is killed rather than
+# cleanly closed (a crash, a force-quit), the -wal/-shm can survive on disk
+# indefinitely. Backing up only the main file then captures a database that
+# may be missing arbitrary recent data — up to and including entire tables,
+# if a CREATE TABLE itself was still sitting in the WAL. Reproduced directly:
+# a bare copy of the main file, taken while a real -wal held real committed
+# data, opened standalone as "no such table" — not stale data, no schema at
+# all. Every sidecar that exists must be copied alongside the main file.
+_DB_SIDECARS = ("", "-wal", "-shm")
+
+
+def backup_timestamp() -> str:
+    """Timestamp used to name a database backup file.
+
+    Microsecond precision, not just seconds: two backups of the same source
+    (e.g. one write_db() call followed immediately by another, or a manual
+    savepoint taken right before an automated one runs) previously collided
+    on a second-granularity timestamp and produced the SAME filename — the
+    second backup's shutil.copy2 silently overwrote the first, destroying
+    whatever restore point it represented, with no error of any kind.
+    """
+    return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+
+def copy_db_with_sidecars(src: Path, dst: Path) -> None:
+    """Copy src (+ its -wal/-shm sidecars, if present) to dst, verifying the
+    main file's copy matches the source in size.
+
+    Shared by every backup path in this codebase (live write-session backups,
+    manual savepoints, and the periodic snapshot scheduler) so the WAL-safety
+    and size-verification guarantees are written once and can't drift between
+    call sites the way they previously did.
+
+    Raises RuntimeError if the main file's backup doesn't match the source
+    size — a truncated copy (e.g. the destination volume filling up mid-copy)
+    must never be mistaken for a good backup.
+    """
+    for suffix in _DB_SIDECARS:
+        s = src.parent / (src.name + suffix)
+        if suffix and not s.is_file():
+            continue  # sidecars are optional; the main file is not
+        d = dst.parent / (dst.name + suffix)
+        shutil.copy2(s, d)
+        if suffix == "" and d.stat().st_size != s.stat().st_size:
+            raise RuntimeError(
+                f"Backup size mismatch for {s.name}: "
+                f"{d.stat().st_size} != {s.stat().st_size} bytes — refusing to treat "
+                f"this as a valid backup."
+            )
+
+
 def _backup_db(db_path: Path) -> Path:
     """
-    Copy db_path to BACKUP_DIR with a timestamp suffix.
-    Creates BACKUP_DIR if it doesn't exist.
-    Returns the path of the backup file.
-    Raises RuntimeError if the source file doesn't exist.
+    Copy db_path (+ its -wal/-shm sidecars, if present) to BACKUP_DIR with a
+    timestamp suffix. Creates BACKUP_DIR if it doesn't exist.
+
+    Returns the path of the backup's main file. Raises RuntimeError if the
+    source file doesn't exist, or if the backup fails verification
+    (see copy_db_with_sidecars).
     """
     BACKUP_DIR, _DEVICE_DB, _LOCAL_DB = _get_config()
     if not db_path.exists():
@@ -119,12 +174,12 @@ def _backup_db(db_path: Path) -> Path:
 
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     stem = db_path.stem  # "master"
-    backup_name = f"{stem}.backup_{timestamp}.db"
+    backup_name = f"{stem}.backup_{backup_timestamp()}.db"
     backup_path = BACKUP_DIR / backup_name
 
-    shutil.copy2(db_path, backup_path)
+    copy_db_with_sidecars(db_path, backup_path)
+
     log.info("Backup created: %s", backup_path)
     return backup_path
 
