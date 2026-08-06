@@ -445,18 +445,34 @@ def test_usb_inspector_not_a_mount(flask_app, tmp_path):
 
 # ── Update checker: the v1.0.0 self-update loop regression ───────────────────
 
-def test_update_sha_not_misparsed_as_version(flask_app):
+def test_update_sha_not_misparsed_as_version(flask_app, monkeypatch):
     """SHAs starting with a digit (12aff07, 9abf982) must NOT be read as
     versions older than every release — that caused the perpetual update loop."""
+    import update_checker
     from update_checker import _is_newer, _is_semver_tag
+
+    # _is_newer's is_git=True path is decided by _local_tag_is_current(), which
+    # runs real `git rev-parse`/`git merge-base` subprocess calls against the
+    # actual checkout. This test is about the SHA-vs-semver guard specifically
+    # (the comment below), not about git ancestry, so pin the git-side answer
+    # to the case under test rather than depending on whether "v1.0.0" happens
+    # to be a resolvable tag in whatever checkout runs the suite.
+    monkeypatch.setattr(update_checker, "_local_tag_is_current", lambda tag: None)
+
     for sha in ("12aff07", "9abf982", "7d62c0a", "0deadbe"):
         assert _is_semver_tag(sha) is False
         # tag not locally resolvable as the SHA -> semver guard rejects SHA -> False
         assert _is_newer("v1.0.0", sha, is_git=True) is False
 
 
-def test_update_equal_version_no_loop(flask_app):
+def test_update_equal_version_no_loop(flask_app, monkeypatch):
+    import update_checker
     from update_checker import _is_newer
+
+    # The scenario this guards: the build IS the release, so HEAD already
+    # contains the release tag's commit -- the authoritative git check says
+    # True. Pin that directly rather than depending on real repo state.
+    monkeypatch.setattr(update_checker, "_local_tag_is_current", lambda tag: True)
     assert _is_newer("v1.0.0", "v1.0.0", is_git=True) is False
 
 
