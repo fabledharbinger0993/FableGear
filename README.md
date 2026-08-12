@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/fabledharbinger0993/FableGear/main/static/icon-app-dock.png" width="140" alt="FableGear">
+<img src="https://raw.githubusercontent.com/fabledharbinger0993/FableGear/main/static/icon-logo-fablegear.png" width="140" alt="FableGear">
 
 # FableGear
 
