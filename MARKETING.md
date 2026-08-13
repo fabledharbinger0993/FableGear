@@ -6,12 +6,17 @@ Status: strategy draft, August 2026. Revised twice: first against the live landi
 **Read section 1 first.** An earlier draft of this document was written from `README.md` alone
 and got two important things wrong in the conservative direction.
 
-**Then read section 4.** The second draft went the other way: it took a set of handoff notes at
-face value and described three things — a research survey, a download gate, and a beta-expiry
-module — that **do not exist in either repository**. Those claims have been corrected in place
-and are marked ⚠️. The strategy built on top of them survives as a *proposal*; it was never a
-description of shipped behavior. Nothing in this document should be treated as fact about the
-product unless it is sourced to a file path.
+**Then read section 4.** The handoff notes this draft relied on describe the survey and the
+download gate accurately — but they describe an **unmerged branch**
+(`guthrieent@claude/new-session-cql8jd`), not the live site. Section 4 now separates the two
+throughout, because the live page and the branch differ in the one way that matters most: the
+live download is ungated and linkable, and the branch's is not.
+
+The third handoff item, a `beta.py` beta-expiry module, **does not exist on any branch of this
+repository**. Section 5.1 is marked ⚠️ and reads as a design proposal accordingly.
+
+Rule of thumb for the rest: treat a claim as fact only where it's sourced to a file path and a
+commit.
 
 ---
 
@@ -133,83 +138,83 @@ becomes the price argument in section 6.
 
 ## 4. Blockers, in priority order
 
-**The first two entries are no longer blockers.** 4.1 and 4.2 were the top two items in the
-previous draft and both turned out to rest on handoff notes that don't describe either
-repository. They're kept here, in place, as corrections rather than deleted — a review that
-quietly drops its two highest-priority findings isn't one you can trust the rest of. The live
-priority order now starts at **§1 (reconcile the README with the live page)**, followed by 4.3
-through 4.6.
+**The survey flow is built but unmerged.** It lives on branch `claude/new-session-cql8jd` in
+the guthrieent repo (commit `ef769f1`, "Replace fablegear.html with survey-gated beta download
+flow"), which has never been merged to `main`. So the handoff notes describe real, working code
+— it just isn't what `guthrieent.com/fablegear` currently serves. Everything below distinguishes
+**branch** state from **live** state, because the two differ and it matters.
 
-### 4.1 ⚠️ Correction: there is no survey, and there is no `SUBMIT_ENDPOINT`
+### 4.1 `SUBMIT_ENDPOINT` is empty on the survey branch
 
-An earlier draft of this section called an empty `SUBMIT_ENDPOINT` the single highest-priority
-blocker, on the strength of handoff notes describing a research funnel that fell back to
-`localStorage`. **That page does not exist.** Verified against
-`fabledharbinger0993/guthrieent@a5a437f`:
+Confirmed at `ef769f1:fablegear.html:848` — `const SUBMIT_ENDPOINT = '';`. The submit handler
+at line 1174 falls back exactly as the handoff notes said: it pushes the payload into
+`localStorage` under `fablegear-research-drafts`, then renders the raw JSON into the page with
+the message *"This build isn't wired to a live spreadsheet yet."*
 
-- `SUBMIT_ENDPOINT` appears nowhere in the repository, in any file, at any commit
-  (`git log --all -S'SUBMIT_ENDPOINT'` returns nothing).
-- Neither does any survey payload key — `tools_library`, `pain_point`, `blind_spot`.
-- `fablegear.html` contains no `<form>`, no `<input>`, and no `<textarea>` — not in the current
-  revision and not in the commit that introduced it (`e76d7e2`).
+The mitigating detail: **that branch is not deployed**, so no real respondent has ever hit it
+and no data has actually been lost. This is a blocker for *launching* the survey, not an
+ongoing leak. It stops being true the moment the branch merges, so wire the endpoint before the
+merge, not after.
 
-The page has three commits total and has never had a survey. So there is no funnel silently
-dropping data, because there is no funnel. **Nothing is currently being lost.**
-
-The real state of the question is a decision, not a bug: *do you want a research survey at
-all?* Section 7.3 argues the aggregate is a genuine marketing asset, and that argument still
-holds. But it is net-new work on the site, not a one-line endpoint fix.
-
-**If you do build it**, two things will break it that aren't obvious, both verified in the
-guthrieent repo:
+**Three things will break the Apps Script path**, all verified against the branch and the live
+`_headers`:
 
 1. **The site's CSP will block the request.** `_headers` sets
    `connect-src 'self' https://api.resend.com`. A `fetch()` to `script.google.com` is refused
    by the browser before it leaves the page. You'd need to add `https://script.google.com` and
    `https://script.googleusercontent.com` (Apps Script redirects `/exec` to the latter) to
    `connect-src`.
-2. **A JSON content-type triggers a CORS preflight that Apps Script cannot answer.** Apps
-   Script exposes `doGet`/`doPost` but has no `doOptions`, so the preflight `OPTIONS` fails and
-   the POST never runs. The standard fix is to send the body as
-   `Content-Type: 'text/plain;charset=utf-8'`, which is a CORS-simple request and skips the
-   preflight entirely — `e.postData.contents` still receives the JSON string, so a
-   `JSON.parse` on the Apps Script side is unaffected.
+2. **The branch posts a JSON content-type, which triggers a CORS preflight Apps Script cannot
+   answer.** Line 1188 sends `'Content-Type': 'application/json'`. Apps Script exposes
+   `doGet`/`doPost` but has no `doOptions`, so the preflight `OPTIONS` fails and the POST never
+   runs. Send the body as `Content-Type: 'text/plain;charset=utf-8'` instead — a CORS-simple
+   request that skips the preflight entirely. `e.postData.contents` still receives the JSON
+   string, so `JSON.parse` on the Apps Script side is unaffected.
+3. **`appendRow` is not atomic** across concurrent executions; two submissions landing together
+   can interleave. Wrap it in `LockService.getScriptLock()`.
 
-A third, smaller one: `appendRow` is not atomic across concurrent executions. Two submissions
-landing together can interleave. Wrap the append in `LockService.getScriptLock()` if you expect
-any burst of traffic.
+An off-the-shelf form endpoint (Formspree, Tally, Google Forms) sidesteps 1 and 2 entirely and
+costs nothing at this volume. The Apps-Script-to-Sheet path is worth it only if you want the
+raw JSON under your own control.
 
-The genuinely lower-effort alternative is an off-the-shelf form endpoint (Formspree, Tally,
-Google Forms itself), which sidesteps all three problems and costs nothing at this volume. The
-Apps-Script-to-Sheet path is worth it only if you want the raw JSON under your own control.
+### 4.2 The survey gate is a regression against what's already live
 
-### 4.2 ⚠️ Correction: the download is already ungated — this blocker is resolved
+This is the sharpest finding in the document, and it only becomes visible by comparing the two
+branches:
 
-An earlier draft argued at length that an 8-minute survey gate was suppressing installs, and
-recommended ungating the binary. **The binary was never gated.** `fablegear.html:387` is a
-plain static anchor in the hero section:
+| | **Live (`main`)** | **Survey branch (`ef769f1`)** |
+|---|---|---|
+| Hero CTA | `Download for macOS ↓` → `releases/latest/download/FableGear.zip` | `Get the beta ↓` → `#inventory` (jumps to the form) |
+| Works with JS off | Yes — static `<a href>` | No — link is built by `appendDownload()` after submit |
+| Linkable by press | Yes, permanent URL | No URL exists in the HTML |
+| Strapline | `No account · Nothing leaves your computer` | `a few questions unlock the download` |
 
-```html
-<a id="dl-btn"
-   href="https://github.com/fabledharbinger0993/FableGear/releases/latest/download/FableGear.zip"
-   class="cta-btn">Download for macOS  ↓</a>
-```
+**Merging the branch as-is would take a working, linkable, JS-free download and put an
+8-minute form in front of it.** The direct URL survives only as
+`BETA_DOWNLOAD_URL_FALLBACK` (line 849), a JS constant no external page can link to. That
+forecloses most of section 7's channels: a Homebrew cask, a press link, a Reddit reply, a
+friend in a group chat.
 
-That is a stable, permanent, linkable URL that always resolves to the newest release. It works
-with JavaScript disabled. Press can link it, a Homebrew cask can point at it, and it can be
-pasted into a Reddit reply. The strapline underneath already reads
-`Free · MIT licensed · No account · Nothing leaves your computer`.
+The research question behind the gate is real — three people's blind spots genuinely aren't
+the community's — and the survey instrument itself is good work. The problem is purely the
+gating, and it's a one-line class of change, not a rewrite.
 
-**Everything section 7 needs from this is already true.** The recommendation is retired, not
-pending.
+**Recommendation: keep the survey, keep the download ungated.** Ship one page with the static
+download in the hero exactly as `main` has it, and the survey below it as a strong, prominent
+secondary ask with a real incentive attached — founding-tester credit and the permanent free
+license section 6 needs anyway. You'll get fewer responses per visitor and far more installs,
+and the responses you do get will come from people who actually ran the thing, which makes
+them worth considerably more.
 
-One real defect in the same block, worth fixing while you're in there: the script at
-`fablegear.html:600` fetches `/fablegear/release` to decorate the button with a version number
-and file size, but `functions/` contains only `api/consult.js` — there is no handler for that
-route. The fetch 404s on every page load and the `.catch()` swallows it, so the version tag
-stays `display:none` forever. The download itself is unaffected, which is exactly why nobody
-has noticed. Either add the Pages Function or drop the fetch; right now it's dead weight that
-looks like a working feature.
+Two smaller defects in the same area:
+
+- `main`'s script at `fablegear.html:600` fetches `/fablegear/release` to decorate the button
+  with a version and file size, but `functions/` contains only `api/consult.js` — there is no
+  handler for that route. It 404s on every page load and the `.catch()` swallows it, so the
+  version tag stays `display:none` forever. The branch inherits the same call. Either add the
+  Pages Function or drop the fetch.
+- The branch keeps a honeypot field (`hp-website`) and checks it before submit, which is the
+  right instinct for a public form. Keep that in whatever ships.
 
 ### 4.3 Copyleft dependencies vs. selling a binary
 
@@ -383,10 +388,12 @@ Why this shape:
   Cloud. Give it up and 3.5 collapses.
 - **Free tier is genuinely useful**, which keeps section 5's promise intact.
 
-**Identifying the beta cohort is an open problem.** The earlier draft assumed a survey with an
-email field would define it. There is no survey (4.1), no account, and no telemetry — by
-design, and that design is the product's whole pitch. So there is currently *no record of who
-the beta testers are*, and a promise to grandfather them has nothing to resolve against.
+**Identifying the beta cohort is an open problem — until the survey ships.** The survey's
+optional email field (`ef769f1:fablegear.html:754`) is the intended mechanism, and it works, but
+it is optional by design and the branch isn't deployed. There is no account and no telemetry
+either — deliberately, and that design is the product's whole pitch. So today there is *no
+record of who the beta testers are*, and a promise to grandfather them has nothing to resolve
+against.
 Options, cheapest first: a GitHub-based claim (anyone who starred, filed an issue, or commented
 before date X), a mailing list you start now, or a one-field email capture on the download page
 that is explicitly *not* a research survey. Pick one before announcing the grandfather clause,
@@ -490,19 +497,19 @@ It's also a far better press pitch than "please cover my app" — it gives DJ Te
 Digital DJ Tips a *story* rather than a favor. Publish it, credit the respondents as a cohort,
 and it justifies the time you asked of them.
 
-Note this section describes a survey that does not exist yet (4.1). It is an argument for
-building one — and specifically for building it as a *publishable aggregate* rather than a
-private research file — not a description of data you currently hold. The publishing plan is
-what makes it worth the build; without that, it's a spreadsheet.
+The instrument for this already exists on the survey branch (4.1) — the Likert grids, the
+hardware questions, and the open-text fields are all built. What's missing is the endpoint and
+the decision to publish. Commit to publishing the aggregate *before* collecting, because that's
+what turns a private spreadsheet into the asset described here.
 
 ### 7.4 Sequence
 
 | Phase | Do | Gate to next |
 |---|---|---|
-| **0 — Unblock** | Reconcile README with the live page (§1) — now the top item. Resolve yt-dlp positioning (4.4). Record the 90-second video. Repo topics + Discussions on. Fix or drop the dead `/fablegear/release` fetch (4.2). Decide whether the survey gets built at all (4.1). | README matches reality; video exists |
+| **0 — Unblock** | Merge the survey branch **with the download left ungated** (4.2). Wire `SUBMIT_ENDPOINT` + CSP + content-type before that merge (4.1). Reconcile README with the live page (§1). Resolve yt-dlp positioning (4.4). Record the 90-second video. Repo topics + Discussions on. | Funnel captures data; download still linkable |
 | **1 — Free technical launch** | Show HN, r/macapps, r/opensource, MCP dirs, Homebrew cask, AlternativeTo, Product Hunt. **Ask for nothing but feedback.** | 100+ stars; issues from strangers |
-| **2 — Harvest proof** | Answer every issue fast. Collect quotable testimonials by name, with permission. Test more players. Publish the survey aggregate *if* the survey was built (7.3). | 3–5 testimonials; 3+ players verified |
-| **3 — DJ communities** | Tier 1 reactive help. Publish the six Tier 2 guides. Pitch Tier 4 press with the video, and the survey story if there is one. | Roundup listings; steady non-technical users |
+| **2 — Harvest proof** | Answer every issue fast. Collect quotable testimonials by name, with permission. Test more players. Publish the survey aggregate (7.3). | 3–5 testimonials; 3+ players verified |
+| **3 — DJ communities** | Tier 1 reactive help. Publish the six Tier 2 guides. Pitch Tier 4 press with the video and the survey story. | Roundup listings; steady non-technical users |
 | **4 — v1.0 paid** | Notarized build. $19.99, $9.99 founding, beta cohort free forever — all three stated together (§5). | First 50 sales, no refund spiral |
 
 Phase 2 is the real gate. If nobody will say something good on the record, don't start phase 4
