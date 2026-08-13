@@ -1,11 +1,17 @@
 # FableGear — Marketability Review, Pricing, and Go-to-Market
 
-Status: strategy draft, August 2026. Revised against the live landing page
-(`guthrieent.com/fablegear`), the beta-gate research funnel, and the beta-expiration
-module — not just the in-repo README.
+Status: strategy draft, August 2026. Revised twice: first against the live landing page
+(`guthrieent.com/fablegear`), then against the actual source of that page and of this repo.
 
 **Read section 1 first.** An earlier draft of this document was written from `README.md` alone
 and got two important things wrong in the conservative direction.
+
+**Then read section 4.** The second draft went the other way: it took a set of handoff notes at
+face value and described three things — a research survey, a download gate, and a beta-expiry
+module — that **do not exist in either repository**. Those claims have been corrected in place
+and are marked ⚠️. The strategy built on top of them survives as a *proposal*; it was never a
+description of shipped behavior. Nothing in this document should be treated as fact about the
+product unless it is sourced to a file path.
 
 ---
 
@@ -127,34 +133,83 @@ becomes the price argument in section 6.
 
 ## 4. Blockers, in priority order
 
-### 4.1 `SUBMIT_ENDPOINT` is empty — the funnel currently collects nothing
+**The first two entries are no longer blockers.** 4.1 and 4.2 were the top two items in the
+previous draft and both turned out to rest on handoff notes that don't describe either
+repository. They're kept here, in place, as corrections rather than deleted — a review that
+quietly drops its two highest-priority findings isn't one you can trust the rest of. The live
+priority order now starts at **§1 (reconcile the README with the live page)**, followed by 4.3
+through 4.6.
 
-Per the handoff notes, submissions fall back to `localStorage` and display the JSON. Every
-survey completed right now is **lost**. This is the single highest-priority item; driving any
-traffic before it's wired is pure waste. Needs the Cloudflare Worker → Apps Script → Sheet path
-built, or an off-the-shelf form endpoint as a stopgap.
+### 4.1 ⚠️ Correction: there is no survey, and there is no `SUBMIT_ENDPOINT`
 
-### 4.2 The 8-minute survey gate is costing more than it collects
+An earlier draft of this section called an empty `SUBMIT_ENDPOINT` the single highest-priority
+blocker, on the strength of handoff notes describing a research funnel that fell back to
+`localStorage`. **That page does not exist.** Verified against
+`fabledharbinger0993/guthrieent@a5a437f`:
 
-The download link doesn't exist anywhere in the static HTML — it's injected only after
-submission. That is a deliberate research decision with a legitimate goal, and the research
-question is real: three people's blind spots genuinely aren't the community's. But it has costs
-worth naming:
+- `SUBMIT_ENDPOINT` appears nowhere in the repository, in any file, at any commit
+  (`git log --all -S'SUBMIT_ENDPOINT'` returns nothing).
+- Neither does any survey payload key — `tools_library`, `pain_point`, `blind_spot`.
+- `fablegear.html` contains no `<form>`, no `<input>`, and no `<textarea>` — not in the current
+  revision and not in the commit that introduced it (`e76d7e2`).
 
-- **Nobody can link to the download.** Not a Reddit comment, not a press article, not a
-  Homebrew cask, not a friend in a group chat. This forecloses most of section 7's channels.
-- **8 minutes of forms before a free beta** converts in the low single digits from cold
-  traffic. Warm traffic — someone who read the whole page — does much better, maybe a third.
-  But cold traffic is what a launch produces.
-- **At one GitHub star, the binding constraint is users, not research data.** Installs produce
-  issues, testimonials, and word of mouth. Survey rows produce a spreadsheet.
+The page has three commits total and has never had a survey. So there is no funnel silently
+dropping data, because there is no funnel. **Nothing is currently being lost.**
 
-**Recommendation: keep the survey, ungate the binary.** Make Download the primary CTA and the
-survey a strong, prominent secondary with a real incentive attached — founding-tester credit
-and a permanent free license (which section 6 needs anyway). You will get fewer responses per
-visitor and far more installs, and the responses you do get will come from people who actually
-ran the thing, which makes them worth more. If the gate stays, at minimum publish one stable
-direct download URL that press and package managers can point at.
+The real state of the question is a decision, not a bug: *do you want a research survey at
+all?* Section 7.3 argues the aggregate is a genuine marketing asset, and that argument still
+holds. But it is net-new work on the site, not a one-line endpoint fix.
+
+**If you do build it**, two things will break it that aren't obvious, both verified in the
+guthrieent repo:
+
+1. **The site's CSP will block the request.** `_headers` sets
+   `connect-src 'self' https://api.resend.com`. A `fetch()` to `script.google.com` is refused
+   by the browser before it leaves the page. You'd need to add `https://script.google.com` and
+   `https://script.googleusercontent.com` (Apps Script redirects `/exec` to the latter) to
+   `connect-src`.
+2. **A JSON content-type triggers a CORS preflight that Apps Script cannot answer.** Apps
+   Script exposes `doGet`/`doPost` but has no `doOptions`, so the preflight `OPTIONS` fails and
+   the POST never runs. The standard fix is to send the body as
+   `Content-Type: 'text/plain;charset=utf-8'`, which is a CORS-simple request and skips the
+   preflight entirely — `e.postData.contents` still receives the JSON string, so a
+   `JSON.parse` on the Apps Script side is unaffected.
+
+A third, smaller one: `appendRow` is not atomic across concurrent executions. Two submissions
+landing together can interleave. Wrap the append in `LockService.getScriptLock()` if you expect
+any burst of traffic.
+
+The genuinely lower-effort alternative is an off-the-shelf form endpoint (Formspree, Tally,
+Google Forms itself), which sidesteps all three problems and costs nothing at this volume. The
+Apps-Script-to-Sheet path is worth it only if you want the raw JSON under your own control.
+
+### 4.2 ⚠️ Correction: the download is already ungated — this blocker is resolved
+
+An earlier draft argued at length that an 8-minute survey gate was suppressing installs, and
+recommended ungating the binary. **The binary was never gated.** `fablegear.html:387` is a
+plain static anchor in the hero section:
+
+```html
+<a id="dl-btn"
+   href="https://github.com/fabledharbinger0993/FableGear/releases/latest/download/FableGear.zip"
+   class="cta-btn">Download for macOS  ↓</a>
+```
+
+That is a stable, permanent, linkable URL that always resolves to the newest release. It works
+with JavaScript disabled. Press can link it, a Homebrew cask can point at it, and it can be
+pasted into a Reddit reply. The strapline underneath already reads
+`Free · MIT licensed · No account · Nothing leaves your computer`.
+
+**Everything section 7 needs from this is already true.** The recommendation is retired, not
+pending.
+
+One real defect in the same block, worth fixing while you're in there: the script at
+`fablegear.html:600` fetches `/fablegear/release` to decorate the button with a version number
+and file size, but `functions/` contains only `api/consult.js` — there is no handler for that
+route. The fetch 404s on every page load and the `.catch()` swallows it, so the version tag
+stays `display:none` forever. The download itself is unaffected, which is exactly why nobody
+has noticed. Either add the Pages Function or drop the fetch; right now it's dead weight that
+looks like a working feature.
 
 ### 4.3 Copyleft dependencies vs. selling a binary
 
@@ -228,8 +283,9 @@ It is not fatal. Three conditions keep the sentence true:
 1. **The free path never closes.** MIT source stays public; a working free build stays
    available. Nothing is taken away, so the promise holds.
 2. **Everyone from the beta is grandfathered permanently free**, by name, without asking. They
-   filled out an 8-minute survey to help build this. They are the people the sentence was
-   addressed to.
+   took a risk on an unsigned build that rewrites their library, and filed the issues that made
+   it work. They are the people the sentence was addressed to. (See §6.3 — you need a way to
+   identify them first, and right now there isn't one.)
 3. **Price the convenience, never the capability.** What's sold is the signed, notarized,
    self-updating build and the update channel — not a feature the free build lacks.
 
@@ -241,10 +297,15 @@ features, upsells, or logins" and needs rewording to match this; and given MIT p
 self-updating Python app, **DRM is not worth building.** Anyone can delete `beta.py`. The paid
 build should be the path of least resistance, not a locked door.
 
-### 5.1 The beta-expiry gate is a better free/paid line than anything I proposed
+### 5.1 ⚠️ Diagnose-free / fix-paid is the right boundary — but nothing implements it yet
 
-`beta.py` degrades an expired beta to dry-run — every tool still reports what it *would* do,
-nothing writes. That is an unusually good freemium boundary, and it's already built:
+An earlier draft described `beta.py` degrading an expired beta to dry-run, and called it
+"already built." **It is not built.** There is no `beta.py` in this repository and no
+expiry check anywhere in the source; the module exists only in the handoff notes. Read the
+rest of this section as a design proposal, because that is all it has ever been.
+
+The proposed behavior — an expired beta degrades to dry-run, where every tool still reports
+what it *would* do and nothing writes — remains an unusually good freemium boundary:
 
 > **FableGear always tells you what's wrong with your library, free. Fixing it is the paid
 > build.**
@@ -253,9 +314,9 @@ It maps to delivered value, it matches the safety story (preview first, always),
 tier is genuinely useful rather than crippled — a full diagnostic report on your library for
 nothing.
 
-The honest caveat: as *enforcement* it's a local clock check in MIT-licensed source, so it's
-honor-system. That's fine. Treat it as the shape of the offer, not as a lock, and don't spend
-engineering on hardening it.
+The honest caveat: as *enforcement* it would be a local clock check in MIT-licensed source, so
+it's honor-system. That's fine. Treat it as the shape of the offer, not as a lock, and don't
+spend engineering on hardening it.
 
 ---
 
@@ -306,7 +367,7 @@ Free forever        MIT source. Full diagnostic build: audit, report, preview
 
 FableGear Signed    $19.99 one-time at v1.0
                     $9.99 founding-supporter price, offered now to beta testers
-                    Free forever for everyone who filled out the survey
+                    Free forever for the beta cohort (see note on identifying them)
                     -> notarized, Gatekeeper-clean install
                     -> automatic update channel
                     -> all future versions. No subscription. Ever.
@@ -321,6 +382,16 @@ Why this shape:
 - **One-time, never subscription.** That's the entire wedge against Lexicon, Mixo, and Rekord
   Cloud. Give it up and 3.5 collapses.
 - **Free tier is genuinely useful**, which keeps section 5's promise intact.
+
+**Identifying the beta cohort is an open problem.** The earlier draft assumed a survey with an
+email field would define it. There is no survey (4.1), no account, and no telemetry — by
+design, and that design is the product's whole pitch. So there is currently *no record of who
+the beta testers are*, and a promise to grandfather them has nothing to resolve against.
+Options, cheapest first: a GitHub-based claim (anyone who starred, filed an issue, or commented
+before date X), a mailing list you start now, or a one-field email capture on the download page
+that is explicitly *not* a research survey. Pick one before announcing the grandfather clause,
+or don't announce it. A promise you can't honor because you have no list is worse than no
+promise.
 
 **If rekordbox-free export holds up across XDJ, OPUS-QUAD, and 2000NXS2, this is a different
 conversation — $49+ and a different company.** Don't price for that outcome before the hardware
@@ -408,28 +479,30 @@ connection. Local record shops, promoters, and DJ nights are free, high-trust di
 no competitor can replicate remotely, and local DJs will let you sit next to them while they
 run it on a real library — which is worth more than a hundred survey rows.
 
-### 7.3 The survey is a marketing asset, not just research
+### 7.3 If a survey gets built, it's a marketing asset — not just research
 
-The Likert data on rekordbox, Serato, Mixed In Key, Lexicon, and Traktor satisfaction is
+Likert data on rekordbox, Serato, Mixed In Key, Lexicon, and Traktor satisfaction would be
 competitive research **nobody else has and everybody wants.** Aggregated and anonymized, "we
 asked N DJs what they hate about managing their libraries" is the most linkable artifact this
-project could produce, and it costs nothing but the analysis.
+project could produce, and it would cost nothing but the analysis.
 
 It's also a far better press pitch than "please cover my app" — it gives DJ TechTools and
 Digital DJ Tips a *story* rather than a favor. Publish it, credit the respondents as a cohort,
-and it retroactively justifies the 8 minutes you asked of them.
+and it justifies the time you asked of them.
 
-That reframes the trade in 4.2: you don't need the gate to get responses. You need the
-responses to be worth something, and publishing them is what does that.
+Note this section describes a survey that does not exist yet (4.1). It is an argument for
+building one — and specifically for building it as a *publishable aggregate* rather than a
+private research file — not a description of data you currently hold. The publishing plan is
+what makes it worth the build; without that, it's a spreadsheet.
 
 ### 7.4 Sequence
 
 | Phase | Do | Gate to next |
 |---|---|---|
-| **0 — Unblock** | Wire `SUBMIT_ENDPOINT` (4.1). Ungate the download (4.2). Reconcile README with the live page (§1). Resolve yt-dlp positioning (4.4). Record the 90-second video. Repo topics + Discussions on. | Funnel captures data; download is linkable |
+| **0 — Unblock** | Reconcile README with the live page (§1) — now the top item. Resolve yt-dlp positioning (4.4). Record the 90-second video. Repo topics + Discussions on. Fix or drop the dead `/fablegear/release` fetch (4.2). Decide whether the survey gets built at all (4.1). | README matches reality; video exists |
 | **1 — Free technical launch** | Show HN, r/macapps, r/opensource, MCP dirs, Homebrew cask, AlternativeTo, Product Hunt. **Ask for nothing but feedback.** | 100+ stars; issues from strangers |
-| **2 — Harvest proof** | Answer every issue fast. Collect quotable testimonials by name, with permission. Test more players. Publish the survey aggregate (7.3). | 3–5 testimonials; 3+ players verified |
-| **3 — DJ communities** | Tier 1 reactive help. Publish the six Tier 2 guides. Pitch Tier 4 press with the video and the survey story. | Roundup listings; steady non-technical users |
+| **2 — Harvest proof** | Answer every issue fast. Collect quotable testimonials by name, with permission. Test more players. Publish the survey aggregate *if* the survey was built (7.3). | 3–5 testimonials; 3+ players verified |
+| **3 — DJ communities** | Tier 1 reactive help. Publish the six Tier 2 guides. Pitch Tier 4 press with the video, and the survey story if there is one. | Roundup listings; steady non-technical users |
 | **4 — v1.0 paid** | Notarized build. $19.99, $9.99 founding, beta cohort free forever — all three stated together (§5). | First 50 sales, no refund spiral |
 
 Phase 2 is the real gate. If nobody will say something good on the record, don't start phase 4
