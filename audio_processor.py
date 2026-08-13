@@ -820,6 +820,47 @@ def _write_enriched_tags(path: Path, meta: dict, *, force: bool = False) -> list
     return written
 
 
+def extract_embedded_art(path: Path) -> tuple[bytes, str] | None:
+    """Return (image_bytes, mime_type) for a track's embedded cover art.
+
+    Covers the three tag families the library actually sees: ID3 APIC
+    (mp3/wav/aiff), MP4 covr atoms (m4a/aac), and FLAC/Vorbis picture
+    blocks (flac/ogg). Returns None if the file has no embedded art —
+    callers should treat that as "no artwork", not an error.
+    """
+    try:
+        audio = MutagenFile(str(path))
+    except Exception:
+        return None
+    if audio is None:
+        return None
+
+    tags = audio.tags
+    if tags is not None:
+        getall = getattr(tags, "getall", None)
+        if callable(getall):
+            frames = getall("APIC")
+            if frames:
+                data = getattr(frames[0], "data", None)
+                if data:
+                    return bytes(data), getattr(frames[0], "mime", None) or "image/jpeg"
+
+        if hasattr(tags, "get"):
+            covers = tags.get("covr")
+            if covers:
+                cover = covers[0]
+                is_png = getattr(cover, "imageformat", None) == getattr(cover, "FORMAT_PNG", object())
+                return bytes(cover), ("image/png" if is_png else "image/jpeg")
+
+    pictures = getattr(audio, "pictures", None)
+    if pictures:
+        pic = pictures[0]
+        if getattr(pic, "data", None):
+            return bytes(pic.data), pic.mime or "image/jpeg"
+
+    return None
+
+
 # ─── Tag writing ──────────────────────────────────────────────────────────────
 
 def _write_tags(path: Path, bpm: float | None, key: str | None) -> None:
