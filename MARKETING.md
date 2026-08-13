@@ -1,412 +1,472 @@
 # FableGear — Marketability Review, Pricing, and Go-to-Market
 
-Status: strategy draft, August 2026. Written against the product as it actually ships today
-(v1.1.28, macOS-only, MIT, 1 GitHub star, no code signing, no reviews or press).
+Status: strategy draft, August 2026. Revised against the live landing page
+(`guthrieent.com/fablegear`), the beta-gate research funnel, and the beta-expiration
+module — not just the in-repo README.
 
-Nothing in this document invents social proof, benchmarks, or testimonials. Where proof is
-missing it says so, because the missing proof is the main thing standing between this product
-and revenue.
-
----
-
-## 1. What we are actually selling
-
-Not "a Rekordbox utility." The thing being sold is **confidence that a library operation
-won't silently destroy work** — where "work" means years of playlists, cues, and crate logic
-that a DJ cannot rebuild.
-
-The buyer's emotional state at purchase is not "I'd like nicer tools." It is one of:
-
-- Tracks show `!` and half the collection won't load, two days before a gig.
-- Music moved to a new drive and Rekordbox lost the paths.
-- They ran a duplicate cleanup and playlists came back empty.
-- They inherited/merged a 40,000-track mess across four externals and can't face it manually.
-
-That is a *panic purchase* category, and panic purchases convert at prices far above $10.
-This matters for section 3.
+**Read section 1 first.** An earlier draft of this document was written from `README.md` alone
+and got two important things wrong in the conservative direction.
 
 ---
 
-## 2. Uniqueness: what genuinely sets FableGear apart
+## 1. What the README understates
 
-Ranked by how defensible each one is and how well it converts.
+The repo's `README.md` is now behind the product. Three claims on the live page change the
+strategy, not just the copy:
 
-### 2.1 The two-kinds-of-duplicate thesis — the single strongest asset
+**1. USB export writes beat grids and waveforms, and it booted a CDJ-3000 with no rekordbox
+involved.** The README says the opposite — that export omits analysis data and players may show
+blank waveforms. If the live page is current, this is not a caveat to hide; it is the most
+valuable thing this project has, and the first draft of this review buried it as a weakness.
+**Reconcile the two documents before any campaign starts** — right now the repo actively
+undersells the product to anyone who reads it, which is every technical visitor and every
+journalist who checks.
 
-Every competitor treats "duplicate" as one problem: two files that sound the same. FableGear
-is the only tool that names the second problem out loud — **two `DjmdContent` rows for one
-song, where the filesystem is fine and the database is wrong** — and ships a separate tool for
-it with the guarantee that *no record is removed until every playlist referencing it has been
-re-wired.*
+**2. There is a real benchmark, with a published method.** 12,687 rekordbox beat grids as an
+answer key, 300-track random sample: **91.4% exact agreement, 94.8% within 1%, 98.3% within
+4%** — up from 13.4% exact on the previous method. Plus a documented self-caught bug (the
+loudness tool clipping and destroying 39 of 39 test files, now fixed to refuse rather than
+damage). The first draft said no benchmarks existed and not to invent any. They exist, they're
+methodologically honest, and they are the strongest marketing asset in the project after the
+CDJ boot.
 
-Why this is the lead message:
+**3. The actual thesis is rekordbox independence, not library cleanup.** From the page: *"you
+should not need rekordbox to get music onto a player… the choice of what manages your
+collection stops being made for you by whoever built the gear."* That is a categorically bigger
+story than "a toolkit that cleans your library," and it changes who covers it and what it's
+worth.
 
-- It's a **teaching claim**. It makes the reader realize they have a problem they didn't know
-  had a name. That is the most reliable way to earn attention without an ad budget.
-- It's **verifiable in 30 seconds** by anyone who reads `README.md`, and the code backs it up.
-- It reframes competitors as unsafe without naming them. Rekordbox's own duplicate search and
-  most third-party dedupers cannot distinguish the two cases, and picking wrong drops the
-  track from every playlist with no warning.
-- It generates the best single line of copy available: **"Deleting duplicates shouldn't empty
-  your playlists."**
-
-### 2.2 Local-first, counter-positioned against the entire paid market
-
-The two best-funded competitors are cloud-and-subscription products (Lexicon: account +
-$9.99/mo or $199 lifetime; Mixo: cloud, $7/mo, no buy-once option). FableGear is the opposite
-on every axis a suspicious DJ cares about: no account, no cloud, no telemetry, nothing leaves
-the Mac, and the source is readable.
-
-Counter-positioning is the cheapest form of differentiation there is, because the incumbents
-structurally cannot follow. Lexicon cannot abandon its subscription. Mixo cannot stop being
-cloud. FableGear can hold "your library never leaves your machine" indefinitely.
-
-The sharpest version of this: **"You can read the code that writes to your database."** No
-competitor in this category can say that.
-
-### 2.3 Safety-as-a-feature — the Health Monitor is under-marketed
-
-Pre-flight checks for iCloud/Dropbox syncing the library folder, symlinked database, read-only
-mounts, backups on the same drive as the database, suspicious DB size changes, low disk, and
-Rekordbox still running — with enforcement, not advice.
-
-Nobody markets this. It should be a headline, not a footnote, because it does something rare:
-it finds a problem the user didn't ask about and didn't know they had. "iCloud is syncing your
-Rekordbox database, and that's how libraries get corrupted" is a moment of genuine value
-delivered before the user has done any work. That moment is what a free tier exists to create.
-
-### 2.4 Breadth at one price point
-
-Audit, path repair, two kinds of dedupe, BPM/key tagging, EBU R128 normalization, format
-conversion, metadata-driven reorganization, pattern/learned-rule renaming, cross-drive novelty
-scanning, playlist management, USB export — plus the Pipeline Wizard to chain the file-layer
-tools into one run.
-
-Competitors fragment this. RCT (€29.50) is essentially fingerprint dedupe plus relocation.
-Lexicon charges $199 lifetime for the management tier. FableGear's whole set at one price is a
-legitimate value claim.
-
-### 2.5 Tags written into the files, not just the database
-
-BPM and key go into the audio file's own metadata, so the analysis survives a Rekordbox
-rebuild or a move to different software. This is an **anti-lock-in** message and it lands hard
-with anyone who has ever lost a library. "Your analysis belongs to your files, not to Pioneer."
-
-### 2.6 The MCP server — a free press hook with zero competition
-
-FableGear runs as an MCP server, so an AI assistant can audit, tag, dedupe, or reorganize a
-library conversationally, with the same enforced safety contract (Rekordbox closed, backup
-first). As far as this review can determine, **no other DJ library tool does this.**
-
-Very few DJs will use it in year one. That is not the point. The point is that it is the only
-part of this product that a tech audience — Hacker News, MCP directories, dev newsletters,
-AI-tooling roundups — will cover for free. It buys reach that the DJ-tool framing cannot.
-
-### 2.7 FableGo — phone control without a cloud
-
-Browse, manage playlists, trigger analysis jobs and USB exports from a phone over LAN or
-Tailscale, with no service in the middle. Unusual, demo-friendly, and it reinforces 2.2 rather
-than diluting it.
-
-### 2.8 Free and open source, MIT
-
-A trust asset first and a distribution asset second. It is the reason strangers will tolerate
-you posting about it in their communities, and the reason a nervous DJ will let it near their
-database.
+Also under-weighted: **playlist recovery from a USB stick** — rebuild a lost laptop library off
+an exported drive. That is the purest panic-purchase feature in the product.
 
 ---
 
-## 3. Honest weaknesses — these set the price ceiling
+## 2. What we are actually selling
 
-State these plainly, because pricing decisions made without them are fiction.
+Not a utility. Two things, in this order:
 
-| # | Weakness | Marketing consequence |
-|---|---|---|
-| 1 | **The app is not signed or notarized.** No `codesign`/`notarytool` step exists in `build_release.sh` or the release workflow. | The hard blocker on charging money. Asking someone to pay, then telling them macOS will call the app unverified, then having it open a Terminal window to install dependencies — for software whose job is writing to their irreplaceable library — is a refund generator and a trust catastrophe. **Fix before any paid launch.** |
-| 2 | **First-run onboarding is developer-grade.** Terminal window, Homebrew, `ffmpeg` + `chromaprint`, internet required. | Fine for free/open-source. Unacceptable for a paid consumer product. Every friction step is a refund. |
-| 3 | **macOS only.** `FableGear_win.spec` exists but release CI is `macos-latest` only. | Roughly halves the addressable market. Don't imply Windows support anywhere. When Windows ships, that's a second launch — treat it as a free relaunch event. |
-| 4 | **USB export omits waveform, beat-grid, and hot-cue analysis**; players may show blank waveforms until Rekordbox re-analyzes. | Must never be a headline feature. If a buyer's mental model is "this replaces Rekordbox export," they will feel cheated on a dancefloor. Keep the README's honesty in all copy. |
-| 5 | **No Serato / Traktor / VirtualDJ support.** | Forfeits the funnel every competitor uses: free library *conversion* as the top of funnel, paid management behind it. FableGear has no equivalent free hook, so section 5 builds one out of the Health Monitor and Audit instead. |
-| 6 | **Zero social proof.** 1 star, 0 forks, no reviews, no press, no video. | The actual bottleneck. No amount of pricing cleverness beats this. Solve it before charging. |
-| 7 | **"FableGear" is not a searchable name.** Nobody types it. It doesn't say what it does. | All discovery must be symptom-led, not brand-led. See section 5.2. Don't rename — build the symptom content instead. |
-| 8 | **Dependency on `pyrekordbox` + the Rekordbox DB format.** An AlphaTheta update can break writes overnight. | Real support and refund exposure once money is involved. Disclose it; don't get caught by it. |
-| 9 | **MIT license + a paywall are in tension** — and `PRODUCT.md` principle 5 explicitly forbids copy that implies gated features. | Needs an explicit decision. See 3.1. |
+**Near term — recovery of work that looks lost.** The buyer's state at purchase is panic: three
+hundred missing tracks, a dead laptop, a drive that remounted under a new name, a duplicate
+cleanup that emptied playlists. Panic purchases clear far higher prices than convenience
+purchases.
 
-### 3.1 The license question, answered
-
-Everything published to date is MIT and stays MIT forever; that can't be recalled. Anyone can
-fork the last free commit and redistribute. So a license-key DRM scheme in an MIT, self-updating
-Python app is bypassable in an afternoon, and building it is wasted engineering.
-
-**Recommendation: keep MIT and sell the convenience, not the code.**
-
-Sell the signed, notarized, self-updating `.app` — the build nobody wants to produce themselves
-— while source stays free and auditable. Charge for the packaging, the update channel, and
-priority attention. This is a well-worn model and it has three advantages: it's honest, it
-keeps 2.2 and 2.8 intact, and it doesn't set fire to the goodwill of the people who give you
-your first stars.
-
-Do **not** relicense to source-available to protect revenue. The copyright is single-author and
-LLC-held, so it's legally available, but the OSS audience that gives FableGear its only current
-credibility will read it as a bait-and-switch, and at this price point there is nothing to
-protect. Revisit only if there's real revenue to defend.
-
-Then update `PRODUCT.md` principle 5, which currently reads "free/open-source with no account
-system — copy should never imply gated features, upsells, or logins." It contradicts the plan.
-Rewrite it as: *free and open source with no account system; a paid convenience build may exist,
-but no capability is ever locked behind payment and nothing requires a login.* That keeps the
-principle's spirit and stays true.
+**Long term — the exit from Pioneer's library monopoly.** Nobody else is credibly attempting
+"get music onto a CDJ without rekordbox." One verified boot on one player on one day is not a
+product claim, but it *is* a story, and it's the one that makes press care.
 
 ---
 
-## 4. Pricing
+## 3. Uniqueness, re-ranked
 
-### 4.1 What the market actually charges
+### 3.1 Writing a CDJ-readable USB without rekordbox — the category-defining claim
+
+Deep Symmetry and rekordcrate reverse-engineered the format; plenty of projects *read* it.
+Writing a stick that a CDJ-3000 actually loads and plays, from a third-party app, is rare
+enough that it reframes the product from "maintenance tool" to "the beginning of an
+alternative." Handle it exactly as the page already does — one player, one day, take a
+rekordbox stick to the gig too. The honesty is what makes the claim believable rather than
+hype, and it's why the page works.
+
+This is the headline for **press and technical audiences**, not for panicking DJs. Different
+audience, different lead — see 7.1.
+
+### 3.2 The 91.4% benchmark — proof, in a market that runs on assertion
+
+Every competitor asserts good analysis. None publishes a method against an answer key with the
+adverse cases included. "We tested against 12,687 rekordbox grids and here's where we fail"
+buys more trust from this audience than any amount of polish, and it converts especially well
+with the meticulous archivist buyer.
+
+The bug disclosure (39 of 39 files damaged, found and fixed) belongs in the marketing, not
+hidden from it. Publishing a failure you caught yourself is the strongest possible signal for a
+product whose whole pitch is "safe to point at your library."
+
+### 3.3 The two-kinds-of-duplicate thesis
+
+Still the best *teaching* claim, and the best short line of copy: **"Deleting duplicates
+shouldn't empty your playlists."** It makes a reader realize they have a problem that has a
+name. The page's framing — duration in the match so a 3:30 radio edit never merges with a 7:00
+extended mix, fingerprints so a raw rip matches its Mixed In Key pass — is more concrete and
+more convincing than the README's version. Use the page's.
+
+### 3.4 Playlist recovery from an exported USB
+
+Highest emotional value per word in the whole feature list. "Your laptop died. Your USB
+didn't." Lead with this to the panic segment.
+
+### 3.5 Local-first, counter-positioned against every paid competitor
+
+Lexicon and Rekord Cloud are account-and-cloud products. Mixo is subscription-only. FableGear
+is the opposite on every axis a suspicious DJ cares about, and the incumbents structurally
+cannot follow: Lexicon can't abandon its subscription, Rekord Cloud can't stop being a browser
+service. **"You can read the code that writes to your database"** is available to nobody else
+in this category.
+
+### 3.6 Honesty as the actual brand
+
+The "What we are not going to pretend about" section is the most differentiated thing on the
+site. In a category full of overclaiming, a page that volunteers *loudness normalization often
+declines to do anything, and that means the feature does less than its name suggests* is doing
+something competitors cannot copy without repositioning their whole company. This is not a
+weakness section. **It is the brand.** Protect it, and never let a launch deadline sand it down.
+
+### 3.7 The MCP server, with enforced tool ordering
+
+The ordering constraint — an agent can't deduplicate a library it hasn't audited — is the
+detail that makes this more than a checkbox. Few DJs will use it in year one; that isn't the
+point. It's the only part of the product a technical audience will cover unprompted.
+
+### 3.8 Breadth, and the four-subscriptions argument
+
+The page's framing is right: *we got tired of paying four separate companies to do four things
+to the same folder of music.* Mixed In Key + Platinum Notes + Lexicon + a dedupe tool is real
+money annually. One free local app doing the maintenance parts is a clean value claim — and it
+becomes the price argument in section 6.
+
+---
+
+## 4. Blockers, in priority order
+
+### 4.1 `SUBMIT_ENDPOINT` is empty — the funnel currently collects nothing
+
+Per the handoff notes, submissions fall back to `localStorage` and display the JSON. Every
+survey completed right now is **lost**. This is the single highest-priority item; driving any
+traffic before it's wired is pure waste. Needs the Cloudflare Worker → Apps Script → Sheet path
+built, or an off-the-shelf form endpoint as a stopgap.
+
+### 4.2 The 8-minute survey gate is costing more than it collects
+
+The download link doesn't exist anywhere in the static HTML — it's injected only after
+submission. That is a deliberate research decision with a legitimate goal, and the research
+question is real: three people's blind spots genuinely aren't the community's. But it has costs
+worth naming:
+
+- **Nobody can link to the download.** Not a Reddit comment, not a press article, not a
+  Homebrew cask, not a friend in a group chat. This forecloses most of section 7's channels.
+- **8 minutes of forms before a free beta** converts in the low single digits from cold
+  traffic. Warm traffic — someone who read the whole page — does much better, maybe a third.
+  But cold traffic is what a launch produces.
+- **At one GitHub star, the binding constraint is users, not research data.** Installs produce
+  issues, testimonials, and word of mouth. Survey rows produce a spreadsheet.
+
+**Recommendation: keep the survey, ungate the binary.** Make Download the primary CTA and the
+survey a strong, prominent secondary with a real incentive attached — founding-tester credit
+and a permanent free license (which section 6 needs anyway). You will get fewer responses per
+visitor and far more installs, and the responses you do get will come from people who actually
+ran the thing, which makes them worth more. If the gate stays, at minimum publish one stable
+direct download URL that press and package managers can point at.
+
+### 4.3 Copyleft dependencies vs. selling a binary
+
+`essentia` is **AGPL-3.0**. `mutagen` is **GPL-2.0-or-later**. `ffmpeg` is LGPL/GPL. Today
+this is fine: the page says these install from PyPI on the user's machine at first run rather
+than shipping inside the download, and FableGear's own source is public.
+
+Two things must be verified before money changes hands:
+
+1. **What the PyInstaller specs actually bundle.** `FableGear.spec` and `FableGear_win.spec`
+   exist. If a distributed `.app` bundles essentia or mutagen, selling that bundle pulls the
+   combined work into AGPL-3.0 and GPL-2.0 territory, with source obligations attached. Check
+   the built bundle's contents, not the intent.
+2. **FableGo's network exposure.** AGPL §13 is triggered by users interacting with the program
+   over a network. FableGear serves a UI to a phone over LAN or Tailscale. Public MIT source
+   likely satisfies it today; a closed paid build would not.
+
+Note also that essentia *is* the 91.4% number. The headline benchmark depends on the AGPL
+component, so it can't be quietly dropped to simplify licensing.
+
+**This is a "have someone competent confirm it" item, not a blog-post-level question.** Get it
+right before the first sale, not after.
+
+### 4.4 `yt-dlp` blocks the best free press channel
+
+The page describes a download tool powered by yt-dlp — *"what you do with it is your
+responsibility."* Defensible for a free OSS project. For a paid product it's a problem:
+
+- Digital DJ Tips, DJ TechTools, and DJ Mag take money from Beatport, labels, and distributors.
+  They will not feature a product that bundles a YouTube ripper. That forecloses Tier 4 press
+  (section 7.2) — the channel where buyers in this category actually shop.
+- Storefronts (Gumroad, Lemon Squeezy) have policies on circumvention tooling.
+- It attracts rightsholder attention that a two-person LLC does not want.
+
+**Recommendation:** keep it out of the marketed feature set entirely, and out of the paid build.
+An optional component nobody advertises costs nothing; a headline feature costs you the press.
+Right now it's listed on the dependency page, which is the honest place for it — just never let
+it onto a feature list or a store listing.
+
+### 4.5 No code signing or notarization
+
+There is no `codesign` or `notarytool` step in `build_release.sh` or the release workflow.
+Acceptable for a free beta. Fatal for a paid product: telling a buyer macOS will call the app
+unverified, then opening a Terminal to install Homebrew dependencies, for software that writes
+to their irreplaceable library, is a refund generator. **Hard prerequisite for charging.**
+
+### 4.6 Still true from the first draft
+
+macOS only, with no Windows build and correctly no promised date. First-run onboarding is
+developer-grade. No Serato/Traktor support, so there's no free-conversion funnel like the one
+Lexicon and Music Library Doctor use for top-of-funnel. One GitHub star, no reviews, no demo
+video. And **"FableGear" is not a term anyone searches** — all discovery has to be symptom-led.
+
+---
+
+## 5. The promise problem
+
+The page says, in its own words:
+
+> *"That is the reason this is free and the source is public: a library tool you depend on
+> should not be something that can be taken away or priced up later."*
+
+That sentence is the best paragraph on the site and it is also a direct constraint on
+monetization. Charging for FableGear a few months after publishing it — without care — reads as
+precisely the thing it promised not to do, to exactly the audience most likely to notice and
+least likely to forgive it. Losing that credibility costs more than the first year of revenue
+is worth.
+
+It is not fatal. Three conditions keep the sentence true:
+
+1. **The free path never closes.** MIT source stays public; a working free build stays
+   available. Nothing is taken away, so the promise holds.
+2. **Everyone from the beta is grandfathered permanently free**, by name, without asking. They
+   filled out an 8-minute survey to help build this. They are the people the sentence was
+   addressed to.
+3. **Price the convenience, never the capability.** What's sold is the signed, notarized,
+   self-updating build and the update channel — not a feature the free build lacks.
+
+Say all three *in the same breath as the price*, on the page, permanently. Announced that way
+it's a supporter model. Announced any other way it's a bait-and-switch.
+
+Two housekeeping consequences: `PRODUCT.md` principle 5 currently forbids copy implying "gated
+features, upsells, or logins" and needs rewording to match this; and given MIT plus a
+self-updating Python app, **DRM is not worth building.** Anyone can delete `beta.py`. The paid
+build should be the path of least resistance, not a locked door.
+
+### 5.1 The beta-expiry gate is a better free/paid line than anything I proposed
+
+`beta.py` degrades an expired beta to dry-run — every tool still reports what it *would* do,
+nothing writes. That is an unusually good freemium boundary, and it's already built:
+
+> **FableGear always tells you what's wrong with your library, free. Fixing it is the paid
+> build.**
+
+It maps to delivered value, it matches the safety story (preview first, always), and the free
+tier is genuinely useful rather than crippled — a full diagnostic report on your library for
+nothing.
+
+The honest caveat: as *enforcement* it's a local clock check in MIT-licensed source, so it's
+honor-system. That's fine. Treat it as the shape of the offer, not as a lock, and don't spend
+engineering on hardening it.
+
+---
+
+## 6. Pricing
+
+### 6.1 The market
 
 | Product | Model | Price | Scope |
 |---|---|---|---|
-| Lexicon DJ | Subscription or lifetime | $9.99/mo or **$199 lifetime** (Essential); $19.99/mo or $399 (Ultimate) | Cloud/account, multi-app conversion + management |
-| Mixo | Subscription only | **$7/mo** (Gold) | Cloud library, sync/bridging |
-| Rekordbox Collection Tool (RCT) | One-time | **€29.50** | macOS, fingerprint dedupe + relocation — a *subset* of FableGear |
-| Music Library Doctor | Free tier + one-time lifetime Pro | Free / one-time | Multi-app audit, fingerprint dedupe, playlist transfer |
-| Rekordbox Library Fixer | Free, open source | $0 | Dupes, relocate, organize |
+| Lexicon | Subscription or lifetime | $9.99/mo or **$199 lifetime**; Ultimate $19.99/mo or $399 | Cloud/account, multi-app sync |
+| Mixo | Subscription only | **$7/mo** | Cloud library, no buy-once option |
+| Rekordbox Collection Tool | One-time | **€29.50** | macOS, fingerprint dedupe + relocate — a *subset* of FableGear |
+| Mixed In Key | One-time | ~$58–98 | Key/energy only |
+| Platinum Notes | One-time | ~$99 | Loudness/correction only |
+| Music Library Doctor | Free tier + one-time Pro | one-time | Multi-app audit, dedupe, playlist transfer |
 
-The category clears **$30–$200**. A macOS tool doing *less* than FableGear sustains €29.50 one-time.
+The four-subscriptions argument cuts directly: a DJ replacing Mixed In Key plus Platinum Notes
+plus a dedupe tool is comparing against roughly **$200 of one-time purchases**, not against
+$2.99.
 
-### 4.2 On the $2.99–9.99 range
+### 6.2 On $2.99–9.99
 
-$2.99 is the wrong number and it's worth being direct about why:
+$2.99 is the wrong number, and with the benchmark in hand it's clearly wrong:
 
-- **Price is a quality signal here.** The buyer has $2,000+ in CDJs and an irreplaceable
-  library. A $2.99 app that writes to that library reads as a weekend hobby project, not
-  something to trust. Cheap actively repels this buyer.
-- **The fee math is brutal at the bottom.** On a $2.99 sale, platform + payment fees take
-  roughly 13–20%. Net is around $2.40–2.60. You need ~4x the unit volume of a $9.99 price to
-  earn the same money — while carrying 4x the support load, on identical software.
-- **It caps the story.** Getting into a "best DJ library tools" roundup at $2.99 invites the
-  reader to assume it's a toy. At $19–29 the same listing reads as the value pick against
-  Lexicon's $199.
+- **Price is a quality signal.** The buyer has $2,000+ in CDJs and an irreplaceable library. A
+  $2.99 app that rewrites that library reads as a weekend project. Cheap actively repels this
+  buyer.
+- **Fees eat the bottom.** ~13–20% of a $2.99 sale. You need roughly 4x the volume for the same
+  money at 4x the support load, on identical software.
+- **It contradicts the product's own evidence.** A page that publishes a 91.4% grid benchmark
+  and a CDJ-3000 boot, priced at $2.99, invites the reader to assume the numbers must be
+  softer than they look.
 
-$9.99 — the top of the range — is defensible and shippable. It clears the impulse threshold
-where DJs buy sample packs without deliberating, it doesn't signal abandonware, and it's low
-enough that "just try it" beats "research it."
+### 6.3 Recommendation
 
-### 4.3 Recommendation
+**Now, through beta: free. No price at all.**
 
-**Primary: $9.99 one-time founder price, then $24.99 standing.**
+Charging during beta — unsigned build, local-clock expiry gate, one player tested — is the
+worst available combination. The beta's job is proof: installs, issues, testimonials, and more
+hardware verified.
+
+**At v1.0 (signed + notarized, 3+ players confirmed): $19.99 one-time.**
 
 ```
-Free forever        Source (MIT) + self-built or unsigned build.
-                    Every capability. No feature gates, ever.
+Free forever        MIT source. Full diagnostic build: audit, report, preview
+                    everything. No capability is hidden — the free build tells
+                    you exactly what's wrong with your library.
 
-FableGear Signed    $9.99 one-time, "founding build," first 500 buyers
-                    $24.99 one-time thereafter
+FableGear Signed    $19.99 one-time at v1.0
+                    $9.99 founding-supporter price, offered now to beta testers
+                    Free forever for everyone who filled out the survey
                     -> notarized, Gatekeeper-clean install
                     -> automatic update channel
-                    -> priority on issues
-                    -> all future versions, no subscription
+                    -> all future versions. No subscription. Ever.
 ```
 
 Why this shape:
 
-- **$9.99 is inside the stated range**, so it's actionable now, and framing it as a founder
-  price makes the later $24.99 a fulfilled promise instead of a price hike. Announce the
-  standing price *at launch* — that's what makes $9.99 feel like a decision rather than a
-  discount.
-- **One-time, not subscription.** Anti-subscription sentiment is the strongest wedge against
-  both Lexicon and Mixo. Give it up and the counter-positioning in 2.2 collapses.
-- **Nothing is feature-gated.** This is what keeps the promise in 2.8 credible and keeps the
-  OSS audience on side. You are selling the notarized build and the update channel, which are
-  real costs you actually bear.
-- **$24.99 lands under RCT's €29.50** while the product does more. That is a clean value
-  argument in every roundup and comparison table.
+- **$9.99 stays real**, as the founding price for the people who earned it — so the range you
+  had in mind is honored rather than overridden.
+- **$19.99 lands under RCT's €29.50** while doing considerably more, which is a clean argument
+  in every comparison table, and roughly a tenth of Lexicon's lifetime tier.
+- **One-time, never subscription.** That's the entire wedge against Lexicon, Mixo, and Rekord
+  Cloud. Give it up and 3.5 collapses.
+- **Free tier is genuinely useful**, which keeps section 5's promise intact.
 
-**Do not turn on payments until items 1, 2, and 6 in section 3 are fixed.** In order:
-notarized build, one-command install, and at least a handful of real users willing to be
-quoted. Charging before that converts badly *and* burns the launch.
+**If rekordbox-free export holds up across XDJ, OPUS-QUAD, and 2000NXS2, this is a different
+conversation — $49+ and a different company.** Don't price for that outcome before the hardware
+testing exists, but don't sign anything that forecloses it either.
 
-### 4.4 Realistic revenue expectations
+### 6.4 Revenue expectations
 
-Starting audience is one GitHub star. Set expectations honestly: a good year-one outcome from
-a $0 campaign executed well is on the order of **100–500 paid units** — roughly **$1,000–5,000
-gross**, less 5–10% in fees. That pays for the Apple Developer Program, a domain, and a
-reinvestment budget. It is not income yet.
+Starting from one GitHub star: a good year-one outcome from a $0 campaign executed well is on
+the order of **100–500 paid units**, so **$2,000–10,000 gross** at $19.99, less 5–10% fees.
+That funds the Apple Developer Program, a domain, and hardware for the player testing that
+unlocks the next price tier. It is not income yet.
 
-The realistic year-one goal is not revenue. It is **proof**: users, quotes, roundup listings,
-and a video that converts. Revenue follows those, and it can't precede them.
+Year one's real deliverable is **proof**: users, quotable testimonials, roundup listings, more
+players verified, and a demo video that converts. Revenue follows those and cannot precede them.
 
 ---
 
-## 5. The $0 marketing campaign
+## 7. The $0 campaign
 
-Total cash cost: **$0**, with one optional $99 exception (Apple Developer Program) that section
-5.6 shows how to fund out of the free phase.
+Total cash cost **$0**, with one optional $99 exception (Apple Developer Program) funded in 7.4.
 
-### 5.1 Positioning and message hierarchy
+### 7.1 Message hierarchy — two audiences, two leads
 
-**Positioning statement**
-> FableGear is the local-first library room for Rekordbox DJs on Mac. It audits, repairs, and
-> cleans a collection with pre-flight safety checks and playlist-safe deduplication — and
-> nothing ever leaves your machine.
+The single biggest copy mistake available here is leading with the same line for both.
 
-**Primary hook (lead with this everywhere)**
-> Deleting duplicates shouldn't empty your playlists.
-
-**Supporting lines, by audience**
-
-| Audience | Line |
-|---|---|
-| Panicking DJ | "Rekordbox lost your files? Fix every broken path in one pass." |
-| Suspicious DJ | "No account. No cloud. No telemetry. You can read the code that writes to your database." |
-| Anti-subscription DJ | "Buy it once. Lexicon is $199 or $10 a month." |
-| Meticulous DJ | "It checks whether iCloud is quietly corrupting your database before you touch anything." |
-| Tech / press | "The first DJ library tool an AI assistant can safely drive." |
-
-**Never claim:** that it replaces Rekordbox export (weakness #4), that it supports Windows
-(#3), or anything about other DJ software (#5).
-
-### 5.2 Channel plan
-
-Because the brand name is unsearchable (#7), **every channel is symptom-led**. The DJ is not
-looking for FableGear. They're looking for why their tracks have exclamation marks.
-
-**Tier 1 — Reactive help, where the pain is posted (highest conversion, $0)**
-
-Watch and answer, don't broadcast.
-
-- **r/Beatmatch** — highest volume of exactly these help posts
-- **r/DJs** (~310k) — broader, stricter on promo
-- **r/DJHelp**, **r/rekordbox**, **r/Pioneer_DJ**, **r/DJProducers**
-- **Pioneer DJ official forums** (`forums.pioneerdj.com`) — the rekordbox section has 15,000+
-  posts and is exactly the frustrated-power-user pool
-- **Facebook groups** — "Pioneer's Rekordbox DJ Forum," Rekordbox user groups, city/regional DJ
-  groups. Unfashionable, free, and they convert well for DJ software because the members are
-  older and buy tools.
-- **Discords** — Pioneer DJ community, Digital DJ Tips, r/DJs, producer servers
-
-Method: standing searches for the symptoms — *missing tracks, exclamation mark, relocate,
-"moved to a new drive," duplicates deleted my playlist, blank waveform, library corrupted.*
-Answer the question completely and usefully **with no link**. Mention the tool only when it is
-the actual answer, disclose authorship every single time, and keep it to roughly one mention
-per ten genuinely helpful comments. Never DM. Never paste identical text across subs. Read each
-community's self-promo rules first. The free-and-open-source framing is what makes this
-tolerated — it's true, so use it.
-
-**Tier 2 — Evergreen searchable content (compounding, $0)**
-
-Write the fix-it guide for each symptom and let the tool be the answer at the bottom. These get
-found by search *and* get cited by AI assistants, which is now a real referral channel.
-
-1. "Rekordbox tracks show an exclamation mark — how to relocate hundreds at once"
-2. "I moved my music to a new drive and Rekordbox lost everything"
-3. "Deleting duplicates in Rekordbox emptied my playlists — what actually happened"
-4. "Physical vs. database duplicates: why your DJ library has two different problems"
-5. "How to write BPM and key into the file itself, so it survives a library rebuild"
-6. "Never keep your Rekordbox database in iCloud or Dropbox — here's why"
-
-Host on **GitHub Pages** (free; the repo has `has_pages` off — turn it on). A `.com` is ~$10/yr
-and optional, not required to start.
-
-**Tier 3 — Free listings and directories (one afternoon, permanent returns)**
-
-- **GitHub repo topics**: `rekordbox`, `dj`, `dj-tools`, `pyrekordbox`, `music-library`,
-  `macos`, `mcp-server`, `local-first` — currently unset, and this is free discovery
-- **GitHub Discussions** — currently off; turn it on so users have somewhere to land
-- **AlternativeTo** — list as an alternative to Lexicon, Mixo, and RCT. High-intent traffic:
-  these are people shopping the category right now.
-- **Product Hunt** — free, one shot, use it after the demo video exists
-- **MCP directories** — `awesome-mcp-servers`, PulseMCP, Smithery, mcpservers.org. Free, and
-  they reach the one audience that will cover this without being asked.
-- **Homebrew cask** — free submission, real credibility, and `brew install --cask fablegear`
-  removes most of weakness #2 for technical users
-- **r/macapps**, **r/opensource**, **r/selfhosted** (the FableGo + Tailscale angle)
-
-**Tier 4 — Earned media (free, needs a pitch)**
-
-Every one of these publishes "best DJ library tool" roundups, which is where buyers in this
-category actually shop.
-
-- **Digital DJ Tips** — already covered RCT, i.e. direct precedent for exactly this product
-- **DJ TechTools** — covered Mixo's launch; has a rekordbox forum section
-- **We Are Crossfader**, **The DJ Mixtape**, **Cadence DJ**, **ZIPDJ blog**, **DJ Mag Tech**
-- Mid-size rekordbox tutorial YouTubers — offer free lifetime keys, never payment
-
-Pitch format: two sentences on the playlist-safety thesis, the 90-second video, a free key, and
-one honest line about what it does *not* do. The honesty is what gets a reply — every other
-pitch in their inbox is pure claim.
-
-**Tier 5 — The technical launch (one-time reach spike)**
-
-**Show HN**, Lobsters, and AI/dev newsletters. Critically: *do not* pitch this as "my DJ app."
-Pitch the engineering — reading and safely writing an encrypted Rekordbox SQLite database via
-pyrekordbox, the two-kinds-of-duplicate problem and the playlist re-wiring invariant, and
-exposing it all over MCP. That audience rewards a hard technical problem told honestly, and
-several of them are DJs.
-
-### 5.3 The one asset worth building first
-
-**A 60–90 second screen recording: broken library → audit → fixed.**
-
-Nothing else moves conversion as much, no channel above works well without it, and it costs
-$0 (QuickTime + iMovie; `static/fablegear-splash.mp4` already exists for the top).
-
-Then cut it into 15–30s vertical clips for Shorts / Reels / TikTok, one "oh damn" moment each:
-
-- The fingerprint scan matching a 320kbps MP3 to a WAV of the same track
-- The Health Monitor catching Dropbox mid-sync on the library folder
-- 400 broken paths repaired in one pass
-- Consolidate Duplicates showing playlists being re-wired *before* anything is removed
-
-### 5.4 12-week sequence
-
-| Phase | Weeks | Do | Success = |
-|---|---|---|---|
-| **0 — Fix the blockers** | 1–2 | Record the demo video. Enable GitHub Pages + Discussions. Set repo topics. List on AlternativeTo + MCP directories. Add a Ko-fi / GitHub Sponsors link. | Product is presentable; a stranger can find it |
-| **1 — Free technical launch** | 3–5 | Show HN, r/macapps, r/opensource, MCP dirs, Homebrew cask PR. **Ask for nothing but feedback.** | 100+ stars, first real users, first issues from strangers |
-| **2 — Harvest proof** | 4–6 | Answer every issue fast. Ask happy users for one quotable sentence, by name, with permission. | 3–5 real testimonials. This is the phase that unlocks paid. |
-| **3 — DJ communities** | 6–10 | Tier 1 reactive help. Publish the six Tier 2 guides. Pitch Tier 4 press with the video. | Roundup listings; steady non-technical users |
-| **4 — Turn on paid** | 11–12 | Notarized build ships. $9.99 founder price live, $24.99 announced as the standing price. Free build stays. | First 50 sales; no refund spiral |
-
-Phase 2 is the gate. If nobody will say something nice on the record, do not start phase 4 —
-go back and find out why.
-
-### 5.5 Payment rails, all $0 upfront
-
-| Option | Cost | Note |
+| Audience | Lead with | Why |
 |---|---|---|
-| **Lemon Squeezy** or **Polar** | ~4–5% + fee, $0/mo | Merchant of record — handles EU VAT for you. **Recommended**; VAT exposure is a real risk for a solo LLC selling internationally. |
-| **Gumroad** | ~10%, $0/mo | Fastest possible setup, highest fee. Fine to start. |
-| **Ko-fi / GitHub Sponsors** | ~0–5% | Use during the free phase for donations (see 5.6) |
-| Stripe direct | 2.9% + 30¢ | Cheapest, but sales-tax/VAT compliance becomes your problem. Not worth it at this volume. |
+| **Panicking DJ** (most of the volume) | "Your laptop died. Your USB didn't." / "Rekordbox lost 300 tracks. Get them back." | They don't care about independence. They care about tonight. |
+| **Meticulous archivist** | "91.4% exact agreement with rekordbox's own beat grids. Here's the method." | Proof beats polish with this segment. |
+| **Anti-subscription DJ** | "Four companies were charging you for four things in one folder." | The Mixed In Key + Platinum Notes + Lexicon stack is the real competitor. |
+| **Press / technical** | "We wrote a USB with no rekordbox involved and a CDJ-3000 played it." | The only story here that a journalist will chase. |
 
-On license keys: keep it a simple offline signed token. Given 3.1, the goal is to make paying
-the obvious default path, not to make piracy impossible. Don't spend a week on DRM for a $10
-product.
+The hero line on the page — *"Your library is worth more than the software managing it"* — is
+good and should stay. It carries the thesis without overclaiming.
 
-### 5.6 Funding the one non-zero cost
+**Never claim:** Windows support, that export is proven beyond one CDJ-3000, or anything about
+Serato/Traktor. And keep the download tool off every feature list (4.4).
 
-The Apple Developer Program is $99/yr and it's the only thing on this list worth money —
-without it there is no notarized build, and without a notarized build there is no honest paid
-product. Fund it from the free phase: put a Ko-fi / GitHub Sponsors button in the README during
-phases 1–3 and let the first $99 of donations buy the certificate. Zero upfront, and the people
-who paid for it become the first advocates.
+### 7.2 Channels
 
-### 5.7 Metrics, all free
+**Tier 1 — Reactive help where the pain is posted.** r/Beatmatch, r/DJs (~310k), r/DJHelp,
+r/rekordbox, r/Pioneer_DJ; the Pioneer DJ forums (15,000+ rekordbox posts); rekordbox Facebook
+groups, which are unfashionable and convert well because the members are older and buy tools;
+the Pioneer DJ and Digital DJ Tips Discords.
 
-GitHub release download counts (via API), stars over time, repo Insights → Referring sites,
-Gumroad/Lemon Squeezy dashboard, and per-post upvote-to-click ratio to learn which framing
-lands. One number to watch above all: **downloads-to-issues ratio.** People who file issues are
-people who actually ran it, and in the free phase they are the only real signal that this
-product is being used rather than starred.
+Method: standing searches for the symptoms — *missing tracks, exclamation mark, relocate, moved
+to a new drive, duplicates deleted my playlists, laptop died, rebuild library from USB.* Answer
+completely, with no link. Mention the tool only when it is genuinely the answer, disclose
+authorship every time, roughly one mention per ten useful comments. Never DM, never cross-post
+identical text, read each community's promo rules. Note this channel **needs 4.2 fixed** — a
+helpful comment you can't attach a download link to converts badly.
+
+**Tier 2 — Evergreen symptom content.** Because the brand name is unsearchable, write the
+fix-it guide for each symptom and let the tool be the answer at the end:
+
+1. "Rekordbox shows an exclamation mark on hundreds of tracks — how to relocate them all"
+2. "My laptop died — rebuilding a rekordbox library from an exported USB"
+3. "Deleting duplicates in rekordbox emptied my playlists — what actually happened"
+4. "How accurate is rekordbox's beat grid? We tested 12,687 of them." ← this one is linkbait
+5. "How to write BPM and key into the file so it survives a library rebuild"
+6. "Never keep your rekordbox database in iCloud or Dropbox"
+
+Host on GitHub Pages or alongside the existing Cloudflare Pages site — both free.
+
+**Tier 3 — Free listings.** Repo topics (`rekordbox`, `dj`, `pyrekordbox`, `macos`,
+`mcp-server`, `local-first`) are currently unset, which is free discovery left on the table.
+Plus GitHub Discussions (off), AlternativeTo as a Lexicon/Mixo/RCT alternative — high-intent
+traffic from people shopping the category right now — MCP directories, Homebrew cask, Product
+Hunt, r/macapps, r/opensource. Several of these **require a linkable download** (4.2).
+
+**Tier 4 — Earned media.** Digital DJ Tips covered RCT, so there's direct precedent for exactly
+this product. Also DJ TechTools, We Are Crossfader, The DJ Mixtape, Cadence, ZIPDJ. Every one
+publishes "best DJ library tool" roundups, which is where buyers actually shop. Pitch: the CDJ
+boot, the benchmark method, the honest caveats section, a 90-second video, and a free key. The
+honesty is what earns a reply — every other pitch in their inbox is pure claim. **Gated on
+4.4** — resolve yt-dlp first.
+
+**Tier 5 — The technical launch.** Show HN, Lobsters, r/opensource, MCP directories. Pitch the
+engineering, not the app: writing a CDJ-readable Pioneer USB from scratch, benchmarking against
+12,687 rekordbox grids, safe writes to an encrypted SQLite library, MCP with enforced tool
+ordering. That audience rewards a hard problem told honestly, and a surprising number of them DJ.
+
+**Tier 6 — Philadelphia.** Guthrie Entertainment is a Philly company with an Osos Discos
+connection. Local record shops, promoters, and DJ nights are free, high-trust distribution that
+no competitor can replicate remotely, and local DJs will let you sit next to them while they
+run it on a real library — which is worth more than a hundred survey rows.
+
+### 7.3 The survey is a marketing asset, not just research
+
+The Likert data on rekordbox, Serato, Mixed In Key, Lexicon, and Traktor satisfaction is
+competitive research **nobody else has and everybody wants.** Aggregated and anonymized, "we
+asked N DJs what they hate about managing their libraries" is the most linkable artifact this
+project could produce, and it costs nothing but the analysis.
+
+It's also a far better press pitch than "please cover my app" — it gives DJ TechTools and
+Digital DJ Tips a *story* rather than a favor. Publish it, credit the respondents as a cohort,
+and it retroactively justifies the 8 minutes you asked of them.
+
+That reframes the trade in 4.2: you don't need the gate to get responses. You need the
+responses to be worth something, and publishing them is what does that.
+
+### 7.4 Sequence
+
+| Phase | Do | Gate to next |
+|---|---|---|
+| **0 — Unblock** | Wire `SUBMIT_ENDPOINT` (4.1). Ungate the download (4.2). Reconcile README with the live page (§1). Resolve yt-dlp positioning (4.4). Record the 90-second video. Repo topics + Discussions on. | Funnel captures data; download is linkable |
+| **1 — Free technical launch** | Show HN, r/macapps, r/opensource, MCP dirs, Homebrew cask, AlternativeTo, Product Hunt. **Ask for nothing but feedback.** | 100+ stars; issues from strangers |
+| **2 — Harvest proof** | Answer every issue fast. Collect quotable testimonials by name, with permission. Test more players. Publish the survey aggregate (7.3). | 3–5 testimonials; 3+ players verified |
+| **3 — DJ communities** | Tier 1 reactive help. Publish the six Tier 2 guides. Pitch Tier 4 press with the video and the survey story. | Roundup listings; steady non-technical users |
+| **4 — v1.0 paid** | Notarized build. $19.99, $9.99 founding, beta cohort free forever — all three stated together (§5). | First 50 sales, no refund spiral |
+
+Phase 2 is the real gate. If nobody will say something good on the record, don't start phase 4
+— find out why instead.
+
+**Funding the one non-zero cost:** the Apple Developer Program is $99/yr and it's the only item
+worth money, because without it there's no notarized build and therefore no honest paid product.
+Put a Ko-fi or GitHub Sponsors link on the page during phases 1–3 and let the first $99 of
+donations buy the certificate. Zero upfront, and the people who funded it become the first
+advocates.
+
+### 7.5 Payment rails, $0 upfront
+
+**Lemon Squeezy** or **Polar** (~4–5%, merchant of record, handles EU VAT — recommended, since
+VAT exposure is a real risk for a solo LLC selling internationally). **Gumroad** (~10%, fastest
+setup) is fine to start. Stripe direct is cheapest but makes sales-tax compliance your problem;
+not worth it at this volume. Keys should be a simple offline signed token — per §5, the goal is
+making payment the easy path, not making bypass impossible.
+
+### 7.6 Metrics, all free
+
+GitHub release download counts, stars over time, repo Insights → referring sites, storefront
+dashboard, per-post upvote-to-click ratio. The number that matters most in the free phase is
+**downloads-to-issues ratio** — people who file issues actually ran it, and they're the only
+real evidence the product is being used rather than starred.
 
 ---
 
-## 6. Risks
+## 8. Risks
 
 | Risk | Mitigation |
 |---|---|
-| **Trademark / ToS with AlphaTheta (Pioneer DJ)**, especially once money changes hands | Never put "Rekordbox" in the product name, logo, domain, or store title. Always "for Rekordbox" / "works with Rekordbox," always with an explicit no-affiliation disclaimer. Review before the paid launch. |
-| **A Rekordbox update breaks database writes** | Disclose the dependency in the store listing before purchase, not after. Free build always available as a fallback. Keep the refund policy generous — one refunded sale is cheaper than one angry roundup mention. |
-| **Reddit/forum backlash over self-promotion** | Help-first ratio, disclose authorship every time, never cross-post identical text, read each community's rules. |
-| **Someone forks and sells the MIT source** | Genuinely low-stakes at this price. The moat is the notarized build, the update channel, and being the author people trust — not the code. |
-| **A paid user's library gets damaged** | The existing safety architecture is the actual mitigation, and it's already strong. Do not let paid-launch pressure ship a write path that skips backup, dry-run, or the Rekordbox-closed check. One horror story in r/DJs outlives any campaign in this document. |
+| **Charging after "should not be priced up later"** | §5's three conditions, stated together with the price, permanently. This is the reputational risk, and it's larger than the revenue at stake. |
+| **AGPL-3.0 / GPL-2.0 deps in a sold binary** | Audit what the PyInstaller specs actually bundle; confirm FableGo's AGPL §13 position. Before the first sale (4.3). |
+| **yt-dlp closing the press channel** | Off every feature list and out of the paid build (4.4). |
+| **Trademark / ToS with AlphaTheta** | Never "rekordbox" in the product name, logo, domain, or store title. Always "for rekordbox," always with a no-affiliation disclaimer. Sharpens considerably once the export work aims at replacing their pipeline. |
+| **A rekordbox update breaks DB writes** | Disclose the pyrekordbox dependency before purchase, not after. Free build always available as a fallback. Generous refunds — one refunded sale is cheaper than one angry roundup mention. |
+| **The USB export claim generalizing badly** | Keep the one-player caveat verbatim in every channel until more hardware is tested. A DJ whose stick fails on an OPUS-QUAD at a gig will say so publicly, and they'll be right. |
+| **Someone forks and sells the MIT source** | Low stakes at this price. The moat is the notarized build, the update channel, the benchmark, and being the author people trust. |
+| **A paid user's library gets damaged** | The existing safety architecture is the mitigation and it's already strong. Do not let paid-launch pressure ship a write path that skips backup, preview, or the rekordbox-closed check. One horror story in r/DJs outlives every campaign in this document. |
