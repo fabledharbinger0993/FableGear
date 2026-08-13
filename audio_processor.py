@@ -837,20 +837,22 @@ def extract_embedded_art(path: Path) -> tuple[bytes, str] | None:
 
     tags = audio.tags
     if tags is not None:
-        getall = getattr(tags, "getall", None)
-        if callable(getall):
-            frames = getall("APIC")
-            if frames:
-                data = getattr(frames[0], "data", None)
-                if data:
-                    return bytes(data), getattr(frames[0], "mime", None) or "image/jpeg"
+        # .getall() only exists on ID3; MP4Tags/VCFLACDict don't have it.
+        try:
+            frames = tags.getall("APIC")
+        except AttributeError:
+            frames = None
+        if frames:
+            frame = frames[0]
+            data = getattr(frame, "data", None)
+            if data:
+                return bytes(data), getattr(frame, "mime", None) or "image/jpeg"
 
-        if hasattr(tags, "get"):
-            covers = tags.get("covr")
-            if covers:
-                cover = covers[0]
-                is_png = getattr(cover, "imageformat", None) == getattr(cover, "FORMAT_PNG", object())
-                return bytes(cover), ("image/png" if is_png else "image/jpeg")
+        covers = tags.get("covr")
+        if covers:
+            cover = covers[0]
+            is_png = getattr(cover, "imageformat", None) == getattr(cover, "FORMAT_PNG", object())
+            return bytes(cover), ("image/png" if is_png else "image/jpeg")
 
     pictures = getattr(audio, "pictures", None)
     if pictures:

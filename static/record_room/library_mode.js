@@ -288,7 +288,7 @@ function _leFsTrackRow(t, idx) {
         <button type="button" class="le-stage-btn" onclick="stagingAddPath('${safePath}')" title="Stage for Chop Shop">+Q</button>
       </div>
       <div class="le-col le-col-num">${idx + 1}</div>
-      <div class="le-col le-col-art"><span class="le-art-glyph">♫</span></div>
+      <div class="le-col le-col-art"><img class="le-art-fallback" src="/static/icon-logo-fablegear.png" alt=""></div>
       <div class="le-col le-col-title" title="${safePath}">${_esc(t.title)}</div>
       <div class="le-col le-col-artist">${_esc(t.artist)}</div>
       <div class="le-col le-col-album">${_esc(t.album) || _esc(folder)}</div>

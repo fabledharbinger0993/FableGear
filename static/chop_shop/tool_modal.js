@@ -934,7 +934,7 @@ function _leBuildTrackRow(t, absIndex, inPlaylist) {
       ${handle}
       <div class="le-col le-col-play"><button class="le-play-btn${playbackState === 'pause' ? ' is-playing' : ''}" data-track-id="${_leEsc(t.id)}" aria-label="${playbackState === 'pause' ? 'Pause track' : 'Play track'}">${playbackState === 'pause' ? '❚❚' : '▶'}</button></div>
       <div class="le-col le-col-num">${absIndex + 1}</div>
-      <div class="le-col le-col-art"><span class="le-art-glyph">♫</span><img class="le-art-img" src="/api/library/tracks/${_leEsc(t.id)}/art?db=${encodeURIComponent(_leDbSource)}" loading="lazy" alt="" onerror="this.style.display='none'"></div>
+      <div class="le-col le-col-art"><img class="le-art-fallback" src="/static/icon-logo-fablegear.png" alt=""><img class="le-art-img" src="/api/library/tracks/${_leEsc(t.id)}/art?db=${encodeURIComponent(_leDbSource)}" loading="lazy" alt="" onerror="this.style.display='none'"></div>
       <div class="le-col le-col-title le-editable le-title-editable" data-field="title" data-id="${_leEsc(t.id)}" title="Double-click to edit title"><div class="le-title-progress"></div><span class="le-title-text">${_leEsc(t.title || '—')}</span><div class="le-title-seek" aria-hidden="true"></div></div>
       <div class="le-col le-col-artist">${_leEsc(t.artist || '—')}</div>
       <div class="le-col le-col-album">${_leEsc(t.album || '—')}</div>

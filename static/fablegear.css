@@ -4789,7 +4789,7 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
   align-items: center;
   justify-content: center;
 }
-.le-art-glyph { font-size: .85rem; color: rgba(var(--room-accent-rgb), .35); line-height: 1; }
+.le-art-fallback { width: 60%; height: 60%; object-fit: contain; opacity: .4; }
 .le-art-img {
   position: absolute;
   inset: 0;
@@ -7405,7 +7405,7 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   align-items: center;
   justify-content: center;
 }
-.deck-art-glyph { font-size: 1rem; color: rgba(var(--room-accent-rgb), .4); line-height: 1; }
+.deck-art-fallback { width: 60%; height: 60%; object-fit: contain; opacity: .45; }
 .deck-art-img {
   position: absolute;
   inset: 0;
