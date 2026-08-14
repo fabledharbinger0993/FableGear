@@ -179,6 +179,15 @@ async function deckLoadTrack(trackId, meta, targetDeck, opts) {
   if (titleEl) titleEl.textContent = dk.meta.title;
   if (artistEl) artistEl.textContent = dk.meta.artist + (dk.meta.album ? ' — ' + dk.meta.album : '');
 
+  const artEl = _d(id, 'art');
+  if (artEl) {
+    const dbSource = (typeof _leGetState === 'function') ? _leGetState('_leDbSource', 'fablegear') : 'fablegear';
+    artEl.style.display = 'none';
+    artEl.src = trackId != null
+      ? `/api/library/tracks/${encodeURIComponent(trackId)}/art?db=${encodeURIComponent(dbSource)}`
+      : '';
+  }
+
   const origKeyEl = _d(id, 'orig-key');
   const durEl = _d(id, 'dur');
   if (origKeyEl) origKeyEl.textContent = dk.meta.key || '—';

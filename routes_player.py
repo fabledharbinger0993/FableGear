@@ -991,6 +991,52 @@ def api_library_track_stream(track_id):
         return jsonify({"error": str(exc)}), 500
 
 
+@bp.route("/api/library/tracks/<track_id>/art")
+def api_library_track_art(track_id):
+    """Embedded cover art for a track, resolved the same way as .../stream.
+
+    404 (not an error payload the UI should surface) means "no artwork" —
+    tracks routinely have none, so the deck/track-row art slot falls back
+    to its placeholder glyph rather than showing a broken image."""
+    source = (request.args.get("db") or "").lower()
+    file_path = ""
+
+    if source not in ("local", "device"):
+        try:
+            db = _fablegear_db()  # read-only: None when the library isn't built yet
+            rec = db.get_content_by_id(int(track_id)) if db else None
+            if rec is not None:
+                file_path = (rec.file_path or "").strip()
+        except (ValueError, TypeError):
+            pass
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+    if not file_path:
+        from config import LOCAL_DB as _DB
+        from db_connection import read_db
+        try:
+            with read_db(_DB) as db:
+                track = db.get_content(ID=track_id)
+                file_path = str(track.FolderPath or "").strip() if track is not None else ""
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+    if not file_path or not os.path.isfile(file_path):
+        return jsonify({"error": "No audio file for track"}), 404
+
+    from audio_processor import extract_embedded_art
+    art = extract_embedded_art(Path(file_path))
+    if art is None:
+        return jsonify({"error": "No embedded artwork"}), 404
+
+    data, mime = art
+    import io
+    resp = send_file(io.BytesIO(data), mimetype=mime, conditional=False)
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
 # ── Hot cues / loops (Record Room deck performance state) ─────────────────────
 #
 # Backed by fg_cue, which already exists and is exercised by the Rekordbox

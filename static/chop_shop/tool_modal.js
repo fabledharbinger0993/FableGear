@@ -724,6 +724,7 @@ async function leLoadLibrary() {
     if (playlistsRes.ok) {
       const playlists = await playlistsRes.json();
       leRenderPlaylistTree(playlists);
+      leUpdateLibraryStats(playlists);
     }
     leActivateAllTracksSelection();
     if (libMissing && !_leAllTracks.length) {
@@ -740,6 +741,27 @@ async function leLoadLibrary() {
     _leTracksLoaded = false;
     leSetStatus('Could not load library — is the database connected?');
     document.getElementById('le-empty-state').innerHTML = '<div style="font-size:2rem;margin-bottom:10px;opacity:.4">⚠</div><div>Failed to load library.</div>';
+  }
+}
+
+// Dashboard stat strip above the filter bar — real numbers, computed from
+// the same data already fetched for the track list and playlist tree.
+function _leCountPlaylists(nodes) {
+  return (nodes || []).reduce((sum, node) => {
+    const own = node.type === 'playlist' ? 1 : 0;
+    return sum + own + _leCountPlaylists(node.children);
+  }, 0);
+}
+
+function leUpdateLibraryStats(playlistTree) {
+  const tracksEl = document.getElementById('le-stat-tracks');
+  const playlistsEl = document.getElementById('le-stat-playlists');
+  const hoursEl = document.getElementById('le-stat-hours');
+  if (tracksEl) tracksEl.textContent = _leAllTracks.length;
+  if (playlistsEl) playlistsEl.textContent = _leCountPlaylists(playlistTree);
+  if (hoursEl) {
+    const totalSecs = _leAllTracks.reduce((sum, t) => sum + (Number(t.duration) || 0), 0);
+    hoursEl.textContent = (totalSecs / 3600).toFixed(1);
   }
 }
 
@@ -912,6 +934,7 @@ function _leBuildTrackRow(t, absIndex, inPlaylist) {
       ${handle}
       <div class="le-col le-col-play"><button class="le-play-btn${playbackState === 'pause' ? ' is-playing' : ''}" data-track-id="${_leEsc(t.id)}" aria-label="${playbackState === 'pause' ? 'Pause track' : 'Play track'}">${playbackState === 'pause' ? '❚❚' : '▶'}</button></div>
       <div class="le-col le-col-num">${absIndex + 1}</div>
+      <div class="le-col le-col-art"><img class="le-art-fallback" src="/static/icon-logo-fablegear.png" alt=""><img class="le-art-img" src="/api/library/tracks/${_leEsc(t.id)}/art?db=${encodeURIComponent(_leDbSource)}" loading="lazy" alt="" onerror="this.style.display='none'"></div>
       <div class="le-col le-col-title le-editable le-title-editable" data-field="title" data-id="${_leEsc(t.id)}" title="Double-click to edit title"><div class="le-title-progress"></div><span class="le-title-text">${_leEsc(t.title || '—')}</span><div class="le-title-seek" aria-hidden="true"></div></div>
       <div class="le-col le-col-artist">${_leEsc(t.artist || '—')}</div>
       <div class="le-col le-col-album">${_leEsc(t.album || '—')}</div>

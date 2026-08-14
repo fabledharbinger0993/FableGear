@@ -933,6 +933,22 @@
       </div>
     </div>
 
+    <!-- Library stat strip — real dashboard numbers instead of tiny sidebar text -->
+    <div class="le-stat-row" id="le-stat-row">
+      <div class="le-stat-tile">
+        <span class="le-stat-value" id="le-stat-tracks">—</span>
+        <span class="le-stat-label">Tracks</span>
+      </div>
+      <div class="le-stat-tile">
+        <span class="le-stat-value" id="le-stat-playlists">—</span>
+        <span class="le-stat-label">Playlists</span>
+      </div>
+      <div class="le-stat-tile">
+        <span class="le-stat-value" id="le-stat-hours">—</span>
+        <span class="le-stat-label">Hours</span>
+      </div>
+    </div>
+
     <!-- Filter bar -->
     <div id="lib-filter-bar">
       <div class="lf-group">
@@ -1067,6 +1083,7 @@
         <div class="le-track-header">
           <div class="le-col le-col-play">Play</div>
           <div class="le-col le-col-num">#</div>
+          <div class="le-col le-col-art"></div>
           <div class="le-col le-col-title" onclick="leSortBy('title')">Title <span class="le-sort-arrow" data-col="title"></span></div>
           <div class="le-col le-col-artist" onclick="leSortBy('artist')">Artist <span class="le-sort-arrow" data-col="artist"></span></div>
           <div class="le-col le-col-album" onclick="leSortBy('album')">Album <span class="le-sort-arrow" data-col="album"></span></div>
