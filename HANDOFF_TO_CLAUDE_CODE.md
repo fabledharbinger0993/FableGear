@@ -12,7 +12,8 @@ up next, most likely on the Mac Studio. Everything below is already pushed —
   patch that had a raw unified diff pasted into `static/fablegear.css` as dead
   text, restored the Record Room/Chop Shop "One Room, One Light" color
   boundary, fixed low-contrast library columns, added a dashboard stat strip,
-  and added mutagen-based album art extraction (`/api/library/tracks//art`).
+  and added mutagen-based album art extraction
+  (`/api/library/tracks/<track_id>/art`).
 
 Both were drafts sitting green; both merged clean, squashed.
 
