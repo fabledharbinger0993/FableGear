@@ -17,7 +17,7 @@ up next, most likely on the Mac Studio. Everything below is already pushed —
 
 Both were drafts sitting green; both merged clean, squashed.
 
-## In flight — `guthrieent` repo, PR #6 (NOT merged, still draft)
+## Shipped and live — `guthrieent` repo, PR #6 (merged by Marshall, both envs verified)
 
 `guthrieent` is the separate Cloudflare Pages marketing site
 (`fabledharbinger0993/guthrieent`), not this repo. It hosts `fablegear.html` —
@@ -25,8 +25,13 @@ the public write-up + adaptive research survey + beta download page. **This
 was previously discussed and the decision was to keep it a separate repo from
 FableGear itself** (Cloudflare/static-site vs. Python app) — don't merge them.
 
-PR: https://github.com/fabledharbinger0993/guthrieent/pull/6
-Live branch preview: https://claude-fablegear-survey-down.guthrieent-git.pages.dev/fablegear.html
+PR (merged): https://github.com/fabledharbinger0993/guthrieent/pull/6
+Live: https://guthrieent.com/fablegear and https://guthrieent.com/dashboard
+
+Both Production and Preview D1 (`DB`) and `DASHBOARD_KEY` bindings are set and
+confirmed working — a real test submission was posted to production, landed
+in D1 correctly, then deleted. The dashboard's wrong-key path returns 401
+(not 503), confirming the key is live. Nothing left to configure here.
 
 What's in it:
 - An adaptive survey (not a flat form) — checking a tool in the inventory
@@ -58,31 +63,24 @@ What's in it:
   explicitly deferred to a later pass — this is the simple version by
   request, not a placeholder for one nobody asked to skip.
 
-**Why it's still draft, and what's actually blocking merge:** two Cloudflare
-dashboard bindings need to be set by hand — this is a human-console step,
-not something a coding session can do from here:
-1. Pages project → Settings → Functions → D1 database bindings → variable
-   name `DB` → database `guthrieent-fablegear-survey`.
-2. Settings → Environment variables → `DASHBOARD_KEY` → any secret string
-   (this is what unlocks `/dashboard.html`).
-
-Until (1) is done, survey submissions 503 gracefully and get stashed in
-`localStorage` client-side — nothing is lost, it's just not landing
-anywhere durable yet. Until (2) is done, `/dashboard.html` just shows "not
-configured" at the gate.
+**Two gotchas hit while wiring this, worth knowing if it ever needs touching
+again:**
+1. Cloudflare Pages bindings/env vars are **deployment-scoped** — saving a
+   new binding or secret in Settings does not rebuild an already-live
+   deployment on its own. A genuinely new deployment (new commit, or a
+   manual retry from the Deployments tab) is required before it takes
+   effect. This cost real back-and-forth before it was diagnosed.
+2. Production and Preview have **separate** binding/variable sets in the
+   Cloudflare dashboard (a dropdown at the top of Settings). Both need `DB`
+   and `DASHBOARD_KEY` set independently — confirmed both are, now.
 
 **Concurrent-edit note, since it already happened once:** while the D1/
-dashboard work above was in progress, another session pushed a commit
-directly to this same branch (`a43e933` — fixed the speech-bubble clipping
-and gave `lib-none` its own statement set) without any coordination. It
-integrated cleanly via `git fetch` + `git rebase` before pushing, no
-conflicts, but if you're picking this branch up: **fetch and rebase before
-you push**, don't assume you have the latest tip, and expect the possibility
-that something else is mid-edit here too.
-
-I'm subscribed to PR #6 and will keep handling CI/review activity on it from
-the cloud side. If you merge it locally instead, no need to coordinate —
-just let the PR close naturally and I'll stop polling it.
+dashboard work was in progress, another session pushed a commit directly to
+this same branch (`a43e933` — fixed the speech-bubble clipping and gave
+`lib-none` its own statement set) without any coordination. It integrated
+cleanly via `git fetch` + `git rebase` before pushing, no conflicts, but if
+multiple sessions are ever active on the same repo again: **fetch and
+rebase before you push**, don't assume you have the latest tip.
 
 ## Open decisions nobody has made yet (flagged in `MARKETING.md`, not acted on)
 
