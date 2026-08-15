@@ -33,6 +33,50 @@ confirmed working — a real test submission was posted to production, landed
 in D1 correctly, then deleted. The dashboard's wrong-key path returns 401
 (not 503), confirming the key is live. Nothing left to configure here.
 
+## In flight — `guthrieent` PR #9, Workers AI (NOT merged, draft)
+
+PR: https://github.com/fabledharbinger0993/guthrieent/pull/9
+
+Per direct instruction to "employ workers for the survey process" and give
+the mascot "seemingly responsive autonomy" — scoped down after discussion to
+two safe, specific things rather than a general AI agent:
+
+1. **Response tagging** — sentiment + up to 5 topic tags, generated in the
+   background (`context.waitUntil`) after a response is already saved, via
+   Workers AI. New `responses.sentiment` column, new `response_topics` table.
+2. **Dashboard AI summary** — a cached, periodically-refreshed "what people
+   are saying" paragraph plus sentiment/topic breakdowns, now rendered on
+   `dashboard.html`.
+3. **Mascot reactive lines** — deliberately the *narrow* option of two
+   discussed: the mascot's speech-bubble line is generated per survey step,
+   but the prompt only ever contains a fixed section id and validated tool
+   ids matched against server-side allow-lists (`SECTION_COPY`, `TOOL_LABELS`
+   in `functions/api/mascot-line.js`). **No text a visitor types ever reaches
+   the prompt** — that fuller version was explicitly discussed and rejected
+   as a public-facing prompt-injection surface, not an oversight. The page
+   races this against a 1000ms timeout and only swaps the bubble text in if
+   it wins; the existing canned lines are the real fallback, not a spinner.
+
+All three are fail-open: no `AI` binding, and everything behaves exactly as
+PR #6 shipped it, just without tags/summary/AI lines.
+
+**Blocking merge:** same shape of setup as D1 — a Workers AI binding
+(variable name `AI`) needs to be added on **both** Production and Preview
+(Settings → Functions → Bindings → Add → Workers AI). Same deployment-
+scoping catch as before: saving the binding doesn't rebuild an already-live
+deployment, a fresh one is needed after.
+
+Verified so far without a live AI binding (can't be tested outside
+Cloudflare's runtime): `node --check` on all three touched/new Function
+files, and the mascot race/fallback behavior + dashboard rendering against
+mocked API responses in headless Chromium — swap-on-fast-response, canned-
+line-stays-on-timeout-or-error, summary/sentiment/topic rendering all
+confirmed. What's *not* yet verified is real model output — actual tagging
+accuracy and whether the JSON-shape prompt reliably produces parseable
+output from `@cf/meta/llama-3.1-8b-instruct`. Once the binding is set, the
+same pattern used to verify D1 applies: post a real test submission, check
+it lands with a sentiment/topics via a direct D1 query, delete it.
+
 What's in it:
 - An adaptive survey (not a flat form) — checking a tool in the inventory
   step reveals a satisfaction block for *that* tool only; hardware and
