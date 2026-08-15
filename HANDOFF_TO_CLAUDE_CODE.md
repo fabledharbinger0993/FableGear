@@ -33,29 +33,52 @@ What's in it:
   step reveals a satisfaction block for *that* tool only; hardware and
   "have you tried FableGear" questions branch the same way. Captures DJ
   software users, Apple Music/iTunes-only users, and "just files in
-  folders" users as distinct respondent paths.
+  folders" users as distinct respondent paths, each with statements that
+  actually fit them (folders-only gets its own four statements rather than
+  the DJ-software ones nonsensically substituted in).
 - A mascot (the `icon-logo-fablegear.png` character) that floats
   continuously and narrates each survey step in a speech bubble as you
-  scroll to it.
-- Backend wiring: `functions/api/survey.js` (Cloudflare Pages Function,
-  same-origin relay) → `apps-script/Code.gs` (Google Apps Script collector,
-  dynamic-schema so per-tool Likert keys don't get dropped) →
-  `functions/fablegear/release.js` (decorates the download button with live
-  release version/size instead of 404ing).
+  scroll to it. The bubble flips above the character when there's no room
+  below (near the bottom of a long page) instead of clipping off-screen.
+- A `suggestions` free-text field, for a longer review after someone's
+  actually used FableGear — separate from the pre-use pain-point/blind-spot
+  questions.
+- **Storage is Cloudflare D1**, not Google Sheets/Apps Script — that plan
+  changed mid-session per direct instruction (a "local server" idea got
+  scoped down to D1 once the always-on/reachable-by-strangers problem with
+  self-hosting was raised). Database `guthrieent-fablegear-survey` already
+  exists with its schema applied (`responses` / `response_tools` /
+  `response_likert` — see the comment header in `functions/api/survey.js`
+  for why three tables). `apps-script/Code.gs` is deleted; nothing reads it.
+- **`dashboard.html`** — a key-gated, aggregate-only admin view (stat tiles,
+  CSS bar charts, a truncated/expandable open-text feed), reading from
+  `functions/api/dashboard-data.js`. Never returns emails or raw payloads.
+  Linked quietly from the `fablegear.html` footer at low opacity, not in the
+  public nav. The "neuron-inspired 3D graph" idea floated for this was
+  explicitly deferred to a later pass — this is the simple version by
+  request, not a placeholder for one nobody asked to skip.
 
-**Why it's still draft, and what's actually blocking merge:** the Apps
-Script backend needs to be deployed and wired by hand — this is a
-human-console step, not something a coding session can do from here:
-1. Create the spreadsheet, paste in `apps-script/Code.gs`, deploy as a Web
-   app ("Execute as: Me", "Who has access: Anyone").
-2. Set `SURVEY_SHEET_URL` to the `/exec` URL in Cloudflare Pages →
-   Settings → Environment variables.
-3. Sanity check: visiting the `/exec` URL directly should return
-   `{"status":"ok"}`.
+**Why it's still draft, and what's actually blocking merge:** two Cloudflare
+dashboard bindings need to be set by hand — this is a human-console step,
+not something a coding session can do from here:
+1. Pages project → Settings → Functions → D1 database bindings → variable
+   name `DB` → database `guthrieent-fablegear-survey`.
+2. Settings → Environment variables → `DASHBOARD_KEY` → any secret string
+   (this is what unlocks `/dashboard.html`).
 
-Until that's done, survey submissions 503 gracefully and get stashed in
+Until (1) is done, survey submissions 503 gracefully and get stashed in
 `localStorage` client-side — nothing is lost, it's just not landing
-anywhere durable yet.
+anywhere durable yet. Until (2) is done, `/dashboard.html` just shows "not
+configured" at the gate.
+
+**Concurrent-edit note, since it already happened once:** while the D1/
+dashboard work above was in progress, another session pushed a commit
+directly to this same branch (`a43e933` — fixed the speech-bubble clipping
+and gave `lib-none` its own statement set) without any coordination. It
+integrated cleanly via `git fetch` + `git rebase` before pushing, no
+conflicts, but if you're picking this branch up: **fetch and rebase before
+you push**, don't assume you have the latest tip, and expect the possibility
+that something else is mid-edit here too.
 
 I'm subscribed to PR #6 and will keep handling CI/review activity on it from
 the cloud side. If you merge it locally instead, no need to coordinate —
@@ -104,3 +127,9 @@ fresh cloud session picks this up later, it starts with FableGear read-only
 by default and needs `guthrieent` re-attached with push access before it can
 push there — that's a one-time per-session tool call, not a credentials
 problem.
+
+Same story for D1: this session has Cloudflare tools connected and used them
+to create `guthrieent-fablegear-survey` and apply its schema directly (no
+`wrangler` CLI, no local Cloudflare login) — a fresh session needs the
+equivalent connector, not file access, to run any further schema changes or
+one-off queries against it.
