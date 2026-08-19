@@ -16,6 +16,10 @@ Container family A only, for now: ID3v2.3 / v2.4 over MP3, WAV, and AIFF.
     result.db_companion   # {"BPM": 12850} -- ready for master.db, never written here
 """
 
+# Submodules are re-exported explicitly. They are reachable anyway once the
+# imports below register them in sys.modules, but relying on that side effect
+# leaves `anvil.api` untyped to a checker and unobvious to a reader.
+from anvil import api, containers, errors, id3, safety, schema
 from anvil.api import (
     WriteResult,
     clear_fields,
@@ -54,10 +58,16 @@ __all__ = [
     "UnsupportedFormat",
     "WriteResult",
     "WriteVerificationFailed",
+    "api",
     "clear_fields",
+    "containers",
     "db_companion",
+    "errors",
+    "id3",
     "read_cover_art",
     "read_fields",
     "read_tag",
+    "safety",
+    "schema",
     "write_fields",
 ]
