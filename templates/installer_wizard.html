@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FableGear — Setup</title>
+<link rel="stylesheet" href="/static/fablegear.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%; height: 100vh;
+    /* fablegear.css's own body rule sets real padding here (left nav rail,
+       titlebar, bottom log panel) sized for the main app's chrome -- this
+       page shares that stylesheet for its color/type tokens but is not the
+       main app's layout, so those paddings must be zeroed explicitly rather
+       than relied on to lose by source order (same-specificity `body`
+       selectors don't; only the properties actually redeclared here do). */
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+
+  .wiz {
+    width: 640px;
+    height: 100vh;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
+  /* ── Ambient backdrop: a slow drifting glow behind everything, restrained.
+     One flourish, spent once, here -- every step after this is calm. ── */
+  .wiz::before {
+    content: "";
+    position: fixed; inset: -20%;
+    background:
+      radial-gradient(circle at 20% 15%, rgba(var(--accent-rgb), .10), transparent 45%),
+      radial-gradient(circle at 85% 80%, rgba(var(--accent-b-rgb), .07), transparent 50%);
+    animation: drift 22s ease-in-out infinite alternate;
+    pointer-events: none;
+    z-index: 0;
+  }
+  @keyframes drift {
+    from { transform: translate(0, 0) scale(1); }
+    to   { transform: translate(-2%, 2%) scale(1.06); }
+  }
+
+  /* ── Top chrome: progress + step label ── */
+  .wiz-chrome {
+    position: relative; z-index: 1;
+    padding: 22px 34px 0;
+    flex: none;
+  }
+  .wiz-progress-track {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .wiz-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    border-radius: 2px;
+    transition: width .5s cubic-bezier(.4,0,.2,1);
+  }
+  .wiz-steplabel {
+    margin-top: 10px;
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .wiz-steplabel b { color: var(--text-muted); font-weight: 600; }
+
+  /* ── Body ── */
+  .wiz-body {
+    position: relative; z-index: 1;
+    flex: 1;
+    min-height: 0;
+    padding: 8px 34px 28px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .wiz-body::-webkit-scrollbar { width: 4px; }
+  .wiz-body::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px; }
+
+  .panel { display: none; flex: 1; flex-direction: column; }
+  .panel.active {
+    display: flex;
+    animation: panel-in .4s cubic-bezier(.4,0,.2,1);
+  }
+  @keyframes panel-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Welcome ── */
+  .welcome { align-items: center; justify-content: center; text-align: center; gap: 4px; }
+  .welcome-mark {
+    width: 84px; height: 84px;
+    border-radius: 22px;
+    background: linear-gradient(155deg, var(--surface-hi), var(--surface));
+    border: 1px solid var(--border-hi);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2.2rem;
+    margin-bottom: 22px;
+    box-shadow: 0 0 0 1px rgba(var(--accent-rgb), .08), 0 18px 40px -14px rgba(0,0,0,.6);
+    animation: mark-in .6s cubic-bezier(.34,1.56,.64,1);
+  }
+  @keyframes mark-in {
+    from { opacity: 0; transform: scale(.7) translateY(8px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  .welcome h1 {
+    font-size: 1.7rem; font-weight: 700; letter-spacing: -.01em;
+    margin-bottom: 10px;
+  }
+  .welcome p {
+    color: var(--text-muted); font-size: .94rem; line-height: 1.6;
+    max-width: 40ch; margin-bottom: 30px;
+  }
+
+  /* ── Section headers (shared) ── */
+  .sec-head { margin-bottom: 20px; }
+  .sec-icon { font-size: 1.9rem; margin-bottom: 8px; display: block; }
+  .sec-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 5px; }
+  .sec-sub { color: var(--text-muted); font-size: .88rem; line-height: 1.55; }
+
+  /* ── Check rows ── */
+  .check-list { display: flex; flex-direction: column; gap: 0; margin-bottom: 4px; }
+  .check-row {
+    display: flex; align-items: center; gap: 11px;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--border);
+    font-size: .89rem;
+    opacity: 0; transform: translateX(-6px);
+    animation: row-in .35s cubic-bezier(.4,0,.2,1) forwards;
+  }
+  .check-row:last-child { border-bottom: none; }
+  @keyframes row-in { to { opacity: 1; transform: translateX(0); } }
+
+  .check-dot {
+    width: 18px; height: 18px; flex: none;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .68rem; font-weight: 700;
+    border: 1.5px solid var(--border-hi);
+    color: transparent;
+  }
+  .check-dot.pending {
+    border-color: var(--border-hi);
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .check-dot.ok    { background: var(--safe-dim);    border-color: var(--safe);    color: var(--safe); }
+  .check-dot.warn  { background: var(--caution-dim); border-color: var(--caution); color: var(--caution); }
+  .check-dot.fail  { background: var(--danger-dim);  border-color: var(--danger);  color: var(--danger); }
+
+  .check-label { flex: 1; color: var(--text); }
+  .check-detail { color: var(--text-dim); font-size: .78rem; font-family: var(--mono); text-align: right; }
+
+  /* ── Install groups ── */
+  .grp {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+  .grp-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+  .grp-label { font-weight: 600; font-size: .92rem; }
+  .grp-tag {
+    font-family: var(--mono); font-size: .66rem; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--text-dim); border: 1px solid var(--border-hi); border-radius: 999px;
+    padding: 2px 8px;
+  }
+  .grp-tag.optional { color: var(--caution); border-color: var(--caution-border); }
+  .grp-desc { color: var(--text-muted); font-size: .82rem; line-height: 1.5; margin-bottom: 6px; }
+  .grp-pkgs { font-family: var(--mono); font-size: .74rem; color: var(--text-dim); }
+
+  /* ── Live log ── */
+  .log-wrap {
+    flex: 1; min-height: 160px;
+    background: #05070b;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-top: 14px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .log-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono); font-size: .72rem; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: .08em;
+  }
+  .log-head .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); }
+  .log-head .dot.live { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+  .log-body {
+    flex: 1; overflow-y: auto;
+    padding: 10px 12px;
+    font-family: var(--mono); font-size: .76rem; line-height: 1.65;
+    color: var(--text-muted);
+  }
+  .log-body::-webkit-scrollbar { width: 4px; }
+  .log-body::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px; }
+  .log-line { white-space: pre-wrap; word-break: break-all; }
+  .log-line.err { color: var(--danger); }
+
+  /* ── Done ── */
+  .done { align-items: center; justify-content: center; text-align: center; }
+  .done-mark {
+    width: 64px; height: 64px; border-radius: 50%;
+    background: var(--safe-dim); border: 1.5px solid var(--safe);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.6rem; color: var(--safe);
+    margin-bottom: 20px;
+    animation: mark-in .5s cubic-bezier(.34,1.56,.64,1);
+  }
+
+  /* ── Buttons ── */
+  .wiz-actions {
+    position: relative; z-index: 1;
+    display: flex; justify-content: flex-end; gap: 10px;
+    padding: 16px 34px 26px;
+    flex: none;
+  }
+  .btn {
+    font-family: var(--sans); font-size: .88rem; font-weight: 600;
+    padding: 10px 22px; border-radius: 8px;
+    border: 1px solid var(--border-hi);
+    background: var(--surface-hi);
+    color: var(--text);
+    cursor: pointer;
+    transition: transform .15s, border-color .15s, background .15s;
+  }
+  .btn:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn:disabled { opacity: .4; cursor: default; transform: none; }
+  .btn-primary {
+    background: linear-gradient(155deg, var(--accent), var(--accent2));
+    border-color: transparent; color: #04262b;
+  }
+  .btn-primary:hover { filter: brightness(1.08); border-color: transparent; }
+  .btn-ghost { background: transparent; border-color: var(--border); color: var(--text-dim); }
+  .btn-ghost:hover { color: var(--text-muted); border-color: var(--border-hi); }
+</style>
+</head>
+<body>
+<div class="wiz">
+
+  <div class="wiz-chrome">
+    <div class="wiz-progress-track"><div class="wiz-progress-fill" id="progressFill"></div></div>
+    <div class="wiz-steplabel">Step <b id="stepNum">1</b> of <b id="stepTotal">5</b> &nbsp;·&nbsp; <span id="stepName">Welcome</span></div>
+  </div>
+
+  <div class="wiz-body">
+
+    <section class="panel active welcome" data-step="0">
+      <div class="welcome-mark">🎛️</div>
+      <h1>Welcome to FableGear</h1>
+      <p>This sets up everything FableGear needs to run — a few system tools, a private Python environment, and nothing else. Takes a few minutes, and you'll see exactly what's happening the whole way through.</p>
+    </section>
+
+    <section class="panel" data-step="1">
+      <div class="sec-head">
+        <span class="sec-icon">🔎</span>
+        <div class="sec-title">Checking your Mac</div>
+        <div class="sec-sub">Making sure everything FableGear needs has a place to land.</div>
+      </div>
+      <div class="check-list" id="checkList"></div>
+    </section>
+
+    <section class="panel" data-step="2">
+      <div class="sec-head">
+        <span class="sec-icon">🍺</span>
+        <div class="sec-title">System tools</div>
+        <div class="sec-sub">Homebrew, ffmpeg, and chromaprint — installed once, shared with everything else on your Mac that uses them.</div>
+      </div>
+      <div class="log-wrap">
+        <div class="log-head"><span class="dot live"></span> live output</div>
+        <div class="log-body" id="brewLog"></div>
+      </div>
+    </section>
+
+    <section class="panel" data-step="3">
+      <div class="sec-head">
+        <span class="sec-icon">📦</span>
+        <div class="sec-title">FableGear's own packages</div>
+        <div class="sec-sub">Installed into a private environment inside the app folder — nothing here touches Python anywhere else on your Mac.</div>
+      </div>
+      <div id="planGroups"></div>
+      <div class="log-wrap">
+        <div class="log-head"><span class="dot live"></span> live output</div>
+        <div class="log-body" id="pyLog"></div>
+      </div>
+    </section>
+
+    <section class="panel done" data-step="4">
+      <div class="done-mark">✓</div>
+      <h1>You're all set</h1>
+      <p style="color:var(--text-muted); font-size:.94rem; margin-top:8px; margin-bottom:30px;">FableGear is ready. Launching now — this window will close on its own.</p>
+    </section>
+
+  </div>
+
+  <div class="wiz-actions" id="actions">
+    <button class="btn btn-primary" id="primaryBtn">Get Started</button>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  const STEPS = ["Welcome", "System check", "System tools", "Python packages", "Done"];
+  let step = 0;
+
+  const els = {
+    fill: document.getElementById("progressFill"),
+    num: document.getElementById("stepNum"),
+    total: document.getElementById("stepTotal"),
+    name: document.getElementById("stepName"),
+    panels: document.querySelectorAll(".panel"),
+    primary: document.getElementById("primaryBtn"),
+    checkList: document.getElementById("checkList"),
+    brewLog: document.getElementById("brewLog"),
+    pyLog: document.getElementById("pyLog"),
+    planGroups: document.getElementById("planGroups"),
+  };
+  els.total.textContent = STEPS.length;
+
+  function showStep(n) {
+    step = n;
+    els.panels.forEach(p => p.classList.toggle("active", Number(p.dataset.step) === n));
+    els.num.textContent = n + 1;
+    els.name.textContent = STEPS[n];
+    els.fill.style.width = (n / (STEPS.length - 1) * 100) + "%";
+  }
+
+  function logLine(container, text, isErr) {
+    const line = document.createElement("div");
+    line.className = "log-line" + (isErr ? " err" : "");
+    line.textContent = text;
+    container.appendChild(line);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  // onDone receives ok=true only if the whole sequence completed with every
+  // command exiting 0. A failed step must not look identical to a finished
+  // one -- see the click handler, which turns the primary button into a
+  // literal retry rather than silently letting the user click through.
+  function streamTo(url, container, onDone) {
+    let failed = false;
+    const es = new EventSource(url);
+    es.onmessage = (ev) => {
+      const data = ev.data;
+      if (data === "[SEQUENCE_OK]") { return; }
+      if (data === "[SEQUENCE_FAILED]") {
+        failed = true;
+        logLine(container, "✕ this step did not finish — see the output above, then try again", true);
+        return;
+      }
+      if (/^\[DONE:\d+\]$/.test(data)) { return; }
+      logLine(container, data, data.startsWith("[ERROR]"));
+    };
+    es.addEventListener("error", () => {
+      es.close();
+      onDone && onDone(!failed);
+    });
+    const poll = setInterval(() => {
+      const last = container.lastElementChild;
+      if (last && last.textContent.startsWith("[SEQUENCE_")) {
+        clearInterval(poll);
+        es.close();
+        onDone && onDone(!failed);
+      }
+    }, 300);
+  }
+
+  const STATUS_ICON = { ok: "✓", warn: "!", fail: "✕" };
+
+  function runChecks() {
+    fetch("/api/checks").then(r => r.json()).then(results => {
+      results.forEach((c, i) => {
+        const row = document.createElement("div");
+        row.className = "check-row";
+        row.style.animationDelay = (i * 70) + "ms";
+        row.innerHTML =
+          '<div class="check-dot pending"></div>' +
+          '<div class="check-label">' + c.label + '</div>' +
+          '<div class="check-detail"></div>';
+        els.checkList.appendChild(row);
+
+        setTimeout(() => {
+          const dot = row.querySelector(".check-dot");
+          dot.classList.remove("pending");
+          dot.classList.add(c.status);
+          dot.textContent = STATUS_ICON[c.status] || "?";
+          row.querySelector(".check-detail").textContent = c.detail;
+        }, 220 + i * 160);
+      });
+
+      const worst = results.some(c => c.status === "fail") ? "fail"
+                  : results.some(c => c.status === "warn") ? "warn" : "ok";
+      setTimeout(() => {
+        els.primary.disabled = false;
+        els.primary.textContent = worst === "fail" ? "Fix issues above to continue" : "Continue";
+        if (worst === "fail") els.primary.disabled = true;
+      }, 260 + results.length * 160);
+    });
+  }
+
+  function showPlan() {
+    fetch("/api/plan").then(r => r.json()).then(groups => {
+      groups.forEach(g => {
+        const el = document.createElement("div");
+        el.className = "grp";
+        el.innerHTML =
+          '<div class="grp-top"><span class="grp-label">' + g.label + '</span>' +
+          '<span class="grp-tag' + (g.required ? "" : " optional") + '">' +
+          (g.required ? "required" : "best-effort") + '</span></div>' +
+          '<div class="grp-desc">' + g.description + '</div>' +
+          '<div class="grp-pkgs">' + g.packages.join(" · ") + '</div>';
+        els.planGroups.appendChild(el);
+      });
+    });
+  }
+
+  // Which action the primary button performs is state, not just its label --
+  // "retry the step that just failed" and "advance to the next step" must
+  // never be the same click handler branch, or a failed install becomes
+  // invisible the moment the user stops reading the log.
+  let pendingRetry = null;
+
+  function runBrewStep() {
+    els.brewLog.innerHTML = "";
+    els.primary.textContent = "Installing…";
+    els.primary.disabled = true;
+    pendingRetry = null;
+    streamTo("/api/install/brew", els.brewLog, (ok) => {
+      els.primary.disabled = false;
+      if (ok) {
+        els.primary.textContent = "Continue";
+        pendingRetry = null;
+      } else {
+        els.primary.textContent = "Try Again";
+        pendingRetry = runBrewStep;
+      }
+    });
+  }
+
+  function runPythonStep() {
+    els.pyLog.innerHTML = "";
+    els.primary.textContent = "Installing…";
+    els.primary.disabled = true;
+    pendingRetry = null;
+    streamTo("/api/install/python", els.pyLog, (ok) => {
+      els.primary.disabled = false;
+      if (ok) {
+        els.primary.textContent = "Finish";
+        pendingRetry = null;
+      } else {
+        els.primary.textContent = "Try Again";
+        pendingRetry = runPythonStep;
+      }
+    });
+  }
+
+  els.primary.addEventListener("click", () => {
+    if (pendingRetry) { pendingRetry(); return; }
+
+    if (step === 0) {
+      showStep(1);
+      els.primary.textContent = "Checking…";
+      els.primary.disabled = true;
+      runChecks();
+    } else if (step === 1) {
+      showStep(2);
+      runBrewStep();
+    } else if (step === 2) {
+      showStep(3);
+      showPlan();
+      runPythonStep();
+    } else if (step === 3) {
+      showStep(4);
+      document.getElementById("actions").style.display = "none";
+      fetch("/api/complete", { method: "POST" });
+    }
+  });
+
+  showStep(0);
+})();
+</script>
+</body>
+</html>
