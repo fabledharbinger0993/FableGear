@@ -443,9 +443,14 @@ def main(argv: list[str] | None = None) -> int:
     thread.start()
     time.sleep(0.3)
 
+    # Wider than the 640px wizard panel on purpose -- Spectre roams the
+    # side margins this leaves, teleporting between them (see
+    # templates/installer_wizard.html). 940 gives ~150px of lane on each
+    # side at a 110px mascot size, matching the "dead space beside the
+    # content" approach already used on the marketing site.
     webview.create_window(
         "FableGear Setup", f"http://127.0.0.1:{port}",
-        width=720, height=680, resizable=False, frameless=False,
+        width=940, height=700, resizable=False, frameless=False,
     )
     webview.start()
     return 0
