@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import random
 import sys
 from pathlib import Path
 
@@ -85,6 +86,17 @@ def main(argv: list[str] | None = None) -> int:
                          help="CSV of path,true_bpm pairs, instead of a Rekordbox DB")
     parser.add_argument("--limit", type=int, default=None,
                          help="stop after N tracks (useful for a quick check)")
+    parser.add_argument("--bpm-min", type=float, default=30.0,
+                         help="lower bound passed to iron.analyze() (default: 30.0)")
+    parser.add_argument("--bpm-max", type=float, default=300.0,
+                         help="upper bound passed to iron.analyze() (default: 300.0)")
+    parser.add_argument("--sample", type=int, default=None,
+                         help="take a random sample of this size before --limit truncates it "
+                              "(matches the 'random 300-track sample' methodology this "
+                              "script's own historical reference numbers used, rather than "
+                              "just the first N tracks in database order)")
+    parser.add_argument("--seed", type=int, default=42,
+                         help="random seed for --sample, for a reproducible run (default: 42)")
     args = parser.parse_args(argv)
 
     if args.csv:
@@ -104,6 +116,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     items = list(truth.items())
+    if args.sample:
+        rng = random.Random(args.seed)
+        items = rng.sample(items, min(args.sample, len(items)))
     if args.limit:
         items = items[: args.limit]
 
@@ -113,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
     pairs: list[tuple[float, float]] = []
     undetected = 0
     for i, (path, true_bpm) in enumerate(items, 1):
-        result = iron.analyze(path, want=("bpm",))
+        result = iron.analyze(path, want=("bpm",), bpm_min=args.bpm_min, bpm_max=args.bpm_max)
         if result.bpm is not None:
             pairs.append((result.bpm, true_bpm))
         else:

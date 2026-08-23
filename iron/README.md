@@ -72,11 +72,38 @@ this problem -- uses two corrections:
   the raw winner's score -- never used to override a candidate that's already winning
   cleanly.
 
+**Beat grid and meter** (`iron/beats.py`, opt-in via `analyze(want=(..., "downbeat_offset"))`):
+built on top of an already-decided `bpm`, not a separate detector. `iron.dsp.track_beats` --
+a dynamic-programming phase-locker (Ellis 2007) that already existed in Iron for a different,
+reverted experiment (see its own docstring) -- turns the single tempo estimate into actual
+beat positions. From there, a beat-level accent signal picks which of those positions is the
+downbeat (loudest average onset strength) and whether the bar groups beats in 3s or 4s
+(autocorrelating that same accent signal one level up, defaulting to 4/4 per
+`TrackFields.time_signature`'s own "unless proven otherwise" stance). The approach was shaped
+by comparing Iron against other tempo/beat tools: BTT's (Krzyzaniak, MIT) cumulative
+beat-strength tracking, built on Stark's 2011 PhD thesis, for turning a known tempo into beat
+positions; and loop-tempo-estimator's (Audacity, GPL -- read for its published method only,
+the same posture Iron already takes toward essentia, never its code) tatum-hypothesis idea of
+scoring small integer groupings by onset-alignment. Both reimplemented from scratch in numpy,
+not ported.
+
 ## Known limitations (v1)
 
-- **BPM and key only.** No beat-grid / downbeat detection yet -- `TrackFields.downbeat_offset`
-  and `.time_signature` exist in Anvil's schema but nothing populates them today, in either
-  the old essentia/librosa path or here.
+- **Which beat is the downbeat is validated on synthetic fixtures only, not real music
+  yet.** Picking WHICH of the locked beat positions is beat 1 relies on it carrying a
+  stronger accent than its neighbors -- true of real DJ productions, but getting a
+  same-instrument amplitude accent to survive measurement took two fixes (see
+  `iron/beats.py`'s module docstring): a dedicated, non-log-compressed kick-band energy
+  feature (`iron.dsp.band_energy`, an idea prompted by a Perplexity-sourced review of
+  FableGear's approach that specifically flagged low-frequency kick emphasis), and
+  searching backward from the phase-locked frame for that feature's own peak rather than
+  sampling it where onset_env's flux happens to land. With both, `tests/test_iron_beats.py`
+  validates the correct beat wins across a BPM sweep on synthetic fixtures -- real-music
+  validation is the same "not yet run through the ground-truth benchmark" gap bpm itself
+  has. `beat_grid_confidence` surfaces the residual uncertainty either way -- a low value
+  means "don't trust which beat is 1 here," the same spirit as `bpm_confidence`. Time
+  signature (3/4 vs the 4/4 default) has the same caveat, and doesn't attempt compound
+  meters (6/8 and similar) at all -- see `iron/beats.py`'s module docstring for why.
 - **Accuracy is unvalidated against essentia's measured baseline.** essentia's
   `RhythmExtractor2013` was benchmarked at 91.4% exact-BPM (±0.6 BPM) agreement against 12,687
   real Rekordbox ground-truth beat grids (see `requirements_optional.txt`); librosa's
@@ -99,7 +126,7 @@ this problem -- uses two corrections:
 ## Tests
 
 ```
-pytest tests/test_iron_key.py tests/test_iron_tempo.py tests/test_iron_dryrun.py
+pytest tests/test_iron_key.py tests/test_iron_tempo.py tests/test_iron_beats.py tests/test_iron_dryrun.py
 ```
 
 Fully synthetic fixtures (numpy-generated tones/chords and kick+hi-hat patterns) -- no real

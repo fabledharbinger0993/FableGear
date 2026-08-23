@@ -104,6 +104,135 @@ def autocorrelate(x: np.ndarray) -> np.ndarray:
     return np.fft.irfft(spectrum * np.conj(spectrum), n=size)[:n]
 
 
+def band_energy(
+    y: np.ndarray, sr: int, *, fmin: float, fmax: float, n_fft: int = 2048, hop_length: int = 512
+) -> np.ndarray:
+    """
+    Per-frame magnitude-squared energy summed over [fmin, fmax] Hz -- raw energy, NOT
+    log-compressed flux like onset_envelope. Appropriate when comparing a small number of
+    already-located candidate positions against each other (their relative energy IS the
+    signal, e.g. iron.beats scoring which of 4 known beat positions is the downbeat),
+    rather than hunting for transients across a whole track from scratch, where
+    onset_envelope's log-compression job of taming dynamic range matters more (see its own
+    docstring). A percussive instrument's fundamental+first-harmonic band (a kick drum,
+    roughly 40-120Hz) carries less contamination from unrelated broadband content
+    (hi-hats, cymbals, vocals) than a full-spectrum feature would.
+    """
+    mag = magnitude_spectrogram(y, n_fft=n_fft, hop_length=hop_length)
+    if mag.shape[0] == 0:
+        return np.zeros(0, dtype=np.float64)
+    freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+    band = (freqs >= fmin) & (freqs <= fmax)
+    if not np.any(band):
+        return np.zeros(mag.shape[0], dtype=np.float64)
+    return np.sum(mag[:, band] ** 2, axis=1)
+
+
+def track_beats(
+    onset_env: np.ndarray, period: float, *, alpha: float = 100.0, search_multiple: float = 2.0
+) -> tuple[list[int], float]:
+    """
+    Dynamic-programming beat tracker (Ellis 2007, "Beat Tracking by Dynamic Programming") --
+    an independent implementation of a published, non-proprietary method, not a port of any
+    library's internals.
+
+    Unlike a static autocorrelation peak (which scores a single aggregate periodicity
+    statistic for the whole clip), this finds an actual SEQUENCE of beat times maximizing
+    onset strength at each beat plus a log-Gaussian penalty for deviating from `period`
+    between consecutive beats -- useful on its own for turning a single already-decided
+    tempo into actual beat positions (phase-locking), which is what this function is
+    validated for.
+
+    Comparing its returned `total_score` ACROSS candidate periods to pick which period is
+    correct was tried in iron/tempo.py and reverted: neither raw nor baseline-subtracted
+    (mean-onset-corrected) normalization removes a systematic bias toward faster candidates
+    -- a faster period fits more beats into the same clip, giving the optimizer more chances
+    at favorable alignment independent of whether that period is musically real. Confirmed
+    by breaking several already-correct synthetic cases in a full sweep, not just a
+    tuning-margin problem. A fair cross-period comparison likely needs to control for path
+    length directly (e.g. resampling every candidate to the same beat count) rather than
+    normalizing the raw score by frames or by beats -- unsolved, flagged for whoever
+    revisits this rather than re-attempted blind.
+    """
+    n = onset_env.shape[0]
+    if n == 0:
+        return [], 0.0
+
+    period_i = max(1, round(period))
+    search = max(1, round(period * search_multiple))
+    cumulative = np.full(n, -np.inf)
+    backptr = np.full(n, -1, dtype=np.int64)
+
+    for t in range(n):
+        best_score = float(onset_env[t])
+        best_prev = -1
+        lo, hi = max(0, t - search), t - 1
+        for tp in range(lo, hi + 1):
+            dt = t - tp
+            penalty = -alpha * (np.log(dt / period_i)) ** 2
+            prev = cumulative[tp] if cumulative[tp] > -np.inf else 0.0
+            score = prev + penalty + onset_env[t]
+            if score > best_score:
+                best_score, best_prev = score, tp
+        cumulative[t] = best_score
+        backptr[t] = best_prev
+
+    end = int(np.argmax(cumulative))
+    beats = [end]
+    cur = end
+    while backptr[cur] >= 0:
+        cur = backptr[cur]
+        beats.append(cur)
+    beats.reverse()
+    return beats, float(cumulative[end])
+
+
+def find_breakdown_duration(
+    onset_env: np.ndarray, frame_rate: float, *, exclude_frac: float = 0.15, smooth_seconds: float = 4.0
+) -> float | None:
+    """
+    Duration in seconds of the longest sustained low-energy span in the track -- the
+    breakdown/bridge/plateau a DJ mix nearly always has, excluding the first/last
+    `exclude_frac` of the clip (intro and outro are ALSO low-energy, but they aren't the
+    structural section this is looking for).
+
+    Onset strength is smoothed over `smooth_seconds` first: a bare per-frame onset value
+    dips between every individual hit even in the busiest section, so the raw envelope has
+    no sustained low span to find at all without smoothing over several beats first.
+
+    "Low energy" is anything more than half a standard deviation below the track's own mean
+    -- relative to itself, not an absolute threshold, since a quiet ambient track and a loud
+    club track have no comparable absolute energy scale.
+
+    Returns None if the clip is too short to have a meaningful body/edge split, or has no
+    span that dips notably below its own average (a track with no real breakdown).
+    """
+    n = onset_env.shape[0]
+    lo_bound, hi_bound = int(n * exclude_frac), int(n * (1 - exclude_frac))
+    if hi_bound - lo_bound < int(smooth_seconds * frame_rate):
+        return None
+
+    window = max(1, int(smooth_seconds * frame_rate))
+    kernel = np.ones(window) / window
+    smoothed = np.convolve(onset_env, kernel, mode="same")
+
+    threshold = smoothed.mean() - 0.5 * smoothed.std()
+    low = smoothed < threshold
+
+    best_len = 0
+    run_start: int | None = None
+    for i in range(lo_bound, hi_bound):
+        if low[i] and run_start is None:
+            run_start = i
+        elif not low[i] and run_start is not None:
+            best_len = max(best_len, i - run_start)
+            run_start = None
+    if run_start is not None:
+        best_len = max(best_len, hi_bound - run_start)
+
+    return (best_len / frame_rate) if best_len > 0 else None
+
+
 def chroma(
     y: np.ndarray,
     sr: int,

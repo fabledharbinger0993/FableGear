@@ -87,3 +87,66 @@ def test_chroma_silence_is_zero_vector():
     y = np.zeros(SR * 2)
     vec = dsp.chroma(y, SR)
     assert np.all(vec == 0.0)
+
+
+def test_band_energy_isolates_a_tone_inside_its_band():
+    t = np.arange(SR) / SR
+    low = 0.8 * np.sin(2 * np.pi * 60 * t)  # inside a 40-120Hz band
+    high = 0.8 * np.sin(2 * np.pi * 5000 * t)  # well outside it
+    low_energy = dsp.band_energy(low, SR, fmin=40, fmax=120)
+    high_energy = dsp.band_energy(high, SR, fmin=40, fmax=120)
+    assert low_energy.sum() > 0
+    assert low_energy.sum() > high_energy.sum() * 100
+
+
+def test_band_energy_silence_is_zero():
+    y = np.zeros(SR * 2)
+    energy = dsp.band_energy(y, SR, fmin=40, fmax=120)
+    assert np.all(energy == 0.0)
+
+
+def test_band_energy_scales_with_amplitude_squared():
+    # energy (magnitude^2), not amplitude -- doubling amplitude should ~quadruple energy
+    t = np.arange(SR) / SR
+    quiet = 0.2 * np.sin(2 * np.pi * 60 * t)
+    loud = 0.4 * np.sin(2 * np.pi * 60 * t)
+    e_quiet = dsp.band_energy(quiet, SR, fmin=40, fmax=120).sum()
+    e_loud = dsp.band_energy(loud, SR, fmin=40, fmax=120).sum()
+    assert 3.5 < (e_loud / e_quiet) < 4.5
+
+
+def _pulse_train(period: int, n_pulses: int, jitter: int = 0, seed: int = 0) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    n = period * n_pulses + period
+    x = np.zeros(n)
+    for i in range(n_pulses):
+        idx = i * period + (rng.integers(-jitter, jitter + 1) if jitter else 0)
+        if 0 <= idx < n:
+            x[idx] = 1.0
+    return x
+
+
+def test_track_beats_locks_onto_a_known_period():
+    """dsp.track_beats is validated as a phase-locking primitive for an ALREADY-KNOWN
+    period -- not for comparing across candidate periods, which iron/tempo.py's docstring
+    documents as a real, unsolved bias (see track_beats' own docstring)."""
+    period = 20
+    env = _pulse_train(period, n_pulses=30, jitter=1, seed=3)
+    beats, score = dsp.track_beats(env, period)
+    assert len(beats) >= 25  # most of the 30 real pulses should be picked up
+    intervals = np.diff(beats)
+    # the tracked sequence should be locked near the true period, not drifting
+    assert np.median(intervals) == period
+    assert score > 0
+
+
+def test_track_beats_empty_envelope_returns_nothing():
+    beats, score = dsp.track_beats(np.zeros(0), period=20.0)
+    assert beats == []
+    assert score == 0.0
+
+
+def test_track_beats_single_frame():
+    beats, score = dsp.track_beats(np.array([5.0]), period=20.0)
+    assert beats == [0]
+    assert score == 5.0

@@ -25,7 +25,7 @@ baseline.
 from iron import api, dsp, errors, key, schema, tempo
 from iron.api import analyze
 from iron.errors import DecodeFailed, IronError, UnsupportedFormat
-from iron.schema import IronResult
+from iron.schema import IronResult, TempoCheckpoint
 
 __version__ = "0.1.0"
 
@@ -33,6 +33,7 @@ __all__ = [
     "DecodeFailed",
     "IronError",
     "IronResult",
+    "TempoCheckpoint",
     "UnsupportedFormat",
     "analyze",
     "api",
