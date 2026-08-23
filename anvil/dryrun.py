@@ -40,16 +40,20 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from anvil import api, id3
+from anvil import api, containers, id3
 from anvil.errors import AnvilError, CorruptHeader, UnsupportedFormat
 
 # Extensions FableGear considers audio (config.py::AUDIO_EXTENSIONS), split by
-# whether Anvil can handle them today. Listing the second group explicitly is
-# the point -- "not supported yet" and "broken file" are different findings and
-# must not be reported as the same number.
-FAMILY_A = {".mp3", ".wav", ".aiff", ".aif", ".aifc"}
-NOT_YET = {".flac", ".m4a", ".m4p", ".mp4", ".m4v", ".ogg", ".opus", ".aac", ".wv"}
-AUDIO_EXTENSIONS = FAMILY_A | NOT_YET
+# whether Anvil can handle them today. Listing the unsupported group explicitly
+# is the point -- "not supported yet" and "broken file" are different findings
+# and must not be reported as the same number.
+FAMILY_A = {".mp3", ".wav", ".aiff", ".aif", ".aifc"}          # ID3v2
+FAMILY_B = {".flac", ".ogg", ".opus"}                          # Vorbis comments
+FAMILY_C = {".m4a", ".m4p", ".mp4", ".m4v"}                    # MP4 atoms
+# Raw ADTS AAC has no reliable tag container of its own, and WavPack was never
+# in scope -- both stay genuinely unimplemented, not just untested.
+NOT_YET = {".aac", ".wv"}
+AUDIO_EXTENSIONS = FAMILY_A | FAMILY_B | FAMILY_C | NOT_YET
 
 _ENCODING_NAMES = {
     id3.ENC_LATIN1: "latin-1",
@@ -110,36 +114,47 @@ def _inspect(path: Path, candidates: set[str]) -> FileReport:
     if ext in NOT_YET:
         # Not a defect -- a container family Anvil has not built yet.
         report.status = "unsupported_ext"
-        report.detail = "container family B-D (not implemented)"
+        report.detail = "raw AAC / WavPack (not implemented)"
         return report
 
     try:
-        kind, tag, _data = api.read_tag(path)
-        report.container = kind
+        if ext in FAMILY_A:
+            # ID3 has detail worth reporting (version, per-frame encodings,
+            # foreign TXXX frames) that Vorbis/MP4 have no equivalent of --
+            # read_tag() exposes the parsed tag object so _inspect can get at it.
+            kind, tag, _data = api.read_tag(path)
+            report.container = kind
 
-        if tag is None:
-            # A supported container carrying no tag block. Ordinary for a fresh
-            # rip, and the case where a first write creates the tag.
-            report.has_tag = False
-            report.would_write = sorted(candidates)
-            return report
+            if tag is None:
+                report.has_tag = False
+                report.would_write = sorted(candidates)
+                return report
 
-        report.has_tag = True
-        report.id3_version = tag.version
-        report.frame_count = len(tag.frames)
+            report.has_tag = True
+            report.id3_version = tag.version
+            report.frame_count = len(tag.frames)
 
-        encodings = set()
-        for frame in tag.frames:
-            if frame.id.startswith("T") and frame.data:
-                encodings.add(_ENCODING_NAMES.get(frame.data[0], f"?{frame.data[0]}"))
-        report.encodings = sorted(encodings)
+            encodings = set()
+            for frame in tag.frames:
+                if frame.id.startswith("T") and frame.data:
+                    encodings.add(_ENCODING_NAMES.get(frame.data[0], f"?{frame.data[0]}"))
+            report.encodings = sorted(encodings)
 
-        for frame in tag.get_all("TXXX"):
-            description, _value = id3.decode_txxx(frame.data)
-            if description and description.upper() not in _OWN_TXXX:
-                report.foreign_txxx.append(description)
+            for frame in tag.get_all("TXXX"):
+                description, _value = id3.decode_txxx(frame.data)
+                if description and description.upper() not in _OWN_TXXX:
+                    report.foreign_txxx.append(description)
 
-        fields = api._fields_from_tag(tag)
+            fields = api._fields_from_tag(tag)
+        else:
+            # Family B (FLAC/Ogg) and C (MP4): no ID3-specific concepts to
+            # report, but read_fields() already dispatches to the right
+            # container module, so coverage/blast-radius reporting is uniform.
+            data = path.read_bytes()
+            report.container = containers.sniff(data)
+            fields = api.read_fields(path)
+            report.has_tag = not fields.is_empty()
+
         report.fields = {k: v for k, v in asdict(fields).items() if v is not None}
 
         # The merge rule, simulated. A field already carrying a value would be
@@ -229,8 +244,8 @@ def print_report(result: Survey, candidates: set[str]) -> None:
 
     _section("Coverage -- can Anvil handle it today?")
     for label, group in (
-        ("handled (family A)", ok),
-        ("not implemented (B-D)", unsupported),
+        ("handled (families A/B/C)", ok),
+        ("not implemented (raw AAC/WavPack)", unsupported),
         ("failed to read", errors),
     ):
         n = len(group)
@@ -238,17 +253,20 @@ def print_report(result: Survey, candidates: set[str]) -> None:
 
     _section("By extension")
     for ext, n in result.counter("ext").most_common():
-        marker = "" if ext in FAMILY_A else "   <- needs family B-D"
+        marker = "" if ext not in NOT_YET else "   <- not implemented (raw AAC/WavPack)"
         print(f"  {ext or '(none)':<10} {n:>6}  {n / total:>5.1%}{marker}")
 
     if ok:
         _section("Tag condition (of files Anvil can read)")
         tagged = [f for f in ok if f.has_tag]
-        print(f"  carries an ID3 tag      {len(tagged):>6}  {len(tagged) / len(ok):>5.1%}")
+        print(f"  carries a tag           {len(tagged):>6}  {len(tagged) / len(ok):>5.1%}")
         print(f"  no tag block at all     {len(ok) - len(tagged):>6}  "
               f"{(len(ok) - len(tagged)) / len(ok):>5.1%}")
 
-        versions = Counter(f.id3_version for f in tagged)
+        # id3_version is only populated for family A (ID3); Vorbis/MP4 have
+        # no version concept of their own, so they are excluded here rather
+        # than printed as a misleading "ID3v2.None".
+        versions = Counter(f.id3_version for f in tagged if f.id3_version is not None)
         for version, n in sorted(versions.items(), key=lambda kv: -kv[1]):
             print(f"  ID3v2.{version}                 {n:>6}  {n / len(ok):>5.1%}")
 

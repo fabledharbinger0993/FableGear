@@ -41,6 +41,9 @@ ByteOrder = Literal["little", "big"]
 MP3 = "mp3"
 WAV = "wav"
 AIFF = "aiff"
+FLAC = "flac"
+OGG = "ogg"
+MP4 = "mp4"
 
 # RIFF/AIFF chunk ids that carry an ID3 payload. Compared case-insensitively;
 # these are the spellings Anvil writes.
@@ -71,6 +74,15 @@ def sniff(data: bytes) -> str:
 
     if data[:4] == b"FORM" and data[8:12] in (b"AIFF", b"AIFC"):
         return AIFF
+
+    if data[:4] == b"fLaC":
+        return FLAC
+
+    if data[:4] == b"OggS":
+        return OGG
+
+    if len(data) >= 12 and data[4:8] == b"ftyp":
+        return MP4
 
     # A bare MPEG audio frame: 11 sync bits set.
     if data[0] == 0xFF and (data[1] & 0xE0) == 0xE0:

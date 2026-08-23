@@ -18,7 +18,9 @@ independent implementation of the same spec.
 
 from __future__ import annotations
 
+import shutil
 import struct
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -173,3 +175,136 @@ def test_anvil_respects_mutagen_written_values(mp3):
     assert result.written == {}
     assert result.kept["bpm"] == pytest.approx(120.0)
     assert mutagen_id3.ID3(str(mp3))["TBPM"].text[0] == "120"
+
+
+# ─── Container families B/C: FLAC, Ogg Vorbis, Ogg Opus, MP4 ──────────────────
+#
+# Same asymmetric-proof philosophy as the ID3 fixtures above, extended to the
+# formats audio_processor.py's mutagen-based `_write_tags()` also handles.
+# Fixtures need real encoded audio (mutagen doesn't encode, only tags), so
+# these skip if ffmpeg isn't available rather than failing the suite.
+
+def _require_ffmpeg():
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed — skipping container B/C interop test")
+
+
+@pytest.fixture
+def flac_audio(tmp_path: Path) -> Path:
+    _require_ffmpeg()
+    path = tmp_path / "interop.flac"
+    subprocess.run(
+        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+         "-i", "sine=frequency=440:duration=1", "-c:a", "flac", str(path)],
+        check=True, capture_output=True,
+    )
+    return path
+
+
+@pytest.fixture
+def ogg_audio(tmp_path: Path) -> Path:
+    _require_ffmpeg()
+    path = tmp_path / "interop.ogg"
+    subprocess.run(
+        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+         "-i", "sine=frequency=440:duration=1", "-ac", "2",
+         "-c:a", "vorbis", "-q:a", "2", "-strict", "-2", str(path)],
+        check=True, capture_output=True,
+    )
+    return path
+
+
+@pytest.fixture
+def m4a_audio(tmp_path: Path) -> Path:
+    _require_ffmpeg()
+    path = tmp_path / "interop.m4a"
+    subprocess.run(
+        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+         "-i", "sine=frequency=440:duration=1", "-c:a", "aac", "-b:a", "128k",
+         "-movflags", "+faststart", str(path)],
+        check=True, capture_output=True,
+    )
+    return path
+
+
+def test_mutagen_reads_anvil_flac_tags(flac_audio):
+    anvil.write_fields(
+        flac_audio,
+        TrackFields(title="Midnight Drive", artist="Test Artist", bpm=128.5, initial_key="Am"),
+    )
+    flac_mod = pytest.importorskip("mutagen.flac")
+    audio = flac_mod.FLAC(str(flac_audio))
+    assert audio["title"][0] == "Midnight Drive"
+    assert audio["artist"][0] == "Test Artist"
+    assert audio["bpm"][0] == "128.5"
+    assert audio["initialkey"][0] == "Am"
+
+
+def test_anvil_reads_mutagen_flac_tags(flac_audio):
+    flac_mod = pytest.importorskip("mutagen.flac")
+    audio = flac_mod.FLAC(str(flac_audio))
+    audio["title"] = ["Written By Mutagen"]
+    audio["bpm"] = ["174"]
+    audio["initialkey"] = ["Gm"]
+    audio.save()
+
+    fields = anvil.read_fields(flac_audio)
+    assert fields.title == "Written By Mutagen"
+    assert fields.bpm == pytest.approx(174.0)
+    assert fields.initial_key == "Gm"
+
+
+def test_mutagen_reads_anvil_ogg_tags(ogg_audio):
+    anvil.write_fields(
+        ogg_audio,
+        TrackFields(title="Midnight Drive", bpm=128.5, initial_key="Am"),
+    )
+    ov = pytest.importorskip("mutagen.oggvorbis")
+    audio = ov.OggVorbis(str(ogg_audio))
+    assert audio["title"][0] == "Midnight Drive"
+    assert audio["bpm"][0] == "128.5"
+    assert audio["initialkey"][0] == "Am"
+
+
+def test_anvil_reads_mutagen_ogg_tags(ogg_audio):
+    ov = pytest.importorskip("mutagen.oggvorbis")
+    audio = ov.OggVorbis(str(ogg_audio))
+    audio["title"] = ["Written By Mutagen"]
+    audio["bpm"] = ["174"]
+    audio["initialkey"] = ["Gm"]
+    audio.save()
+
+    fields = anvil.read_fields(ogg_audio)
+    assert fields.title == "Written By Mutagen"
+    assert fields.bpm == pytest.approx(174.0)
+    assert fields.initial_key == "Gm"
+
+
+def test_mutagen_reads_anvil_mp4_tags(m4a_audio):
+    anvil.write_fields(
+        m4a_audio,
+        TrackFields(title="Midnight Drive", artist="Test Artist", bpm=128.5, initial_key="Am"),
+    )
+    mp4_mod = pytest.importorskip("mutagen.mp4")
+    audio = mp4_mod.MP4(str(m4a_audio))
+    assert audio["\xa9nam"][0] == "Midnight Drive"
+    assert audio["\xa9ART"][0] == "Test Artist"
+    assert audio["tmpo"][0] == 128  # spec-typed integer atom: rounded, as mutagen expects
+    freeform = audio["----:com.apple.iTunes:initialkey"][0]
+    assert bytes(freeform).decode("utf-8") == "Am"
+
+
+def test_anvil_reads_mutagen_mp4_tags(m4a_audio):
+    mp4_mod = pytest.importorskip("mutagen.mp4")
+    from mutagen.mp4 import MP4FreeForm
+
+    audio = mp4_mod.MP4(str(m4a_audio))
+    audio["\xa9nam"] = ["Written By Mutagen"]
+    audio["tmpo"] = [174]
+    audio["----:com.apple.iTunes:initialkey"] = [MP4FreeForm(b"Gm")]
+    audio.save()
+
+    fields = anvil.read_fields(m4a_audio)
+    assert fields.title == "Written By Mutagen"
+    assert fields.bpm == pytest.approx(174.0)
+    assert fields.initial_key == "Gm"

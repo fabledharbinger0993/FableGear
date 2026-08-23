@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from anvil import containers, id3
+from anvil import containers, flac, id3, mp4, ogg, vorbis_fields
 from anvil.errors import NoTagBlock
 from anvil.safety import atomic_write, verify_fields
 from anvil.schema import SYNC_FILE_ONLY, TrackFields, db_companion
@@ -200,8 +200,20 @@ def read_fields(path: Path) -> TrackFields:
 
     Returns an empty TrackFields for a supported container with no tag block --
     "this file says nothing about itself" is an ordinary state for a fresh rip,
-    not an error. Use read_tag() when the distinction matters.
+    not an error. Use read_tag() when the distinction matters (ID3 family only;
+    FLAC/Ogg/MP4 have no equivalent single-tag-object concept).
     """
+    path = Path(path)
+    data = path.read_bytes()
+    kind = containers.sniff(data)
+
+    if kind == containers.FLAC:
+        return vorbis_fields.fields_from_comments(flac.read_comments(data))
+    if kind == containers.OGG:
+        return vorbis_fields.fields_from_comments(ogg.read_comments(data))
+    if kind == containers.MP4:
+        return mp4.fields_from_ilst(mp4.read_ilst(data))
+
     _kind, tag, _data = read_tag(path)
     if tag is None:
         return TrackFields()
@@ -209,7 +221,20 @@ def read_fields(path: Path) -> TrackFields:
 
 
 def read_cover_art(path: Path) -> tuple[bytes, str] | None:
-    """Return (image_bytes, mime_type) from the first APIC frame, or None."""
+    """Return (image_bytes, mime_type) from the file's embedded artwork, or None."""
+    path = Path(path)
+    data = path.read_bytes()
+    kind = containers.sniff(data)
+
+    if kind == containers.FLAC:
+        return flac.read_cover_art(data)
+    if kind in (containers.OGG, containers.MP4):
+        # Not implemented: Ogg embeds cover art as a base64 METADATA_BLOCK_PICTURE
+        # comment (Vorbis has no binary field), and MP4 uses a "covr" atom --
+        # neither is read anywhere in the live app today, so there is nothing
+        # to keep behavior-compatible with yet.
+        return None
+
     _kind, tag, _data = read_tag(path)
     if tag is None:
         return None
@@ -276,6 +301,38 @@ def _set_txxx(tag: id3.ID3Tag, description: str, value: str) -> None:
     tag.frames = kept
 
 
+def _merge_vorbis(
+    comments: vorbis_fields.Comments, fields: TrackFields, force: bool | Iterable[str]
+) -> tuple[vorbis_fields.Comments, dict[str, Any], dict[str, Any]]:
+    existing = vorbis_fields.fields_from_comments(comments)
+    written: dict[str, Any] = {}
+    kept: dict[str, Any] = {}
+    for name, value in fields.present().items():
+        current = getattr(existing, name, None)
+        if current is not None and not _forced(force, name):
+            kept[name] = current
+            continue
+        comments = vorbis_fields.apply_field(comments, name, value)
+        written[name] = value
+    return comments, written, kept
+
+
+def _merge_mp4(
+    items: list[tuple[bytes, bytes]], fields: TrackFields, force: bool | Iterable[str]
+) -> tuple[list[tuple[bytes, bytes]], dict[str, Any], dict[str, Any]]:
+    existing = mp4.fields_from_ilst(items)
+    written: dict[str, Any] = {}
+    kept: dict[str, Any] = {}
+    for name, value in fields.present().items():
+        current = getattr(existing, name, None)
+        if current is not None and not _forced(force, name):
+            kept[name] = current
+            continue
+        items = mp4.apply_field(items, name, value)
+        written[name] = value
+    return items, written, kept
+
+
 def write_fields(
     path: Path,
     fields: TrackFields,
@@ -295,9 +352,46 @@ def write_fields(
     `version` pins the ID3 major version to write (3 or 4). By default an
     existing tag keeps its own version -- silently upgrading someone's v2.3 tag
     to v2.4 could break whatever they were reading it with -- and a new tag is
-    written as v2.4.
+    written as v2.4. `version` has no meaning for FLAC/Ogg/MP4 and is ignored.
     """
     path = Path(path)
+    data = path.read_bytes()
+    kind = containers.sniff(data)
+
+    if kind in (containers.FLAC, containers.OGG):
+        reader = flac.read_comments if kind == containers.FLAC else ogg.read_comments
+        writer = flac.write_comments if kind == containers.FLAC else ogg.write_comments
+        comments = reader(data)
+        new_comments, written, kept = _merge_vorbis(comments, fields, force)
+        result = WriteResult(
+            path=path, written=written, kept=kept, sync_state=SYNC_FILE_ONLY,
+            db_companion=db_companion(TrackFields(**written)) if written else {},
+            container=kind,
+        )
+        if not written:
+            return result
+        new_data = writer(data, new_comments)
+        verifier = (lambda: verify_fields(lambda: read_fields(path), written, path)) if verify else None
+        atomic_write(path, new_data, verify=verifier, checkpoint=checkpoint)
+        result.verified = verify
+        return result
+
+    if kind == containers.MP4:
+        items = mp4.read_ilst(data)
+        new_items, written, kept = _merge_mp4(items, fields, force)
+        result = WriteResult(
+            path=path, written=written, kept=kept, sync_state=SYNC_FILE_ONLY,
+            db_companion=db_companion(TrackFields(**written)) if written else {},
+            container=kind,
+        )
+        if not written:
+            return result
+        new_data = mp4.write_ilst(data, new_items)
+        verifier = (lambda: verify_fields(lambda: read_fields(path), written, path)) if verify else None
+        atomic_write(path, new_data, verify=verifier, checkpoint=checkpoint)
+        result.verified = verify
+        return result
+
     kind, tag, data = read_tag(path)
 
     if tag is None:
@@ -358,6 +452,25 @@ def clear_fields(path: Path, names: Iterable[str], **kwargs: Any) -> WriteResult
     erasure has to be asked for by name.
     """
     path = Path(path)
+    data = path.read_bytes()
+    kind = containers.sniff(data)
+
+    if kind in (containers.FLAC, containers.OGG):
+        reader = flac.read_comments if kind == containers.FLAC else ogg.read_comments
+        writer = flac.write_comments if kind == containers.FLAC else ogg.write_comments
+        comments = reader(data)
+        for name in names:
+            comments = vorbis_fields.remove_schema_field(comments, name)
+        atomic_write(path, writer(data, comments), checkpoint=kwargs.get("checkpoint"))
+        return WriteResult(path=path, written={}, kept={}, container=kind)
+
+    if kind == containers.MP4:
+        items = mp4.read_ilst(data)
+        for name in names:
+            items = mp4.remove_schema_field(items, name)
+        atomic_write(path, mp4.write_ilst(data, items), checkpoint=kwargs.get("checkpoint"))
+        return WriteResult(path=path, written={}, kept={}, container=kind)
+
     kind, tag, data = read_tag(path)
     if tag is None:
         raise NoTagBlock(f"{path.name} has no tag block to clear")

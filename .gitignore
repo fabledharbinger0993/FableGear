@@ -101,3 +101,4 @@ static/icon-welcome-info.png
 # Local audit/coverage artifacts — generated, not source.
 .coverage
 audit_*/
+anvil_iron_test_tracks/
