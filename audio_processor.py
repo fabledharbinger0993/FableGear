@@ -178,6 +178,32 @@ _ANALYSIS_SR: int = 22050  # sample rate used for BPM/key analysis
 _ESSENTIA_OK: "bool | None" = None
 
 
+def _analysis_window_start(path: Path, window: float) -> float:
+    """
+    Offset (seconds) to start the analysis window at, chosen to land in the
+    middle of the track rather than always at 0:00.
+
+    Anchoring at 0:00 means the window disproportionately lands on a track's
+    intro — often the least rhythmically confident part of a DJ edit
+    (deliberately beatless or sparse, so it's easy to mix in). essentia
+    doesn't have this problem: it decodes the whole file via MonoLoader with
+    no duration cap. The librosa path only ever sees `window` seconds, so
+    where that window sits matters as much as its length.
+
+    Falls back to 0.0 (equivalent to a whole-file decode, since -t past EOF
+    just stops at EOF) whenever duration can't be read or the track is
+    shorter than the window — there's nothing to center within.
+    """
+    try:
+        total = sf.info(str(path)).duration
+    except Exception as exc:
+        log.debug("Could not read duration for %s, analyzing from 0:00: %s", path.name, exc)
+        return 0.0
+    if not total or total <= window:
+        return 0.0
+    return (total - window) / 2.0
+
+
 def _load_audio_ffmpeg(path: Path, duration: float = ANALYSIS_DURATION) -> "tuple[np.ndarray, int] | None":
     """
     Decode audio to mono float32 PCM via ffmpeg subprocess.
@@ -185,10 +211,15 @@ def _load_audio_ffmpeg(path: Path, duration: float = ANALYSIS_DURATION) -> "tupl
     Bypasses audioread / macOS Core Audio entirely — librosa.load() falls back
     to audioread for MP3s which can segfault via AudioToolbox on certain files.
     ffmpeg runs isolated; any crash or format error surfaces as a return of None.
+
+    The window is centered in the track (see _analysis_window_start) rather
+    than anchored at 0:00, so BPM/key analysis on this path isn't
+    disproportionately weighted toward a track's intro.
     """
+    start = _analysis_window_start(path, duration)
     cmd = [
         _FFMPEG, "-hide_banner", "-y",
-        "-t", str(duration), "-i", str(path),
+        "-ss", str(start), "-t", str(duration), "-i", str(path),
         "-ac", "1", "-ar", str(_ANALYSIS_SR), "-f", "f32le", "-",
     ]
     try:
