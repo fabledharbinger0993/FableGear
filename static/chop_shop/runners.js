@@ -212,6 +212,168 @@ function _runProcessRetry(body) {
   });
 }
 
+/* ── Picard-Style Tagger Preflight ── */
+let _taggerPreflightFiles = [];
+let _taggerSelectedIdx = null;
+
+async function scanTaggerPreflight() {
+  const paths = getFolderPaths('process-pills');
+  if (!paths.length) {
+    _flashNeedsInput('process-pills');
+    showToast('Add at least one music folder first.', 'warning');
+    return;
+  }
+
+  const btn = document.querySelector('[onclick="scanTaggerPreflight()"]');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Scanning...';
+  }
+
+  try {
+    _taggerPreflightFiles = [];
+    let totalTracks = 0;
+    let anyTruncated = false;
+    for (const p of paths) {
+      const res = await fetch(`/api/library/fs-browse?path=${encodeURIComponent(p)}&recursive=true`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data.tracks) {
+        _taggerPreflightFiles.push(...data.tracks);
+      }
+      totalTracks += data.track_count || (data.tracks ? data.tracks.length : 0);
+      if (data.truncated) anyTruncated = true;
+    }
+
+    if (!_taggerPreflightFiles.length) {
+      showToast('No audio files found in specified folders.', 'warning');
+      return;
+    }
+
+    // Hide config form, show review pane
+    document.getElementById('step-process').querySelector('.card-form').classList.add('hidden');
+    document.getElementById('tagger-review-pane').classList.remove('hidden');
+
+    // Update stats — a folder over the tag-read cap (500 files, see
+    // _FS_TAG_LIMIT in routes_player.py) only previews its first batch here,
+    // but Write Tags still runs the CLI over the whole folder. Say so, rather
+    // than let the preview count look like the full picture.
+    document.getElementById('tagger-review-stats').textContent = anyTruncated
+      ? `Previewing ${_taggerPreflightFiles.length} of ${totalTracks} file(s) — all ${totalTracks} will be tagged when you write.`
+      : `Found ${_taggerPreflightFiles.length} file(s).`;
+
+    // Populate list
+    const listBody = document.getElementById('tagger-review-list');
+    listBody.innerHTML = '';
+    
+    _taggerPreflightFiles.forEach((file, idx) => {
+      const tr = document.createElement('tr');
+      tr.id = `tagger-row-${idx}`;
+      tr.addEventListener('click', () => selectTaggerFile(idx));
+      
+      const needsBpm = !file.bpm && !document.getElementById('process-no-bpm').checked;
+      const needsKey = !file.key && !document.getElementById('process-no-key').checked;
+      const needsEnrich = document.getElementById('process-enrich-tags').checked && (!file.artist || !file.title);
+      
+      let badgeHtml = '';
+      if (needsBpm || needsKey || needsEnrich) {
+        badgeHtml = '<span class="match-badge changed">Needs Work</span>';
+      } else {
+        badgeHtml = '<span class="match-badge clean">Match / Skip</span>';
+      }
+
+      tr.innerHTML = `
+        <td title="${file.path || file.filename}" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          ${file.filename}
+        </td>
+        <td>${badgeHtml}</td>
+      `;
+      listBody.appendChild(tr);
+    });
+
+    if (_taggerPreflightFiles.length > 0) {
+      selectTaggerFile(0);
+    }
+  } catch (err) {
+    showToast('Failed to scan directories: ' + err.message, 'danger');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Scan & Review Matches';
+    }
+  }
+}
+
+function selectTaggerFile(idx) {
+  _taggerSelectedIdx = idx;
+  
+  document.querySelectorAll('#tagger-review-list tr').forEach(tr => tr.classList.remove('active'));
+  document.getElementById(`tagger-row-${idx}`)?.classList.add('active');
+
+  const file = _taggerPreflightFiles[idx];
+  const diffPane = document.getElementById('tagger-diff-pane');
+  if (!file) {
+    diffPane.innerHTML = '<div class="diff-placeholder">Select a file to preview metadata tag changes</div>';
+    return;
+  }
+
+  const noBpm = document.getElementById('process-no-bpm').checked;
+  const noKey = document.getElementById('process-no-key').checked;
+  const forceBpm = document.getElementById('process-force-bpm')?.checked;
+  const forceKey = document.getElementById('process-force-key')?.checked;
+  const enrich = document.getElementById('process-enrich-tags').checked;
+
+  let proposedBpm = file.bpm || '';
+  let proposedKey = file.key || '';
+  let proposedTitle = file.title || '';
+  let proposedArtist = file.artist || '';
+  let proposedAlbum = file.album || '';
+
+  if (!noBpm && (!file.bpm || forceBpm)) proposedBpm = '<span class="diff-val-new highlight">Auto-Detect</span>';
+  if (!noKey && (!file.key || forceKey)) proposedKey = '<span class="diff-val-new highlight">Auto-Detect</span>';
+  if (enrich && (!file.artist || !file.title)) {
+    proposedTitle = file.title ? file.title : '<span class="diff-val-new highlight">MusicBrainz Match</span>';
+    proposedArtist = file.artist ? file.artist : '<span class="diff-val-new highlight">MusicBrainz Match</span>';
+    proposedAlbum = file.album ? file.album : '<span class="diff-val-new highlight">MusicBrainz Match</span>';
+  }
+
+  diffPane.innerHTML = `
+    <div class="diff-title">${file.filename}</div>
+    <div class="diff-grid-header" style="grid-column: span 3; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 4px;">Metadata Comparison</div>
+    <div class="diff-grid">
+      <div class="diff-prop">BPM</div>
+      <div class="diff-val-old">${file.bpm || '—'}</div>
+      <div class="diff-val-new">${proposedBpm || '—'}</div>
+
+      <div class="diff-prop">Key</div>
+      <div class="diff-val-old">${file.key || '—'}</div>
+      <div class="diff-val-new">${proposedKey || '—'}</div>
+
+      <div class="diff-prop">Title</div>
+      <div class="diff-val-old">${file.title || '—'}</div>
+      <div class="diff-val-new">${proposedTitle || '—'}</div>
+
+      <div class="diff-prop">Artist</div>
+      <div class="diff-val-old">${file.artist || '—'}</div>
+      <div class="diff-val-new">${proposedArtist || '—'}</div>
+
+      <div class="diff-prop">Album</div>
+      <div class="diff-val-old">${file.album || '—'}</div>
+      <div class="diff-val-new">${proposedAlbum || '—'}</div>
+    </div>
+  `;
+}
+
+function backToTaggerConfig() {
+  document.getElementById('tagger-review-pane').classList.add('hidden');
+  document.getElementById('step-process').querySelector('.card-form').classList.remove('hidden');
+}
+
+function commitTaggerChanges() {
+  backToTaggerConfig();
+  runProcess();
+}
+
 function runNormalize(_skipConfirm = false) {
   const paths = getFolderPaths('normalize-pills');
   if (!paths.length) { _flashNeedsInput('normalize-pills'); showToast('Add at least one music folder first.', 'warning'); return; }

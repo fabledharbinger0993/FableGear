@@ -89,7 +89,37 @@
         </div>
       </div>
       <div class="btn-row">
-        <button type="button" class="btn btn-neon" onclick="runProcess()">Detect BPM &amp; Key</button>
+        <button type="button" class="btn btn-neon" onclick="scanTaggerPreflight()">Scan &amp; Review Matches</button>
+      </div>
+    </div>
+
+    <!-- ── Tagger Preflight Review Pane (Picard style) ── -->
+    <div class="card-form hidden" id="tagger-review-pane">
+      <div class="review-header">
+        <h3 class="room-kicker">Tagger Preflight Review</h3>
+        <div class="review-stats" id="tagger-review-stats">Scanned 0 files.</div>
+        <div class="review-actions">
+          <button type="button" class="btn btn-ghost" onclick="backToTaggerConfig()">Back</button>
+          <button type="button" class="btn btn-neon" onclick="commitTaggerChanges()">Write Tags</button>
+        </div>
+      </div>
+      <div class="review-body">
+        <div class="review-list-pane">
+          <table class="review-table">
+            <thead>
+              <tr>
+                <th>File Path</th>
+                <th width="100">Status</th>
+              </tr>
+            </thead>
+            <tbody id="tagger-review-list">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+        <div class="review-diff-pane" id="tagger-diff-pane">
+          <div class="diff-placeholder">Select a file to preview metadata tag changes</div>
+        </div>
       </div>
     </div>
   </div>

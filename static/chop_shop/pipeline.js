@@ -550,34 +550,71 @@ function _clearToolCkpt(toolKey) {
 const _toolResumeFns = {};
 
 function _showToolResumeBanner(toolKey, cardId, resumeFn) {
-  const ckpt = _loadToolCkpt(toolKey);
-  const card = document.getElementById(cardId);
-  if (!card || card.style.display === 'none') return;
-  // Remove stale banner if checkpoint is gone
-  const existing = card.querySelector('.tool-resume-banner');
-  if (!ckpt) { existing?.remove(); return; }
-  if (existing) return; // already showing
-
-  const age      = Math.round((Date.now() - (ckpt.ts || 0)) / 60000);
-  const ageText  = age < 1 ? 'just now' : age < 60 ? `${age}m ago` : `${Math.round(age / 60)}h ago`;
-  const mainPaths = ckpt.paths || ckpt.sources || [];
-  const pathsText = mainPaths.length ? mainPaths.join(', ') : 'previous paths';
-
-  const banner = document.createElement('div');
-  banner.className = 'tool-resume-banner';
-  banner.innerHTML = `
-    <div class="trb-icon">⏸</div>
-    <div class="trb-text">
-      <div class="trb-title">Interrupted run — ${ageText}</div>
-      <div class="trb-paths">${pathsText}</div>
-    </div>
-    <button class="btn btn-neon trb-btn-resume" onclick="_resumeTool('${toolKey}')">Resume</button>
-    <button class="trb-btn-dismiss" title="Dismiss — start fresh" onclick="_dismissToolCkpt('${toolKey}', '${cardId}')">✕</button>`;
-
-  const form = card.querySelector('.card-form');
-  if (form) form.prepend(banner);
-  else card.appendChild(banner);
   _toolResumeFns[toolKey] = resumeFn;
+  const card = document.getElementById(cardId);
+  if (!card) return;
+
+  // Clean up any old banners
+  card.querySelector('.tool-safety-banner')?.remove();
+  card.querySelector('.tool-resume-banner')?.remove();
+
+  const ckpt = _loadToolCkpt(toolKey);
+  const form = card.querySelector('.card-form') || card;
+
+  if (ckpt) {
+    const age = Math.round((Date.now() - (ckpt.ts || 0)) / 60000);
+    const ageText = age < 1 ? 'just now' : age < 60 ? `${age}m ago` : `${Math.round(age / 60)}h ago`;
+    const mainPaths = ckpt.paths || ckpt.sources || [];
+    const pathsText = mainPaths.length ? mainPaths.join(', ') : 'previous paths';
+
+    const banner = document.createElement('div');
+    banner.className = 'tool-safety-banner has-ckpt';
+    banner.innerHTML = `
+      <div class="tsb-info">
+        <span class="tsb-icon">⏸</span>
+        <div class="tsb-text">
+          <strong>Checkpoint active</strong> (started ${ageText}): Resume or start over.
+        </div>
+      </div>
+      <div class="tsb-actions">
+        <button type="button" class="btn btn-neon tsb-btn" onclick="_resumeTool('${toolKey}')">Resume</button>
+        <button type="button" class="btn btn-secondary tsb-btn" onclick="_discardCkpt('${toolKey}', '${cardId}')">Start Over</button>
+      </div>
+    `;
+    form.prepend(banner);
+  } else {
+    // Look up recent revertible file operations
+    fetch('/api/undo/operations')
+      .then(r => r.json())
+      .then(data => {
+        const sessions = data.sessions || [];
+        const match = sessions.find(s => {
+          if (toolKey === 'organize' && s.type === 'organize') return true;
+          if (toolKey === 'rename' && s.type === 'rename') return true;
+          if (toolKey === 'novelty' && s.type === 'novelty_copy') return true;
+          if (toolKey === 'convert' && s.type === 'convert') return true;
+          return false;
+        });
+
+        if (match && match.revertible) {
+          const banner = document.createElement('div');
+          banner.className = 'tool-safety-banner';
+          banner.innerHTML = `
+            <div class="tsb-info">
+              <span class="tsb-icon">↩</span>
+              <div class="tsb-text">
+                <strong>Undo available</strong>: Last run modified ${match.count} file(s).
+              </div>
+            </div>
+            <div class="tsb-actions">
+              <button type="button" class="btn btn-neon tsb-btn" onclick="_revertSession('${match.type}', ${match.first_id}, ${match.last_id}, '${cardId}', '${toolKey}')">Undo Last Run</button>
+            </div>
+          `;
+          form.prepend(banner);
+        }
+      })
+      .catch(() => {});
+  }
 }
 
 function _resumeTool(toolKey) {
@@ -585,9 +622,27 @@ function _resumeTool(toolKey) {
   if (ckpt && _toolResumeFns[toolKey]) _toolResumeFns[toolKey](ckpt);
 }
 
-function _dismissToolCkpt(toolKey, cardId) {
+function _discardCkpt(toolKey, cardId) {
   _clearToolCkpt(toolKey);
-  document.getElementById(cardId)?.querySelector('.tool-resume-banner')?.remove();
+  _showToolResumeBanner(toolKey, cardId, _toolResumeFns[toolKey]);
+}
+
+async function _revertSession(type, firstId, lastId, cardId, toolKey) {
+  if (!confirm(`Are you sure you want to rollback this operation?`)) return;
+  try {
+    const res = await fetch('/api/undo/operations/revert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, first_id: firstId, last_id: lastId }),
+    });
+    const out = await res.json();
+    if (!res.ok) throw new Error(out.error || res.statusText);
+    const where = out.recovery_dir ? ` Copies parked in ${out.recovery_dir}.` : '';
+    showToast(`Successfully rolled back ${out.reverted} file(s).${where}`, 'success');
+    _showToolResumeBanner(toolKey, cardId, _toolResumeFns[toolKey]);
+  } catch (e) {
+    showToast(`Rollback failed: ${e.message}`, 'error');
+  }
 }
 
 function _populatePills(pillsId, paths) {
@@ -665,6 +720,14 @@ function _resumeNovelty(ckpt) {
   runNovelty();
 }
 
+function _resumeRename(ckpt) {
+  _populatePills('rename-pills', ckpt.paths);
+  const dr = document.getElementById('rename-dry-run');
+  if (dr) dr.checked = !!ckpt.dryRun;
+  document.getElementById('step-rename')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  runRename();
+}
+
 // ── Init — show banners for any stale checkpoints on page load ───────────────
 function _initToolCheckpoints() {
   _showToolResumeBanner('process',    'step-process',    _resumeProcess);
@@ -673,6 +736,7 @@ function _initToolCheckpoints() {
   _showToolResumeBanner('duplicates', 'step-duplicates', _resumeDuplicates);
   _showToolResumeBanner('organize',   'step-organize',   _resumeOrganize);
   _showToolResumeBanner('novelty',    'step-novelty',    _resumeNovelty);
+  _showToolResumeBanner('rename',     'step-rename',     _resumeRename);
 }
 
 /* ── Pipeline checkpoint: survive interruptions and resume ────────────────── */

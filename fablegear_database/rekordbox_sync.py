@@ -348,7 +348,7 @@ class RekordboxSyncAdapter:
                     rdb.session.commit()
 
         except Exception as e:
-            log.error("Failed bidirectional Rekordbox synchronization: %s", e)
+            log.exception("Failed bidirectional Rekordbox synchronization")
             stats["errors"].append(str(e))
 
         return stats

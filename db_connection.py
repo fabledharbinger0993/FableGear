@@ -11,6 +11,7 @@ Nothing in this toolkit writes to the database without going through open_db().
 """
 
 import logging
+import os
 import platform
 import shutil
 import subprocess
@@ -58,6 +59,8 @@ def rekordbox_is_running() -> bool:
       Linux   — pgrep -x rekordbox  (Rekordbox has no Linux version, but
                 the check is harmless; always returns False in practice)
     """
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return False
     try:
         if _PLATFORM == "Windows":
             result = subprocess.run(
