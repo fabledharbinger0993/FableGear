@@ -1,0 +1,25 @@
+{
+  "name": "FableGo",
+  "short_name": "FableGo",
+  "description": "iPhone companion to FableGear — queue downloads, browse your library, manage playlists.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d0d0d",
+  "theme_color": "#ff6600",
+  "icons": [
+    {
+      "src": "/static/icon-fablego.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/icon-logo-fablegear.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "fablegear": {
+      "url": "http://localhost:5002/sse"
+    }
+  }
+}

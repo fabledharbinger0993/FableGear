@@ -1,0 +1,5 @@
+# FableGear UI dependencies
+# Install with: pip install -r requirements_ui.txt
+flask>=3.0
+flask-sock>=0.7
+waitress>=3.0

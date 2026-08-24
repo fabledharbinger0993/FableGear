@@ -1,0 +1,204 @@
+/* ════════════════════════════════════════════════════════════════════════
+   FableGear — ui_extras.css
+   Three additive layers, zero overrides of existing rules:
+     1. Camelot wheel design tokens + key badges
+     2. Booth Mode (red-shifted night theme, toggled via body[data-theme])
+     3. Command palette (⌘K / Ctrl+K)
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* ── 1. Camelot wheel tokens ─────────────────────────────────────────────
+   24 positions: 1–12, A (minor, inner ring) and B (major, outer ring).
+   Hues walk the color wheel in 30° steps so adjacent Camelot numbers —
+   the harmonically compatible ones — are visually adjacent too. Minor
+   keys sit darker/deeper, majors brighter, matching the wheel convention. */
+:root {
+  --cam-h1: 95;  --cam-h2: 125; --cam-h3: 155; --cam-h4: 185;
+  --cam-h5: 215; --cam-h6: 245; --cam-h7: 275; --cam-h8: 305;
+  --cam-h9: 335; --cam-h10: 5;  --cam-h11: 35; --cam-h12: 65;
+}
+
+.cam-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 1.56em;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  letter-spacing: 0.03em;
+  min-width: 2.6em;
+  text-align: center;
+}
+.cam-badge.cam-none { color: var(--text-dim); border-color: var(--border); }
+
+/* Minor (A) — deep ring */
+.cam-1a  { background: hsl(var(--cam-h1),  55%, 16%); color: hsl(var(--cam-h1),  70%, 70%); border-color: hsl(var(--cam-h1),  55%, 30%); }
+.cam-2a  { background: hsl(var(--cam-h2),  55%, 16%); color: hsl(var(--cam-h2),  70%, 70%); border-color: hsl(var(--cam-h2),  55%, 30%); }
+.cam-3a  { background: hsl(var(--cam-h3),  55%, 16%); color: hsl(var(--cam-h3),  70%, 70%); border-color: hsl(var(--cam-h3),  55%, 30%); }
+.cam-4a  { background: hsl(var(--cam-h4),  55%, 16%); color: hsl(var(--cam-h4),  70%, 70%); border-color: hsl(var(--cam-h4),  55%, 30%); }
+.cam-5a  { background: hsl(var(--cam-h5),  55%, 16%); color: hsl(var(--cam-h5),  70%, 70%); border-color: hsl(var(--cam-h5),  55%, 30%); }
+.cam-6a  { background: hsl(var(--cam-h6),  55%, 16%); color: hsl(var(--cam-h6),  70%, 72%); border-color: hsl(var(--cam-h6),  55%, 32%); }
+.cam-7a  { background: hsl(var(--cam-h7),  55%, 16%); color: hsl(var(--cam-h7),  70%, 72%); border-color: hsl(var(--cam-h7),  55%, 32%); }
+.cam-8a  { background: hsl(var(--cam-h8),  55%, 16%); color: hsl(var(--cam-h8),  70%, 72%); border-color: hsl(var(--cam-h8),  55%, 32%); }
+.cam-9a  { background: hsl(var(--cam-h9),  55%, 16%); color: hsl(var(--cam-h9),  70%, 72%); border-color: hsl(var(--cam-h9),  55%, 32%); }
+.cam-10a { background: hsl(var(--cam-h10), 55%, 16%); color: hsl(var(--cam-h10), 70%, 70%); border-color: hsl(var(--cam-h10), 55%, 30%); }
+.cam-11a { background: hsl(var(--cam-h11), 55%, 16%); color: hsl(var(--cam-h11), 70%, 68%); border-color: hsl(var(--cam-h11), 55%, 30%); }
+.cam-12a { background: hsl(var(--cam-h12), 55%, 16%); color: hsl(var(--cam-h12), 70%, 66%); border-color: hsl(var(--cam-h12), 55%, 30%); }
+
+/* Major (B) — bright ring */
+.cam-1b  { background: hsl(var(--cam-h1),  60%, 24%); color: hsl(var(--cam-h1),  85%, 78%); border-color: hsl(var(--cam-h1),  60%, 40%); }
+.cam-2b  { background: hsl(var(--cam-h2),  60%, 24%); color: hsl(var(--cam-h2),  85%, 78%); border-color: hsl(var(--cam-h2),  60%, 40%); }
+.cam-3b  { background: hsl(var(--cam-h3),  60%, 24%); color: hsl(var(--cam-h3),  85%, 78%); border-color: hsl(var(--cam-h3),  60%, 40%); }
+.cam-4b  { background: hsl(var(--cam-h4),  60%, 24%); color: hsl(var(--cam-h4),  85%, 78%); border-color: hsl(var(--cam-h4),  60%, 40%); }
+.cam-5b  { background: hsl(var(--cam-h5),  60%, 24%); color: hsl(var(--cam-h5),  85%, 78%); border-color: hsl(var(--cam-h5),  60%, 40%); }
+.cam-6b  { background: hsl(var(--cam-h6),  60%, 24%); color: hsl(var(--cam-h6),  85%, 80%); border-color: hsl(var(--cam-h6),  60%, 42%); }
+.cam-7b  { background: hsl(var(--cam-h7),  60%, 24%); color: hsl(var(--cam-h7),  85%, 80%); border-color: hsl(var(--cam-h7),  60%, 42%); }
+.cam-8b  { background: hsl(var(--cam-h8),  60%, 24%); color: hsl(var(--cam-h8),  85%, 80%); border-color: hsl(var(--cam-h8),  60%, 42%); }
+.cam-9b  { background: hsl(var(--cam-h9),  60%, 24%); color: hsl(var(--cam-h9),  85%, 80%); border-color: hsl(var(--cam-h9),  60%, 42%); }
+.cam-10b { background: hsl(var(--cam-h10), 60%, 24%); color: hsl(var(--cam-h10), 85%, 78%); border-color: hsl(var(--cam-h10), 60%, 40%); }
+.cam-11b { background: hsl(var(--cam-h11), 60%, 24%); color: hsl(var(--cam-h11), 85%, 76%); border-color: hsl(var(--cam-h11), 60%, 40%); }
+.cam-12b { background: hsl(var(--cam-h12), 60%, 24%); color: hsl(var(--cam-h12), 85%, 74%); border-color: hsl(var(--cam-h12), 60%, 40%); }
+
+/* ── 2. Booth Mode ───────────────────────────────────────────────────────
+   Red-shifted theme for dark-booth use: long-wavelength light preserves
+   dark-adapted vision (the astronomy / cockpit convention). Token override
+   only — every component inherits automatically. Toggle: header 🔴 button,
+   ⌘⇧B, or the command palette. */
+body[data-theme="booth"] {
+  --bg:            #0c0405;
+  --surface:       #160808;
+  --surface-hi:    #221010;
+  --border:        #3a1a16;
+  --border-hi:     #5a2a20;
+
+  --text:          #ffd9b8;
+  --text-muted:    #cf9070;
+  --text-dim:      #7a4a3a;
+
+  --safe:          #c97a2a;
+  --safe-dim:      rgba(201, 122, 42, 0.15);
+  --safe-border:   rgba(201, 122, 42, 0.30);
+
+  --caution:       #e08a3c;
+  --caution-dim:   rgba(224, 138, 60, 0.15);
+  --caution-border:rgba(224, 138, 60, 0.30);
+
+  --warn:          #f09a4b;
+  --warn-dim:      rgba(240, 154, 75, 0.15);
+  --warn-border:   rgba(240, 154, 75, 0.30);
+
+  --danger:        #ff4433;
+  --danger-dim:    rgba(255, 68, 51, 0.18);
+  --danger-border: rgba(255, 68, 51, 0.35);
+
+  --accent:        #ff5a3c;
+  --accent-dim:    rgba(255, 90, 60, 0.15);
+  --accent-rgb:    255, 90, 60;
+  --accent2:       #e04a30;
+  --accent2-dim:   rgba(224, 74, 48, 0.15);
+
+  /* Extended palette (mirrors the fablegear.css :root additions) —
+     every hue family red-shifted into the long-wavelength band. */
+  --text-bright:       #ffe9d6;
+  --text-rgb:          255, 217, 184;
+  --text-violet:       #ffd9c4;
+  --bg-deepest:        #080203;
+  --bg-deep:           #120607;
+  --surface-deep:      #1c0c0a;
+  --steel-rgb:         140, 95, 75;
+
+  --accent-bright:     #ff7a50;
+  --accent-bright-rgb: 255, 122, 80;
+  --accent-sky-rgb:    255, 122, 80;
+  --accent-deep:       #5c1a10;
+  --accent-deep-rgb:   180, 60, 30;
+  --accent-soft-rgb:   230, 130, 100;
+  --accent-muted-rgb:  212, 140, 109;
+  --accent-text-hi:    #ffe4cc;
+  --accent-text:       #ffc9a8;
+  --accent-text-dim:   #f0a880;
+  --accent2-rgb:       224, 74, 48;
+  --accent2-deep-rgb:  200, 66, 42;
+
+  --safe-rgb:          201, 122, 42;
+  --safe-bright:       #ffb060;
+  --safe-bright-rgb:   255, 176, 96;
+  --teal:              #f0935a;
+  --teal-rgb:          240, 147, 90;
+
+  --warn-rgb:          240, 154, 75;
+  --warn-bright:       #ffb054;
+  --warn-bright-rgb:   255, 176, 84;
+  --caution-rgb:       224, 138, 60;
+  --gold-rgb:          255, 170, 60;
+
+  --danger-rgb:        255, 68, 51;
+  --danger-bright:     #ff7a66;
+  --danger-bright-rgb: 255, 122, 102;
+
+  --info:              #e0a070;
+  --info-rgb:          224, 160, 112;
+  --info-bright:       #f0b890;
+  --info-bright-rgb:   240, 184, 144;
+
+  --holo-rgb:          230, 100, 60;
+  --holo-soft-rgb:     240, 150, 110;
+  --holo-text-rgb:     255, 200, 170;
+}
+body[data-theme="booth"] img,
+body[data-theme="booth"] video { filter: sepia(0.55) hue-rotate(-28deg) saturate(1.5) brightness(0.85); }
+body[data-theme="booth"] .cam-badge { filter: sepia(0.35) hue-rotate(-15deg); }
+
+/* ── 3. Command palette ─────────────────────────────────────────────────── */
+#fg-palette-backdrop {
+  position: fixed; inset: 0; z-index: 9000;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 14vh;
+}
+#fg-palette-backdrop.hidden { display: none; }
+#fg-palette {
+  width: min(560px, 92vw);
+  background: var(--surface);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+#fg-palette-input {
+  width: 100%; box-sizing: border-box;
+  background: var(--surface-hi);
+  border: none; outline: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 30px;
+  padding: 14px 16px;
+}
+#fg-palette-list { max-height: 46vh; overflow-y: auto; }
+.fg-palette-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+.fg-palette-item .fg-pi-hint {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 22px;
+  color: var(--text-dim);
+}
+.fg-palette-item.active,
+.fg-palette-item:hover {
+  background: var(--accent-dim);
+  color: var(--text);
+}
+.fg-palette-empty {
+  padding: 18px 16px;
+  color: var(--text-dim);
+  font-size: 26px;
+  text-align: center;
+}

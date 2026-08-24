@@ -1,0 +1,316 @@
+"""
+fablegear / config.py
+Central configuration: paths, constants, key mappings.
+All path references in the toolkit flow from here.
+"""
+
+import sys
+from pathlib import Path
+
+if sys.version_info < (3, 11):
+    raise RuntimeError(
+        f"FableGear requires Python 3.11 or later "
+        f"(found {sys.version_info.major}.{sys.version_info.minor}). "
+        "Please run: brew install python@3.12"
+    )
+
+# ─── User configuration ───────────────────────────────────────────────────────
+#
+# All paths and user-adjustable constants are stored in the user's config file
+# at ~/.fablegear/config.json and written there by `python3 cli.py setup`.
+#
+# These module-level names preserve the existing import interface throughout
+# the codebase — callers use LOCAL_DB, DJMT_DB, MUSIC_ROOT, BACKUP_DIR,
+# TARGET_LUFS, and LUFS_TOLERANCE exactly as before.
+
+
+try:
+    from user_config import (
+        NotConfiguredError,
+        archive_root_for_music_root,
+        load_user_config,
+        normalize_snapshot_cadence,
+        snapshot_cadence_seconds,
+    )
+    _cfg = load_user_config()
+except NotConfiguredError as _exc:
+    raise RuntimeError(str(_exc)) from _exc
+
+# FableGear mode: 'rural' (no AI) or 'suburban' (AI enabled)
+FABLEGEAR_MODE = _cfg.get("mode", "suburban")
+
+# ─── Database and filesystem paths ───────────────────────────────────────────
+
+# Primary Rekordbox database on the local machine (what the desktop app reads/writes)
+LOCAL_DB = Path(_cfg["local_db"])
+
+# Database on the DJ drive (exported for CDJ playback)
+DJMT_DB = Path(_cfg["device_db"])
+
+# Music library root on the DJ drive
+MUSIC_ROOT = Path(_cfg["music_root"])
+
+# ─── FableGear Archive ─────────────────────────────────────────────────────────
+#
+# All FableGear-generated data lives in one folder beside the music library:
+#
+#   <drive root>/
+#   ├── Music Library/      ← music library
+#   └── FableGear Archive/   ← auto-created on first run
+#       ├── Savepoints/     ← timestamped DB backups before every write
+#       ├── Quarantine/     ← problem files moved here from triage
+#       └── Logs/
+#           ├── Audit/
+#           ├── Tag Tracks/
+#           ├── Import/
+#           ├── Normalize/
+#           ├── Duplicates/
+#           ├── Relocate/
+#           └── Prune/
+
+# Archive mode: "auto" (beside library), "custom" (user path), or "none" (disabled)
+_archive_mode      = _cfg.get("archive_mode", "auto")
+_custom_archive    = _cfg.get("custom_archive_dir", "").strip()
+
+ARCHIVE_ENABLED: bool = _archive_mode != "none"
+
+if _archive_mode == "custom" and _custom_archive:
+    ARCHIVE_ROOT = Path(_custom_archive)
+else:
+    ARCHIVE_ROOT = archive_root_for_music_root(MUSIC_ROOT)
+
+SAVEPOINTS_DIR = ARCHIVE_ROOT / "Savepoints"
+QUARANTINE_DIR = ARCHIVE_ROOT / "Quarantine"
+REPORTS_DIR    = ARCHIVE_ROOT / "Reports"
+LOGS_DIR       = ARCHIVE_ROOT / "Logs"
+
+LOG_DIRS: dict[str, Path] = {
+    "Audit":       LOGS_DIR / "Audit",
+    "Tag Tracks":  LOGS_DIR / "Tag Tracks",
+    "Import":      LOGS_DIR / "Import",
+    "Normalize":   LOGS_DIR / "Normalize",
+    "Duplicates":  LOGS_DIR / "Duplicates",
+    "Relocate":    LOGS_DIR / "Relocate",
+    "Prune":       LOGS_DIR / "Prune",
+}
+
+# Backup directory — use the explicit user setting when present, otherwise fall
+# back to Savepoints inside the archive on the DJ drive.
+_user_backup_dir = _cfg.get("backup_dir", "").strip()
+BACKUP_DIR = Path(_user_backup_dir) if _user_backup_dir else SAVEPOINTS_DIR
+
+# Periodic snapshot cadence — used by the background snapshot scheduler.
+SNAPSHOT_CADENCE = normalize_snapshot_cadence(_cfg.get("snapshot_cadence"))
+SNAPSHOT_INTERVAL_SECONDS = snapshot_cadence_seconds(SNAPSHOT_CADENCE)
+SNAPSHOT_INCLUDE_MASTER_DB = bool(_cfg.get("snapshot_include_master_db", False))
+SNAPSHOT_STATE_FILE = Path.home() / ".fablegear" / "snapshot_state.json"
+
+
+def ensure_archive_structure() -> None:
+    """
+    Create the full FableGear Archive folder tree on the DJ drive if it doesn't
+    exist yet. Safe to call on every startup — uses exist_ok=True throughout.
+    Skips silently if the drive isn't mounted or if archive is disabled.
+    Applies the branded green-folder Finder icon to every directory created.
+    """
+    if not ARCHIVE_ENABLED:
+        return
+    try:
+        for path in [SAVEPOINTS_DIR, QUARANTINE_DIR, REPORTS_DIR, *LOG_DIRS.values()]:
+            path.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        import logging as _log  # noqa: PLC0415
+        _log.getLogger(__name__).warning(
+            "ensure_archive_structure: could not create archive directories — %s",
+            exc,
+        )
+
+# ─── Audio normalisation ──────────────────────────────────────────────────────
+#
+# Target integrated loudness for the normalise operation (EBU R128 / LUFS).
+# −8.0 LUFS is the widely-used DJ standard for CDJ output monitoring.
+# Users can change this via `python3 cli.py setup --update`.
+
+TARGET_LUFS:    float = float(_cfg["target_lufs"])
+LUFS_TOLERANCE: float = float(_cfg["lufs_tolerance"])
+
+# AcoustID API key for MusicBrainz enrichment (optional — empty string disables lookup)
+ACOUSTID_API_KEY: str = _cfg.get("acoustid_api_key", "")
+
+# Supported audio file extensions (lowercase)
+# 
+# Modern formats (Rekordbox native):
+#   .mp3, .wav, .aiff/.aif/.aifc, .flac, .m4a/.m4p/.mp4/.m4v (AAC/ALAC containers), .ogg (Vorbis), .opus
+#
+# Legacy formats (early 2000s, auto-converted to Rekordbox format on import):
+#   .wma (Windows Media Audio) → MP3 or WAV
+#   .ape (Monkey's Audio) → FLAC
+#   .mpc/.mp+ (Musepack) → MP3 or FLAC
+#   .wv (WavPack) → FLAC
+#   .aac (raw AAC) → M4A
+#   .ac3 (Dolby Digital) → WAV
+#   .dff/.dsf (DSD) → FLAC or WAV
+#   .ape (APEv2 tagged) → FLAC
+#
+AUDIO_EXTENSIONS = {
+    # Modern formats — Rekordbox native
+    ".mp3", ".wav", ".aiff", ".aif", ".aifc", ".flac", ".m4a", ".m4p", ".ogg", ".opus",
+    # NOTE: .mp4 / .m4v are deliberately ABSENT. They are video containers, and
+    # every file-touching tool (organizer, renamer, converter, dedupe, novelty)
+    # scans by this set — FableGear touches music, nothing else.
+    # Legacy formats — auto-converted on import
+    ".wma",        # Windows Media Audio
+    ".ape",        # Monkey's Audio (lossless)
+    ".mpc", ".mp+",  # Musepack (early 2000s codec)
+    ".wv",         # WavPack (lossless)
+    ".aac",        # Raw AAC (usually in M4A container, but raw files exist)
+    ".ac3",        # Dolby Digital audio
+    ".dff", ".dsf",  # DSD formats
+}
+
+# Files to skip when scanning.
+# "._"       — macOS resource fork sidecar files
+# "."        — hidden files (.DS_Store, etc.)
+# "_ ("      — download-manager junk files named "_ (1).mp3", "_ (58).mp3", etc.
+# "INCOMPLETE~" — partial/interrupted downloads left by download managers
+SKIP_PREFIXES = ("._", ".", "_ (", "INCOMPLETE~")
+
+# Minimum file size in bytes — anything smaller is corrupt/empty and skipped.
+# 8 bytes is mutagen's own minimum for a parseable header.
+MIN_FILE_BYTES: int = 8
+
+# Base set of directory names to never descend into while scanning the music root.
+# Covers Pioneer system folders, macOS internals, and common non-music app data.
+# Note: dotfile-style dirs (.git, .venv, .tox, etc.) are already skipped by callers
+# via `not d.startswith(".")`, so only non-dotfile dirs need to be listed here.
+SKIP_DIRS: set[str] = {
+    # Pioneer / DJ system
+    "PIONEER", "PIONEER REC",
+    # macOS internals
+    "__MACOSX", ".Spotlight-V100", ".fseventsd", ".DocumentRevisions-V100",
+    ".TemporaryItems", ".Trashes",
+    # Common non-music app data that ends up inside music drives
+    "ollama", "FableGear Archive",
+    # Processing artifacts left by FableGear or other tools
+    "PROCESSING_CACHE", "POST_PROCESS_ARCHIVE",
+    # Source-control, language toolchains, and build outputs that may sit inside
+    # a scanned root (e.g. when auditing a repo path or a music drive that also
+    # hosts code). Audio files in these are never real library content.
+    "venv", "node_modules", "__pycache__",
+    "dist", "build", "target",
+    "site-packages",
+}
+
+# Merge in any user-specified exclusions from config.json ("excluded_dirs" key)
+_user_excluded: list = _cfg.get("excluded_dirs", [])
+if _user_excluded:
+    SKIP_DIRS = SKIP_DIRS | set(_user_excluded)
+
+# ─── Hardware-adaptive performance constants ──────────────────────────────────
+#
+# These are derived once at startup from the host machine's available RAM,
+# physical CPU core count, and storage type via system_probe.SYSTEM_PROFILE.
+# Users may override any value via the ``"performance"`` stanza in
+# ~/.fablegear/config.json, e.g.:
+#
+#   {
+#     "performance": {
+#       "batch_size": 500,
+#       "archive_chunk_size": 500,
+#       "progress_item_interval": 50,
+#       "progress_min_seconds": 0.15
+#     }
+#   }
+#
+# Auto-detected tiers (by available RAM at startup):
+#   <4 GB   → batch=100,  chunk=100,  interval=200, min_sec=0.50
+#   4–12 GB → batch=250,  chunk=250,  interval=100, min_sec=0.25
+#  12–32 GB → batch=500,  chunk=500,  interval=50,  min_sec=0.15
+#   >32 GB  → batch=1000, chunk=1000, interval=25,  min_sec=0.10
+#
+# SSD storage reduces progress_min_seconds by 25% (I/O is faster → loops run
+# faster → the time gate can be tighter without flooding the UI).
+#
+# system_probe.SYSTEM_PROFILE also computes max_workers (a "how many cores
+# does this machine have" tier value, with its own config.json override) —
+# it isn't re-exported here because nothing in FableGear currently reads it;
+# every parallel scan/convert path takes its own explicit --workers flag.
+
+from system_probe import SYSTEM_PROFILE as _sys_profile  # noqa: E402
+
+# Batch size for database commits — one commit per N tracks.
+BATCH_SIZE: int = _sys_profile.batch_size
+
+# Maximum number of items buffered before a chunked archive write is flushed.
+ARCHIVE_CHUNK_SIZE: int = _sys_profile.archive_chunk_size
+
+# Progress-event throttle: emit at most once every N items ...
+PROGRESS_ITEM_INTERVAL: int = _sys_profile.progress_item_interval
+
+# ... and at most once per this many seconds (whichever gate fires later).
+PROGRESS_MIN_SECONDS: float = _sys_profile.progress_min_seconds
+
+# BPM sanity-check range — shared by scanner and audio_processor
+BPM_MIN: float = 30.0
+BPM_MAX: float = 300.0
+
+
+# ─── Camelot / Musical Key → Rekordbox ScaleName mapping ─────────────────────
+#
+# Rekordbox stores key as a foreign key (KeyID) pointing to a DjmdKey row
+# with a ScaleName field. The ScaleName format uses standard notation:
+# major keys as plain note names (e.g. "C", "G#"), minor keys suffixed with "m"
+# (e.g. "Am", "F#m").
+#
+# Sources that tag keys use various notations. We normalize all of them here.
+
+# Camelot → Rekordbox ScaleName
+CAMELOT_TO_RB = {
+    "1A": "Am",   "2A": "Em",   "3A": "Bm",   "4A": "F#m",
+    "5A": "C#m",  "6A": "Abm",  "7A": "Ebm",  "8A": "Bbm",
+    "9A": "Fm",   "10A": "Cm",  "11A": "Gm",  "12A": "Dm",
+    "1B": "C",    "2B": "G",    "3B": "D",    "4B": "A",
+    "5B": "E",    "6B": "B",    "7B": "F#",   "8B": "Db",
+    "9B": "Ab",   "10B": "Eb",  "11B": "Bb",  "12B": "F",
+}
+
+# Open Key → Rekordbox ScaleName
+OPENKEY_TO_RB = {
+    "1m": "Am",   "2m": "Em",   "3m": "Bm",   "4m": "F#m",
+    "5m": "C#m",  "6m": "Abm",  "7m": "Ebm",  "8m": "Bbm",
+    "9m": "Fm",   "10m": "Cm",  "11m": "Gm",  "12m": "Dm",
+    "1d": "C",    "2d": "G",    "3d": "D",    "4d": "A",
+    "5d": "E",    "6d": "B",    "7d": "F#",   "8d": "Db",
+    "9d": "Ab",   "10d": "Eb",  "11d": "Bb",  "12d": "F",
+}
+
+# Standard notation aliases → canonical Rekordbox ScaleName
+# Covers enharmonic equivalents and common alternate spellings
+STANDARD_KEY_ALIASES = {
+    # Major
+    "C": "C",       "Cmaj": "C",    "CM": "C",
+    "Db": "Db",     "C#": "Db",     "Dbmaj": "Db",  "C#maj": "Db",
+    "D": "D",       "Dmaj": "D",    "DM": "D",
+    "Eb": "Eb",     "D#": "Eb",     "Ebmaj": "Eb",
+    "E": "E",       "Emaj": "E",    "EM": "E",
+    "F": "F",       "Fmaj": "F",    "FM": "F",
+    "F#": "F#",     "Gb": "F#",     "F#maj": "F#",  "Gbmaj": "F#",
+    "G": "G",       "Gmaj": "G",    "GM": "G",
+    "Ab": "Ab",     "G#": "Ab",     "Abmaj": "Ab",  "G#maj": "Ab",
+    "A": "A",       "Amaj": "A",    "AM": "A",
+    "Bb": "Bb",     "A#": "Bb",     "Bbmaj": "Bb",  "A#maj": "Bb",
+    "B": "B",       "Bmaj": "B",    "BM": "B",
+    # Minor
+    "Am": "Am",     "Amin": "Am",   "A minor": "Am",
+    "Bbm": "Bbm",   "A#m": "Bbm",   "Bbmin": "Bbm",
+    "Bm": "Bm",     "Bmin": "Bm",
+    "Cm": "Cm",     "Cmin": "Cm",
+    "C#m": "C#m",   "Dbm": "C#m",   "C#min": "C#m", "Dbmin": "C#m",
+    "Dm": "Dm",     "Dmin": "Dm",
+    "Ebm": "Ebm",   "D#m": "Ebm",   "Ebmin": "Ebm",
+    "Em": "Em",     "Emin": "Em",
+    "Fm": "Fm",     "Fmin": "Fm",
+    "F#m": "F#m",   "Gbm": "F#m",   "F#min": "F#m",
+    "Gm": "Gm",     "Gmin": "Gm",
+    "Abm": "Abm",   "G#m": "Abm",   "Abmin": "Abm", "G#min": "Abm",
+}
