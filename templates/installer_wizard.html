@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FableGear — Setup</title>
+<link rel="stylesheet" href="/static/fablegear.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%; height: 100vh;
+    /* fablegear.css's own body rule sets real padding here (left nav rail,
+       titlebar, bottom log panel) sized for the main app's chrome -- this
+       page shares that stylesheet for its color/type tokens but is not the
+       main app's layout, so those paddings must be zeroed explicitly rather
+       than relied on to lose by source order (same-specificity `body`
+       selectors don't; only the properties actually redeclared here do). */
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+
+  .wiz {
+    width: 640px;
+    height: 100vh;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
+  /* ── Ambient backdrop: a slow drifting glow behind everything, restrained.
+     One flourish, spent once, here -- every step after this is calm. ── */
+  .wiz::before {
+    content: "";
+    position: fixed; inset: -20%;
+    background:
+      radial-gradient(circle at 20% 15%, rgba(var(--accent-rgb), .10), transparent 45%),
+      radial-gradient(circle at 85% 80%, rgba(var(--accent-b-rgb), .07), transparent 50%);
+    animation: drift 22s ease-in-out infinite alternate;
+    pointer-events: none;
+    z-index: 0;
+  }
+  @keyframes drift {
+    from { transform: translate(0, 0) scale(1); }
+    to   { transform: translate(-2%, 2%) scale(1.06); }
+  }
+
+  /* ── Top chrome: progress + step label ── */
+  .wiz-chrome {
+    position: relative; z-index: 1;
+    padding: 22px 34px 0;
+    flex: none;
+  }
+  .wiz-progress-track {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .wiz-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    border-radius: 2px;
+    transition: width .5s cubic-bezier(.4,0,.2,1);
+  }
+  .wiz-steplabel {
+    margin-top: 10px;
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .wiz-steplabel b { color: var(--text-muted); font-weight: 600; }
+
+  /* ── Body ── */
+  .wiz-body {
+    position: relative; z-index: 1;
+    flex: 1;
+    min-height: 0;
+    padding: 8px 34px 28px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .wiz-body::-webkit-scrollbar { width: 4px; }
+  .wiz-body::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px; }
+
+  /* Panels: an entrance (glide + fade + a touch of scale) and an exit
+     (shrink + fade) that JS chains before swapping .active -- see
+     transitionToStep(). Neither runs unless JS asks for it; .active alone
+     still shows a panel at rest with no animation, same as before. */
+  .panel { display: none; flex: 1; flex-direction: column; }
+  .panel.active { display: flex; }
+  .panel.entering {
+    animation: panel-in .42s cubic-bezier(.22,.9,.3,1) both;
+  }
+  .panel.leaving {
+    animation: panel-out .22s cubic-bezier(.55,0,1,.45) both;
+  }
+  @keyframes panel-in {
+    from { opacity: 0; transform: translateY(12px) scale(.985); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes panel-out {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to   { opacity: 0; transform: translateY(-8px) scale(.97); }
+  }
+
+  /* ── Welcome ── */
+  .welcome { align-items: center; justify-content: center; text-align: center; gap: 4px; }
+  .welcome-mark {
+    width: 84px; height: 84px;
+    border-radius: 22px;
+    background: linear-gradient(155deg, var(--surface-hi), var(--surface));
+    border: 1px solid var(--border-hi);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2.2rem;
+    margin-bottom: 22px;
+    box-shadow: 0 0 0 1px rgba(var(--accent-rgb), .08), 0 18px 40px -14px rgba(0,0,0,.6);
+    animation: mark-in .6s cubic-bezier(.34,1.56,.64,1);
+  }
+  @keyframes mark-in {
+    from { opacity: 0; transform: scale(.7) translateY(8px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  .welcome h1 {
+    font-size: 1.7rem; font-weight: 700; letter-spacing: -.01em;
+    margin-bottom: 10px;
+  }
+  .welcome p {
+    color: var(--text-muted); font-size: .94rem; line-height: 1.6;
+    max-width: 40ch; margin-bottom: 30px;
+  }
+
+  /* ── Section headers (shared) ── */
+  .sec-head { margin-bottom: 20px; }
+  .sec-icon { font-size: 1.9rem; margin-bottom: 8px; display: block; }
+  .sec-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 5px; }
+  .sec-sub { color: var(--text-muted); font-size: .88rem; line-height: 1.55; }
+
+  /* ── Check rows (system check step) ── */
+  .check-list { display: flex; flex-direction: column; gap: 0; margin-bottom: 4px; }
+  .check-row {
+    display: flex; align-items: center; gap: 11px;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--border);
+    font-size: .89rem;
+    opacity: 0; transform: translateX(-6px);
+    animation: row-in .35s cubic-bezier(.4,0,.2,1) forwards;
+  }
+  .check-row:last-child { border-bottom: none; }
+  @keyframes row-in { to { opacity: 1; transform: translateX(0); } }
+
+  .check-dot {
+    width: 18px; height: 18px; flex: none;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .68rem; font-weight: 700;
+    border: 1.5px solid var(--border-hi);
+    color: transparent;
+  }
+  .check-dot.pending, .check-dot.installing {
+    border-color: var(--border-hi);
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+  .check-dot.installing { border-color: var(--accent); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .check-dot.ok, .check-dot.done { background: var(--safe-dim);    border-color: var(--safe);    color: var(--safe); }
+  .check-dot.warn                { background: var(--caution-dim); border-color: var(--caution); color: var(--caution); }
+  .check-dot.fail, .check-dot.error { background: var(--danger-dim);  border-color: var(--danger);  color: var(--danger); }
+
+  .check-label { flex: 1; color: var(--text); }
+  .check-detail { color: var(--text-dim); font-size: .78rem; font-family: var(--mono); text-align: right; }
+
+  /* ── Install progress: the friendly replacement for a raw scrolling
+     terminal. Same visual language as the check rows above on purpose --
+     this app already established "a row with a status dot" as how it shows
+     you a list of things happening, so the install steps use it too instead
+     of introducing a second pattern. The full raw output still exists; see
+     .log-details below -- it's just not the default view any more. Chop
+     Shop's own log panel remains the one place raw command output is the
+     primary view; this page borrows nothing from it, and touches none of
+     its CSS. ── */
+  .progress-list { display: flex; flex-direction: column; gap: 0; margin-bottom: 16px; }
+  .progress-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .progress-row:last-child { border-bottom: none; }
+  .progress-row-main { flex: 1; min-width: 0; }
+  .progress-row-label { font-size: .92rem; font-weight: 600; color: var(--text); }
+  .progress-row-desc { font-size: .78rem; color: var(--text-dim); margin-top: 2px; }
+  .progress-row-state {
+    font-family: var(--mono); font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--text-dim); flex: none;
+  }
+  .progress-row.is-installing .progress-row-state { color: var(--accent); }
+  .progress-row.is-done .progress-row-state { color: var(--safe); }
+  .progress-row.is-failed .progress-row-state { color: var(--danger); }
+
+  /* Spinner ring: only animates while .installing, held static otherwise so
+     it never keeps spinning on a finished or not-yet-started row. */
+  .spin-ring {
+    width: 20px; height: 20px; flex: none;
+    border-radius: 50%;
+    border: 2px solid var(--border-hi);
+    display: flex; align-items: center; justify-content: center;
+    font-size: .7rem; font-weight: 700; color: transparent;
+  }
+  .progress-row.is-installing .spin-ring {
+    border-top-color: var(--accent);
+    border-right-color: var(--accent);
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .progress-row.is-done .spin-ring { border-color: var(--safe); background: var(--safe-dim); color: var(--safe); }
+  .progress-row.is-failed .spin-ring { border-color: var(--danger); background: var(--danger-dim); color: var(--danger); }
+
+  .log-details { margin-top: 6px; }
+  .log-details summary {
+    cursor: pointer; user-select: none;
+    font-family: var(--mono); font-size: .74rem;
+    color: var(--text-dim); letter-spacing: .04em;
+    padding: 6px 2px;
+    list-style: none;
+  }
+  .log-details summary::-webkit-details-marker { display: none; }
+  .log-details summary::before { content: "▸ "; }
+  .log-details[open] summary::before { content: "▾ "; }
+  .log-details summary:hover { color: var(--text-muted); }
+  .log-details[open].failed-open summary { color: var(--danger); }
+
+  .log-wrap {
+    background: #05070b;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-top: 6px;
+    overflow: hidden;
+    max-height: 220px;
+    display: flex; flex-direction: column;
+  }
+  .log-body {
+    overflow-y: auto;
+    padding: 10px 12px;
+    font-family: var(--mono); font-size: .74rem; line-height: 1.6;
+    color: var(--text-muted);
+  }
+  .log-body::-webkit-scrollbar { width: 4px; }
+  .log-body::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px; }
+  .log-line { white-space: pre-wrap; word-break: break-all; }
+  .log-line.err { color: var(--danger); }
+
+  /* ── Install plan groups (Python packages step) ── */
+  .grp {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    transition: border-color .25s;
+  }
+  .grp.is-installing { border-color: rgba(var(--accent-rgb), .5); }
+  .grp.is-done { border-color: var(--safe-border); }
+  .grp.is-failed { border-color: var(--danger-border); }
+  .grp-top { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .grp-label { font-weight: 600; font-size: .92rem; flex: 1; }
+  .grp-tag {
+    font-family: var(--mono); font-size: .66rem; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--text-dim); border: 1px solid var(--border-hi); border-radius: 999px;
+    padding: 2px 8px;
+  }
+  .grp-tag.optional { color: var(--caution); border-color: var(--caution-border); }
+  .grp-desc { color: var(--text-muted); font-size: .82rem; line-height: 1.5; margin-bottom: 6px; }
+  .grp-pkgs { font-family: var(--mono); font-size: .74rem; color: var(--text-dim); }
+
+  /* ── Done ── */
+  .done { align-items: center; justify-content: center; text-align: center; }
+  .done-mark {
+    width: 64px; height: 64px; border-radius: 50%;
+    background: var(--safe-dim); border: 1.5px solid var(--safe);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.6rem; color: var(--safe);
+    margin-bottom: 20px;
+    animation: mark-in .5s cubic-bezier(.34,1.56,.64,1);
+  }
+
+  /* ── Buttons ── */
+  .wiz-actions {
+    position: relative; z-index: 1;
+    display: flex; justify-content: flex-end; gap: 10px;
+    padding: 16px 34px 26px;
+    flex: none;
+  }
+  .btn {
+    font-family: var(--sans); font-size: .88rem; font-weight: 600;
+    padding: 10px 22px; border-radius: 8px;
+    border: 1px solid var(--border-hi);
+    background: var(--surface-hi);
+    color: var(--text);
+    cursor: pointer;
+    transition: transform .15s, border-color .15s, background .15s;
+  }
+  .btn:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn:disabled { opacity: .4; cursor: default; transform: none; }
+  .btn-primary {
+    background: linear-gradient(155deg, var(--accent), var(--accent2));
+    border-color: transparent; color: #04262b;
+  }
+  .btn-primary:hover { filter: brightness(1.08); border-color: transparent; }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     Spectre. Ported from the marketing site's mascot (fablegear.html /
+     Spectre.png) with the same teleport-warp mechanic and timings, so he
+     reads as the same character in both places rather than a reskin.
+     Non-interactive here: no click handler, no barrel-roll -- he only
+     moves and speaks in response to wizard progress (see spectreSay below).
+     Lives outside #wiz's box on purpose (a sibling of it, not a child), in
+     the side margins the wider window leaves around the 640px panel.
+     ══════════════════════════════════════════════════════════════════════ */
+  #spectre {
+    position: fixed;
+    bottom: 14vh;
+    right: 24px;
+    width: 110px;
+    z-index: 500;
+    pointer-events: none;
+    transition: left 4.5s ease-in-out, top 4.5s ease-in-out, transform 220ms ease;
+  }
+  #spectre.teleporting {
+    transition: transform 220ms ease;
+    filter:
+      drop-shadow(0 0 28px rgba(var(--accent-rgb),0.9))
+      drop-shadow(0 0 48px rgba(var(--accent-b-rgb),0.6));
+  }
+  #spectre img { width: 100%; height: auto; display: block; }
+  #spectre.idle { animation: spectre-meander 6s ease-in-out infinite; }
+  #spectre.speaking.idle { animation-play-state: paused; }
+  @keyframes spectre-meander {
+    0%   { transform: translateY(0) rotate(0); }
+    25%  { transform: translateY(-6px) rotate(-2deg); }
+    50%  { transform: translateY(0); }
+    75%  { transform: translateY(-4px) rotate(1deg); }
+    100% { transform: translateY(0); }
+  }
+
+  @keyframes spectre-teleport-out {
+    0%   { transform: scale(1) rotate(0deg); filter: brightness(1) saturate(1); opacity: 1; }
+    55%  { transform: scale(1.25) rotate(220deg); filter: brightness(2.6) saturate(2.2); opacity: 1; }
+    100% { transform: scale(0) rotate(420deg); filter: brightness(4) saturate(3); opacity: 0; }
+  }
+  @keyframes spectre-teleport-in {
+    0%   { transform: scale(0) rotate(-420deg); filter: brightness(4) saturate(3); opacity: 0; }
+    45%  { transform: scale(1.25) rotate(-200deg); filter: brightness(2.6) saturate(2.2); opacity: 1; }
+    100% { transform: scale(1) rotate(0deg); filter: brightness(1) saturate(1); opacity: 1; }
+  }
+  #spectre-img.teleport-out { animation: spectre-teleport-out 0.32s cubic-bezier(0.55,0,1,0.45) forwards; }
+  #spectre-img.teleport-in  { animation: spectre-teleport-in  0.38s cubic-bezier(0,0.55,0.45,1) forwards; }
+
+  .spectre-portal {
+    position: absolute; top: 50%; left: 50%;
+    width: 172%; height: 172%;
+    transform: translate(-50%,-50%) scale(0);
+    opacity: 0; z-index: -1; pointer-events: none;
+  }
+  .spectre-portal-img { width: 100%; height: 100%; display: block; object-fit: contain; animation: portal-spin 10s linear infinite; }
+  @keyframes portal-spin { to { transform: rotate(360deg); } }
+  .spectre-portal.portal-out { animation: spectre-portal-out 0.43s cubic-bezier(0.55,0,1,0.45) forwards; }
+  @keyframes spectre-portal-out {
+    0%   { transform: translate(-50%,-50%) scale(1);    opacity: 0.85; }
+    74%  { transform: translate(-50%,-50%) scale(0.12); opacity: 0.55; }
+    100% { transform: translate(-50%,-50%) scale(0);    opacity: 0; }
+  }
+  .spectre-portal.portal-in { animation: spectre-portal-in 0.67s cubic-bezier(0.22,0.9,0.3,1) forwards; }
+  @keyframes spectre-portal-in {
+    0%   { transform: translate(-50%,-50%) scale(0); opacity: 0; }
+    16%  { opacity: 0.9; }
+    70%  { transform: translate(-50%,-50%) scale(1); opacity: 0.9; }
+    100% { transform: translate(-50%,-50%) scale(1); opacity: 0; }
+  }
+
+  /* Anchored right by default (extends leftward from Spectre) -- correct
+     when he's in the right-hand lane, since there's panel/window room to
+     his left. In the left-hand lane that same anchoring would extend the
+     bubble further left, off the edge of the window, so .spectre-left flips
+     it to anchor left (extending rightward) instead -- see the "left" class
+     toggle in say() below, which tracks whichever lane he actually jumped to. */
+  .spectre-bubble {
+    position: absolute;
+    bottom: calc(100% + 16px);
+    right: 0;
+    width: 210px;
+    background: rgba(13,14,20,0.97);
+    border: 1px solid var(--border-hi);
+    color: var(--text);
+    border-radius: 12px;
+    box-shadow: 0 18px 44px rgba(0,0,0,0.55);
+    backdrop-filter: blur(10px);
+    padding: 13px 15px;
+    display: none;
+    font-family: var(--sans);
+    font-size: .82rem;
+    line-height: 1.4;
+    text-align: left;
+  }
+  #spectre.spectre-left .spectre-bubble { right: auto; left: 0; }
+  #spectre-bubble[aria-hidden="false"] { display: block; }
+  .spectre-bubble::after {
+    content: "";
+    position: absolute; right: 30px; bottom: -7px;
+    width: 12px; height: 12px;
+    background: rgba(13,14,20,0.97);
+    border-right: 1px solid var(--border-hi);
+    border-bottom: 1px solid var(--border-hi);
+    transform: rotate(45deg);
+  }
+  #spectre.spectre-left .spectre-bubble::after { right: auto; left: 30px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    #spectre { transition: none; }
+    #spectre.idle { animation: none; }
+    #spectre.teleporting { filter: none; }
+    #spectre-img.teleport-out, #spectre-img.teleport-in { animation: none; }
+    .spectre-portal-img { animation: none; }
+    .spectre-portal.portal-out, .spectre-portal.portal-in { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wiz">
+
+  <div class="wiz-chrome">
+    <div class="wiz-progress-track"><div class="wiz-progress-fill" id="progressFill"></div></div>
+    <div class="wiz-steplabel">Step <b id="stepNum">1</b> of <b id="stepTotal">5</b> &nbsp;·&nbsp; <span id="stepName">Welcome</span></div>
+  </div>
+
+  <div class="wiz-body">
+
+    <section class="panel active welcome" data-step="0">
+      <div class="welcome-mark">🎛️</div>
+      <h1>Welcome to FableGear</h1>
+      <p>This sets up everything FableGear needs to run — a few system tools, a private Python environment, and nothing else. Takes a few minutes, and you'll see exactly what's happening the whole way through.</p>
+    </section>
+
+    <section class="panel" data-step="1">
+      <div class="sec-head">
+        <span class="sec-icon">🔎</span>
+        <div class="sec-title">Checking your Mac</div>
+        <div class="sec-sub">Making sure everything FableGear needs has a place to land.</div>
+      </div>
+      <div class="check-list" id="checkList"></div>
+    </section>
+
+    <section class="panel" data-step="2">
+      <div class="sec-head">
+        <span class="sec-icon">🍺</span>
+        <div class="sec-title">System tools</div>
+        <div class="sec-sub">Homebrew, ffmpeg, and chromaprint — installed once, shared with everything else on your Mac that uses them.</div>
+      </div>
+      <div class="progress-list" id="brewProgress"></div>
+      <details class="log-details" id="brewDetails">
+        <summary>Show technical details</summary>
+        <div class="log-wrap"><div class="log-body" id="brewLog"></div></div>
+      </details>
+    </section>
+
+    <section class="panel" data-step="3">
+      <div class="sec-head">
+        <span class="sec-icon">📦</span>
+        <div class="sec-title">FableGear's own packages</div>
+        <div class="sec-sub">Installed into a private environment inside the app folder — nothing here touches Python anywhere else on your Mac.</div>
+      </div>
+      <div id="planGroups"></div>
+      <details class="log-details" id="pyDetails">
+        <summary>Show technical details</summary>
+        <div class="log-wrap"><div class="log-body" id="pyLog"></div></div>
+      </details>
+    </section>
+
+    <section class="panel done" data-step="4">
+      <div class="done-mark">✓</div>
+      <h1>You're all set</h1>
+      <p style="color:var(--text-muted); font-size:.94rem; margin-top:8px; margin-bottom:30px;">FableGear is ready. Launching now — this window will close on its own.</p>
+    </section>
+
+  </div>
+
+  <div class="wiz-actions" id="actions">
+    <button class="btn btn-primary" id="primaryBtn">Get Started</button>
+  </div>
+
+</div>
+
+<!-- Spectre: a sibling of .wiz, not a child of it, so he can roam the side
+     margins the wider window leaves around the panel rather than being
+     boxed in by it. -->
+<div id="spectre" class="spectre idle" aria-hidden="false">
+  <div id="spectre-portal" class="spectre-portal" aria-hidden="true">
+    <img class="spectre-portal-img" src="/static/mascot/icon-swirl.png" alt="" />
+  </div>
+  <img id="spectre-img" src="/static/mascot/spectre.png" alt="" />
+  <div id="spectre-bubble" class="spectre-bubble" role="status" aria-live="polite" aria-hidden="true">
+    <div id="spectre-bubble-text"></div>
+  </div>
+</div>
+
+<script>
+/* ── Spectre ─────────────────────────────────────────────────────────────
+   Same teleport/portal mechanic as the marketing site's mascot (see
+   fablegear.html), trimmed to non-interactive: no click handler, no
+   barrel-roll. He moves and speaks only when say() is called from the
+   wizard's own step logic below -- never on his own initiative beyond the
+   idle up/down meander and an occasional ambient drift while nothing is
+   happening. */
+const Spectre = (function () {
+  const el = document.getElementById("spectre");
+  const img = document.getElementById("spectre-img");
+  const portal = document.getElementById("spectre-portal");
+  const bubble = document.getElementById("spectre-bubble");
+  const bubbleText = document.getElementById("spectre-bubble-text");
+  const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const PORTAL_TRAIL_MS = 110;
+  const PORTAL_LEAD_MS = 90;
+
+  let bubbleTimer = null;
+  function showBubble(text, ms) {
+    clearTimeout(bubbleTimer);
+    bubbleText.textContent = text;
+    bubble.setAttribute("aria-hidden", "false");
+    el.classList.add("speaking");
+    bubbleTimer = setTimeout(hideBubble, ms || 4500);
+  }
+  function hideBubble() {
+    bubble.setAttribute("aria-hidden", "true");
+    el.classList.remove("speaking");
+  }
+
+  function moveTo(x, y) {
+    const padding = 10;
+    const maxX = window.innerWidth - el.offsetWidth - padding;
+    const maxY = window.innerHeight - el.offsetHeight - padding;
+    el.style.left = Math.max(padding, Math.min(maxX, x)) + "px";
+    el.style.top = Math.max(padding, Math.min(maxY, y)) + "px";
+    el.style.right = "auto";
+    el.style.bottom = "auto";
+  }
+
+  function jumpTo(x, y) {
+    if (prefersReduced) { moveTo(x, y); return; }
+    el.classList.add("teleporting");
+    img.classList.remove("teleport-out", "teleport-in");
+    portal && portal.classList.remove("portal-out", "portal-in");
+    void img.offsetWidth;
+    img.classList.add("teleport-out");
+    portal && portal.classList.add("portal-out");
+    img.addEventListener("animationend", function onOut(e) {
+      if (e.target !== img || e.animationName !== "spectre-teleport-out") return;
+      img.removeEventListener("animationend", onOut);
+      setTimeout(function () {
+        moveTo(x, y);
+        portal && portal.classList.remove("portal-out");
+        void (portal && portal.offsetWidth);
+        portal && portal.classList.add("portal-in");
+        setTimeout(function () {
+          img.classList.remove("teleport-out");
+          img.classList.add("teleport-in");
+          img.addEventListener("animationend", function onIn(e2) {
+            if (e2.target !== img || e2.animationName !== "spectre-teleport-in") return;
+            img.removeEventListener("animationend", onIn);
+            img.classList.remove("teleport-in");
+            el.classList.remove("teleporting");
+          });
+        }, PORTAL_LEAD_MS);
+      }, PORTAL_TRAIL_MS);
+    });
+  }
+
+  // Right lane (beside the panel on the right) is the default; left lane
+  // is used when a target anchor sits in the left half of the window, so he
+  // never teleports across the panel to reach something on its own side.
+  function laneX(side) {
+    const padding = 16;
+    return side === "left" ? padding : window.innerWidth - el.offsetWidth - padding;
+  }
+  function clampY(y) {
+    const padding = 16;
+    return Math.max(padding, Math.min(window.innerHeight - el.offsetHeight - padding, y));
+  }
+
+  let ambientTimer = null;
+  function driftRandom() {
+    const rect = el.getBoundingClientRect();
+    const side = rect.left < window.innerWidth / 2 ? "left" : "right";
+    moveTo(laneX(side), clampY(Math.random() * window.innerHeight));
+  }
+  function scheduleAmbient() {
+    if (prefersReduced) return;
+    clearTimeout(ambientTimer);
+    ambientTimer = setTimeout(function () {
+      if (!el.classList.contains("speaking")) driftRandom();
+      scheduleAmbient();
+    }, 4000 + Math.random() * 3000);
+  }
+
+  // The speech bubble is anchored above Spectre (bottom: 100% + 16px), so
+  // a position too near the top clips it off-screen -- BUBBLE_HEADROOM
+  // keeps every say() position low enough for the bubble to fully render,
+  // independent of clampY's smaller padding (used by driftRandom, which
+  // never shows a bubble and so has no such requirement).
+  const BUBBLE_HEADROOM = 170;
+
+  // Teleports near a DOM element (typically the section currently in view)
+  // and says a line. This is the only way Spectre moves with intent --
+  // called from the wizard's step transitions below, never from a click.
+  function say(targetEl, text, ms) {
+    clearTimeout(ambientTimer);
+    let x, y, side;
+    if (targetEl && targetEl.getBoundingClientRect) {
+      const rect = targetEl.getBoundingClientRect();
+      side = rect.left + rect.width / 2 < window.innerWidth / 2 ? "left" : "right";
+      x = laneX(side);
+      y = clampY(Math.max(BUBBLE_HEADROOM, rect.top));
+    } else {
+      side = "right";
+      x = laneX("right");
+      y = clampY(Math.max(BUBBLE_HEADROOM, window.innerHeight * 0.35));
+    }
+    el.classList.toggle("spectre-left", side === "left");
+    jumpTo(x, y);
+    showBubble(text, ms);
+    setTimeout(scheduleAmbient, 1200);
+  }
+
+  function init() {
+    // Materialize in place on load rather than just appearing -- the same
+    // teleport-in flash, run once with no prior position change.
+    if (!prefersReduced) {
+      img.classList.add("teleport-in");
+      img.addEventListener("animationend", function onFirst(e) {
+        if (e.target !== img || e.animationName !== "spectre-teleport-in") return;
+        img.removeEventListener("animationend", onFirst);
+        img.classList.remove("teleport-in");
+      });
+    }
+    moveTo(laneX("right"), clampY(window.innerHeight * 0.6));
+    scheduleAmbient();
+  }
+
+  if (img.complete) init(); else img.addEventListener("load", init);
+
+  return { say: say };
+})();
+
+/* ── Wizard ──────────────────────────────────────────────────────────── */
+(function () {
+  const STEPS = ["Welcome", "System check", "System tools", "Python packages", "Done"];
+  let step = 0;
+
+  const els = {
+    fill: document.getElementById("progressFill"),
+    num: document.getElementById("stepNum"),
+    total: document.getElementById("stepTotal"),
+    name: document.getElementById("stepName"),
+    panels: document.querySelectorAll(".panel"),
+    primary: document.getElementById("primaryBtn"),
+    checkList: document.getElementById("checkList"),
+    brewProgress: document.getElementById("brewProgress"),
+    brewLog: document.getElementById("brewLog"),
+    brewDetails: document.getElementById("brewDetails"),
+    pyLog: document.getElementById("pyLog"),
+    pyDetails: document.getElementById("pyDetails"),
+    planGroups: document.getElementById("planGroups"),
+  };
+  els.total.textContent = STEPS.length;
+
+  const PANEL_OUT_MS = 200; // matches .panel.leaving's animation-duration
+
+  // Chains an exit (shrink+fade) on the current panel before the next one's
+  // entrance plays -- previously this was an instant display:none swap with
+  // only the incoming panel animating in. A step disappearing mid-shrink
+  // reads as deliberate; content just vanishing does not.
+  function transitionToStep(n) {
+    const current = document.querySelector(".panel.active");
+    const next = document.querySelector('.panel[data-step="' + n + '"]');
+    if (!next || next === current) return;
+
+    function activateNext() {
+      if (current) current.classList.remove("active", "leaving");
+      next.classList.add("active", "entering");
+      next.addEventListener("animationend", function onIn(e) {
+        if (e.target !== next) return;
+        next.removeEventListener("animationend", onIn);
+        next.classList.remove("entering");
+      });
+    }
+
+    step = n;
+    els.num.textContent = n + 1;
+    els.name.textContent = STEPS[n];
+    els.fill.style.width = (n / (STEPS.length - 1) * 100) + "%";
+
+    if (!current) { activateNext(); return; }
+    current.classList.add("leaving");
+    setTimeout(activateNext, PANEL_OUT_MS);
+  }
+
+  function logLine(container, text, isErr) {
+    const line = document.createElement("div");
+    line.className = "log-line" + (isErr ? " err" : "");
+    line.textContent = text;
+    container.appendChild(line);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  // Reveals the raw-output <details> panel and marks it so its summary
+  // reads as an error state -- the "must see the real error" principle
+  // setup.sh already follows stays true here, it just isn't the *default*
+  // view any more the way it was in setup.sh's plain Terminal window.
+  function revealDetailsOnFailure(detailsEl) {
+    detailsEl.open = true;
+    detailsEl.classList.add("failed-open");
+  }
+
+  // Parses the SSE stream for one install phase, updating named progress
+  // rows instead of rendering every line -- the raw lines still all land in
+  // `logContainer` for the details panel, they just aren't the primary view.
+  function streamInstall(url, logContainer, detailsEl, rows, onDone) {
+    let failed = false;
+    let currentRowKey = null;
+    const es = new EventSource(url);
+
+    const RING_ICON = { done: "\u2713", failed: "\u2715" };
+    function setRow(key, state) {
+      const row = rows[key];
+      if (!row) return;
+      row.el.classList.remove("is-pending", "is-installing", "is-done", "is-failed");
+      row.el.classList.add("is-" + state);
+      row.stateEl.textContent =
+        state === "installing" ? "installing…" :
+        state === "done" ? "done" :
+        state === "failed" ? "failed" : "queued";
+      const ring = row.el.querySelector(".spin-ring");
+      if (ring) ring.textContent = RING_ICON[state] || "";
+    }
+
+    es.onmessage = (ev) => {
+      const data = ev.data;
+
+      if (data.startsWith("$ ")) {
+        logLine(logContainer, data);
+        const key = Object.keys(rows).find((k) => rows[k].match(data));
+        if (key) {
+          if (currentRowKey && currentRowKey !== key) setRow(currentRowKey, "done");
+          currentRowKey = key;
+          setRow(key, "installing");
+        }
+        return;
+      }
+      if (data === "[SEQUENCE_OK]") { return; }
+      if (data === "[SEQUENCE_FAILED]") {
+        failed = true;
+        if (currentRowKey) setRow(currentRowKey, "failed");
+        logLine(logContainer, "✕ this step did not finish — see details below", true);
+        revealDetailsOnFailure(detailsEl);
+        return;
+      }
+      if (/^\[DONE:\d+\]$/.test(data)) {
+        const code = data.slice(7, -1);
+        if (currentRowKey) setRow(currentRowKey, code === "0" ? "done" : "failed");
+        return;
+      }
+      logLine(logContainer, data, data.startsWith("[ERROR]"));
+      if (data.startsWith("[ERROR]") && currentRowKey) setRow(currentRowKey, "failed");
+    };
+
+    // EventSource fires "error" when the server closes the connection,
+    // which happens right after the final SSE line in both success and
+    // failure -- that's the completion signal, nothing further to poll for.
+    es.addEventListener("error", () => { es.close(); onDone && onDone(!failed); });
+  }
+
+  const STATUS_ICON = { ok: "✓", warn: "!", fail: "✕" };
+
+  function buildProgressRow(container, key, label, desc) {
+    const row = document.createElement("div");
+    row.className = "progress-row is-pending";
+    row.innerHTML =
+      '<div class="spin-ring"></div>' +
+      '<div class="progress-row-main">' +
+        '<div class="progress-row-label">' + label + '</div>' +
+        (desc ? '<div class="progress-row-desc">' + desc + '</div>' : '') +
+      '</div>' +
+      '<div class="progress-row-state">queued</div>';
+    container.appendChild(row);
+    return { el: row, stateEl: row.querySelector(".progress-row-state") };
+  }
+
+  function runChecks() {
+    fetch("/api/checks").then(r => r.json()).then(results => {
+      results.forEach((c, i) => {
+        const row = document.createElement("div");
+        row.className = "check-row";
+        row.style.animationDelay = (i * 70) + "ms";
+        row.innerHTML =
+          '<div class="check-dot pending"></div>' +
+          '<div class="check-label">' + c.label + '</div>' +
+          '<div class="check-detail"></div>';
+        els.checkList.appendChild(row);
+
+        setTimeout(() => {
+          const dot = row.querySelector(".check-dot");
+          dot.classList.remove("pending");
+          dot.classList.add(c.status);
+          dot.textContent = STATUS_ICON[c.status] || "?";
+          row.querySelector(".check-detail").textContent = c.detail;
+        }, 220 + i * 160);
+      });
+
+      const worst = results.some(c => c.status === "fail") ? "fail"
+                  : results.some(c => c.status === "warn") ? "warn" : "ok";
+      const settleMs = 260 + results.length * 160;
+      setTimeout(() => {
+        els.primary.disabled = false;
+        els.primary.textContent = worst === "fail" ? "Fix issues above to continue" : "Continue";
+        if (worst === "fail") els.primary.disabled = true;
+        Spectre.say(els.checkList,
+          worst === "fail" ? "Uh oh — a couple things need fixing before we go on."
+          : worst === "warn" ? "A couple things to grab first. No big deal."
+          : "Looking good — nothing standing in our way.");
+      }, settleMs);
+    });
+  }
+
+  function showPlan() {
+    fetch("/api/plan").then(r => r.json()).then(groups => {
+      groups.forEach(g => {
+        const el = document.createElement("div");
+        el.className = "grp is-pending";
+        el.dataset.file = g.file;
+        el.innerHTML =
+          '<div class="grp-top"><span class="grp-label">' + g.label + '</span>' +
+          '<span class="grp-tag' + (g.required ? "" : " optional") + '">' +
+          (g.required ? "required" : "best-effort") + '</span></div>' +
+          '<div class="grp-desc">' + g.description + '</div>' +
+          '<div class="grp-pkgs">' + g.packages.join(" · ") + '</div>';
+        els.planGroups.appendChild(el);
+      });
+      runPythonStep(groups);
+    });
+  }
+
+  let pendingRetry = null;
+
+  function runBrewStep() {
+    els.brewProgress.innerHTML = "";
+    els.brewLog.innerHTML = "";
+    els.brewDetails.open = false;
+    els.brewDetails.classList.remove("failed-open");
+    els.primary.textContent = "Installing…";
+    els.primary.disabled = true;
+    pendingRetry = null;
+
+    const rows = {
+      homebrew: { ...buildProgressRow(els.brewProgress, "homebrew", "Homebrew", "Only if not already installed"),
+                  match: (cmd) => cmd.includes("Homebrew/install") },
+      ffmpeg: { ...buildProgressRow(els.brewProgress, "ffmpeg", "ffmpeg", "Audio decoding and normalisation"),
+                match: (cmd) => / ffmpeg\b/.test(cmd) && cmd.includes("brew install") },
+      chromaprint: { ...buildProgressRow(els.brewProgress, "chromaprint", "chromaprint", "Duplicate-detection fingerprinting"),
+                     match: (cmd) => / chromaprint\b/.test(cmd) && cmd.includes("brew install") },
+    };
+
+    Spectre.say(els.brewProgress, "Grabbing ffmpeg and chromaprint — back in a sec.");
+
+    streamInstall("/api/install/brew", els.brewLog, els.brewDetails, rows, (ok) => {
+      els.primary.disabled = false;
+      if (ok) {
+        els.primary.textContent = "Continue";
+        pendingRetry = null;
+        Spectre.say(els.brewProgress, "Nice — those are in.");
+      } else {
+        els.primary.textContent = "Try Again";
+        pendingRetry = runBrewStep;
+        Spectre.say(els.brewProgress, "Hmm, that didn't stick. Let's try again.", 5000);
+      }
+    });
+  }
+
+  function runPythonStep(groups) {
+    els.pyLog.innerHTML = "";
+    els.pyDetails.open = false;
+    els.pyDetails.classList.remove("failed-open");
+    els.primary.textContent = "Installing…";
+    els.primary.disabled = true;
+    pendingRetry = null;
+
+    const rows = {};
+    groups.forEach(g => {
+      const cardEl = els.planGroups.querySelector('[data-file="' + g.file + '"]');
+      rows[g.id] = {
+        el: cardEl,
+        stateEl: null,
+        match: (cmd) => cmd.includes(g.file),
+      };
+    });
+    // Cards use their own .pending/.installing/.done/.failed classes
+    // directly (no separate spin-ring/state text) since the plan already
+    // shows plenty of detail per card -- keep this override local to Python
+    // packages rather than complicating buildProgressRow for one caller.
+    function setCard(key, state) {
+      const row = rows[key];
+      if (!row || !row.el) return;
+      row.el.classList.remove("is-pending", "is-installing", "is-done", "is-failed");
+      row.el.classList.add("is-" + state);
+    }
+
+    Spectre.say(els.planGroups, "Now the good stuff — FableGear's own packages.");
+
+    let failed = false;
+    let currentKey = null;
+    const es = new EventSource("/api/install/python");
+    es.onmessage = (ev) => {
+      const data = ev.data;
+      if (data.startsWith("$ ")) {
+        logLine(els.pyLog, data);
+        const key = Object.keys(rows).find((k) => rows[k].match(data));
+        if (key) {
+          if (currentKey && currentKey !== key) setCard(currentKey, "done");
+          currentKey = key;
+          setCard(key, "installing");
+        }
+        return;
+      }
+      if (data === "[SEQUENCE_OK]") { return; }
+      if (data === "[SEQUENCE_FAILED]") {
+        failed = true;
+        if (currentKey) setCard(currentKey, "failed");
+        logLine(els.pyLog, "✕ this step did not finish — see details below", true);
+        revealDetailsOnFailure(els.pyDetails);
+        return;
+      }
+      if (/^\[DONE:\d+\]$/.test(data)) {
+        const code = data.slice(7, -1);
+        if (currentKey) setCard(currentKey, code === "0" ? "done" : "failed");
+        return;
+      }
+      logLine(els.pyLog, data, data.startsWith("[ERROR]"));
+    };
+    es.addEventListener("error", () => {
+      es.close();
+      els.primary.disabled = false;
+      if (!failed) {
+        Object.keys(rows).forEach((k) => setCard(k, "done"));
+        els.primary.textContent = "Finish";
+        pendingRetry = null;
+        Spectre.say(els.planGroups, "That's everything. Nearly there.");
+      } else {
+        els.primary.textContent = "Try Again";
+        pendingRetry = () => { els.planGroups.innerHTML = ""; showPlan(); };
+        Spectre.say(els.planGroups, "One more snag — give it another shot.", 5000);
+      }
+    });
+  }
+
+  els.primary.addEventListener("click", () => {
+    if (pendingRetry) { pendingRetry(); return; }
+
+    if (step === 0) {
+      transitionToStep(1);
+      els.primary.textContent = "Checking…";
+      els.primary.disabled = true;
+      Spectre.say(els.checkList, "Let's see what your Mac's already got.");
+      runChecks();
+    } else if (step === 1) {
+      transitionToStep(2);
+      runBrewStep();
+    } else if (step === 2) {
+      transitionToStep(3);
+      showPlan();
+    } else if (step === 3) {
+      transitionToStep(4);
+      document.getElementById("actions").style.display = "none";
+      Spectre.say(document.querySelector('.panel[data-step="4"]'), "You're all set. Let's make some noise.", 6000);
+      fetch("/api/complete", { method: "POST" });
+    }
+  });
+
+  transitionToStep(0);
+  setTimeout(() => {
+    Spectre.say(document.querySelector('.panel[data-step="0"]'), "Hey — I'm Spectre. Let's get FableGear set up.", 5000);
+  }, 500);
+})();
+</script>
+</body>
+</html>
