@@ -21,10 +21,6 @@ instead of an empty placeholder file, since the defect is specifically about
 WAL sidecar handling.
 """
 import json
-<<<<<<< HEAD
-=======
-import os
->>>>>>> recovered-pr152-check
 import sqlite3
 import sys
 from pathlib import Path
@@ -36,11 +32,7 @@ LOOPBACK = "127.0.0.1"
 
 
 @pytest.fixture
-<<<<<<< HEAD
 def client(tmp_path, monkeypatch):
-=======
-def client(tmp_path):
->>>>>>> recovered-pr152-check
     home = tmp_path / "home"
     music = tmp_path / "music"
     backups = tmp_path / "backups"
@@ -69,16 +61,12 @@ def client(tmp_path):
         "mobile_token": "test-token",
     }))
 
-<<<<<<< HEAD
     # monkeypatch.setenv, not a raw os.environ assignment: it auto-restores
     # HOME after this test regardless of outcome, so a redirected HOME can't
     # leak into whatever test runs next in the same process -- which is
     # exactly what broke update_checker's real `git` subprocess calls
     # elsewhere in the suite (see tests/test_network_boundary.py).
     monkeypatch.setenv("HOME", str(home))
-=======
-    os.environ["HOME"] = str(home)
->>>>>>> recovered-pr152-check
     for mod in list(sys.modules):
         if mod in ("app", "user_config", "config", "helpers", "db_connection",
                    "routes_mobile", "routes_tools", "routes_player",

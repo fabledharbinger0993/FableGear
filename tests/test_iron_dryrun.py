@@ -4,10 +4,18 @@ iron.dryrun: the survey runs clean against real files and never modifies anythin
 
 from __future__ import annotations
 
+import shutil
+
 import numpy as np
+import pytest
 import soundfile as sf
 
 from iron import dryrun
+
+
+def _require_ffmpeg() -> None:
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed — skipping audio-fixture test")
 
 
 def _write_wav(path, bpm: float = 128.0, seconds: float = 6.0, sr: int = 44100) -> None:
@@ -24,6 +32,7 @@ def _write_wav(path, bpm: float = 128.0, seconds: float = 6.0, sr: int = 44100) 
 
 
 def test_survey_reports_files_and_never_writes(tmp_path):
+    _require_ffmpeg()
     a = tmp_path / "a.wav"
     b = tmp_path / "b.wav"
     _write_wav(a, bpm=128.0)

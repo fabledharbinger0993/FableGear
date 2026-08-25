@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # FableGear — instructions for Claude
 
 ## Iron / Anvil (tempo, key, beat-grid, and tag-I/O detection)
@@ -8,8 +7,9 @@ I/O code (`anvil/`), or evaluating any third-party tempo/BPM/beat-tracking/tag l
 read `docs/IRON_RESEARCH.md` in full.** It's the primary, consolidated research log —
 current status, real accuracy findings against real Rekordbox ground truth, root causes,
 what's been tried and reverted (with reasons, so you don't re-attempt a dead end), and the
-active next step. Two other docs exist (`docs/ANVIL_IRON_STATUS.md`,
-`docs/IRON_HANDOVER_2026-08-24.md`) — both are superseded, kept only for history.
+active next step. Three other docs exist (`docs/ANVIL_IRON_STATUS.md`,
+`docs/IRON_HANDOVER_2026-08-24.md`, `docs/iron/RESEARCH.md`) — all three are superseded and
+folded into `docs/IRON_RESEARCH.md`, kept only for history.
 
 For third-party tool license/technique due diligence specifically, `docs/IRON_RESEARCH.md`
 links to `docs/IRON_TEMPO_RESEARCH.md`, a detailed per-tool catalog. **Add an entry there,
@@ -25,28 +25,13 @@ dependency without checking its license against this constraint first** — incl
 model/weight files, which are sometimes licensed separately and more restrictively than
 the code around them (see madmom's entry in the tool catalog for a concrete example).
 
+**Multiple Claude sessions may be working on Iron/Anvil at once.** Check
+`docs/IRON_RESEARCH.md` and this branch's recent commits before starting work, so effort
+doesn't collide or get silently duplicated. If you find work that conflicts with what
+you're about to add, don't silently overwrite it — reconcile it in the text, or flag the
+conflict in a new section and let a human resolve it.
+
 When you finish a research or validation pass in this area, leave the repo in the state
 `docs/IRON_RESEARCH.md`'s own "How to add to this doc" section asks for: append a new
 dated section rather than editing existing conclusions, and keep its "Current status" and
 "Things NOT to re-litigate" sections current.
-=======
-# FableGear
-
-## Working on Iron (BPM/key detection)?
-
-Read `docs/iron/RESEARCH.md` before touching `audio_processor.py` or any
-tempo/key-detection code. It's a living document — multiple Claude sessions
-have worked on Iron in parallel, and it exists specifically so that work
-doesn't get silently duplicated or overwritten.
-
-- **Read it first.** It has the baseline accuracy numbers, what's already
-  been fixed, what's been tried and rejected, and why (e.g. why Iron has to
-  stay clean-room and can't borrow from essentia's AGPL-3.0 source).
-- **Append, don't overwrite.** If you find something new, add a section
-  with a date and what you did — don't replace another session's findings
-  just because they're not yours. If you correct a previous claim (yours or
-  someone else's), say so explicitly rather than quietly editing it away —
-  see the doc's own `kicksPerBeat` section for the pattern to follow.
-- **If multiple sessions are active at once**, check the doc and recent
-  commits on this branch before starting work, so effort doesn't collide.
->>>>>>> origin/anvil

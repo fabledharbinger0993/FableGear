@@ -2,14 +2,16 @@
 
 **If you are a Claude instance picking up work on `iron/` (tempo or key detection): read
 this whole file before touching `iron/tempo.py`, `iron/dsp.py`, `iron/beats.py`, or
-`iron/api.py`.** It replaces `docs/ANVIL_IRON_STATUS.md` (2026-08-20 snapshot) and
-`docs/IRON_HANDOVER_2026-08-24.md` (same-day, earlier session) as the single up-to-date
-research record — both are kept for archaeology but are superseded by this file. Add your
-own findings to this file (append, don't delete — see "How to add to this doc" at the
-bottom) rather than starting a new dated handover doc; that's exactly the fragmentation
-this file exists to stop. Two same-day sessions independently produced real, non-
-overlapping findings on the same code before either knew the other existed — that gap is
-what this file is for.
+`iron/api.py`.** It replaces `docs/ANVIL_IRON_STATUS.md` (2026-08-20 snapshot),
+`docs/IRON_HANDOVER_2026-08-24.md` (same-day, earlier session), and `docs/iron/RESEARCH.md`
+(a third, independently-started log — folded in at §7) as the single up-to-date research
+record — all three are kept for archaeology but are superseded by this file. Add your own
+findings to this file (append, don't delete — see "How to add to this doc" at the bottom)
+rather than starting a new dated handover doc; that's exactly the fragmentation this file
+exists to stop. Multiple same-day sessions have independently produced real, non-
+overlapping findings on the same code before any of them knew about the others — that gap
+is what this file is for. `CLAUDE.md` points here; if you find yet another stray research
+doc that isn't listed above, fold it in the same way rather than leaving a fourth copy.
 
 **Repo location: work in `~/FableGear`.** If you're in a `.claude/worktrees/...` path or a
 `Downloads/FableGear-main` copy, that's a separate clone — none of this history is there.
@@ -60,6 +62,16 @@ resolving multiple kinds of octave ambiguity better than log-magnitude spectral 
 two unrelated issues. Whoever picks this up next should run
 `scripts/experiment_energy_flux_onset.py` against the 150-track sample (§3's
 `live_compare_iron_essentia.py --sample 150 --seed 42`) before assuming either way.
+
+**A candidate technique for the §2 disco-cluster problem that hasn't been tried**: a
+kick-onset-interval ("four-on-the-floor") gate, reviewed from a TypeScript prototype and
+never ported to `iron/tempo.py` — see §7.2. It targets the same 2:3 clave-vs-kick failure
+mode by isolating a time-domain kick envelope instead of relying on the shared broadband
+onset feature, which makes it a plausible complement (not a replacement) to the §2.4
+energy_flux fix.
+
+**Key detection has an unaddressed, separate gap**, not covered anywhere above because
+this file's tempo-focused sessions never touched `iron/key.py`: see §7.4.
 
 ---
 
@@ -381,6 +393,96 @@ findings).
   diffing approach used the first time).
 
 All `--seed`-taking scripts default to `--seed 42` for reproducibility.
+
+---
+
+## 7. Folding in `docs/iron/RESEARCH.md` (2026-08-25)
+
+A third research doc, `docs/iron/RESEARCH.md`, was started independently of this file and
+never merged in — `CLAUDE.md` had an unresolved merge conflict pointing different sessions
+at different docs (this file vs. `docs/iron/RESEARCH.md`), which is exactly the
+fragmentation this file exists to prevent. `CLAUDE.md` is fixed to point here only. The rest
+of this section folds in `docs/iron/RESEARCH.md`'s findings that aren't captured anywhere
+above; the file itself is left in place for archaeology, per this doc's own convention for
+superseded docs.
+
+### 7.1 — Analysis-window bug: already landed, no further action needed
+
+`docs/iron/RESEARCH.md` documented a real bug — `audio_processor.py`'s librosa/key decode
+path (`_load_audio_ffmpeg`) anchored its `ANALYSIS_DURATION`-second window at 0:00,
+disproportionately analyzing a track's beatless/sparse intro instead of a representative
+slice, while essentia's `MonoLoader` reads the whole file with no such cap. **Confirmed
+landed on this branch**: `audio_processor.py` has `_analysis_window_start()`, which centers
+the window in the track (falling back to 0.0 for tracks shorter than the window), and
+`_load_audio_ffmpeg` calls it. No open work item here — noted only so nobody re-diagnoses
+or re-fixes it.
+
+### 7.2 — TypeScript Iron prototype review: what's ported, what isn't
+
+A separate session reviewed a TypeScript prototype of Iron's tempo detection (built by
+another tool, "Grok", as a browser-based lab — not part of this repo) and verified its
+5-pass pipeline by running its own test suite and instrumenting it directly against its
+synthetic fixtures (not just reading the code). Cross-checking against the current
+`iron/tempo.py` on this branch:
+
+- **Genre-band octave correction** and **breakdown-duration bar-fit** (the prototype's
+  passes 2 and 3) are **already implemented** in `iron/tempo.py` (`_GENRE_BANDS`,
+  `_in_genre_band`, the breakdown-duration bar-fit logic) — apparently arrived at
+  independently, since neither `iron/tempo.py` nor its docstrings reference the prototype.
+  Consistent with this file's own §1 note that genre-band correction is validated
+  net-positive (10.5:1, §3).
+- **The kick-onset-interval ("four-on-the-floor") gate** (the prototype's pass 5) is **not
+  yet ported**. It isolates a kick envelope via a time-domain ~120 Hz lowpass + energy flux
+  (deliberately not STFT bins — a clave hit's high-frequency content leaks into low STFT
+  bins but doesn't survive a real lowpass), takes inter-onset-intervals between kick peaks,
+  and only trusts the result when gated (CV < 0.12, ≥8 peaks, 0.8–1.2 "kicks per beat").
+  It switches the tempo pick only when gated AND either a 2:3 rivalry with the broadband
+  pick, or the two picks disagree by >4%. This targets the same disco/soul 2:3
+  clave-vs-kick failure mode as this file's §2 "disco cluster" problem, from a different
+  angle (isolating the kick in the time domain rather than changing the onset-envelope
+  feature) — a candidate worth testing alongside, or instead of, the §2.4 energy_flux fix,
+  not yet attempted here.
+- **A documented gotcha for whoever ports the kick-IOI gate**: `kicksPerBeat` looks like a
+  literal per-beat kick count from its name, but algebraically reduces to
+  `(lastPeak − firstPeak) / windowLength`, a "peak coverage" ratio — it only works because
+  the `bpm` in its denominator is the *post-octave-fold* value, so it's actually
+  `peakCoverage / 2^k` where `2^k` is however many octave-doublings the fold applied. This
+  was mis-diagnosed as a bug and then corrected in the same session after empirical
+  verification against the prototype's own fixtures (disco/house cases give ~0.96–0.96,
+  hip-hop/waltz correctly give ~0.44/~0.21, well outside the [0.8, 1.2] gate). If you port
+  this gate, verify it the same way — instrument it against real fixtures — rather than
+  trusting a paper derivation, per the lesson learned here.
+- Two lower-priority implementation notes from that review, unaddressed either way: the
+  prototype's kick lowpass is a gentle 1-pole IIR (6 dB/octave) rather than a steeper
+  filter, and a bounds check in its breakdown pass only tests one side of the range. Neither
+  was verified against real audio either way.
+
+### 7.3 — Not independently validated against real ground truth
+
+The TypeScript prototype review above verified internal consistency (its own tests pass,
+its own fixtures behave as expected) — it does **not** constitute validation against the
+12,687-track Rekordbox ground truth in §1, and neither does the analysis-window fix in
+§7.1. Don't cite either as accuracy evidence; use the benchmark scripts in §6 for that.
+
+### 7.4 — Open gap: key detection has no segment-wise handling
+
+Unlike tempo, `iron/key.py` has had no dedicated research session. Two gaps flagged by the
+prototype review, both still true as of this fold-in (checked against current
+`iron/key.py`, which has no segment/window logic of its own — it consumes whatever chroma
+`iron.dsp.chroma()` hands it):
+
+- Key detection shares `audio_processor.py`'s decode path with the tempo fallback, so it
+  inherits whatever windowing behavior that path has (see §7.1 — this specific inheritance
+  is now less bad post-fix, since the window is centered rather than anchored at 0:00, but
+  it's still one fixed window rather than anything key-detection-specific).
+  `iron.dsp.chroma()` itself has no window-selection logic — it takes whatever audio it's
+  given.
+- Chroma is averaged over the entire analysis window with no segment-wise handling, so a
+  track that modulates key mid-song gets a single blended, likely-wrong answer. Nobody has
+  scoped how common this is in a real DJ library or what a fix would look like.
+
+Neither gap has an owner or a next step beyond "worth investigating" — flagged here so it
+isn't lost, not because a fix is in progress.
 
 ---
 
