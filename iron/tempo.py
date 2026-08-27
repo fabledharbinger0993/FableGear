@@ -31,6 +31,39 @@ onset energy landing unevenly across the analysis-frame grid. Two corrections ha
   range for the best in-band rival rather than only checking clean multiples/submultiples of
   the raw winner, because on real (non-percussion-uniform) music the true tempo is not
   always a tidy ratio of the wrong one.
+
+Three further corrections, added after real-world benchmarking (docs/IRON_RESEARCH.md,
+docs/IRON_HANDOVER_2026-08-24.md) found the genre-band prior alone leaves two gaps: it can't
+help a track whose true tempo falls outside every hand-picked band, and it has no
+independent way to catch a raw Pass-1 pick landing at half or double the true tempo. All
+three are independent numpy-only implementations of published, non-proprietary techniques,
+not ports of any dependency's code, and all are deliberately conservative -- gated to switch
+only on decisive evidence, never to override an already-confident pick:
+
+  Multiband scoring (Klapuri 2003). The harmonic-sum score above runs on one broadband
+  onset envelope, which forces genuinely distinct rhythmic voices -- a kick's sub-bass thump,
+  a syncopated hi-hat's high tick -- into a single combined signal. When those voices carry
+  conflicting periodicities (a 2-against-3 compound meter, common in disco/soul/nu-disco),
+  the combined flux can blur exactly the ambiguity that needs resolving. `dsp.
+  onset_envelope_multiband` computes flux independently per frequency band; Pass 1/2's
+  scoring folds each band's own harmonic-sum score in alongside the broadband one, so a
+  candidate has to be supported across multiple independent rhythmic voices, not just one.
+
+  Cyclic-tempogram octave correction (Grosche & Müller). `dsp.cyclic_tempo_strength` pools a
+  track's own autocorrelation evidence across every octave of a candidate's tempo class
+  (log2(bpm) mod 1) into one octave-invariant curve -- unlike _GENRE_BANDS, this is derived
+  from the signal itself, so it still has something to say about a track whose true tempo
+  isn't near any hand-picked genre center.
+
+  DP transition-penalty-variance (Ellis 2007 phase-locker) was also tried as a fourth
+  correction and reverted -- see the long comment where Pass 3 used to be, below. Root cause
+  was genuinely different from the raw-score comparison already documented as reverted on
+  dsp.track_beats: variance is deceptively LOW for a candidate at the wrong half-time period,
+  not high, because track_beats' search window scales with the candidate's own period and
+  ends up wide enough to silently phase-lock onto the true tempo's real spacing anyway.
+  dsp.track_beats_with_penalty_variance remains a valid primitive for its original, narrower
+  purpose (self-consistency of a path at an already-known-correct period) -- just not for
+  this cross-period comparison, at least not in the form tried here.
 """
 
 from __future__ import annotations
@@ -41,7 +74,15 @@ from iron import dsp
 
 # Typical genre tempo centers a working DJ library clusters around. Not exhaustive and not
 # genre-labelled -- just density priors for octave disambiguation.
+#
+# The (60.0, 85.0) band was added from a real 1000-track genre-diverse benchmark (real
+# embedded-tag ground truth, not synthetic): tracks whose true tempo fell in ANY band scored
+# 50.3% MIREX accuracy; tracks outside every band scored just 8.2% -- and every single
+# out-of-band track in that 1000-track sample had a true tempo between 62 and 78 BPM (median
+# 72), exactly the gap this band closes. Real content living there: downtempo, slow hip-hop,
+# R&B, soul ballads -- genres a DJ-genre-tempo prior previously had nothing to say about.
 _GENRE_BANDS: tuple[tuple[float, float], ...] = (
+    (60.0, 85.0),     # downtempo / slow hip-hop / R&B / soul ballads
     (85.0, 100.0),    # hip-hop / trap
     (95.0, 115.0),    # downtempo / halftime
     (118.0, 130.0),   # house
@@ -63,6 +104,22 @@ _BAND_PAD_BPM = 5.0
 
 def _in_genre_band(bpm: float) -> bool:
     return any(lo - _BAND_PAD_BPM <= bpm <= hi + _BAND_PAD_BPM for lo, hi in _GENRE_BANDS)
+
+
+# The (60, 85) band specifically -- unlike every other band, its range is also almost exactly
+# where a half-time misread of nearly any OTHER band lands (half of 125-180 is 62.5-90). A
+# raw Pass-1 pick landing here can just as easily be a genuine slow track as a half-time
+# alias of a faster one, so this band alone doesn't get to shortcut Pass 2's rival search the
+# way the others do -- see the real-benchmark regression this fixed (a 133 BPM synthetic
+# fixture starting to misdetect as 66.44 once (60, 85) was added: 66.44 "looked" already
+# validated, and Pass 2 stopped searching for a rival it would otherwise have found).
+_LOW_BAND = _GENRE_BANDS[0]
+assert _LOW_BAND == (60.0, 85.0), "the low-band special-case below assumes this is _GENRE_BANDS[0]"
+
+
+def _in_low_band(bpm: float) -> bool:
+    lo, hi = _LOW_BAND
+    return lo - _BAND_PAD_BPM <= bpm <= hi + _BAND_PAD_BPM
 
 
 # How much of the raw winner's score a rival candidate must retain to be considered real
@@ -87,6 +144,20 @@ def _bar_fit_distance(duration_s: float, bpm: float) -> float:
     bars = duration_s * bpm / 60.0 / 4.0
     nearest = min(_CONVENTIONAL_BAR_COUNTS, key=lambda r: abs(bars - r))
     return abs(bars - nearest)
+
+
+# How much weight the multiband harmonic-sum score (Klapuri 2003) carries relative to the
+# broadband one when combined -- kept as a genuine second vote, not the dominant term, since
+# broadband harmonic-sum scoring is the validated primary signal.
+_MULTIBAND_WEIGHT = 0.5
+
+# Cyclic-tempogram octave correction (Grosche & Müller). Octave ratios checked are the same
+# set Pass 4's breakdown-fit rival search already uses.
+_CYCLIC_OCTAVE_BINS = 60
+_CYCLIC_RATIOS = (2.0, 0.5, 1.5, 2.0 / 3.0)
+# A rival must pool at least this much MORE cyclic-tempo-class evidence than the current pick
+# to be considered decisive, not noise.
+_CYCLIC_MARGIN = 1.3
 
 
 _HARMONICS = (1, 2, 3, 4)
@@ -122,17 +193,42 @@ def _harmonic_score(acf: np.ndarray, lag: int) -> float:
     return total
 
 
+def _multiband_harmonic_score(band_acfs: np.ndarray, lag: int) -> float:
+    """
+    Sum `_harmonic_score` independently across each band's own autocorrelation, then combine.
+    This is the "genuinely independent second onset-detection feature" flagged as the
+    unsolved gap in `_harmonic_score`'s own docstring: a candidate now has to be supported by
+    multiple distinct rhythmic voices (kick, hi-hat, ...), not just whichever periodicity
+    dominates a single combined broadband signal.
+    """
+    return float(sum(_harmonic_score(band_acfs[i], lag) for i in range(band_acfs.shape[0])))
+
+
+def _combined_score(acf: np.ndarray, band_acfs: np.ndarray, lag: int) -> float:
+    """Broadband harmonic-sum score plus a weighted multiband vote -- the scoring function
+    Pass 1 and Pass 2 use throughout, in place of `_harmonic_score` alone."""
+    return _harmonic_score(acf, lag) + _MULTIBAND_WEIGHT * _multiband_harmonic_score(band_acfs, lag)
+
+
 def detect_tempo(
     y: np.ndarray,
     sr: int,
     *,
-    bpm_min: float = 30.0,
-    bpm_max: float = 300.0,
+    bpm_min: float = 60.0,
+    bpm_max: float = 180.0,
     hop_length: int = 512,
 ) -> tuple[float, float] | None:
     """
     Return (bpm, confidence) for a decoded clip, or None if no reliable periodicity is
     found (silence, or a clip too short to establish one).
+
+    Default search range narrowed from the original (30, 300) to (60, 180), backed by the
+    same 1000-track real-tag benchmark that motivated the new (60, 85) genre band: 0 of 1000
+    real tracks had a true tempo below 60 BPM, and only 16 (1.6%) were above 180 -- mostly
+    hardcore/gabber. That 1.6% is a real, deliberate cost: a track genuinely faster than 180
+    BPM can no longer be found at all with these defaults (searching a range that excludes
+    the true answer can't return it, by construction) -- pass wider bounds explicitly
+    (bpm_max=300.0 restores the old ceiling) for a library known to contain that content.
 
     `confidence` is the winning lag's autocorrelation strength relative to the strongest
     lag anywhere in the signal (0..1) -- not on the same scale as essentia's beat-tracker
@@ -145,6 +241,14 @@ def detect_tempo(
     acf = dsp.autocorrelate(env - env.mean())
     frame_rate = sr / hop_length
 
+    # Multiband onset envelopes (Klapuri 2003) feed _combined_score below -- see the module
+    # docstring's "Multiband scoring" section. A band with no meaningful energy just
+    # contributes zero score, so this is always safe to compute even on sparse/quiet tracks.
+    band_envs = dsp.onset_envelope_multiband(y, sr, hop_length=hop_length)
+    band_acfs = np.array(
+        [dsp.autocorrelate(row - row.mean()) for row in band_envs]
+    ) if band_envs.shape[0] else np.zeros((0, acf.shape[0]))
+
     lag_lo = max(1, int(frame_rate * 60.0 / bpm_max))
     lag_hi = min(acf.shape[0] - 1, int(frame_rate * 60.0 / bpm_min))
     if lag_hi <= lag_lo:
@@ -154,16 +258,16 @@ def detect_tempo(
     if peak_strength <= 0:
         return None
 
-    # Pass 1: find the strongest candidate by harmonic-sum score alone, no genre bias.
-    # This is the honest "what does the signal say" answer before any DJ-domain prior gets
-    # applied to it.
+    # Pass 1: find the strongest candidate by combined (broadband + multiband) harmonic-sum
+    # score, no genre bias. This is the honest "what does the signal say" answer before any
+    # DJ-domain prior gets applied to it.
     best_lag: int | None = None
     best_score = -np.inf
     for lag in range(lag_lo, lag_hi + 1):
         strength = acf[lag]
         if strength <= 0:
             continue
-        score = _harmonic_score(acf, lag)
+        score = _combined_score(acf, band_acfs, lag)
         if score > best_score:
             best_score = score
             best_lag = lag
@@ -186,7 +290,7 @@ def detect_tempo(
     # generous its score.
     best_bpm = frame_rate * 60.0 / best_lag
     chosen_lag = best_lag
-    if not _in_genre_band(best_bpm):
+    if not _in_genre_band(best_bpm) or _in_low_band(best_bpm):
         rival_lag: int | None = None
         rival_score = -np.inf
         for lag in range(lag_lo, lag_hi + 1):
@@ -195,7 +299,7 @@ def detect_tempo(
             bpm = frame_rate * 60.0 / lag
             if not _in_genre_band(bpm):
                 continue
-            score = _harmonic_score(acf, lag)
+            score = _combined_score(acf, band_acfs, lag)
             if score >= _RIVAL_THRESHOLD * best_score and score > rival_score:
                 rival_score = score
                 rival_lag = lag
@@ -203,17 +307,61 @@ def detect_tempo(
             chosen_lag = rival_lag
             best_bpm = frame_rate * 60.0 / rival_lag
 
-    # A third pass using dsp.track_beats() (DP beat tracking, Ellis 2007) to disambiguate
-    # against compound-meter rivals was tried here and reverted -- see dsp.track_beats's
-    # docstring for what it does and does not currently prove. Comparing its score across
-    # candidate periods of different lengths carries a systematic bias toward faster
-    # candidates (more beats in a path gives the optimizer more chances at favorable
-    # alignment, independent of real periodicity) that neither raw nor baseline-subtracted
-    # normalization removed, confirmed by breaking several already-correct synthetic cases
-    # (70, 90, 100, 174, 210 BPM) in a full sweep -- not a margin-tuning problem, a real
-    # unsolved comparison-fairness problem. Flagged for whoever picks this up next: a fair
-    # comparison likely needs to control for path length directly (e.g. resampling to a
-    # fixed beat count) rather than normalizing the raw DP score by frames or by beats.
+    # Pass 2b: cyclic-tempogram octave correction (Grosche & Müller) -- see the module
+    # docstring. Independent of _GENRE_BANDS: pools this track's OWN autocorrelation evidence
+    # across every octave of a candidate's tempo class, so it still has something to say
+    # about a track whose true tempo isn't near any hand-picked genre center (the documented
+    # gap in Pass 2 -- docs/IRON_HANDOVER_2026-08-24.md: "tracks outside all of them ... get
+    # no help and stay wrong"). Gated on two conditions so this can't override an
+    # already-confident pick on cyclic strength alone: the rival must pool decisively more
+    # tempo-class evidence (_CYCLIC_MARGIN), AND still carry a real share of the current
+    # pick's raw combined score (_RIVAL_THRESHOLD, the same guard Pass 2 uses).
+    cyclic_curve = dsp.cyclic_tempo_strength(
+        acf, frame_rate, bpm_min=bpm_min, bpm_max=bpm_max, octave_bins=_CYCLIC_OCTAVE_BINS
+    )
+    current_bpm = frame_rate * 60.0 / chosen_lag
+    current_cyclic = dsp.cyclic_tempo_class_lookup(cyclic_curve, current_bpm)
+    current_score = _combined_score(acf, band_acfs, chosen_lag)
+    best_cyclic_lag: int | None = None
+    best_cyclic_strength = current_cyclic
+    for ratio in _CYCLIC_RATIOS:
+        lag = round(chosen_lag * ratio)
+        if lag < lag_lo or lag > lag_hi or lag == chosen_lag:
+            continue
+        rival_bpm = frame_rate * 60.0 / lag
+        rival_cyclic = dsp.cyclic_tempo_class_lookup(cyclic_curve, rival_bpm)
+        rival_score = _combined_score(acf, band_acfs, lag)
+        if (
+            rival_cyclic > best_cyclic_strength * _CYCLIC_MARGIN
+            and rival_score >= _RIVAL_THRESHOLD * current_score
+        ):
+            best_cyclic_strength = rival_cyclic
+            best_cyclic_lag = lag
+    if best_cyclic_lag is not None:
+        chosen_lag = best_cyclic_lag
+        best_bpm = frame_rate * 60.0 / best_cyclic_lag
+
+    # A Pass 3 using dsp.track_beats_with_penalty_variance() (DP transition-penalty variance,
+    # a comparison signal genuinely different from the raw/magnitude-normalized DP score
+    # already tried and reverted -- see dsp.track_beats' docstring) was tried here and
+    # reverted too, for a new and different reason than that prior attempt: it broke 9 of 12
+    # synthetic regression cases (test_detect_tempo_within_tolerance), ALL flipping to exactly
+    # half the true tempo. Root-caused, not a tuning-margin problem -- track_beats' search
+    # window scales with the CANDIDATE period (search = period * search_multiple), so at a
+    # candidate double the true period, the search window is wide enough that the DP tracker
+    # silently phase-locks onto the TRUE, faster rhythm's own beat spacing while still being
+    # scored against the wrong (doubled) target period. Every transition then incurs the same
+    # constant mismatch penalty (log(true_period / candidate_period))^2 -- a uniformly-wrong-
+    # by-a-fixed-ratio path, which produces a deceptively LOW variance (measured 0.002 at the
+    # wrong half-time candidate vs. 2.97 at the true tempo, on the 174 BPM fixture) precisely
+    # because it's consistent, not because it's correct. The true tempo's path, by contrast,
+    # has genuine irregularity from this fixture's kick/hi-hat onsets legitimately competing
+    # for the same phase-locked slots. Fixing this would need a search window that doesn't
+    # scale with the candidate's own (possibly wrong) period -- not attempted here; flagged
+    # for whoever revisits this rather than re-gated blind. dsp.track_beats_with_penalty_
+    # variance itself is unaffected and still valid for its tested, narrower purpose --
+    # measuring self-consistency of a phase-locked path at a period already known correct,
+    # not for comparing across candidate periods.
 
     # Pass 4: breakdown-duration structural fit. A DJ mix or club edit's bridge/breakdown is
     # almost always a "round" length in bars (8/16/32, arrangement convention, not a signal

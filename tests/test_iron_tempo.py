@@ -52,9 +52,15 @@ def _beat_track(bpm: float, seconds: float = 15.0, seed: int = 0) -> np.ndarray:
     return y
 
 
-# Spans the genre bands iron.tempo knows about, plus a couple of in-between values.
+# Spans the genre bands iron.tempo knows about, plus a couple of in-between values. Capped
+# at 174 (not the old 210): detect_tempo's default bpm_max is now 180 (see its docstring --
+# a real 1000-track benchmark found only 1.6% of tracks above it), so a true 210 BPM signal
+# is now out of range for the DEFAULT search by design, not a detection failure. Coverage of
+# that higher range (still a real _GENRE_BANDS entry, 180-220 hardcore/gabber) moves to
+# test_detect_tempo_above_default_range_needs_wider_bounds below, with bounds passed
+# explicitly.
 @pytest.mark.parametrize(
-    "bpm", [70, 90, 100, 118, 124, 128, 133, 140, 150, 165, 174, 210]
+    "bpm", [70, 90, 100, 118, 124, 128, 133, 140, 150, 165, 174]
 )
 def test_detect_tempo_within_tolerance(bpm):
     y = _beat_track(bpm)
@@ -67,6 +73,24 @@ def test_detect_tempo_within_tolerance(bpm):
     assert 0.0 <= confidence <= 1.0
 
 
+def test_detect_tempo_above_default_range_needs_wider_bounds():
+    """210 BPM (hardcore/gabber) is above the new default bpm_max=180 -- the true tempo can't
+    be returned with defaults by construction (the search never considers a lag that fast),
+    though the search still returns ITS best answer within [60, 180], not None. Still fully
+    supported when a caller opts into wider bounds for a library known to contain that
+    content."""
+    y = _beat_track(210)
+    default_result = tempo.detect_tempo(y, SR)
+    if default_result is not None:
+        default_bpm, _confidence = default_result
+        assert abs(default_bpm - 210) / 210 >= 0.02  # default bounds can't recover the truth
+
+    result = tempo.detect_tempo(y, SR, bpm_min=30.0, bpm_max=300.0)
+    assert result is not None
+    detected, _confidence = result
+    assert abs(detected - 210) / 210 < 0.02
+
+
 @pytest.mark.xfail(
     reason=(
         "Known v1 limitation, not silently dropped: at 190 BPM this fixture's raw "
@@ -76,13 +100,15 @@ def test_detect_tempo_within_tolerance(bpm):
         "specific near-tie looks like an artifact of the fixture's idealized, exactly- "
         "periodic accent pattern rather than something expected in real recordings. "
         "Flagged for the ground-truth benchmark (see the plan's validate-first gate) "
-        "rather than chased further against a synthetic signal."
+        "rather than chased further against a synthetic signal. Explicit wide bounds here "
+        "(bpm_min=30, bpm_max=300) preserve the original scenario independent of "
+        "detect_tempo's default range, which no longer reaches 190 BPM at all."
     ),
     strict=True,
 )
 def test_detect_tempo_known_limitation_190bpm_fifth_submultiple():
     y = _beat_track(190)
-    result = tempo.detect_tempo(y, SR)
+    result = tempo.detect_tempo(y, SR, bpm_min=30.0, bpm_max=300.0)
     assert result is not None
     detected, _confidence = result
     assert abs(detected - 190) / 190 < 0.02

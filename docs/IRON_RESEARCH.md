@@ -34,44 +34,44 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 
 ---
 
-## 1. Current status (as of 2026-08-24)
+## 1. Current status (as of 2026-08-27)
 
 **Anvil**: functionally complete. ID3v2.3/2.4 (MP3/WAV/AIFF), Vorbis comments (FLAC/OGG),
 and MP4/M4A ilst tags all implemented, tested against real files, and cross-validated
 against mutagen for read/write round-trips. Not a currently active area of research —
 `docs/ANVIL_IRON_STATUS.md` has the implementation detail if you need it.
 
-**Iron**: tempo detection has two independent, real accuracy problems found on two
-different real-music samples this same day, by two sessions that didn't know about each
-other. Read both — they are not the same bug, and a fix for one is not guaranteed to fix
-the other:
+**Iron tempo**: three independent accuracy problems have been found across sessions, on
+different real-music samples. Read all three — they are not the same bug, and a fix for one
+is not guaranteed to fix another:
 
-1. **The 2:3 compound-meter ("disco cluster") problem** — §2 below. Found on a
-   130-track, BPM-range-constrained (75-160) sample of disco/nu-disco/soul edit-pack
-   material. A same-day, just-completed experiment (§2.4) found a large, real, validated
-   fix candidate not yet merged.
-2. **The half-time bias problem** — §3 below. Found on a 150-track, genre-diverse
-   (no BPM constraint), all-genre sample of the user's actual library. Root-caused but
-   **no fix attempted yet**.
+1. **The 2:3 compound-meter ("disco cluster") problem** — §2 below. A real, validated fix
+   candidate (`energy_flux`, §2.4) exists and is **still not merged** — see §8.7, this is
+   unchanged from before this session.
+2. **The half-time bias problem** — §3 below. §3's own "next step" list is now **superseded
+   by §8**: multiband scoring and a cyclic-tempogram octave correction (two of that list's
+   candidate directions) have since been implemented and validated; a third candidate
+   (DP transition-penalty variance) was tried and reverted for a new, distinct reason — see
+   §8.2-§8.4. The specific list in §3 is kept for history but should not be read as current.
+3. **A large-scale (996-track), genre-diverse, non-Rekordbox-sourced benchmark** — §8.1/§8.6
+   — surfaces real, still-largely-unexplained error (43.7% of wrong answers don't fit any
+   clean octave/compound-meter ratio at all). This is the current largest open problem, not
+   covered by any fix above.
 
-Both samples are real Rekordbox ground truth from the user's own library, just different
-slices of it (see each section for exactly which files/scripts reproduce which sample).
-**Open question, not yet tested: does the §2.4 energy_flux fix also help the §3 half-time
-problem?** They could be the same underlying phenomenon (a broadband/coarser onset feature
-resolving multiple kinds of octave ambiguity better than log-magnitude spectral flux) or
-two unrelated issues. Whoever picks this up next should run
-`scripts/experiment_energy_flux_onset.py` against the 150-track sample (§3's
-`live_compare_iron_essentia.py --sample 150 --seed 42`) before assuming either way.
+**Open question, still not tested**: does the §2.4 `energy_flux` onset feature swap
+interact with (help, hurt, or duplicate) §8's multiband scoring and cyclic tempogram? Nobody
+has tried combining or comparing them yet — see §8.7.
 
-**A candidate technique for the §2 disco-cluster problem that hasn't been tried**: a
-kick-onset-interval ("four-on-the-floor") gate, reviewed from a TypeScript prototype and
-never ported to `iron/tempo.py` — see §7.2. It targets the same 2:3 clave-vs-kick failure
-mode by isolating a time-domain kick envelope instead of relying on the shared broadband
-onset feature, which makes it a plausible complement (not a replacement) to the §2.4
-energy_flux fix.
+**A candidate technique for the §2 disco-cluster problem that still hasn't been tried**: the
+kick-onset-interval ("four-on-the-floor") gate from §7.2 — still not ported.
 
-**Key detection has an unaddressed, separate gap**, not covered anywhere above because
-this file's tempo-focused sessions never touched `iron/key.py`: see §7.4.
+**Iron key**: no longer purely an unaddressed gap — see §8.5. A CQT-based chroma
+(`iron.dsp.chroma_cqt`) is now in production use in `iron/key.py`, validated at real,
+meaningful improvement (see §8.5 for numbers). The segment-wise/window gaps flagged in §7.4
+remain unaddressed.
+
+**Both `iron/tempo.py`'s default search range (`bpm_min`/`bpm_max`) and `_GENRE_BANDS`
+changed this session** — see §8.6 for what changed and the validated real-world impact.
 
 ---
 
@@ -353,10 +353,20 @@ findings).
 - Genre-band correction is net-positive on real, genre-diverse data (10.5:1, §3). Don't
   remove or weaken it without a fresh ablation showing net-negative on whatever's actually
   broken.
-- Compound-meter harmonic-credit weighting, DP cross-period comparison for octave
-  disambiguation, and Gemini's low-band gate (§2.2) are all tested, failed, and reverted —
-  don't re-attempt any of them unchanged; read the cited docstring for exactly why each one
-  failed before trying a variant.
+- Compound-meter harmonic-credit weighting, DP cross-period comparison using
+  `dsp.track_beats`' raw/normalized *score* for octave disambiguation, and Gemini's low-band
+  gate (§2.2) are all tested, failed, and reverted — don't re-attempt any of them unchanged;
+  read the cited docstring for exactly why each one failed before trying a variant.
+- DP transition-*penalty-variance* (not the same thing as the score comparison above — see
+  §8.4) was also tried, for octave disambiguation, and reverted: broke 9/12 synthetic
+  regression cases by flipping to exactly half-tempo. Root cause is specific to
+  `dsp.track_beats`' search window scaling with the candidate period — a wrong, slower
+  candidate's wider window lets the tracker silently phase-lock onto the true, faster
+  rhythm's own spacing while still being scored against the wrong target period, producing
+  deceptively *low* variance. `dsp.track_beats_with_penalty_variance` itself is fine and
+  still used for its original, narrower purpose (self-consistency of a path at an
+  already-known-correct period) — just not for this cross-period comparison, at least not as
+  tried. See the long comment in `iron/tempo.py` where this pass used to live.
 - `beat_this` stays offline/dev-only — explicit user choice over adding it as a runtime
   dependency.
 - `madmom` is out — CC-BY-NC-SA models, incompatible with a for-sale app.
@@ -391,6 +401,21 @@ findings).
   diffing a Rekordbox `master.db` snapshot before/after analyzing a fresh batch of tracks in
   Rekordbox itself (see git history around commit `9376103` for the exact before/after
   diffing approach used the first time).
+- `scripts/benchmark_iron_key.py --rekordbox-db PATH [--sample N] [--seed S]` — Iron's key
+  detector vs. Rekordbox `KeyName` ground truth, live A/B against the pre-CQT linear-chroma
+  path in the same run (monkeypatches `key.dsp.chroma_cqt` to `key.dsp.chroma`), so library
+  drift between separate runs can't confound the comparison. §8.5.
+- `scripts/benchmark_iron_genre_diverse.py --root PATH [--count N] [--scan-limit N]
+  [--bpm-min X] [--bpm-max Y] [--workers N] [--out results.jsonl]` — genre-diverse tempo +
+  key benchmark that reads ground truth straight from each file's own embedded tags (Anvil
+  for bpm/key, mutagen for genre), not from any Rekordbox database. **Use this, not a
+  Rekordbox DB, whenever a database's `FolderPath` records might be stale relative to the
+  actual files on disk** — see §8.1 for why this exists and what it found. Round-robin
+  samples across genre buckets so no single dominant genre crowds out a fixed-size sample;
+  folder-level scan parallelism with an early stop (`--scan-limit`, default `count * 6`)
+  rather than walking an entire library; per-track analysis has an overall timeout
+  (`--out` writes results incrementally, so a run that times out or gets killed doesn't lose
+  completed work). §8's 996-track before/after numbers came from this script.
 
 All `--seed`-taking scripts default to `--seed 42` for reproducibility.
 
@@ -483,6 +508,190 @@ prototype review, both still true as of this fold-in (checked against current
 
 Neither gap has an owner or a next step beyond "worth investigating" — flagged here so it
 isn't lost, not because a fix is in progress.
+
+---
+
+## 8. Multiband/cyclic-tempogram tempo scoring, CQT key chroma, BPM range widening (2026-08-27)
+
+All work below happened in one session, on `~/FableGear`'s `anvil` branch, working tree
+uncommitted as of this writing (check `git log`/`git status` for current state — don't
+assume this landed in a commit just because it's written up here).
+
+### 8.1 New ground-truth methodology: read tags directly, don't trust a Rekordbox DB's FolderPath
+
+`/Volumes/Passport/PIONEER/Master/master.db`'s `DjmdContent.FolderPath` records point at a
+`/Volumes/Passport/DJMT_Library/...` folder structure that **does not exist on this drive**.
+The drive's real ~1.2TB of music lives at `/Volumes/Passport/DATABASE/...`, organized
+differently (different folder layout, different filenames — no `Artist: Title.mp3` colon
+convention, no per-letter subfolders). This is why a naive "does this FolderPath exist"
+check found only 63 of 23,505 valid-BPM `master.db` rows (and only 1,066 of 63,114 total
+rows) — not because the files are missing, but because the database's own path records are
+stale relative to how the drive is laid out now. **If you hit a suspiciously low
+existing-file count against this (or any) Rekordbox DB, check for this before concluding the
+files are gone** — `find <drive> -iname "<a known artist name>"` a few levels deep is a
+fast sanity check.
+
+The fix used here: sidestep Rekordbox entirely. `scripts/benchmark_iron_genre_diverse.py`
+(§6) reads ground-truth `bpm`/`initial_key` straight from each file's own embedded tags via
+`anvil.read_fields()`, and genre via `mutagen`'s easy-tags API (`TCON`/genre; `anvil`'s own
+`TrackFields` has no genre field, so this is the one place `mutagen` is used directly in this
+session's work — read-only, benchmarking-only, not a runtime dependency change). This is
+strictly more robust for any future large-scale validation: it works regardless of which DJ
+software's database is current, or whether one even exists for a given folder.
+
+**Caveat, not resolved**: embedded ID3 BPM tags are a different, less-audited ground-truth
+source than Rekordbox's own analyzed BPM — some fraction may be stale, rounded, or wrong at
+the source (pre-tagged by whoever assembled a given corner of the library, not necessarily
+Rekordbox-verified). The 996-track exact-match number in §8.6 (14.9%) is notably lower than
+every prior Rekordbox-sourced sample in this doc (18.5%-69.2% depending on sample) — some of
+that gap is plausibly Iron performing worse on a broader, more genuinely diverse sample, but
+some could be ground-truth noise from this new source. Not disentangled. Whoever investigates
+further should spot-check a sample of disagreements by ear before trusting the exact-match
+number as a precise measurement, though the *within-1%*/*MIREX*/wrong-rate numbers (looser
+tolerances) are far more robust to a few degrees of ground-truth rounding noise and are the
+more trustworthy part of §8.6's before/after comparison.
+
+### 8.2 Multiband onset scoring (Klapuri 2003) — validated, kept
+
+`iron.dsp.onset_envelope_multiband()`: independent log-magnitude spectral flux computed per
+frequency band (kick/sub-bass, bass, mid, high — see the function's own docstring for exact
+Hz ranges), rather than one summed broadband signal. `iron.tempo._combined_score()` folds
+each band's own harmonic-sum score in alongside the existing broadband one
+(`_MULTIBAND_WEIGHT = 0.5`), used throughout Pass 1 and Pass 2's candidate scoring. This is
+the "genuinely independent second onset-detection feature" `_harmonic_score`'s own docstring
+already flagged as the unsolved direction for the §2 disco-cluster problem — an
+implementation of that direction, not a port of essentia's actual multifeature ensemble.
+
+Confirmed genuinely active on real audio, not a no-op: flipped the raw Pass-1 winner on 3 of
+63 tracks in a live check against Passport's `DATABASE/` sample. Net effect on final accuracy
+is folded into the combined §8.6 before/after number, not measured in isolation.
+
+### 8.3 Cyclic tempogram octave correction (Grosche & Müller) — validated, kept
+
+`iron.dsp.cyclic_tempo_strength()`/`cyclic_tempo_class_lookup()`: pools a track's own
+autocorrelation strength across every octave of a candidate's tempo class
+(`log2(bpm) mod 1`) into one octave-invariant curve, independent of `_GENRE_BANDS`. Wired in
+as a new Pass 2b in `detect_tempo`, gated the same conservative way as the rest of the
+pipeline — a rival must pool decisively more tempo-class evidence (`_CYCLIC_MARGIN = 1.3`)
+AND still carry a real share of the current pick's raw score (`_RIVAL_THRESHOLD`, same guard
+Pass 2 uses) before it can override the current pick.
+
+**Why this exists alongside `_GENRE_BANDS` rather than replacing it**: §3 already
+established genre-band correction is net-positive load-bearing (10.5:1, don't remove per
+§5). But §3 also documented its real gap — it only helps a track whose true tempo falls
+inside one of the 7 hand-picked bands; everything else (slower soul/jazz/funk, mostly) "gets
+no help and stays wrong." The cyclic tempogram is derived from the track's own signal, not
+an external genre-tempo assumption, so it still has something to say about exactly those
+tracks. Not independently ablated against §3's 150-track sample specifically — its
+contribution, like §8.2's, is folded into §8.6's combined number.
+
+### 8.4 DP transition-penalty-variance — tried and reverted, distinct new failure mode
+
+Attempted as a further octave-disambiguation pass (a genuinely different comparison signal
+than the raw/normalized DP *score* comparison §2.2 already documents as reverted — this used
+the *variance* of per-step transition penalties along a phase-locked path, not its summed
+score). Broke 9 of 12 synthetic regression cases in `tests/test_iron_tempo.py`, **all**
+flipping to exactly half the true tempo. Root-caused, not a tuning-margin problem:
+`dsp.track_beats`' search window scales with the *candidate* period
+(`search = period * search_multiple`). At a wrong, doubled-period candidate, that window is
+wide enough for the DP tracker to silently phase-lock onto the TRUE, faster rhythm's own
+beat spacing while still being scored against the wrong (doubled) target period — producing
+a uniformly-wrong-by-a-constant-ratio path, which is deceptively *self-consistent* (low
+variance) precisely because it's consistent, not because it's correct. Measured on the 174
+BPM synthetic fixture: variance 2.97 at the true tempo (genuine irregularity from competing
+kick/hi-hat onsets) vs. 0.002 at the wrong half-time candidate.
+
+Reverted — see the long comment in `iron/tempo.py` where this pass used to live, and §5.
+`dsp.track_beats_with_penalty_variance` remains as a tested primitive for its original,
+narrower purpose (self-consistency of a path at an already-known-correct period); it just
+isn't valid for this specific cross-period comparison as attempted. A fix would need a
+search window that doesn't scale with the (possibly wrong) candidate period — not attempted.
+
+### 8.5 CQT-based chroma for key detection — validated, kept, first real accuracy number
+
+`iron.dsp.chroma_cqt()`: a log-frequency-binned pseudo-CQT (large `n_fft=16384`, triangular
+weight split across each FFT bin's 1-2 nearest semitone centers by log-frequency distance) —
+not a literal per-bin variable-kernel direct CQT (Brown & Puckette 1992); see the function's
+own docstring for why that distinction is deliberate (time resolution doesn't matter for a
+whole-track-averaged chroma vector, so a single high-resolution STFT gets the same
+frequency-resolution fix at a fraction of the cost a real per-bin kernel sweep would take).
+Fixes a real, measurable defect in `dsp.chroma()`'s linear-Hz bins: at `n_fft=4096`/
+`sr=22050`, FFT bin width (~5.4 Hz) is wider than a semitone's spacing at 55 Hz/A1 (~3.3 Hz),
+so adjacent low bass semitones can share or straddle the same bin. `iron/key.py`'s
+`detect_key()` now calls `chroma_cqt()` in place of `chroma()`; `dsp.chroma()` itself is
+unchanged and still used by its own tests.
+
+**First real accuracy number for `iron/key.py` against real ground truth** (previous numbers
+in this doc, §2.1 and §7.4, were either unaddressed or from a different, smaller sample):
+`scripts/benchmark_iron_key.py`, 300-track Rekordbox-sourced sample, live A/B in the same
+run —
+
+| | exact Camelot match |
+|---|---|
+| CQT chroma (current) | **31.3%** (n=300) |
+| linear chroma (pre-CQT, live ablation) | 19.7% (n=300) |
+| Iron pre-CQT, historical (§2.1, different 130-track sample) | 18.5% |
+| librosa `chroma_cqt`, historical | 24.6% |
+
+The live ablation's 19.7% lines up with the historical 18.5% closely enough to cross-validate
+the A/B methodology itself. CQT chroma now beats even the old librosa reference number that
+used to be the thing to catch up to. Still low in absolute terms — most tracks are still
+wrong — and the §7.4 segment-wise/windowing gaps are completely unaddressed by this change;
+it's a chroma-extraction fix, not a fix to `key.py`'s per-track handling.
+
+### 8.6 BPM search range narrowed to 60-180 + new low-band genre coverage — validated
+
+Two related, user-directed changes, both now live in `iron/tempo.py`/`iron/api.py` defaults
+(check current source for exact values — this is a snapshot, not the source of truth):
+
+- `detect_tempo`'s default `bpm_min`/`bpm_max` narrowed from (30.0, 300.0) to (60.0, 180.0)
+  (mirrored in `iron/api.py`'s `_BPM_MIN`/`_BPM_MAX`).
+- `_GENRE_BANDS` gained a new lowest band, `(60.0, 85.0)` (downtempo/slow hip-hop/R&B/soul
+  ballads) — previously the lowest band started at 85.0, leaving genuinely no genre-band
+  coverage at all below it.
+
+**Validated with a real before/after on the same 996-track genre-diverse sample** (§8.1's
+methodology, `scripts/benchmark_iron_genre_diverse.py --root /Volumes/Passport/DATABASE
+--count 1000 --seed 42`, only `--bpm-min`/`--bpm-max` differing between runs):
+
+| | exact | within-1% | MIREX | wrong (>4% off) |
+|---|---|---|---|---|
+| before (30-300, old bands) | 14.1% | 30.1% | 48.2% | 51.8% |
+| after (60-180, new low band) | 14.9% | 33.7% | **60.7%** | **39.3%** |
+
+A real, broad gain — MIREX +12.5 points, wrong-answer rate -12.5 points, held across nearly
+every genre bucket with ≥10 tracks (e.g. Disco 45.0%→85.0% MIREX, R&B 48.0%→80.0%, Punk Rock
+63.3%→83.3%, Alternative 52.4%→81.0% — full per-genre table in
+`iron_1000_baseline.log`/`iron_1000_afterfix.log`, not committed to the repo, regenerate via
+the command above if needed). Two small-n genre buckets (n≈11-18) dipped slightly — within
+noise at that sample size, not a clear regression.
+
+**Exact-match barely moved (14.1%→14.9%)** — this change mainly gets answers into the right
+ballpark, not pinpoint-precise. Error-ratio breakdown of wrong answers shifted:
+
+| | 2x | 0.667x | 1.5x | 0.5x | "other" (no clean ratio) |
+|---|---|---|---|---|---|
+| before | 22.9% | 14.0% | 7.8% | 5.6% | 44.2% |
+| after | 16.1% | 9.0% | 10.2% | **11.5%** | 43.7% |
+
+2x and 0.667x (compound-meter) errors both dropped as a share of remaining wrong answers.
+**0.5x (half-time) errors rose, both as a share and in absolute count (29→45 of 996
+tracks)** — a real, if modest, side effect, not chased further. Plausible mechanism, not
+confirmed: narrowing to 60-180 (a 3x span, ~1.58 octaves) gives §8.3's cyclic tempogram less
+than 2 full octaves of evidence to pool for tempo classes near the range's edges, weakening
+its disambiguation there specifically. **"Other" (no clean octave/compound-meter ratio) is
+unchanged at ~44% of wrong answers, still the single largest bucket** — these are the
+genuinely hard, unexplained remaining cases; nothing in this session's work touched them.
+
+### 8.7 Open question, unchanged from before this session: does `energy_flux` (§2.4) interact with §8.2/§8.3?
+
+Nobody has tested this. §2.4's `energy_flux` onset feature (broadband RMS-energy novelty, no
+log compression) and §8.2's multiband scoring (per-band log-magnitude flux) are structurally
+different techniques both aimed at overlapping parts of the octave/compound-meter ambiguity
+problem — they could compound, conflict, or be redundant. Whoever picks this up next should
+run `scripts/experiment_energy_flux_onset.py` against this session's code (with §8's changes
+already in place) before assuming either way, same as §1 already flagged before this session
+started.
 
 ---
 

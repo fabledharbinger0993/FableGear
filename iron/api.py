@@ -32,8 +32,8 @@ from iron.schema import IronResult, TempoCheckpoint
 
 _ANALYSIS_SR = 22050
 _ANALYSIS_DURATION = 90.0
-_BPM_MIN = 30.0
-_BPM_MAX = 300.0
+_BPM_MIN = 60.0  # matches iron.tempo.detect_tempo's own default -- see its docstring for
+_BPM_MAX = 180.0  # the real-benchmark justification and the real, deliberate 180+ BPM cost
 _HOP_LENGTH = 512  # matches iron.tempo.detect_tempo's own default
 _KICK_BAND_FMIN = 40.0  # Hz -- iron.beats.detect_beat_grid's accent_env, a kick drum's
 _KICK_BAND_FMAX = 120.0  # fundamental + first harmonic; see iron/dsp.py::band_energy

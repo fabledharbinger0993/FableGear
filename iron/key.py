@@ -6,7 +6,11 @@ notation.
 
 The correlation step is original code, not derived from any dependency -- the only piece
 that used to come from librosa (`chroma_cqt`, extracting the 12-bin pitch-class profile) is
-now `iron.dsp.chroma()`.
+now `iron.dsp.chroma_cqt()` (a log-frequency-binned pseudo-CQT chroma -- see its own
+docstring for why it resolves bass-register pitch classes that `iron.dsp.chroma()`'s
+linear-Hz FFT bins can smear together, and why it isn't a literal per-bin variable-kernel
+CQT). `iron.dsp.chroma()` remains available and unchanged for callers that want the plain
+linear-frequency version.
 """
 
 from __future__ import annotations
@@ -53,7 +57,7 @@ def detect_key(y: np.ndarray, sr: int) -> tuple[str, float] | None:
     correlate strongly by coincidence, so a caller enforcing a quality bar should weight
     this alongside clip length/energy, not trust it alone.
     """
-    vec = dsp.chroma(y, sr)
+    vec = dsp.chroma_cqt(y, sr)
     if not np.any(vec):
         return None
 

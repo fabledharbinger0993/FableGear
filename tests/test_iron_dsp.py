@@ -5,6 +5,7 @@ iron.dsp: the numpy-only primitives everything else in Iron is built on.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from iron import dsp
 
@@ -150,3 +151,95 @@ def test_track_beats_single_frame():
     beats, score = dsp.track_beats(np.array([5.0]), period=20.0)
     assert beats == [0]
     assert score == 5.0
+
+
+def test_onset_envelope_multiband_silence_is_flat_zero():
+    y = np.zeros(SR * 2)
+    bands = dsp.onset_envelope_multiband(y, SR)
+    assert bands.shape[0] == len(dsp._DEFAULT_ONSET_BANDS)
+    assert np.all(bands == 0.0)
+
+
+def test_onset_envelope_multiband_isolates_transient_to_its_band():
+    # A low-frequency (kick-band) transient should spike the kick-band row far more than the
+    # high-frequency (hi-hat-band) row. Smooth attack/decay (sine starting at its own zero
+    # crossing, exponential decay -- same shape as test_iron_tempo.py's kick fixture) avoids
+    # the sharp on/off edges a rectangular burst would have, which spray broadband spectral
+    # leakage into every band regardless of the tone's real frequency.
+    n = SR * 2
+    y = np.zeros(n)
+    burst_start = SR // 2
+    kick_len = int(SR * 0.15)
+    kt = np.arange(kick_len) / SR
+    kick = np.sin(2 * np.pi * 80 * kt) * np.exp(-kt * 25)  # inside kick band, no sharp edges
+    y[burst_start:burst_start + kick_len] += 0.8 * kick
+    bands = dsp.onset_envelope_multiband(y, SR, hop_length=512)
+    kick_row, high_row = bands[0], bands[3]
+    assert kick_row.max() > 0
+    assert kick_row.max() > high_row.max() * 3
+
+
+def test_cyclic_tempo_strength_pools_octave_related_lags():
+    frame_rate = 43.0  # ~22050/512
+    acf = np.zeros(2000)
+    lag_a = round(frame_rate * 60.0 / 130.0)
+    lag_b = round(frame_rate * 60.0 / 65.0)  # rounds to exactly 2 * lag_a at this frame rate
+    assert lag_b == 2 * lag_a  # test precondition: an exact octave relationship in lag space
+    bpm_a = frame_rate * 60.0 / lag_a
+    bpm_b = frame_rate * 60.0 / lag_b
+    acf[lag_a] = 3.0
+    acf[lag_b] = 2.0
+    curve = dsp.cyclic_tempo_strength(acf, frame_rate)
+    # bpm_a and bpm_b share the same tempo class (they're exactly one octave apart), so that
+    # single bin should carry the SUM of both strengths, not either one alone. Looking up by
+    # the ACTUAL bpm each lag quantizes to (not the nominal 130/65 targets) avoids a
+    # false failure from the two nominal values happening to straddle a bin boundary.
+    pooled = dsp.cyclic_tempo_class_lookup(curve, bpm_a)
+    assert pooled == pytest.approx(5.0, abs=1e-6)
+    assert pooled == pytest.approx(dsp.cyclic_tempo_class_lookup(curve, bpm_b), abs=1e-6)
+
+
+def test_cyclic_tempo_strength_empty_range_returns_zeros():
+    curve = dsp.cyclic_tempo_strength(np.zeros(10), frame_rate=43.0, bpm_min=30.0, bpm_max=300.0)
+    assert curve.shape == (60,)
+
+
+def test_track_beats_with_penalty_variance_is_low_for_a_consistent_period():
+    period = 20
+    env = _pulse_train(period, n_pulses=30, jitter=1, seed=3)
+    beats, score, variance = dsp.track_beats_with_penalty_variance(env, period)
+    assert len(beats) >= 25
+    assert score > 0
+    assert variance >= 0.0
+    assert variance < 0.01  # near-zero for a genuinely well-locked, consistent period
+
+
+def test_track_beats_with_penalty_variance_short_path_is_infinite():
+    beats, _score, variance = dsp.track_beats_with_penalty_variance(np.array([5.0]), period=20.0)
+    assert beats == [0]
+    assert variance == float("inf")
+
+
+def test_chroma_cqt_identifies_pitch_class():
+    t = np.arange(SR * 2) / SR
+    y = 0.5 * np.sin(2 * np.pi * 440 * t)  # A4
+    vec = dsp.chroma_cqt(y, SR)
+    assert vec.shape == (12,)
+    assert int(np.argmax(vec)) == 9  # "A" in key.NOTES ordering
+
+
+def test_chroma_cqt_silence_is_zero_vector():
+    y = np.zeros(SR * 2)
+    vec = dsp.chroma_cqt(y, SR)
+    assert np.all(vec == 0.0)
+
+
+def test_chroma_cqt_resolves_bass_register_better_than_linear_chroma():
+    # A1 = 55 Hz, the bottom of both chroma functions' default range -- at n_fft=4096/
+    # sr=22050 (chroma()'s default), the linear FFT bin width (~5.4 Hz) is wider than a
+    # semitone's spacing there (~3.3 Hz), so chroma() can misplace it. chroma_cqt()'s larger
+    # n_fft resolves the semitone correctly.
+    t = np.arange(SR * 3) / SR
+    y = 0.5 * np.sin(2 * np.pi * 55.0 * t)
+    vec = dsp.chroma_cqt(y, SR)
+    assert int(np.argmax(vec)) == 9  # "A" -- A1 is still an A

@@ -12,6 +12,7 @@ in essentia's own numbers over time/library composition doesn't confound the com
 Usage:
     python3 scripts/live_compare_iron_essentia.py
     python3 scripts/live_compare_iron_essentia.py --sample 300 --seed 7
+    python3 scripts/live_compare_iron_essentia.py --rekordbox-db /path/to/master.db
 """
 
 from __future__ import annotations
@@ -45,11 +46,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--sample", type=int, default=150, help="sample size (default: 150)")
     parser.add_argument("--seed", type=int, default=42, help="random seed (default: 42)")
+    parser.add_argument(
+        "--rekordbox-db", type=Path, default=None,
+        help="path to a Rekordbox master.db (default: db_connection's configured LOCAL_DB, "
+             "i.e. this user's own config.json -- pass this explicitly to point at any "
+             "other drive/library rather than editing config.json)",
+    )
     args = parser.parse_args(argv)
 
     print("Querying Rekordbox for candidate (path, bpm) rows...", flush=True)
     candidates = []
-    with db_connection.read_db() as db:
+    with db_connection.read_db(args.rekordbox_db) as db:
         rows = db.query(tables.DjmdContent).with_entities(
             tables.DjmdContent.FolderPath, tables.DjmdContent.BPM
         )
