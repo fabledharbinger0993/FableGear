@@ -283,3 +283,113 @@ fix.
 ---
 
 <!-- Add new sections below this line, oldest first. -->
+
+## 7. 2026-08-25 — a stratified testing theory for validating against real music
+
+Everything in §5 ("Honest gaps") is true and still open: nothing here has been measured
+against real music yet. This section is a concrete methodology for closing that gap,
+written to plug into the scripts that already exist (`scripts/benchmark_iron_tempo.py`,
+`scripts/benchmark_iron_beats.py`) rather than propose new infrastructure. It does not
+run anything -- this session had no real audio or Rekordbox database to run it against
+(sandboxed, no local filesystem access to a real library). Written so the next session
+that *does* have that access can run it directly instead of re-deriving what to measure.
+
+### 7.1 What question this is actually answering
+
+The decision this feeds is the one already in `docs/ANVIL_IRON_STATUS.md` §3.1: is Iron
+(a) a credible primary path (near essentia's 91.4% exact), (b) a legitimate replacement
+for the librosa fallback specifically (meaningfully ahead of 13.4%, even short of
+essentia), or (c) not ready yet? A single aggregate number can answer that question
+*wrong* -- see 7.3 below for why the answer should be allowed to come back
+genre-conditional rather than one global yes/no.
+
+### 7.2 Ground truth sources, in order of what's actually available
+
+- **Primary: a real, live Rekordbox database plus the actual audio files it references,
+  still present on disk.** This is exactly what
+  `benchmark_iron_tempo.py --rekordbox-db` already expects
+  (`DjmdContent.BPM`/`FolderPath`, filtered to `path.exists()`). Requires a machine with
+  both a real Rekordbox install and its library's audio present -- not a sandboxed
+  environment, and not `tests/fixtures/rekordbox_ground_truth_export` (that fixture is a
+  byte-exact capture of real ANLZ/PDB ground truth, but has zero paired audio files --
+  confirmed by direct inspection, not assumed).
+- **Fallback: a curated CSV** (`path,true_bpm`), already supported via `--csv`, useful for
+  a fast smoke-test pass or for genres underrepresented in whatever real library ends up
+  used.
+- **Key ground truth: no tooling exists for this today.** `DjmdContent.KeyID` is gettable
+  the same way `BPM` is (resolve through the same tables `key_mapper.py` already trusts),
+  but no script does it yet -- `_ground_truth_from_rekordbox`'s key-equivalent is a real,
+  small, necessary addition here, not an afterthought. (Confirmed by direct search: no
+  `benchmark_iron_key.py` or equivalent exists on `main`.)
+- **Beat-grid/downbeat ground truth is already solved, differently, by
+  `benchmark_iron_beats.py`** -- it uses `beat_this` (dev-only, MIT-licensed model) as an
+  oracle instead of Rekordbox, since the beat grid lives in binary ANLZ, not a simple DB
+  field. No structural change needed there; apply the same stratification (7.3) to its
+  output too.
+
+### 7.3 Sampling methodology
+
+Stratify by genre/BPM band *before* sampling, not after. This matters specifically
+because genre-band octave correction (§3.1 pass 2) is genre-sensitive by construction --
+a random sample that happens to land 90% house tells you nothing about DnB or trap, which
+are exactly the genres the old hardcoded `[76,152)` fold range gets wrong.
+
+- Minimum strata, matching the genre bands already named in §3.1: hip-hop/trap (85-100),
+  downtempo (95-115), house (118-130), techno/trance (125-145), dubstep/half-time DnB
+  (140-155), DnB/jungle (160-180), hardcore/gabber (180-220), plus an explicit
+  **other/unclassified** bucket -- that bucket matters most of all, since it's exactly
+  where octave correction has no genre prior to fall back on.
+- Target ~30-50 tracks per populated stratum -- enough to move a percentage meaningfully,
+  not so many that one well-stocked genre dominates the aggregate the way it may have in
+  essentia's own historical 300-track baseline (§1) -- that sample's genre mix isn't
+  recorded anywhere in this repo, which is itself a limitation of the number everything
+  else gets compared against, worth naming rather than quietly inheriting.
+- Track-length strata: **<90s**, **90-240s**, **>240s**. The <90s bucket is exactly the
+  population the §2 window-centering fix cannot help by construction (short tracks fall
+  back to `_analysis_window_start() == 0.0`) -- report it separately, don't average it
+  away into a number that looks better than what most tracks will actually see.
+- Fixed seed, matching `benchmark_iron_tempo.py`'s existing `--seed 42` default. A
+  benchmark that produces a different number every run because of unseeded sampling isn't
+  a number anyone downstream can act on.
+
+### 7.4 What to measure and report, per stratum -- not only in aggregate
+
+- **Tempo**: the three metrics `benchmark_iron_tempo.py` already computes (exact ±0.6 BPM,
+  within-1%, MIREX ±4%) -- needs stratified reporting added to existing logic, not new
+  logic.
+- **Octave-error-specific breakdown** -- of whatever misses "exact," how many are a clean
+  2x / 0.5x / 1.5x / (2/3)x ratio of the true BPM (within a small tolerance) versus a
+  genuinely unrelated miss? This is the single most informative cut currently missing:
+  it's the difference between "the octave-correction pass needs work" and "the underlying
+  tempo estimate is wrong," which point at entirely different fixes.
+- **Key**: exact match, and separately, **relative-key match** -- landing on the relative
+  major/minor of the true key is a well-known, specific near-miss for chroma-based key
+  detection, not a random failure, and deserves its own column for the same reason octave
+  errors do for tempo.
+- **Beat grid / downbeat**: `benchmark_iron_beats.py`'s existing job; apply 7.3's
+  stratification to its output too.
+- **Wall-clock time per track** (decode+analyze), Iron vs. whichever essentia/librosa path
+  is still active -- matters for real library-scan UX at FableGear's actual library
+  sizes, independent of accuracy, and is measured nowhere today.
+- **"Found nothing" rate** (the existing script's `undetected` counter) reported per
+  stratum -- a bucket where Iron returns no answer at all is a different failure mode
+  than a wrong answer, and could concentrate in specific genres or lengths rather than
+  spreading evenly.
+
+### 7.5 What a result means -- tie back to the real decision, per stratum
+
+Restate `ANVIL_IRON_STATUS.md`'s three-way framework, but per stratum rather than once
+globally. It is entirely plausible that Iron clears the "credible primary path" bar for
+house/techno and lands at "not ready" for DnB/trap, given genre-band correction is the
+newest and least-tested piece of the pipeline. A single blended number would hide exactly
+that split. The recommendation this testing theory should produce is allowed to be
+genre-conditional -- e.g. "ship Iron as primary for 118-155 BPM material, keep
+essentia/librosa active as the fallback outside that range" -- rather than forced into one
+global yes/no the data doesn't actually support.
+
+### 7.6 Deliberately not proposing new infrastructure
+
+The only new tooling this calls for is the key-ground-truth addition (7.2). Everything
+else is stratification and breakdown added to `benchmark_iron_tempo.py` and
+`benchmark_iron_beats.py`, which already work. This is scoped to be runnable by whoever
+has real hardware and library access next, not a research project of its own.
