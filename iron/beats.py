@@ -167,11 +167,10 @@ def detect_beat_grid(
     periods), picking the loudest beat-class as the downbeat, then folding that position
     back modulo one bar length so it lands at the first such downbeat in the whole file,
     not just the first one inside the analyzed window. `window_start_s` is how far into the
-    file the passed-in `onset_env` actually starts -- always 0.0 from `iron.api`, which
-    decodes the whole track (see docs/IRON_RESEARCH.md SS9), but kept as a real parameter
-    for callers (tests, or a future windowed caller) that pass a partial clip. This assumes
-    constant tempo for the whole file, the same scope anvil.TrackFields.downbeat_offset's
-    own comment states.
+    file the passed-in `onset_env` actually starts (iron.api decodes the track's BODY, not
+    always from 0:00 -- see iron/api.py's _pick_body_window). This assumes constant tempo
+    for the whole file, the same scope anvil.TrackFields.downbeat_offset's own comment
+    states.
 
     `accent_env` is an optional, more accent-discriminating signal (intended caller:
     iron.dsp.band_energy restricted to a kick drum's band) used for the downbeat/meter

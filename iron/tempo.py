@@ -368,17 +368,19 @@ def detect_tempo(
     # property) -- so the duration of that section, divided by each candidate BPM's beat
     # length, should land close to a round bar count for the TRUE tempo and not necessarily
     # for a compound-meter alias. This needs the caller to have decoded enough of the track
-    # to contain a real mid-song breakdown -- see iron/api.py, which as of 2026-08-27 decodes
-    # the WHOLE track, not a windowed excerpt (see docs/IRON_RESEARCH.md SS9).
+    # to contain a real mid-song breakdown, not just the first 90 seconds -- see iron/api.py.
     #
-    # exclude_frac uses find_breakdown_duration's own 0.15 default (no override) precisely
-    # because the caller now decodes real intro/outro along with the body: a low-energy
-    # intro/outro needs excluding, the same reason find_breakdown_duration's own default
-    # exists at all. (History: this pass previously ran on a pre-trimmed body-only window
-    # from iron/api.py and used exclude_frac=0.03 -- double-excluding an already-trimmed clip
-    # was clipping the real breakdown. That reasoning no longer applies now that intro/outro
-    # are genuinely present in what's decoded; don't reintroduce a small override without
-    # re-validating against real audio first.)
+    # exclude_frac is small here, NOT find_breakdown_duration's own 0.15 default: the caller
+    # (iron/api.py) already decodes only the track's body, having excluded the real intro
+    # and outro at the file level. Applying another 15% exclusion on top of that double-trims
+    # an already-trimmed window -- confirmed on a real track where it clipped the true
+    # breakdown from 31.4s down to 24.7s, throwing away exactly the portion that made the
+    # bar-count fit tight. A small edge margin still guards against pure window-boundary
+    # artifacts without re-excluding real structure. (A same-day whole-track-decode
+    # experiment briefly switched this to the 0.15 default -- see docs/IRON_RESEARCH.md SS9
+    # -- and was reverted along with the windowing change itself, SS10: no accuracy gain,
+    # real cost. Don't decouple this override from iron/api.py's windowing decision; they
+    # were tuned as a pair.)
     #
     # Deliberately conservative otherwise: only overrides the current pick when the fit is
     # GENUINELY tight for exactly one candidate. A naive "whichever is closer" comparison was
@@ -389,7 +391,7 @@ def detect_tempo(
     # against silent (correctly -- neither had a fit worth trusting) while still catching the
     # one real case where the true tempo's breakdown length landed within a third of a bar of
     # 16 bars exactly, against the wrong candidate's 1.5+ bar miss.
-    breakdown_s = dsp.find_breakdown_duration(env, frame_rate)
+    breakdown_s = dsp.find_breakdown_duration(env, frame_rate, exclude_frac=0.03)
     if breakdown_s is not None:
         chosen_bpm = frame_rate * 60.0 / chosen_lag
         chosen_dist = _bar_fit_distance(breakdown_s, chosen_bpm)

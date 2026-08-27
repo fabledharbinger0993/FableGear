@@ -850,6 +850,51 @@ output. Neither change affects `iron/`'s detection behavior — benchmark-toolin
 
 ---
 
+## 10. Whole-track decoding: tried, measured, reverted (2026-08-27)
+
+§9's own body was decoded with §8's same-day whole-track-decode change in place (`iron.
+analyze()` decoded the entire file instead of the ~90-240s "body window" described in
+§8.6/earlier sections). That change is **reverted as of this section** — `iron/api.py` is
+back to windowed decoding (`_pick_body_window`, `_BODY_START_FRACTION`/`_BODY_END_FRACTION`/
+`_MAX_BODY_SECONDS`), and `iron/tempo.py`'s Pass 4 is back to its narrow `exclude_frac=0.03`
+override, which only makes sense paired with pre-trimmed body-window audio (see that
+override's own comment for why — it was switched to `find_breakdown_duration`'s 0.15
+default alongside the whole-track change, and both had to revert together, not
+independently).
+
+**Why**: the §9.3 same-500-track wide-vs-tuned-range comparison was run on whole-track-
+decoded audio. Compared against §8.6's windowed-decode 996-track number at the same tuned
+60-180 range:
+
+| | sample | decode | MIREX |
+|---|---|---|---|
+| §8.6 | 996 tracks | windowed (body) | 60.7% |
+| §9.3 | 500 tracks | whole-track | 58.6% |
+
+Different sample sets, so not a perfectly clean before/after, but close enough (within ~2
+points on comparable-methodology samples) to read as **no measurable accuracy gain from
+decoding the whole track** — full-track decoding was not confirmed to fix or worsen
+anything relative to the windowed approach at the metric level. Against that null result,
+the real, measured cost was substantial: single-track timing went from ~4.7s (windowed) to
+~21.6s (whole-track) on the same file — roughly 4-5x, and scaling with each file's actual
+length rather than a bounded cap, meaning the cost is far worse than 4-5x on a genuinely
+long DJ-mix/compilation file. **Not a good trade** — reverted on that basis, not because
+whole-track decoding was found to be wrong or broken.
+
+**What this does NOT settle**: whether whole-track decoding helps on the SPECIFIC failure
+modes it was originally motivated by (a real mid-track breakdown falling outside whatever
+body window got picked — see §8.6's docstring rationale) even if it doesn't move the
+aggregate MIREX number. Nobody has looked at whether the set of tracks that changed answer
+between windowed and whole-track decoding is enriched for "breakdown was outside the body
+window" cases specifically, versus just random noise. If revisited, that's the more targeted
+question to ask rather than re-testing aggregate accuracy again blind.
+
+`§9`'s stratified-sampling script improvements, error-pattern breakdowns, ground-truth-
+quality findings (§9.4), and harness bug fixes (§9.5) are all independent of this revert and
+remain as described — only the decode-window behavior itself reverted.
+
+---
+
 ## How to add to this doc
 
 Append a new dated section (`## N. <short title>`) rather than editing existing sections'

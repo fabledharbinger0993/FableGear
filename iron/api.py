@@ -31,11 +31,31 @@ from iron.errors import DecodeFailed
 from iron.schema import IronResult, TempoCheckpoint
 
 _ANALYSIS_SR = 22050
+_ANALYSIS_DURATION = 90.0
 _BPM_MIN = 60.0  # matches iron.tempo.detect_tempo's own default -- see its docstring for
 _BPM_MAX = 180.0  # the real-benchmark justification and the real, deliberate 180+ BPM cost
 _HOP_LENGTH = 512  # matches iron.tempo.detect_tempo's own default
 _KICK_BAND_FMIN = 40.0  # Hz -- iron.beats.detect_beat_grid's accent_env, a kick drum's
 _KICK_BAND_FMAX = 120.0  # fundamental + first harmonic; see iron/dsp.py::band_energy
+
+# Primary analysis targets the track's BODY, not the first 90 seconds from 0:00: roughly a
+# third of the way in, through to the last 10% (where a DJ starts prepping the mix-out).
+# This avoids an often-sparse/beatless intro, and -- the actual reason it matters for
+# tempo accuracy, not just "more representative audio" -- it's long enough to actually
+# contain a mid-track breakdown/bridge, which iron.tempo's structural bar-fit pass needs
+# and a fixed 0-90s window from the very start essentially never has. Capped at
+# _MAX_BODY_SECONDS so a multi-hour DJ mix or live recording doesn't attempt to decode and
+# analyze an hour of audio by default -- the same cost concern _STABILITY_WINDOW_SECONDS's
+# per-checkpoint window and scripts/ real-library testing already had to account for.
+#
+# Reverted here from a same-day whole-track-decode experiment (docs/IRON_RESEARCH.md SS9/
+# SS10): on a real 500-track benchmark, whole-track decoding measured no clear accuracy
+# gain over this windowed approach (58.6% vs 60.7% MIREX on different-but-comparable
+# samples -- within noise, not a real difference) while costing roughly 3-5x the per-track
+# decode+analysis time. Not a good trade -- see SS10 for the real numbers.
+_BODY_START_FRACTION = 1.0 / 3.0
+_BODY_END_FRACTION = 0.9
+_MAX_BODY_SECONDS = 240.0
 
 _KNOWN_FIELDS = frozenset({"bpm", "initial_key", "downbeat_offset", "time_signature"})
 
@@ -63,17 +83,10 @@ _FFMPEG = _find_ffmpeg()
 
 
 def _decode(
-    path: Path, duration: float | None = None, *, start: float = 0.0
+    path: Path, duration: float = _ANALYSIS_DURATION, *, start: float = 0.0
 ) -> tuple[np.ndarray, int]:
     """
     Decode `path` to mono float64 PCM at _ANALYSIS_SR via an ffmpeg subprocess.
-
-    `duration=None` (the default) decodes to end-of-stream -- the WHOLE track, not a
-    windowed excerpt (see docs/IRON_RESEARCH.md SS9 for why: real intro/outro content needs
-    to actually be present for iron.tempo's Pass 4 breakdown-duration fit to exclude it
-    correctly, and a partial window risks missing the track's only real structural
-    breakdown entirely). Callers that genuinely want a short, bounded clip -- e.g.
-    `_check_stability`'s per-checkpoint windows -- pass an explicit `duration`.
 
     `start` seeks before decoding (ffmpeg's input-side -ss, which is fast -- it seeks to
     the nearest keyframe rather than decoding and discarding everything before it), so a
@@ -83,10 +96,9 @@ def _decode(
     cmd = [_FFMPEG, "-hide_banner", "-y"]
     if start > 0:
         cmd += ["-ss", str(start)]
-    if duration is not None:
-        cmd += ["-t", str(duration)]
     cmd += [
-        "-i", str(path), "-ac", "1", "-ar", str(_ANALYSIS_SR), "-f", "f32le", "-",
+        "-t", str(duration), "-i", str(path),
+        "-ac", "1", "-ar", str(_ANALYSIS_SR), "-f", "f32le", "-",
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, timeout=120)
@@ -101,6 +113,23 @@ def _decode(
     if y.size == 0:
         raise DecodeFailed(f"{path.name}: ffmpeg produced no audio samples")
     return y, _ANALYSIS_SR
+
+
+def _pick_body_window(duration: float | None) -> tuple[float, float]:
+    """
+    Return (start, duration) targeting the track's body -- see _BODY_START_FRACTION's
+    comment for why. Falls back to (0, _ANALYSIS_DURATION), the previous fixed
+    from-the-start window, when duration can't be determined at all (e.g. ffprobe missing)
+    or the file is too short for a body/edge split to mean anything.
+    """
+    if duration is None or duration <= 0:
+        return 0.0, _ANALYSIS_DURATION
+    start = duration * _BODY_START_FRACTION
+    end = duration * _BODY_END_FRACTION
+    span = end - start
+    if span <= 1.0:
+        return 0.0, min(duration, _ANALYSIS_DURATION)
+    return start, min(span, _MAX_BODY_SECONDS)
 
 
 def _probe_duration(path: Path) -> float | None:
@@ -179,15 +208,12 @@ def analyze(
     """
     Analyze one file and return whatever candidates were found for the fields in `want`.
 
-    Decodes the WHOLE track (see docs/IRON_RESEARCH.md SS9), not a windowed excerpt -- a
-    prior version analyzed only a "body window" (roughly a third of the way in through 90%)
-    to dodge a sparse intro and guarantee a mid-track breakdown was present for Pass 4's
-    structural fit. Decoding everything gets the same benefit without the risk of a real
-    breakdown falling outside whatever window got picked, at the cost of a longer decode +
-    analysis pass proportional to the track's actual length -- a real cost for a DJ-mix- or
-    compilation-length file, not just "a bit more audio". `iron.tempo`'s Pass 4 excludes real
-    intro/outro itself now that they're genuinely present in the decoded signal (see that
-    module's own comment on `exclude_frac`).
+    Decodes the track's BODY, not a fixed window from 0:00 -- see _BODY_START_FRACTION.
+    Falls back to the first _ANALYSIS_DURATION seconds when the file's duration can't be
+    determined or is too short for a body/edge split to mean anything. (A same-day
+    whole-track-decode experiment was tried and reverted -- see docs/IRON_RESEARCH.md SS10:
+    no measurable accuracy gain over this windowed approach on a real 500-track benchmark,
+    at roughly 3-5x the per-track decode+analysis cost.)
 
     Never raises for an ordinary analysis failure (bad decode, no reliable tempo/key found)
     -- those land in `result.errors` so a batch caller doesn't need a try/except per file.
@@ -222,8 +248,10 @@ def analyze(
 
     result = IronResult()
 
+    duration = _probe_duration(path)
+    start, window_duration = _pick_body_window(duration)
     try:
-        y, sr = _decode(path)
+        y, sr = _decode(path, window_duration, start=start)
     except DecodeFailed as exc:
         result.errors.append(str(exc))
         return result
@@ -252,7 +280,7 @@ def analyze(
             )
             outcome = beat_grid_detect.detect_beat_grid(
                 onset_env, sr / _HOP_LENGTH, result.bpm,
-                window_start_s=0.0, accent_env=accent_env,
+                window_start_s=start, accent_env=accent_env,
             )
         except Exception as exc:  # a detector bug must not take down a batch run
             result.errors.append(f"beat-grid detection failed: {exc}")
