@@ -37,7 +37,7 @@ from pyrekordbox.db6 import tables
 
 import db_connection
 from iron import tempo as tempo_detect
-from iron.api import _decode, _pick_body_window, _probe_duration
+from iron.api import _decode
 
 
 def accuracy(pairs: list[tuple[float, float]]) -> dict[str, float]:
@@ -99,9 +99,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for i, (path, true_bpm) in enumerate(items, 1):
         try:
-            duration = _probe_duration(path)
-            start, window_duration = _pick_body_window(duration)
-            y, sr = _decode(path, window_duration, start=start)
+            y, sr = _decode(path)  # whole track -- matches iron.analyze()'s decode as of 2026-08-27
         except Exception as e:
             print(f"  [{i}/{len(items)}] decode failed: {path.name}: {e}", file=sys.stderr)
             continue

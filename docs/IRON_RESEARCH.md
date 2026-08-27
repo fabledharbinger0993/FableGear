@@ -73,6 +73,17 @@ remain unaddressed.
 **Both `iron/tempo.py`'s default search range (`bpm_min`/`bpm_max`) and `_GENRE_BANDS`
 changed this session** — see §8.6 for what changed and the validated real-world impact.
 
+**A concurrent same-day session (§9) stratified-benchmarked the same 996-track-class real
+data by BPM band, genre, and track length** — the direct answer to "does it work outside
+house" is now known: **DnB/dubstep were never actually the weak spot** (§9.3 — a benchmark-
+harness bug, §9.2, made them look that way; corrected, 140-180 BPM is the *best*-performing
+range in the whole benchmark). The real, still-unaddressed genre-conditional gap is the slow
+end, <100 BPM (§9.3, consistent with §3). **Before trusting any future run of
+`scripts/benchmark_iron_genre_diverse.py`, check its printed `bpm range=[...]` header is
+`[60.0, 180.0]`** (pass `--bpm-min 60 --bpm-max 180` explicitly) — the script's own CLI
+defaults don't inherit `iron.tempo`'s tuned default and silently reproduce pre-§8.6 behavior
+otherwise (§9.2).
+
 ---
 
 ## 2. The 2:3 compound-meter ("disco cluster") problem
@@ -376,6 +387,10 @@ findings).
 - Neither Iron nor Anvil is wired into the live app (`audio_processor.py`,
   `waveform_generator.py`, etc.) — don't wire either in without explicit user sign-off; that
   decision hasn't been made yet and is separate from the accuracy work above.
+- DnB/dubstep (140-180 BPM) is not a real weak spot — §9.3 showed the opposite (140-180 is the
+  *best*-performing BPM range once the benchmark harness's range bug, §9.2, is corrected).
+  Don't re-investigate a DnB-specific fix off a benchmark run's raw numbers without first
+  checking that run used `--bpm-min 60 --bpm-max 180` explicitly (§9.2's gotcha).
 
 ---
 
@@ -692,6 +707,146 @@ problem — they could compound, conflict, or be redundant. Whoever picks this u
 run `scripts/experiment_energy_flux_onset.py` against this session's code (with §8's changes
 already in place) before assuming either way, same as §1 already flagged before this session
 started.
+
+---
+
+## 9. Stratified genre/BPM-band/length benchmarking, a benchmark-harness range gotcha, and a real DnB reversal (2026-08-27)
+
+A separate same-day session from §8, working concurrently on the same branch (see §0's note
+on multiple sessions — this one collided with §8's session mid-edit but composed cleanly;
+check `git log`/`git status` before assuming either landed). Starting point: the user asked
+for §8.6's before/after methodology to be extended so a random sample's genre/BPM composition
+can't hide a genre-conditional weak spot — "a random sample that lands mostly house tells you
+nothing about whether DnB/trap actually works, which is exactly the population the old
+hardcoded fold range got wrong."
+
+### 9.1 Stratified sampling + two error breakdowns, added to `scripts/benchmark_iron_genre_diverse.py`
+
+`_stratified_sample()` replaces the old genre-only round robin with three nested levels —
+BPM bucket (outer), genre (middle), track-length bucket (inner), each round-robinned via a
+new generic `_round_robin()` helper — so a thin BPM population (DnB, hardcore) can't get
+crowded out by a dominant one (house) the way flat random or genre-only sampling can. Verified
+offline before running against real audio: a synthetic 500-house/15-DnB/10-trap pool produced
+a 60-track sample containing *all 15* DnB and *all 10* trap tracks, not a proportional (and
+much smaller) share.
+
+Two new breakdown functions answer "what kind of wrong" instead of just "wrong or not":
+`_tempo_error_breakdown()` classifies each MIREX-wrong estimate by its ratio to the true BPM
+(half-time, double-time, 2:3, 3:2, or "genuinely wrong" — no clean ratio), and
+`_key_error_breakdown()` classifies each wrong key by Camelot relationship to the true key
+(relative major/minor — same number, other letter; adjacent perfect-fifth neighbor — same
+letter, number ±1; or random). Both new BPM/length buckets and both breakdowns are reported
+per-run, not just in aggregate, matching §8.6's own "genre-conditional, not one forced
+aggregate yes/no" instruction.
+
+### 9.2 A benchmark-harness gotcha: `--bpm-min`/`--bpm-max` don't inherit `iron.tempo`'s new tuned default
+
+`scripts/benchmark_iron_genre_diverse.py`'s own CLI flags default to `30.0`/`300.0` —
+unrelated to `iron.tempo.detect_tempo`'s default, which §8.6 narrowed to `60.0`/`180.0` this
+same day. A run without `--bpm-min 60 --bpm-max 180` passed explicitly silently reproduces
+the OLD, pre-§8.6 search behavior, not current production behavior. **A first 500-track run
+made exactly this mistake** (below) — its `bpm range=[30.0, 300.0]` header is the tell to
+watch for in any future run's output before trusting its numbers as representative of the
+current tuned system. Worth fixing (default the script's own flags to match, or at least warn
+when they diverge from `iron.tempo`'s default) but not done here — flagging instead so nobody
+re-loses this hour figuring it out again.
+
+**A concrete symptom this caused**, found while auditing individual tracks: three otherwise
+unrelated real tracks (a Coldplay track, a Lifesavas hip-hop track, and three near-duplicate
+copies of an "Africanism All Stars" a cappella file) all independently detected the exact same
+**287.11 BPM** — a value only reachable at all when the search range extends toward 300. Not
+root-caused further (didn't chase why 287.11 specifically is an apparent attractor at the wide
+range's upper edge — worth a look if the wide range is ever a real use case again), but
+excluding it entirely by using the tuned 60-180 default made every instance of it disappear
+(§9.3's `--bpm-min 60 --bpm-max 180` re-run below has zero of them).
+
+### 9.3 Same 500 tracks, wide range vs. tuned range — DnB was never the problem; the wide default was
+
+Both runs used the **identical 500-track stratified sample** (`--replay-jsonl` on the first
+run's `--out` JSONL, so this isolates just the BPM-range effect, same technique as §8.6):
+
+| BPM bucket | n | wide (30-300) MIREX | tuned (60-180) MIREX | delta |
+|---|---|---|---|---|
+| <85 (downtempo/slow hip-hop) | 74 | 29.7% | 24.3% | **-5.4** |
+| 85-100 (hip-hop/trap) | 74 | 39.2% | 40.5% | +1.3 |
+| 100-118 (downtempo/halftime) | 73 | 49.3% | 57.5% | +8.2 |
+| 118-130 (house) | 75 | 61.3% | 68.0% | +6.7 |
+| 130-140 (techno) | 62 | 61.3% | 77.4% | +16.1 |
+| 140-160 (dubstep/halftime DnB) | 75 | 54.7% | **82.7%** | **+28.0** |
+| 160-180 (drum & bass) | 48 | 39.6% | **68.8%** | **+29.2** |
+| 180+ (hardcore/gabber) | 19 | 47.4% | 47.4% | 0 |
+| **Overall** | 500 | 48.0% | **58.6%** | +10.6 |
+
+(Key accuracy: 40.6% in both runs, identical to 3 significant figures — expected, `--bpm-min`/
+`--bpm-max` only affects tempo detection, and this is a useful sanity check that the replay
+correctly reused ground truth.)
+
+**The 160-180 (drum & bass) bucket's apparent weakness in the wide-range run (39.6%, the
+worst-performing bucket, and the one that looked like it validated the user's original "does
+DnB actually work" concern) was almost entirely a wide-search-range artifact, not a real
+genre-specific weakness.** With the tuned range, 160-180 jumps +29.2 points to 68.8% — now
+*better* than house (68.0%) — and 140-160 becomes the single best-performing bucket in the
+whole benchmark at 82.7%. 180+ (hardcore) is unchanged because its ground-truth BPMs (185,
+199, 215...) sit right at or past the tuned range's own ceiling — a known, accepted,
+documented tradeoff (§8.6: "a track genuinely faster than 180 BPM can no longer be found at
+all with these defaults... by construction"), not a new finding.
+
+**What's real and NOT fixed by the range change**: the slow end. `<85` got slightly *worse*
+(-5.4) and `85-100` barely moved (+1.3) — consistent with, and not contradicting, §3's
+already-documented half-time bias problem, which specifically affects slower genres outside
+the hand-picked bands. The tempo error breakdown shifted accordingly: "genuinely wrong" (no
+clean octave ratio) dropped from 116→87 tracks (44.6%→42.0% of what's wrong) and 2:3
+compound-meter roughly halved (34→17) — consistent with §9.2's artifact values no longer
+being reachable — while 3:2 rose in share (11.9%→16.9%). **Conclusion for whoever reads this
+next: don't chase a DnB-specific fix. The user's original stratification concern was correct
+methodology and worth doing, but on this data it surfaced a benchmark-harness bug, not an
+algorithmic gap — the real remaining genre-conditional gap is the slow end (<100 BPM), already
+covered by §3.**
+
+### 9.4 A separate, real ground-truth-quality problem in `DATABASE/`'s 160-180 BPM population
+
+Independent of §9.2/§9.3: manually auditing individual wide-range-run failures in the 160-180
+bucket found several whose *genre* tag (Soul, Oldies, R&B, Soundtrack) makes clear they are
+not remotely drum & bass — e.g. a James Brown ballad tagged `215` BPM (Iron detected `104.16`,
+almost exactly half), a Michael Jackson/Paul McCartney duet tagged `162` (Iron detected
+`234.91`), Elvis' "An American Trilogy" tagged `172`. The pattern in several of these (Iron's
+answer landing near exactly half the tag) is consistent with the *embedded tag itself* being
+double the track's real tempo, not an Iron miss — this is a real BPM-tag-quality issue
+specific to some corner of this library's non-Rekordbox tag data, separate from (and probably
+compounding) §8.1's already-documented caveat about embedded-tag ground truth being less
+audited than Rekordbox's own analysis. Also found in the same audit: a single Coldplay track
+("A Rush of Blood to the Head") tagged `144` against a well-known real tempo of ~72 BPM (same
+double-tag pattern), and one file with a **13-second duration** — clearly a corrupt/truncated
+fragment, not a fair test case at all. Not systematically quantified (how much of the library
+this affects, or whether it's confined to particular source folders) — flagged for whoever
+wants a cleaner ground-truth signal from this specific drive next, not fixed here.
+
+### 9.5 Two real bugs fixed in the benchmark harness itself (not `iron/`)
+
+Both were `concurrent.futures.ProcessPoolExecutor.shutdown(wait=False, cancel_futures=True)`
+calls in `scripts/benchmark_iron_genre_diverse.py` leaking multiprocessing semaphores at
+process exit (`UserWarning: resource_tracker: There appear to be N leaked semaphore objects`),
+which was also causing a nonzero exit code on fully successful runs with completely valid
+output — confirmed by hand-reconstructing a 20-track run's full report from its own printed
+numbers, which matched exactly, despite the run being reported as "failed."
+
+- The analyze-phase pool (in `main()`): `wait=False` was unconditional, even though by the
+  time that `finally` block runs on the normal-completion path every future is already
+  done — there was nothing left to avoid waiting for. Fixed by tracking whether the
+  known-stuck-worker `TimeoutError` path actually fired, and only using `wait=False` then;
+  the far more common clean-completion path now uses `wait=True`, which returns immediately
+  in that case while properly joining workers.
+- The scan-phase pool (in `_scan_candidates()`): `wait=False` was leaking on nearly every real
+  run, not just an edge case — `scan_limit` is reached (by design) long before the full
+  10,000+-folder tree is scanned, so there were always genuinely-still-running orphaned
+  workers left behind when the old all-at-once-submission loop broke out early. Fixed by
+  submitting folders in small batches (`workers * 2` at a time) instead of all up front, so
+  the loop only ever stops between batches, once the in-flight batch has actually finished —
+  making a plain `wait=True` at the end always correct and fast, with no early-stop tradeoff
+  lost.
+
+Both fixes verified with a real end-to-end run returning exit code 0 with full, correct
+output. Neither change affects `iron/`'s detection behavior — benchmark-tooling-only.
 
 ---
 

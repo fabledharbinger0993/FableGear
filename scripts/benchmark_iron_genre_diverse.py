@@ -180,31 +180,39 @@ def _scan_candidates(
     rng = random.Random(seed)
     rng.shuffle(top_level)
 
+    # Submitted in small batches (a couple rounds per worker), not all 10,000+ up front --
+    # the old all-at-once submission needed `wait=False, cancel_futures=True` at shutdown to
+    # avoid blocking on however many folders were still mid-scan when scan_limit hit, which
+    # leaked multiprocessing semaphores on essentially every real run (scan_limit is reached
+    # long before the full tree is scanned). Batching means nothing is ever "still running
+    # but abandoned" when the loop decides to stop -- the in-flight batch is always let to
+    # finish first -- so a plain, cheap `wait=True` at the end is always correct AND fast.
+    batch_size = max(1, workers * 2)
     candidates: list[tuple[Path, float, str | None, str, float | None]] = []
+    i = 0
     pool = ProcessPoolExecutor(max_workers=workers)
     try:
-        futures = {pool.submit(_scan_one_dir, str(d)): d for d in top_level}
-        for i, fut in enumerate(as_completed(futures), 1):
-            try:
-                results = fut.result()
-            except Exception as e:
-                print(f"  scan error in {futures[fut]}: {e}", file=sys.stderr)
-                continue
-            for path_str, bpm, camelot, genre, duration in results:
-                candidates.append((Path(path_str), bpm, camelot, genre, duration))
-            if i % 25 == 0:
-                print(f"  scanned {i}/{len(top_level)} folders, "
-                      f"{len(candidates)} candidates so far", flush=True)
+        for batch_start in range(0, len(top_level), batch_size):
             if len(candidates) >= scan_limit:
                 print(f"  reached scan_limit={scan_limit} after {i}/{len(top_level)} "
                       f"folders -- stopping scan early", flush=True)
                 break
+            batch = top_level[batch_start:batch_start + batch_size]
+            futures = {pool.submit(_scan_one_dir, str(d)): d for d in batch}
+            for fut in as_completed(futures):
+                i += 1
+                try:
+                    results = fut.result()
+                except Exception as e:
+                    print(f"  scan error in {futures[fut]}: {e}", file=sys.stderr)
+                    continue
+                for path_str, bpm, camelot, genre, duration in results:
+                    candidates.append((Path(path_str), bpm, camelot, genre, duration))
+                if i % 25 == 0:
+                    print(f"  scanned {i}/{len(top_level)} folders, "
+                          f"{len(candidates)} candidates so far", flush=True)
     finally:
-        # cancel_futures=True drops every not-yet-started task; wait=False doesn't block
-        # this call on whichever handful of folders happen to still be mid-scan in a worker
-        # -- _MAX_FILES_PER_DIR already bounds how long those can run, so they're left to
-        # finish on their own rather than blocking the caller on an early stop.
-        pool.shutdown(wait=False, cancel_futures=True)
+        pool.shutdown(wait=True, cancel_futures=True)
     return candidates
 
 
@@ -478,9 +486,15 @@ def main(argv: list[str] | None = None) -> int:
     # workers keep finishing their own share. An overall timeout bounds that: generous
     # per-track budget scaled by how many tracks share each worker, so this is a safety net
     # against a real hang, not a tight per-track deadline.
-    per_track_budget_s = 45.0
+    # iron.analyze() decodes and analyzes the WHOLE track as of 2026-08-27 (docs/
+    # IRON_RESEARCH.md SS9), not a bounded ~90s window -- per-track cost now scales with the
+    # file's actual length, and a legitimate DJ-mix/compilation-length file (this script's own
+    # "420s+" length bucket) can genuinely take minutes, not seconds. 120s/track keeps this a
+    # real safety net against a genuine hang without false-flagging a long-but-working file.
+    per_track_budget_s = 120.0
     overall_timeout = max(120.0, (len(work) / max(1, args.workers)) * per_track_budget_s + 120.0)
     pool = ProcessPoolExecutor(max_workers=args.workers)
+    timed_out = False
     try:
         futures = {pool.submit(_analyze_one, w): w for w in work}
         i = 0
@@ -495,6 +509,7 @@ def main(argv: list[str] | None = None) -> int:
                 if i % 25 == 0 or i == len(work):
                     print(f"  [{i}/{len(work)}] elapsed={time.time() - t0:.0f}s", flush=True)
         except TimeoutError:
+            timed_out = True
             stuck = [w for fut, w in futures.items() if not fut.done()]
             print(f"\n  overall timeout ({overall_timeout:.0f}s) hit with {len(stuck)} track(s) "
                   f"still running -- treating as errors and moving on:", flush=True)
@@ -512,10 +527,16 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if out_f:
             out_f.close()
-        # wait=False + cancel_futures=True: don't block program exit on whichever worker(s)
-        # are still stuck on a pathological file -- they're daemonic-equivalent process-pool
-        # workers and exit with the interpreter.
-        pool.shutdown(wait=False, cancel_futures=True)
+        # wait=True on the normal-completion path: every future is already done at this
+        # point, so this returns immediately while still properly joining worker processes
+        # -- skipping that join (the old unconditional wait=False) leaked multiprocessing
+        # semaphores on every single run, real or not (confirmed via a real run's "resource_
+        # tracker: There appear to be N leaked semaphore objects" UserWarning, which was also
+        # surfacing as a nonzero exit code despite the benchmark itself completing correctly).
+        # Only fall back to wait=False when a worker is actually known-stuck (the TimeoutError
+        # path above) -- there, waiting could block program exit indefinitely on a genuinely
+        # hung ffmpeg/decode call, which is exactly what this timeout handling exists to avoid.
+        pool.shutdown(wait=not timed_out, cancel_futures=True)
 
     print("\n" + "=" * 70)
     print(f"IRON GENRE-DIVERSE BENCHMARK -- {len(rows)} tracks, "
