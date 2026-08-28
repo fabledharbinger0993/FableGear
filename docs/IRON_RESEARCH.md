@@ -770,6 +770,20 @@ can't hide a genre-conditional weak spot — "a random sample that lands mostly 
 nothing about whether DnB/trap actually works, which is exactly the population the old
 hardcoded fold range got wrong."
 
+**This is the same methodology `docs/iron/RESEARCH.md` §7 already specified** (a plan
+written by an earlier, sandboxed session with no real audio access, on the then-separate
+`iron/testing-theory` branch, merged into `anvil` after the fact — see that section's own
+2026-08-27 update note). Two things that plan called for were NOT carried out here and
+remain genuinely open: **per-stratum wall-clock timing**, and a per-stratum **"found
+nothing" (undetected) rate** — `_tempo_accuracy()`/`_key_accuracy()` silently drop `None`
+results from their denominator rather than reporting how often that happens per bucket.
+Whoever picks this up next should add both rather than re-deriving them from scratch — the
+stratification/bucketing infrastructure below already has everything needed to slot them
+in. The plan also scoped this as extending `benchmark_iron_tempo.py`/`benchmark_iron_beats.py`
+directly rather than a new script; §9.1 below explains why that wasn't followed (a real,
+undiscoverable-without-real-hardware Rekordbox path-staleness problem, not a rejection of
+the scoping).
+
 ### 9.1 Stratified sampling + two error breakdowns, added to `scripts/benchmark_iron_genre_diverse.py`
 
 `_stratified_sample()` replaces the old genre-only round robin with three nested levels —
