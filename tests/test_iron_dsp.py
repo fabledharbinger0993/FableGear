@@ -288,6 +288,35 @@ def test_grid_alignment_score_tolerant_to_small_jitter():
     assert score > 0.5  # the tolerance window should absorb +/-1-frame jitter
 
 
+def test_interleave_gap_ratio_says_faster_is_real_when_it_is():
+    # every position of the true grid carries a pulse; a HALF-time candidate covers only
+    # every other one, so the in-between slots are just as live as the shared ones
+    period = 20
+    env = _pulse_train(period, n_pulses=40, jitter=0, seed=0)
+    ratio = dsp.interleave_gap_ratio(env, period_slow=period * 2, period_fast=period)
+    assert ratio > 0.6
+
+
+def test_interleave_gap_ratio_says_slower_is_real_when_faster_is_spurious():
+    # a 2x-faster candidate predicts beats halfway between the real pulses, where there is
+    # nothing at all -- the discriminator the three earlier cross-period attempts lacked
+    period = 20
+    env = _pulse_train(period, n_pulses=40, jitter=0, seed=0)
+    ratio = dsp.interleave_gap_ratio(env, period_slow=period, period_fast=period / 2)
+    assert ratio < 0.3
+
+
+def test_interleave_gap_ratio_rejects_bad_period_ordering():
+    env = _pulse_train(20, n_pulses=10, jitter=0, seed=0)
+    # period_fast must be the SHORTER one; equal or inverted args are a caller error
+    assert np.isnan(dsp.interleave_gap_ratio(env, period_slow=10.0, period_fast=20.0))
+    assert np.isnan(dsp.interleave_gap_ratio(env, period_slow=20.0, period_fast=20.0))
+
+
+def test_interleave_gap_ratio_empty_envelope_is_nan():
+    assert np.isnan(dsp.interleave_gap_ratio(np.zeros(0), period_slow=40.0, period_fast=20.0))
+
+
 def test_chroma_cqt_resolves_bass_register_better_than_linear_chroma():
     # A1 = 55 Hz, the bottom of both chroma functions' default range -- at n_fft=4096/
     # sr=22050 (chroma()'s default), the linear FFT bin width (~5.4 Hz) is wider than a

@@ -46,10 +46,11 @@ different real-music samples. Read all three — they are not the same bug, and 
 is not guaranteed to fix another:
 
 1. **The 2:3 compound-meter ("disco cluster") problem** — §2 below. **LARGELY ADDRESSED as
-   of 2026-08-28 (§12)**: §2.4's long-open `energy_flux` fix is finally merged — it is now
-   `detect_tempo`'s PRIMARY onset feature, and moved a real 40-track set from 72.5% to 90.0%
-   MIREX, with disco specifically going 70% → 95%. Largest single accuracy gain in this log.
-   Needs larger-scale re-validation before 90% is treated as a stable number (§12.4).
+   of 2026-08-28 (§12, confirmed at scale in §13.1)**: §2.4's long-open `energy_flux` fix is
+   merged and is now `detect_tempo`'s PRIMARY onset feature. Validated at 400-track scale:
+   **60.7% → 74.5% MIREX (+13.8 points)**, with 2:3 errors falling from 13.1% to 7.8% of all
+   wrong answers and the Disco bucket reaching 91.7%. Largest single accuracy gain in this
+   log. (The n=40 "90%" figure in §12 was optimistic — 74.5% is the real-scale number.)
 2. **The half-time bias problem** — §3 below. §3's own "next step" list is now **superseded
    by §8**: multiband scoring and a cyclic-tempogram octave correction (two of that list's
    candidate directions) have since been implemented and validated; a third candidate
@@ -392,6 +393,22 @@ findings).
   still used for its original, narrower purpose (self-consistency of a path at an
   already-known-correct period) — just not for this cross-period comparison, at least not as
   tried. See the long comment in `iron/tempo.py` where this pass used to live.
+- `dsp.interleave_gap_ratio` (§13.3) — a FOURTH cross-period attempt, and the one that
+  finally implemented §11.6's own suggested "penalize the gaps" mechanism. It works cleanly
+  on synthetic fixtures (0.06-0.19 vs 0.75-0.91 separation) and **collapses on real audio**
+  (fixes 3 of 30 real failures), because real music has offbeat content everywhere so the
+  in-between slots are never empty. **Four structurally different versions of "compare
+  candidate periods by onset-position alignment" have now failed. Don't try a fifth without
+  a mechanism outside that family — and validate on REAL audio, since synthetic fixtures
+  demonstrably cannot falsify this class of idea.**
+- Removing the cyclic-tempogram pass (§13.2) — a small-sample ablation said it was a free
+  win (+12.5% slow, +2.5% control at n=152); the full 400-track benchmark said it costs
+  **5.7 points MIREX** (68.8% vs 74.5%). Reverted. Never accept a pass-ablation result from
+  a convenience subset without confirming on the full stratified benchmark.
+- Per-bucket slices of `benchmark_iron_genre_diverse.py` output are NOT safe to reason from
+  without deduplicating and spot-checking tags (§13.4): 13% of that sample is redundant
+  copies, and the `<85` BPM bucket in particular contains a 5x-duplicated Chicago house
+  track mis-tagged at 83 BPM that Iron detects correctly and is scored as failing.
 - `dsp.grid_alignment_score` (§11.6) — a THIRD cross-period comparison attempt, designed
   specifically to dodge the two failure modes above (no adaptive search window, median not
   sum), and it still failed, for a third and different reason: a half-tempo candidate's
@@ -1174,6 +1191,131 @@ the whole sweep's tolerance, which would silently mask a real regression at any 
 - Everything in §11 (tiered architecture, confidence miscalibration) is unaffected by this
   change and still open — §11's `tiered` experiments predate this merge and would need
   re-running on top of it to know whether its +1-track gain still holds.
+
+---
+
+## 13. energy_flux confirmed at scale; a pass ablation that was WRONG at small n; a fourth failed cross-period attempt; and real ground-truth contamination (2026-08-28)
+
+### 13.1 §12's energy_flux merge holds up at 400-track scale
+
+`scripts/benchmark_iron_genre_diverse.py --count 400 --bpm-min 60 --bpm-max 180`:
+
+| | before energy_flux (§8.6, n=996) | **after (n=400)** |
+|---|---|---|
+| exact | 14.9% | **20.5%** |
+| within-1% | 33.7% | **38.0%** |
+| MIREX | 60.7% | **74.5%** |
+
+**+13.8 points MIREX at real scale** — the n=40 90% figure in §12 was optimistic, but the
+gain itself is large and real. Mechanism confirmed: 2:3 compound-meter errors fell from
+13.1% of wrong answers (§9.3) to 7.8%, and the Disco genre bucket now scores 91.7% MIREX.
+
+### 13.2 Per-pass ablation — and why its headline conclusion was WRONG
+
+`scripts/experiment_ablate_slow_tempo.py` toggles each correction pass independently
+(sharing one decode per track), scored on a SLOW set (true <85 BPM, n=32) and a CONTROL set
+(true >=85, n=120):
+
+| ablation | slow | control |
+|---|---|---|
+| production default | 12.5% | 67.5% |
+| no Pass 5 (core-range tie-break) | 9.4% (-3.1) | 64.2% (-3.3) |
+| no cyclic tempogram | 25.0% (+12.5) | 70.0% (+2.5) |
+| no low-band special case | 34.4% (+21.9) | 54.2% (-13.3) |
+| no genre band | 12.5% (0.0) | 67.5% (0.0) |
+
+**The "remove the cyclic tempogram, it's a free win" conclusion this suggested is FALSE.**
+Re-running the full 400-track genre-diverse benchmark with `_CYCLIC_MARGIN = inf` gave
+**68.8% MIREX vs 74.5% with it — a 5.7-point LOSS.** Reverted; cyclic stays.
+
+Why the ablation misled: its CONTROL set was just the first 120 rows of the JSONL, not a
+representative or genre-stratified slice, and its SLOW set (n=32) is both tiny and heavily
+contaminated (§13.4). **Methodological rule for this codebase, learned the hard way here:
+never accept a pass-ablation result from a convenience subset — confirm any proposed
+removal against the full stratified benchmark before touching production.**
+
+What the ablation DID establish reliably:
+- **Pass 5 (core-range tie-break) is net-positive** — ablating it hurts both populations
+  (-3.1 slow, -3.3 control). The gated design from §11 works; leave it on.
+- **Pass 2's genre-band rival search never fires on this population at all** (exactly 0.0
+  delta on both sets) — the raw picks are already inside a band, so the search is skipped.
+- **The low-band special case (`_in_low_band`) is a genuine tradeoff, not a free win**:
+  +21.9% slow but -13.3% control. Removing it is not an option as-is; it would need a
+  discriminator that can tell a genuine slow track from a half-time alias (§13.3 tried and
+  failed to build one).
+
+### 13.3 `dsp.interleave_gap_ratio` — a FOURTH failed cross-period attempt, and the first to fail only on real audio
+
+§11.6 closed by naming the one mechanism the three prior failures all lacked: they only ever
+REWARDED grid hits, so none could disfavor a slower candidate whose grid is a strict subset
+of a faster one's. The unexplored fix was to **penalize the gaps** — look only at the
+positions a faster candidate predicts that the slower one does NOT cover, and ask whether
+anything is actually there.
+
+Built as `dsp.interleave_gap_ratio` (mean onset energy at fast-only positions / mean at
+shared positions). **On synthetic fixtures it works beautifully and exactly as designed:**
+
+| fixture comparison | ratio | verdict |
+|---|---|---|
+| half-time vs TRUE (faster is real) | 0.75 - 0.91 | correct |
+| TRUE vs 1.5x rival (slower is real) | 0.06 - 0.19 | correct |
+
+A clean, wide separation — the discrimination the three earlier attempts could never achieve.
+
+**On real audio it collapses: of the 30 wrong slow-track detections, it would correct only 3.**
+Real music has offbeat content essentially everywhere (syncopation, hi-hats, bass movement,
+vocal phrasing), so the "in-between" slots are never actually empty the way they are in a
+sparse synthetic pulse train — measured ratios on real failures clustered around 0.8-1.3
+where the synthetic equivalent scored 0.06-0.19.
+
+**This is the fourth documented failure of cross-period onset-alignment comparison, and the
+first that passes synthetic testing and fails only on real music** — a distinct and worth-
+remembering failure mode from the previous three (all of which could be caught synthetically).
+One known synthetic false positive was also observed (a 174 BPM fixture vs its 1.5x rival
+scored 1.40, because the fixture's rigidly periodic offbeat hi-hat populates the 3:2 grid's
+in-between slots). The primitive is kept, tested, and documented — it is NOT wired into
+`detect_tempo` and should not be used for octave disambiguation.
+
+**Standing guidance now stronger than §11.6's**: do not attempt a fifth variant of "compare
+candidate periods by how their predicted positions line up with onset energy." Four
+structurally different versions of that idea have now failed. Any future attempt needs a
+mechanism outside that family entirely, and must be validated on REAL audio before being
+believed — synthetic fixtures demonstrably cannot falsify this class of idea.
+
+### 13.4 Real ground-truth contamination in the slow bucket — the "<85 BPM catastrophic failure" is partly not Iron's fault
+
+The `<85` bucket's 12.5% MIREX looked like a severe algorithmic gap. Inspecting the actual
+files shows it is substantially a DATA problem, compounding §9.4's already-documented
+embedded-tag quality issues:
+
+- **`Tyree - Acid Over` appears 5 times in the 32-track bucket, all tagged 83 BPM.** It is a
+  famous 1988 Chicago ACID HOUSE record; its real tempo is ~125. Iron detected 124.6-126.2
+  on every copy. **Iron is correct and the ground-truth tag is wrong** — those 5 rows are
+  scored as failures.
+- **DJ Funk "Gold (20th Anniversary)" tracks tagged 65-70 BPM** — ghetto house, genuinely
+  ~130-160. Iron detected 130-188.
+- More duplicates: `Happy Feet` x2, `72 to 79` x2.
+
+**Quantified duplication across the whole 400-track sample**: 91 rows (22.8%) belong to a
+duplicate group; 52 rows (13.0%) are redundant copies. Deduplicating by
+(normalized-title, bpm) moves the headline only slightly — **74.5% -> 73.3% MIREX** — so the
+overall benchmark number is sound. But a 32-track sub-bucket where one track supplies 5
+copies is badly distorted, and **no conclusion should be drawn from a per-bucket slice of
+this benchmark without deduplicating and spot-checking tags first.**
+
+### 13.5 Still open
+
+- The genuine slow-tempo gap, separated from the tag noise above, is still unquantified. A
+  clean measurement needs a deduplicated, tag-audited slow-track set — which does not exist
+  yet and is the prerequisite for any further work on `_in_low_band`.
+- `tiered` (§11.3/§11.4) re-tested on top of energy_flux now scores **37/40 (92.5%) at
+  ~0.96s/track vs the production full-body-window decode's 36/40 (90.0%) at ~3.55s** on the
+  40-track set — better AND ~3.7x faster, with its gain over a single grab growing from +1
+  track (pre-energy_flux) to +6. Still NOT ported into production; still needs validation at
+  400-track scale before it should be.
+- energy_flux is also **~7x cheaper** than the spectral flux it replaced (0.046s vs 0.339s
+  per track); decode (ffmpeg, ~3.0s) now dominates total cost, and the multiband pass
+  (0.366s) is the largest remaining compute term inside `detect_tempo`.
 
 ---
 

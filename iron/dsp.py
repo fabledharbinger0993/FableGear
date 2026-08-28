@@ -461,6 +461,73 @@ def grid_alignment_score(
     return best_median / env_mean
 
 
+def interleave_gap_ratio(
+    onset_env: np.ndarray,
+    period_slow: float,
+    period_fast: float,
+    *,
+    tolerance_frac: float = 0.15,
+) -> float:
+    """
+    Discriminate a genuinely-faster candidate from a spurious one by looking ONLY at the
+    grid positions the faster candidate predicts that the slower one does NOT cover.
+
+    Returns mean onset energy at those "in-between" (fast-only) positions divided by mean
+    energy at the shared positions. Interpretation:
+
+      high (~0.6+)  -- the in-between positions carry real onset energy too, so the FASTER
+                       candidate is the real pulse and the slower one is a half/sub-time alias
+      low  (~0.2-)  -- the in-between positions are comparatively empty, so the SLOWER
+                       candidate is real and the faster one is inventing beats that aren't there
+
+    **This is structurally different from the three cross-period comparison attempts already
+    tried and reverted in this codebase** (`track_beats`' raw score, §2.2;
+    `track_beats_with_penalty_variance`, §8.4; `grid_alignment_score`, §11.6 -- see each of
+    their docstrings). All three only ever REWARDED hits, which is why none of them could
+    disfavor a slower candidate: a sparser grid's positions are a strict subset of a denser
+    one's, so "does this candidate's grid land on real content" is trivially yes for both.
+    This function asks the complementary question those three never asked -- what does the
+    faster candidate claim is there that the slower one doesn't, and is anything actually
+    there? -- which is exactly the gap-penalty mechanism §11.6 flagged as the unexplored fix.
+
+    Known limitation, measured on synthetic fixtures: a rigidly periodic offbeat element
+    (e.g. a hi-hat on every exact half-beat) can populate the in-between slots of a 3:2-faster
+    grid and inflate this ratio, producing a false "faster is real" verdict. Observed on a
+    174 BPM fixture vs its 1.5x rival (ratio 1.40 where every other tested fixture scored
+    0.06-0.19). Real music's less-rigid offbeats make this less likely but not impossible --
+    treat a high ratio as suggestive, and gate any override on it accordingly rather than
+    trusting it alone.
+
+    `period_slow` and `period_fast` are in frames, matching `onset_env`'s own frame rate;
+    `period_fast` must be the shorter of the two.
+    """
+    n = onset_env.shape[0]
+    if n == 0 or period_fast <= 0 or period_slow <= period_fast:
+        return float("nan")
+    tolerance = max(1, round(period_fast * tolerance_frac))
+
+    def _peak_at(pos: int) -> float:
+        lo, hi = max(0, pos - tolerance), min(n, pos + tolerance + 1)
+        return float(np.max(onset_env[lo:hi])) if hi > lo else 0.0
+
+    shared: list[float] = []
+    between: list[float] = []
+    pos = 0.0
+    while pos < n:
+        # distance from this fast-grid position to the NEAREST slow-grid position
+        nearest_slow = round(pos / period_slow) * period_slow
+        target = shared if abs(pos - nearest_slow) <= tolerance else between
+        target.append(_peak_at(round(pos)))
+        pos += period_fast
+
+    if not between or not shared:
+        return float("nan")
+    shared_mean = float(np.mean(shared))
+    if shared_mean <= 0:
+        return float("nan")
+    return float(np.mean(between)) / shared_mean
+
+
 def chroma_cqt(
     y: np.ndarray,
     sr: int,
