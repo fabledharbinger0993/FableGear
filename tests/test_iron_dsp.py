@@ -58,6 +58,34 @@ def test_onset_envelope_spikes_at_a_transient():
     assert abs(peak_frame - expected_frame) < 3  # within a few frames of the real onset
 
 
+def test_energy_flux_silence_is_flat_zero():
+    y = np.zeros(SR * 2)
+    env = dsp.energy_flux(y, SR)
+    assert np.all(env == 0.0)
+
+
+def test_energy_flux_spikes_at_a_transient():
+    y = np.zeros(SR * 2)
+    burst_start = SR // 2
+    y[burst_start:burst_start + 2000] = 0.8 * np.sin(2 * np.pi * 1000 * np.arange(2000) / SR)
+    env = dsp.energy_flux(y, SR, hop_length=512)
+    assert env.max() > 0
+    peak_frame = int(np.argmax(env))
+    expected_frame = burst_start / 512
+    assert abs(peak_frame - expected_frame) < 3
+
+
+def test_energy_flux_scales_with_amplitude_squared():
+    # raw (non-log-compressed) energy -- doubling amplitude should ~quadruple the flux,
+    # unlike onset_envelope's log-compressed flux which deliberately does NOT scale this way
+    t = np.arange(SR) / SR
+    quiet = np.concatenate([np.zeros(SR // 2), 0.2 * np.sin(2 * np.pi * 200 * t[: SR // 2])])
+    loud = np.concatenate([np.zeros(SR // 2), 0.4 * np.sin(2 * np.pi * 200 * t[: SR // 2])])
+    e_quiet = dsp.energy_flux(quiet, SR, hop_length=512).max()
+    e_loud = dsp.energy_flux(loud, SR, hop_length=512).max()
+    assert 3.5 < (e_loud / e_quiet) < 4.5
+
+
 def test_autocorrelate_zero_lag_is_max_and_positive():
     rng = np.random.default_rng(0)
     x = rng.standard_normal(500)

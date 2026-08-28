@@ -232,8 +232,11 @@ def _multiband_harmonic_score(band_acfs: np.ndarray, lag: int) -> float:
 
 
 def _combined_score(acf: np.ndarray, band_acfs: np.ndarray, lag: int) -> float:
-    """Broadband harmonic-sum score plus a weighted multiband vote -- the scoring function
-    Pass 1 and Pass 2 use throughout, in place of `_harmonic_score` alone."""
+    """Primary (energy_flux) harmonic-sum score plus a weighted multiband vote -- the scoring
+    function every pass in this file uses, in place of `_harmonic_score` alone. `acf` is
+    autocorrelation of the PRIMARY onset feature, which as of 2026-08-28 is
+    `dsp.energy_flux`, not `dsp.onset_envelope` -- see `detect_tempo`'s own comment where
+    that envelope is built for the real-data numbers behind that switch."""
     return _harmonic_score(acf, lag) + _MULTIBAND_WEIGHT * _multiband_harmonic_score(band_acfs, lag)
 
 
@@ -261,7 +264,23 @@ def detect_tempo(
     lag anywhere in the signal (0..1) -- not on the same scale as essentia's beat-tracker
     confidence, but usable the same way: a low value means "eyeball this grid before a gig."
     """
-    env = dsp.onset_envelope(y, sr, hop_length=hop_length)
+    # PRIMARY onset feature is dsp.energy_flux (raw broadband energy novelty), NOT
+    # dsp.onset_envelope's log-magnitude spectral flux -- switched 2026-08-28 after a direct
+    # A/B on a real 40-track set (20 house + 20 disco, docs/IRON_RESEARCH.md §12):
+    # 75%/70% (house/disco MIREX) with spectral_flux, 85%/95% with energy_flux -- +25 points
+    # on disco specifically, the exact 2:3 compound-meter material this module's docstring
+    # documents as its hardest case. Consistent with an earlier independent 130-track
+    # validation (§2.4: 70.8% -> 88.5% MIREX on a full-pipeline swap).
+    #
+    # An ADDITIVE version of this (energy_flux as an extra weighted vote alongside
+    # spectral_flux + multiband, rather than replacing spectral_flux) was tried FIRST and
+    # measured to do literally nothing -- identical results at every weight from 0.0 to 2.0.
+    # The gain requires actually replacing the primary feature, not supplementing it; don't
+    # "soften" this back into an additive term without re-running that A/B.
+    #
+    # dsp.onset_envelope itself is unchanged and still used by iron/beats.py and the
+    # multiband path below (which computes its own per-band spectral flux internally).
+    env = dsp.energy_flux(y, sr, hop_length=hop_length)
     if env.shape[0] < 8 or not np.any(env):
         return None
 
@@ -269,8 +288,9 @@ def detect_tempo(
     frame_rate = sr / hop_length
 
     # Multiband onset envelopes (Klapuri 2003) feed _combined_score below -- see the module
-    # docstring's "Multiband scoring" section. A band with no meaningful energy just
-    # contributes zero score, so this is always safe to compute even on sparse/quiet tracks.
+    # docstring's "Multiband scoring" section. Deliberately still SPECTRAL flux per band,
+    # not energy flux: that keeps it a genuinely independent second opinion on the primary
+    # energy-flux signal above, rather than the same feature computed twice.
     band_envs = dsp.onset_envelope_multiband(y, sr, hop_length=hop_length)
     band_acfs = np.array(
         [dsp.autocorrelate(row - row.mean()) for row in band_envs]

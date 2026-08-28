@@ -85,6 +85,38 @@ def onset_envelope(y: np.ndarray, sr: int, *, n_fft: int = 2048, hop_length: int
     return np.concatenate([[0.0], flux])
 
 
+def energy_flux(y: np.ndarray, sr: int, *, n_fft: int = 2048, hop_length: int = 512) -> np.ndarray:
+    """
+    Broadband RMS-energy novelty: the half-wave-rectified frame-to-frame increase in RAW
+    (non-log-compressed) signal energy, summed across the whole frame rather than per
+    frequency bin -- deliberately coarser than `onset_envelope`'s log-magnitude spectral
+    flux, no per-bin shape information at all, just "is this frame louder than the last
+    one." A genuinely different onset-detection feature, not a retuned version of the
+    existing one: the same broadband-energy-flux mechanism essentia's actual
+    `RhythmExtractor2013(multifeature)` uses as one of ~5 independent onset-detection
+    functions it runs and cross-validates against each other (Zapata, Davies & Gómez 2014)
+    -- an independent numpy-only implementation of a published, non-proprietary technique,
+    not a port of essentia's code.
+
+    Validated on real data before being wired into `iron.tempo` (docs/IRON_RESEARCH.md
+    §2.4, §12): on a 130-track disco/soul set built specifically to expose the 2:3
+    compound-meter ambiguity `onset_envelope`'s docstring already documents as unsolved,
+    this feature alone answered the ambiguous cases correctly 93% of the time vs
+    `onset_envelope`'s 21% -- not "differently biased", genuinely more discriminating on
+    that specific failure mode.
+
+    Same call signature as `onset_envelope` (`sr` unused, kept for API symmetry) so callers
+    can use either interchangeably for a given `y`/`n_fft`/`hop_length`.
+    """
+    del sr
+    frames = frame_signal(y, n_fft, hop_length)
+    if frames.shape[0] < 2:
+        return np.zeros(frames.shape[0], dtype=np.float64)
+    energy = np.sum(frames.astype(np.float64) ** 2, axis=1)
+    flux = np.maximum(np.diff(energy), 0.0)
+    return np.concatenate([[0.0], flux])
+
+
 def autocorrelate(x: np.ndarray) -> np.ndarray:
     """
     Full autocorrelation of `x`, computed via FFT (fast for the frame counts an onset

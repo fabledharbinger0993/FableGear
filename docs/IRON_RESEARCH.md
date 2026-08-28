@@ -45,9 +45,11 @@ against mutagen for read/write round-trips. Not a currently active area of resea
 different real-music samples. Read all three — they are not the same bug, and a fix for one
 is not guaranteed to fix another:
 
-1. **The 2:3 compound-meter ("disco cluster") problem** — §2 below. A real, validated fix
-   candidate (`energy_flux`, §2.4) exists and is **still not merged** — see §8.7, this is
-   unchanged from before this session.
+1. **The 2:3 compound-meter ("disco cluster") problem** — §2 below. **LARGELY ADDRESSED as
+   of 2026-08-28 (§12)**: §2.4's long-open `energy_flux` fix is finally merged — it is now
+   `detect_tempo`'s PRIMARY onset feature, and moved a real 40-track set from 72.5% to 90.0%
+   MIREX, with disco specifically going 70% → 95%. Largest single accuracy gain in this log.
+   Needs larger-scale re-validation before 90% is treated as a stable number (§12.4).
 2. **The half-time bias problem** — §3 below. §3's own "next step" list is now **superseded
    by §8**: multiband scoring and a cyclic-tempogram octave correction (two of that list's
    candidate directions) have since been implemented and validated; a third candidate
@@ -1084,6 +1086,94 @@ re-lock onto the true rhythm), `dsp.grid_alignment_score` (this section — spar
 strict positional subset of the denser one). **Don't attempt a fourth without a genuinely
 different mechanism than "does this candidate's predicted positions line up with onset
 energy" — all three variants of that idea have now failed.**
+
+---
+
+## 12. energy_flux merged as the PRIMARY onset feature — the largest single accuracy gain measured to date (2026-08-28)
+
+**§2.4's `energy_flux` finding, open and unmerged since 2026-08-24, is now merged.** This is
+the change §1 flagged as "the one piece of what essentia has that Iron has already proven it
+can close, and just hasn't shipped."
+
+### 12.1 What changed
+
+`dsp.energy_flux()` is now a real `iron/dsp.py` primitive (ported from
+`scripts/experiment_energy_flux_onset.py`, where it had only ever existed as a diagnostic
+monkeypatch), with its own unit tests. `iron/tempo.py`'s `detect_tempo` now builds its
+primary onset envelope from `dsp.energy_flux` instead of `dsp.onset_envelope`.
+
+`dsp.onset_envelope` is unchanged and still used by `iron/beats.py` and by
+`dsp.onset_envelope_multiband` (which computes its own per-band spectral flux internally).
+**Multiband deliberately stays SPECTRAL flux** — that keeps it a genuinely independent second
+opinion on the primary energy-flux signal, rather than the same feature computed twice.
+
+### 12.2 The additive-vs-swap finding — this is the important methodological result
+
+`energy_flux` was **first** wired in as an ADDITIVE weighted vote (`_ENERGY_FLUX_WEIGHT`,
+alongside broadband + multiband), on the reasoning that this session had repeatedly found
+gated/combined evidence beating unconditional replacement (§11.4, §11.6, Pass 5's revert).
+
+**That reasoning was wrong here, and the additive form measured as doing literally nothing:**
+
+| energy_flux additive weight | single 2s grab | tiered |
+|---|---|---|
+| 0.0 (i.e. not merged at all) | 32/40 | 33/40 |
+| 0.5 | 32/40 | 33/40 |
+| 2.0 | 32/40 | 33/40 |
+
+Identical at every weight — not one track changed. On the full body-window decode the same
+sweep moved exactly one track (29→30/40) at weight ≥2.0.
+
+**The full swap, by contrast, is the single largest accuracy gain measured in this entire
+research log:**
+
+| config (full body-window decode, production `detect_tempo`) | house (n=20) | disco (n=20) | ALL (n=40) |
+|---|---|---|---|
+| pre-merge (spectral_flux primary) | 75.0% | 70.0% | 29/40 (72.5%) |
+| energy_flux as ADDITIVE vote (w=0.5) | 75.0% | 70.0% | 29/40 (72.5%) |
+| **energy_flux as PRIMARY (merged)** | **85.0%** | **95.0%** | **36/40 (90.0%)** |
+
+**+25 points on disco** — the exact 2:3 compound-meter material §2 documents as Iron's
+hardest, long-standing failure mode. Independently consistent with §2.4's original 130-track
+validation (70.8% → 88.5% MIREX on a full-pipeline swap).
+
+**Lesson worth generalizing**: "gated/combined beats unconditional override" — genuinely
+validated three times this session for *octave-flipping corrections* (Pass 5, stacking,
+grid-alignment) — **does not transfer to choosing an input FEATURE.** A correction pass
+overrides a decision the rest of the pipeline already reasoned about, so gating it is
+protective. An onset feature is the evidence the pipeline reasons *from*; supplementing it
+with a weighted vote just lets the weaker feature keep outvoting the better one, since both
+are scored by the same downstream machinery. Don't soften this back into an additive term
+without re-running that A/B.
+
+### 12.3 One measured, documented precision tradeoff
+
+The 90 BPM synthetic fixture regressed from within-2% to ~2.5% off (`92.29` vs `90`). It is
+**not** an octave/compound-meter error and stays inside MIREX's 4% tolerance. Verified
+non-systematic by sweeping the whole fixture set: every other tempo lands within 0.6% (most
+under 0.4%), i.e. energy_flux is generally *more* precise, with this one outlier. Cause is
+lag quantization specific to that tempo — at SR=22050/hop=512 (~43.07 fps), 90 BPM's true
+period is 28.71 frames, almost exactly between integer lags 28 and 29, and energy_flux's
+coarser (non-log-compressed) peak shape makes the sub-frame parabolic fit less able to
+recover it than log-magnitude spectral flux was.
+
+Handled by splitting 90 BPM out of the strict 2% sweep into its own explicitly-documented
+3%-tolerance test (`test_detect_tempo_90bpm_known_quantization_outlier`) rather than widening
+the whole sweep's tolerance, which would silently mask a real regression at any other tempo.
+
+### 12.4 Still open
+
+- **Larger-scale re-validation.** The n=40 result above is strong but small, and the two
+  20-track sets are each somewhat artist-homogeneous (the house set is nearly all Corduroy
+  Mavericks). A 400-track genre-diverse run was started; whoever picks this up should check
+  `scripts/benchmark_iron_genre_diverse.py` numbers before treating 90% as a stable figure.
+- **§8.7's question is now partly answered**: energy_flux does NOT merely duplicate §8.2's
+  multiband scoring — it composes with it (multiband stays spectral, energy_flux is primary,
+  and the combination measures at 90% where multiband-on-spectral alone measured 72.5%). Not
+  yet ablated the other way (energy_flux primary WITHOUT multiband).
+- Everything in §11 (tiered architecture, confidence miscalibration) is unaffected by this
+  change and still open — §11's `tiered` experiments predate this merge and would need
+  re-running on top of it to know whether its +1-track gain still holds.
 
 ---
 
