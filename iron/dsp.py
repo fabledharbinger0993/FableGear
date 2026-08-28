@@ -365,6 +365,70 @@ def track_beats_with_penalty_variance(
     return beats, score, float(np.var(penalties))
 
 
+def grid_alignment_score(
+    onset_env: np.ndarray, period: float, *, n_phase_bins: int = 8, tolerance_frac: float = 0.15
+) -> float:
+    """
+    Rigid (non-adaptive) beat-grid alignment score for a candidate period -- a fixed comb of
+    predicted beat positions (0, period, 2*period, ...) at several trial phase offsets, with
+    only a small, constant per-position tolerance window and no cross-position path-finding.
+
+    NOT VALIDATED FOR CROSS-PERIOD (octave) COMPARISON -- tried and empirically falsified
+    the same day this was written (docs/IRON_RESEARCH.md SS11), the THIRD documented failed
+    attempt at this general class of fix in this file (after `track_beats`' raw score and
+    `track_beats_with_penalty_variance`, both also reverted for cross-period comparison,
+    each for a different reason -- see their own docstrings). This one's failure mode is
+    structural, not a tuning problem: a half-tempo candidate's sparser grid is a strict
+    SUBSET of the true period's own grid positions on a regular pulse train, so it can score
+    equal to or (on a real fixture with an accent pattern, confirmed empirically) even higher
+    than the true period, actively preferring the wrong answer. Designing this to avoid the
+    two EARLIER attempts' specific failure modes (no adaptive search window, median not sum)
+    was not sufficient -- the subset relationship is a different, more fundamental problem
+    neither of those two design choices addresses. Do not use this for T vs T/2 vs 2T
+    disambiguation without a genuinely different idea; it remains available as a primitive
+    for other uses (e.g. scoring beat-grid confidence at an ALREADY-DECIDED period, the same
+    validated-narrower-purpose spirit as `track_beats` itself).
+
+    Per-position score is `onset_env`'s own max within +/- `tolerance_frac` * period of each
+    predicted position (allowing for real timing humanization, not exact-frame alignment).
+    The MEDIAN (not sum) of these per-position values is used deliberately: summing over
+    more beat positions is exactly the length-bias mechanism that broke `track_beats`' raw
+    score -- a faster (shorter-period) candidate always has more terms to sum, an advantage
+    independent of whether the period is musically real. Median alone doesn't have that
+    particular bias, but see the note above for why that wasn't enough on its own.
+
+    Tries `n_phase_bins` evenly-spaced phase offsets within one period and returns the best
+    (a genuinely correct period at the wrong phase should not be penalized as if the period
+    itself were wrong). Normalized by `onset_env`'s own mean so scores are comparable across
+    different candidate periods and different tracks.
+    """
+    n = onset_env.shape[0]
+    period_i = max(1, round(period))
+    if n < period_i:
+        return 0.0
+    tolerance = max(1, round(period_i * tolerance_frac))
+    env_mean = float(onset_env.mean())
+    if env_mean <= 0:
+        return 0.0
+
+    best_median = 0.0
+    for phase_bin in range(n_phase_bins):
+        phase = round(phase_bin * period_i / n_phase_bins)
+        values = []
+        pos = phase
+        while pos < n:
+            lo = max(0, pos - tolerance)
+            hi = min(n, pos + tolerance + 1)
+            values.append(float(np.max(onset_env[lo:hi])) if hi > lo else 0.0)
+            pos += period_i
+        if not values:
+            continue
+        median_val = float(np.median(values))
+        if median_val > best_median:
+            best_median = median_val
+    return best_median / env_mean
+
+
 def chroma_cqt(
     y: np.ndarray,
     sr: int,

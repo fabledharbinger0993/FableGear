@@ -84,6 +84,18 @@ end, <100 BPM (§9.3, consistent with §3). **Before trusting any future run of
 defaults don't inherit `iron.tempo`'s tuned default and silently reproduce pre-§8.6 behavior
 otherwise (§9.2).
 
+**§11: the best result found in ANY experiment this whole day is a "tiered" architecture —
+cheap single grab first, escalate to a 3-window consensus only when confidence is low —
+82.5% MIREX on a 40-track (20 house + 20 disco) test, beating every single-window,
+naive-multi-window, and stacked-technique variant tried. It is NOT wired into `iron/
+tempo.py`'s production pipeline** — still a diagnostic script (`scripts/
+experiment_four_techniques.py` / `experiment_stack_order.py`), not a merged change.
+Porting it into production, and fixing `detect_tempo`'s confidence metric (shown in §11.4 to
+be poorly calibrated once any stage moves the answer to a different octave — a real,
+confirmed blocker on stacking further gains) are the two clearest next steps. A third
+attempt at cross-period onset-alignment scoring (`dsp.grid_alignment_score`) failed for a
+third, structurally distinct reason — see §11.6 before trying a fourth variant of that idea.
+
 ---
 
 ## 2. The 2:3 compound-meter ("disco cluster") problem
@@ -378,6 +390,25 @@ findings).
   still used for its original, narrower purpose (self-consistency of a path at an
   already-known-correct period) — just not for this cross-period comparison, at least not as
   tried. See the long comment in `iron/tempo.py` where this pass used to live.
+- `dsp.grid_alignment_score` (§11.6) — a THIRD cross-period comparison attempt, designed
+  specifically to dodge the two failure modes above (no adaptive search window, median not
+  sum), and it still failed, for a third and different reason: a half-tempo candidate's
+  sparser grid positions are a strict subset of the true period's own, so it can score equal
+  to or (confirmed on a real fixture) *higher* than the true period. The primitive itself is
+  correct and kept for other uses; don't use it for T vs T/2 vs 2T disambiguation. All three
+  attempts at "does this candidate's predicted positions line up with onset energy" have now
+  failed — don't try a fourth variant of that same idea without a genuinely different
+  mechanism (e.g. explicitly penalizing gaps a sparser candidate leaves unexplained).
+- Naive multi-window combining (plain majority vote, average-everything fallback) measurably
+  underperforms the best single window (§11.2) — the specific bugs (order-dependent tie
+  handling, meaningless octave-blended averages) are fixed by confidence-weighted clustering
+  with a highest-confidence fallback, not by more windows alone.
+- Stacking log_gaussian + genre_prior + tiered sequentially, in any of its 6 orderings,
+  underperforms running tiered alone (§11.4) — 75.0% vs 82.5% on the same 40 tracks, even
+  after fixing the chain to genuinely share information (informed-tiered still didn't
+  recover the loss). Root cause is `detect_tempo`'s confidence metric being miscalibrated
+  once an earlier stage moves the answer to a different octave, not the stacking mechanics —
+  don't re-attempt stacking without fixing confidence calibration first.
 - `beat_this` stays offline/dev-only — explicit user choice over adding it as a runtime
   dependency.
 - `madmom` is out — CC-BY-NC-SA models, incompatible with a for-sale app.
@@ -892,6 +923,167 @@ question to ask rather than re-testing aggregate accuracy again blind.
 `§9`'s stratified-sampling script improvements, error-pattern breakdowns, ground-truth-
 quality findings (§9.4), and harness bug fixes (§9.5) are all independent of this revert and
 remain as described — only the decode-window behavior itself reverted.
+
+---
+
+## 11. Fixed-window/multi-pass experiments, external AI consultation rounds 2-3, and a third failed cross-period comparison attempt (2026-08-27/28)
+
+All work in this section is exploratory diagnostics (throwaway `scripts/experiment_*.py`
+files, not production changes) run against real audio from `/Volumes/Passport/DATABASE`,
+using the §8.1 tag-based ground-truth methodology throughout. Nothing in this section is
+wired into `iron/tempo.py`'s actual `detect_tempo()` pipeline yet — see §11.6.
+
+### 11.1 Fixed-window position/duration sensitivity
+
+A single short (2-6s) window's start position matters far more than its duration, and the
+effect is genuinely track-dependent, not a fixed universal rule:
+
+- A single 6s grab at a fixed `start=45s` hit **73.8% MIREX on n=1975** (`scripts/
+  experiment_fixed_window.py`) — the best single-window number found. But `start=120s` on
+  the same methodology (different n=400 sample) only reached 53-58% MIREX — a large,
+  real drop, not noise.
+- A deep-dive on two "easy" tracks (a Chic disco classic, a steady house track) found
+  **20/20 MIREX-correct at every one of 20 positions swept across the full track** — no
+  weak zone at all for either. A deep-dive on Stevie Wonder's "Sir Duke" (real horn
+  arrangement, a bridge/solo section) found **9/20**, with a clean split: front half
+  (12-102s) 7/9 correct, back half (114-227s) 2/11 correct, including a confidently-wrong
+  (`conf=1.00`) compound-meter miss. **Position sensitivity is real but track-structure-
+  dependent** — a steady groove is robust everywhere; a live-arrangement track has a real
+  danger zone wherever its structure gets complex (a solo, a bridge), which isn't a fixed
+  time offset across tracks.
+- Duration alone, holding position fixed: at a proportional `start=13.18%` (the median
+  fraction that the historically-good 45s represented across the n=1975 population,
+  computed directly from that run's actual per-track durations), 6s and 8s tied at
+  **85% MIREX on n=20**, both clearly ahead of 4s (75%). Not yet re-tested at larger n.
+
+### 11.2 Multi-window combining: naive fails, confidence-weighted-with-good-fallback works
+
+- **Naive majority vote across 4 fixed grabs (45/90/180/240s) underperformed the best
+  single position** (66.6% combined vs 71.8-72.5% for the two best individual positions,
+  n=377-400). Root cause: numeric-tolerance clustering has no way to prefer the *correct*
+  cluster in a common 2-vs-2 octave split (picks whichever cluster is found first, a coin
+  flip), and the "nothing agrees" fallback averaged unrelated values into a meaningless
+  blend.
+- **Fixing both flaws** (confidence-WEIGHTED clustering, and falling back to the single
+  highest-confidence grab instead of a blind average) genuinely worked: a 3-pass
+  proportional-position (10%/35%/60%) combiner beat all three of its own individual passes
+  (65.0% combined vs 58-60% each, n=100).
+
+### 11.3 Four techniques tested individually (external AI consultation, round 2): tiered wins clearly, energy-window loses clearly
+
+Tested individually (not stacked) on 20 house (homogeneous, `Corduroy Mavericks`) + 20 disco
+(diverse artists, genuinely harder) tracks, `scripts/experiment_four_techniques.py`:
+
+| technique | house MIREX | house time | disco MIREX | disco time |
+|---|---|---|---|---|
+| log_gaussian (smooth prior, generic center=120) | 70.0% | 0.34s | 70.0% | 0.26s |
+| energy_window (scan for highest-onset-energy window) | 75.0% | **1.55s** | **60.0%** | **1.56s** |
+| genre_prior (track's own genre tag as expected-center, gated) | 70.0% | 0.16s | 70.0% | 0.18s |
+| **tiered** (cheap grab first, escalate to 3-window consensus only if low confidence) | **90.0%** | 0.21s | **75.0%** | 0.41s |
+
+**tiered is the clear winner on both sets** — best accuracy, and fast because it only pays
+for the expensive escalation when it needs to (escalated 2/20 house, 8/20 disco — sensible,
+since disco is the harder set). **energy_window is a clear loser** — most expensive of the
+four (4-7x the others) AND worst accuracy on disco. Scanning for the highest-RMS/onset-
+energy window does not reliably find clean rhythmic content; it likely grabs loud-but-
+confusing moments (a horn stab, a vocal ad-lib) rather than a genuinely periodic beat. Don't
+pursue "smart window selection via loudness" further without a fundamentally different
+energy/rhythm-density measure than raw onset-envelope sum.
+
+### 11.4 Stacking log_gaussian + genre_prior + tiered: order doesn't matter, but stacking underperforms tiered alone
+
+Chained sequentially (each stage takes the previous stage's (bpm, confidence) and may
+override it — same architecture as `detect_tempo`'s own Pass 1→2→2b→4), all 6 possible
+orderings of the 3 techniques were tested on the same 40 tracks (`scripts/
+experiment_stack_order.py`):
+
+**All 6 orderings produced the exact same accuracy: 30/40 (75.0%).** Order genuinely does
+not matter for this specific implementation — all three techniques operate on the same
+small octave-neighbor candidate set drawn from one shared autocorrelation, and converge to
+the same final pick regardless of which one evaluates that set first.
+
+**But stacking (any order) underperforms tiered running alone**: 75.0% (30/40) stacked vs.
+**82.5% (33/40) for tiered solo**. Tried fixing this by making tiered's escalation
+genuinely INFORMED (`scripts/experiment_informed_tiered.py`) — including the upstream
+refined (bpm, confidence) as an actual vote in the 3-window consensus, instead of
+discarding it and starting fresh. **This did not help** — still 75.0% (30/40), and slightly
+slower (0.50s vs 0.31s mean). Root cause: `detect_tempo`'s existing confidence metric
+(autocorrelation strength at the winning lag, relative to the signal's own peak) is not
+well-calibrated once an earlier stage has already moved the answer to a different octave —
+a wrong octave-neighbor can carry deceptively high confidence under this metric (octave-
+related lags share harmonic content by construction), which lets a wrong answer either
+skip tiered's escalation check entirely (false-positive "confident") or corrupt the
+consensus vote with inflated weight. **Confidence calibration, not the stacking mechanism
+itself, is the real blocker** — matches what all three external AI consultations
+independently flagged (§11.5) before this was confirmed empirically.
+
+**Conclusion for whoever picks this up next: tiered alone (82.5%, n=40) is the best result
+found across all of today's experiments.** Don't re-attempt naive stacking of these three
+specific techniques without first fixing confidence calibration.
+
+### 11.5 External AI consultation, rounds 2-3, and cross-referencing against what's already tried
+
+Gemini, Caelum ("ChatGPT"), and Grok were independently asked (a) whether file format
+(MP3 vs AIFF) would help — all three agreed it would not (the error signature, median 1.9%/
+mean 24.2%/"within 10%"≈"within 4%", is the textbook signature of octave/compound-meter
+misinterpretation, not audio-quality degradation) — and (b) for algorithmic suggestions
+given that diagnosis. All three converged heavily on: multi-window consensus (already built,
+§11.2-§11.3), calibrated multi-factor confidence instead of peak-height-only (motivated
+independently by all three, then confirmed as the real blocker by §11.4's empirical result),
+harmonic/octave candidate-lattice expansion (already effectively what `_GENRE_BANDS`'/
+cyclic-tempogram's octave-ratio scanning already does), and a rigid beat-grid/onset-
+alignment check to discriminate between octave candidates (§11.6 — tried, failed).
+
+None of the three had visibility into this project's own history or licensing constraints:
+Gemini suggested integrating BeatNet/madmom, both already evaluated and rejected
+(`docs/IRON_TEMPO_RESEARCH.md` — madmom's models are CC-BY-NC-SA, a hard commercial
+blocker); all three suggestions to add DP-based beat-alignment scoring for octave
+disambiguation re-derived an approach already tried and reverted twice in this exact
+codebase before today (`dsp.track_beats`'s raw score, `track_beats_with_penalty_variance`)
+— see §11.6 for the third attempt and why it also failed. **Lesson for future consultation:
+external review is valuable for diagnosis and for surfacing techniques not yet tried, but
+cross-reference every specific suggestion against this doc before implementing — multiple
+independent AI systems converging on the same idea is not evidence that idea hasn't already
+been tried and falsified here.**
+
+### 11.6 `dsp.grid_alignment_score` — a third failed attempt at cross-period comparison, and why it's structurally different from the first two
+
+Built specifically to dodge both documented failure modes of the two earlier attempts: a
+RIGID (non-adaptive, no DP search window) fixed comb of predicted beat positions, scored by
+the MEDIAN (not sum) of onset-envelope energy near each position — median has no length
+bias (a candidate's score doesn't grow just because its grid has more positions), and a
+fixed comb has no adaptive search window for a wrong candidate to exploit.
+
+**Empirically falsified within minutes** by direct comparison on `test_iron_tempo.py`'s own
+realistic fixture (kick + off-beat hi-hat + bar-level accent, 128 BPM): the half-tempo
+candidate scored *higher* than the true period (11.96 vs 11.17) — this metric would
+actively prefer the wrong answer, not merely fail to help. Confirmed the mechanism on a
+bare (unaccented) pulse train too: true-period and half-tempo scored *identically* (20.67
+vs 20.67), while double-tempo was correctly rejected (0.0).
+
+**Root cause, structurally different from the first two failures**: a half-tempo
+candidate's sparser grid positions are a strict SUBSET of the true period's own grid
+positions on a regular pulse train — every predicted position for 2T is also a predicted
+position for T. Neither of the two design choices that fixed the earlier attempts' failure
+modes (no adaptive search, median not sum) addresses this — it's a different, more
+fundamental problem: **"does the sparser candidate's grid land on real content" cannot by
+construction disfavor a slower candidate, because its grid is never wrong about *where*
+content is, only about *how much* of the real rhythmic structure it's missing.** A fix
+would need to explicitly penalize the *gaps* a sparser candidate leaves unexplained
+relative to a denser one, not just reward hits — not attempted here.
+
+`dsp.grid_alignment_score` is kept as a tested primitive (correct for what it measures) but
+explicitly NOT validated for octave/cross-period comparison — see its own docstring. It may
+still have a legitimate narrower use (beat-grid confidence at an already-decided period,
+the same validated-narrower-purpose spirit as `dsp.track_beats` itself) — not explored here.
+
+**Updated tally of cross-period comparison attempts in this file, all reverted, all for
+different reasons**: `dsp.track_beats`'s raw score (§2.2 — length bias), `dsp.
+track_beats_with_penalty_variance` (§8.4 — adaptive search window let a wrong candidate
+re-lock onto the true rhythm), `dsp.grid_alignment_score` (this section — sparser grid is a
+strict positional subset of the denser one). **Don't attempt a fourth without a genuinely
+different mechanism than "does this candidate's predicted positions line up with onset
+energy" — all three variants of that idea have now failed.**
 
 ---
 

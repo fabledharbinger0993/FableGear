@@ -159,6 +159,33 @@ _CYCLIC_RATIOS = (2.0, 0.5, 1.5, 2.0 / 3.0)
 # to be considered decisive, not noise.
 _CYCLIC_MARGIN = 1.3
 
+# Core-range octave tie-break (Pass 5, 2026-08-27, EXPERIMENTAL -- not yet validated against
+# real data, see docs/IRON_RESEARCH.md for whatever result comes of testing this).
+#
+# First version of this was UNCONDITIONAL (user-specified: "should win every time") and was
+# empirically falsified within minutes -- it broke the 140/150/165/174 BPM synthetic
+# regression cases, force-flipping already-correct answers down into [_CORE_RANGE_LOW,
+# _CORE_RANGE_HIGH] with zero regard for whether the original answer was right. Root cause:
+# an unconditional rule has no way to distinguish "genuinely 174 BPM" from "actually 87 BPM,
+# wrongly detected as 174" -- both just look like "a number above 140". Every OTHER
+# correction in this file is gated by real evidence (a rival's score, a structural fit)
+# specifically to avoid this trap; this pass now is too. A candidate inside the core range
+# only wins when it's a genuine, scoring rival -- see _CORE_RANGE_RIVAL_THRESHOLD -- not
+# merely because it happens to be numerically closer to a "normal" range.
+_CORE_RANGE_LOW = 70.0
+_CORE_RANGE_HIGH = 140.0
+# Same spirit as _RIVAL_THRESHOLD (Pass 2's guard), but tighter: 0.5 (Pass 2's own bar) was
+# tried here first and was NOT enough to protect genuinely-correct 150/174 BPM synthetic
+# cases -- their half-tempo alternative still scored >=50% of the true candidate's combined
+# score, the exact harmonic-leakage bias _harmonic_score's own docstring already describes
+# (a true tempo's strong autocorrelation peak looks like its half-time alias's "2nd
+# harmonic"). Since this pass triggers far more broadly than Pass 2 (any bpm outside
+# [70,140], not just "raw winner misses every genre band"), it needs the in-range
+# alternative to actually WIN outright, not merely stay close, before treating it as real
+# evidence rather than that same leakage artifact.
+_CORE_RANGE_RIVAL_THRESHOLD = 1.0
+_ENABLE_CORE_RANGE_TIEBREAK = True
+
 
 _HARMONICS = (1, 2, 3, 4)
 _HARMONIC_WEIGHT = (1.0, 0.6, 0.4, 0.3)
@@ -413,6 +440,35 @@ def detect_tempo(
         ):
             chosen_lag = best_rival_lag
             best_bpm = frame_rate * 60.0 / best_rival_lag
+
+    # Pass 5: core-range octave tie-break -- see _ENABLE_CORE_RANGE_TIEBREAK's own comment for
+    # what this is and the unconditional version's falsified first attempt. Gated the same
+    # way as Pass 2/2b: the in-range candidate must still be a real, scoring rival (retain at
+    # least _CORE_RANGE_RIVAL_THRESHOLD of the current pick's combined score), not just
+    # numerically preferred -- this is what lets a genuinely-correct 174 BPM answer survive
+    # (its half, ~87, has a much weaker score and fails the rival check) while still catching
+    # a genuinely-wrong high answer whose true half-tempo is a real, comparably-strong rival.
+    if _ENABLE_CORE_RANGE_TIEBREAK:
+        chosen_bpm = frame_rate * 60.0 / chosen_lag
+        chosen_score = _combined_score(acf, band_acfs, chosen_lag)
+        if chosen_bpm > _CORE_RANGE_HIGH:
+            half_lag = round(chosen_lag * 2.0)
+            if lag_lo <= half_lag <= lag_hi:
+                half_bpm = frame_rate * 60.0 / half_lag
+                if _CORE_RANGE_LOW <= half_bpm <= _CORE_RANGE_HIGH:
+                    half_score = _combined_score(acf, band_acfs, half_lag)
+                    if half_score >= _CORE_RANGE_RIVAL_THRESHOLD * chosen_score:
+                        chosen_lag = half_lag
+                        best_bpm = half_bpm
+        elif chosen_bpm < _CORE_RANGE_LOW:
+            double_lag = round(chosen_lag / 2.0)
+            if lag_lo <= double_lag <= lag_hi:
+                double_bpm = frame_rate * 60.0 / double_lag
+                if _CORE_RANGE_LOW <= double_bpm <= _CORE_RANGE_HIGH:
+                    double_score = _combined_score(acf, band_acfs, double_lag)
+                    if double_score >= _CORE_RANGE_RIVAL_THRESHOLD * chosen_score:
+                        chosen_lag = double_lag
+                        best_bpm = double_bpm
 
     strength = float(acf[chosen_lag])
     refined_lag = _parabolic_peak(acf, chosen_lag)

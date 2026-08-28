@@ -234,6 +234,32 @@ def test_chroma_cqt_silence_is_zero_vector():
     assert np.all(vec == 0.0)
 
 
+def test_grid_alignment_score_high_for_true_period():
+    period = 20
+    env = _pulse_train(period, n_pulses=30, jitter=0, seed=0)
+    score = dsp.grid_alignment_score(env, period)
+    assert score > 0.8  # every predicted position should land exactly on a real pulse
+
+
+def test_grid_alignment_score_low_for_unrelated_period():
+    period = 20
+    env = _pulse_train(period, n_pulses=30, jitter=0, seed=0)
+    # a period with no rational relationship to the real one should mostly miss the pulses
+    score = dsp.grid_alignment_score(env, period=13.0)
+    assert score < 0.5
+
+
+def test_grid_alignment_score_empty_envelope_is_zero():
+    assert dsp.grid_alignment_score(np.zeros(0), period=20.0) == 0.0
+
+
+def test_grid_alignment_score_tolerant_to_small_jitter():
+    period = 20
+    env = _pulse_train(period, n_pulses=30, jitter=1, seed=3)
+    score = dsp.grid_alignment_score(env, period)
+    assert score > 0.5  # the tolerance window should absorb +/-1-frame jitter
+
+
 def test_chroma_cqt_resolves_bass_register_better_than_linear_chroma():
     # A1 = 55 Hz, the bottom of both chroma functions' default range -- at n_fft=4096/
     # sr=22050 (chroma()'s default), the linear FFT bin width (~5.4 Hz) is wider than a
