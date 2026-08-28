@@ -358,36 +358,79 @@ def _analyze_one(
     result = {
         "path": path_str, "genre": genre, "true_bpm": true_bpm, "true_camelot": true_camelot,
         "duration": duration, "detected_bpm": None, "detected_camelot": None, "error": None,
+        "elapsed_s": None,
     }
+    t0 = time.time()
     try:
         out = iron.analyze(path, want=("bpm", "initial_key"), bpm_min=bpm_min, bpm_max=bpm_max)
         result["detected_bpm"] = out.bpm
         result["detected_camelot"] = out.initial_key
     except Exception as e:
         result["error"] = str(e)
+    finally:
+        # Measured even on an exception/timeout-flagged row -- how long a track took before
+        # failing is still useful signal (e.g. a slow decode that then errors vs. a fast
+        # decode that then fails to find a reliable tempo are different problems). Per
+        # docs/iron/RESEARCH.md SS7.4: "wall-clock time per track... matters for real
+        # library-scan UX... and is measured nowhere today."
+        result["elapsed_s"] = time.time() - t0
     return result
 
 
 def _tempo_accuracy(rows: list[dict]) -> dict[str, float]:
+    """
+    Accuracy metrics plus `total`/`undetected` -- the per-stratum "found nothing" rate
+    docs/iron/RESEARCH.md SS7.4 asked for (`benchmark_iron_tempo.py`'s own `undetected`
+    counter, generalized to per-bucket reporting): a bucket where Iron returns no answer at
+    all is a different failure mode than a wrong answer, and could concentrate in specific
+    genres/BPM-bands/lengths rather than spreading evenly -- collapsing it into "not counted"
+    (the pre-existing behavior: `n` below only counts rows with a real detected_bpm) hides
+    exactly that.
+    """
+    total = len(rows)
     pairs = [(r["detected_bpm"], r["true_bpm"]) for r in rows if r["detected_bpm"] is not None]
+    undetected = total - len(pairs)
+    undetected_rate = (undetected / total) if total else 0.0
     if not pairs:
-        return {"n": 0, "exact": 0.0, "within_1pct": 0.0, "mirex": 0.0}
+        return {
+            "n": 0, "exact": 0.0, "within_1pct": 0.0, "mirex": 0.0,
+            "total": total, "undetected": undetected, "undetected_rate": undetected_rate,
+        }
     exact = sum(1 for d, t in pairs if abs(d - t) <= 0.6)
     within_1pct = sum(1 for d, t in pairs if abs(d - t) / t <= 0.01)
     mirex = sum(1 for d, t in pairs if abs(d - t) / t <= 0.04)
     n = len(pairs)
-    return {"n": n, "exact": exact / n, "within_1pct": within_1pct / n, "mirex": mirex / n}
+    return {
+        "n": n, "exact": exact / n, "within_1pct": within_1pct / n, "mirex": mirex / n,
+        "total": total, "undetected": undetected, "undetected_rate": undetected_rate,
+    }
+
+
+def _mean_elapsed(rows: list[dict]) -> tuple[float, int]:
+    """(mean wall-clock seconds, n) over rows with a measured elapsed_s -- excludes only
+    the (rare) case a row predates this field (e.g. an older --replay-jsonl)."""
+    values = [r["elapsed_s"] for r in rows if r.get("elapsed_s") is not None]
+    if not values:
+        return 0.0, 0
+    return sum(values) / len(values), len(values)
 
 
 def _key_accuracy(rows: list[dict]) -> dict[str, float]:
-    pairs = [
-        (r["detected_camelot"], r["true_camelot"])
-        for r in rows if r["detected_camelot"] is not None and r["true_camelot"] is not None
-    ]
+    # Denominator is rows with real ground truth (true_camelot), not all rows -- a track with
+    # no key tag at all isn't a fair test of detection either way. Same "found nothing" logic
+    # as _tempo_accuracy: total-vs-n distinguishes "Iron returned no key" from "wrong key".
+    has_truth = [r for r in rows if r["true_camelot"] is not None]
+    total = len(has_truth)
+    pairs = [(r["detected_camelot"], r["true_camelot"]) for r in has_truth if r["detected_camelot"] is not None]
+    undetected = total - len(pairs)
+    undetected_rate = (undetected / total) if total else 0.0
     if not pairs:
-        return {"n": 0, "exact": 0.0}
+        return {"n": 0, "exact": 0.0, "total": total, "undetected": undetected, "undetected_rate": undetected_rate}
     exact = sum(1 for d, t in pairs if d == t)
-    return {"n": len(pairs), "exact": exact / len(pairs)}
+    return {
+        "n": len(pairs), "exact": exact / len(pairs),
+        "total": total, "undetected": undetected, "undetected_rate": undetected_rate,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -519,6 +562,7 @@ def main(argv: list[str] | None = None) -> int:
                     "path": path_str, "genre": genre, "true_bpm": true_bpm,
                     "true_camelot": true_camelot, "duration": duration, "detected_bpm": None,
                     "detected_camelot": None, "error": "timed out",
+                    "elapsed_s": None,  # unknown -- only bounded below by overall_timeout
                 }
                 rows.append(row)
                 if out_f:
@@ -544,13 +588,20 @@ def main(argv: list[str] | None = None) -> int:
     print("=" * 70)
     overall_tempo = _tempo_accuracy(rows)
     overall_key = _key_accuracy(rows)
-    print(f"Overall tempo (n={overall_tempo['n']}): exact {overall_tempo['exact']:.1%}  "
-          f"within-1% {overall_tempo['within_1pct']:.1%}  MIREX {overall_tempo['mirex']:.1%}")
-    print(f"Overall key   (n={overall_key['n']}): exact Camelot match {overall_key['exact']:.1%}")
+    overall_mean_s, overall_timed_n = _mean_elapsed(rows)
+    print(f"Overall tempo (n={overall_tempo['n']}/{overall_tempo['total']}): "
+          f"exact {overall_tempo['exact']:.1%}  within-1% {overall_tempo['within_1pct']:.1%}  "
+          f"MIREX {overall_tempo['mirex']:.1%}  undetected {overall_tempo['undetected_rate']:.1%}")
+    print(f"Overall key   (n={overall_key['n']}/{overall_key['total']}): "
+          f"exact Camelot match {overall_key['exact']:.1%}  "
+          f"undetected {overall_key['undetected_rate']:.1%}")
+    print(f"Overall wall-clock: {overall_mean_s:.1f}s/track avg (n={overall_timed_n})")
 
     print("\nPer-BPM-bucket tempo accuracy -- the genre-conditional answer to \"does it "
           "actually work outside house\" (all buckets shown, not just the well-populated "
-          "ones, so a thin bucket's weakness isn't silently dropped):")
+          "ones, so a thin bucket's weakness isn't silently dropped). undetected = Iron "
+          "returned no result at all (a different failure mode than a wrong answer); "
+          "avg_s = mean wall-clock seconds/track in that bucket:")
     by_bucket_rows = defaultdict(list)
     for r in rows:
         if r["true_bpm"] is not None:
@@ -558,11 +609,13 @@ def main(argv: list[str] | None = None) -> int:
     for _lo, _hi, label in _BPM_BUCKETS:
         b_rows = by_bucket_rows.get(label, [])
         acc = _tempo_accuracy(b_rows)
-        if acc["n"] == 0:
+        if acc["total"] == 0:
             print(f"  {label:35s} n=   0  (no tracks sampled in this bucket)")
         else:
-            print(f"  {label:35s} n={acc['n']:4d}  exact={acc['exact']:.1%}  "
-                  f"within1%={acc['within_1pct']:.1%}  mirex={acc['mirex']:.1%}")
+            mean_s, _timed_n = _mean_elapsed(b_rows)
+            print(f"  {label:35s} n={acc['n']:4d}/{acc['total']:<4d}  exact={acc['exact']:.1%}  "
+                  f"within1%={acc['within_1pct']:.1%}  mirex={acc['mirex']:.1%}  "
+                  f"undetected={acc['undetected_rate']:.1%}  avg_s={mean_s:.1f}")
 
     print("\nPer-length-bucket tempo accuracy:")
     by_length_rows = defaultdict(list)
@@ -571,9 +624,11 @@ def main(argv: list[str] | None = None) -> int:
     for _lo, _hi, label in _LENGTH_BUCKETS:
         l_rows = by_length_rows.get(label, [])
         acc = _tempo_accuracy(l_rows)
-        if acc["n"] > 0:
-            print(f"  {label:35s} n={acc['n']:4d}  exact={acc['exact']:.1%}  "
-                  f"within1%={acc['within_1pct']:.1%}  mirex={acc['mirex']:.1%}")
+        if acc["total"] > 0:
+            mean_s, _timed_n = _mean_elapsed(l_rows)
+            print(f"  {label:35s} n={acc['n']:4d}/{acc['total']:<4d}  exact={acc['exact']:.1%}  "
+                  f"within1%={acc['within_1pct']:.1%}  mirex={acc['mirex']:.1%}  "
+                  f"undetected={acc['undetected_rate']:.1%}  avg_s={mean_s:.1f}")
 
     print("\nPer-genre tempo accuracy (genres with >= 10 compared tracks):")
     by_genre_rows = defaultdict(list)
@@ -581,9 +636,10 @@ def main(argv: list[str] | None = None) -> int:
         by_genre_rows[r["genre"]].append(r)
     for g, g_rows in sorted(by_genre_rows.items(), key=lambda kv: -len(kv[1])):
         acc = _tempo_accuracy(g_rows)
-        if acc["n"] >= 10:
-            print(f"  {g:30s} n={acc['n']:4d}  exact={acc['exact']:.1%}  "
-                  f"within1%={acc['within_1pct']:.1%}  mirex={acc['mirex']:.1%}")
+        if acc["total"] >= 10:
+            print(f"  {g:30s} n={acc['n']:4d}/{acc['total']:<4d}  exact={acc['exact']:.1%}  "
+                  f"within1%={acc['within_1pct']:.1%}  mirex={acc['mirex']:.1%}  "
+                  f"undetected={acc['undetected_rate']:.1%}")
 
     print("\nTempo error breakdown (MIREX-wrong tracks only -- octave/compound-meter misses "
           "vs. genuinely wrong estimates; these need different fixes, see "
