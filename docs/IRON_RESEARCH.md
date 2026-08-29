@@ -1333,6 +1333,117 @@ this benchmark without deduplicating and spot-checking tags first.**
 
 ---
 
+## 14. Live 3-way comparison (Iron/librosa/Rekordbox, essentia historical) at n=1000+200, and a numba segfault fixed (2026-08-29)
+
+User-directed: run Iron, essentia, and librosa side by side on ~1000 real tracks sampled by
+"grab the first folders you come across, skipping duplicates" (deliberately not stratified,
+unlike §9), reporting timing/hangups/scale-degradation alongside accuracy. Extended
+`scripts/live_compare_iron_essentia.py` (previously Iron-vs-essentia-BPM-only, random
+sample, no timing aggregation) into a real 3-engine harness: natural-directory-order
+sampling with dedup, per-engine SIGALRM wall-clock timeouts, a Rekordbox-stored-value bonus
+column (via master.db cross-reference), and a `--format-stratified` mode for a guaranteed
+N-per-extension comparison.
+
+### 14.1 essentia could not be run live on this machine — confirmed unfixable, not just unset
+
+Three independent install paths all failed: no pip wheel for macOS x86_64/Python 3.13, pip
+source build fails (`IndexError` in essentia's own legacy `setup.py`, incompatible with
+modern setuptools), and neither `conda-forge` nor essentia's own `mtg` conda channel has an
+osx-64 build available at all. This is a real environment gap, not a "didn't try" gap — all
+essentia numbers in this section are the pre-existing historical reference (§1,
+`requirements_optional.txt`, 12,687-track corpus), not live results.
+
+### 14.2 A real, reproducible segfault found and fixed: librosa's beat tracker + numba on this Python
+
+`audio_processor._detect_bpm()` (librosa's `beat_track`) was **segfaulting on every real file
+tested**, not raising a catchable exception — confirmed via `python -X faulthandler`, which
+traced it to `numba/np/ufunc/gufunc.py` inside a JIT-compiled function called from
+`librosa/beat.py`'s `__last_beat` (`numba 0.62.1` + `Python 3.13.2`). This means the librosa
+*fallback path* this codebase actually depends on when essentia is unavailable was silently
+broken in this venv before this session. `iron.dsp.chroma`-based key detection
+(`_detect_key`) was unaffected (doesn't touch the crashing gufunc), so live librosa key
+comparison was possible even before the fix.
+
+Fixed by `pip install "numba==0.61.2"` (pulled `llvmlite==0.44.0`, `numpy==2.2.6` as
+dependencies) — confirmed fixed on 3 different real files, and Iron's full synthetic test
+suite re-run clean afterward (71 passed, 1 xfailed) to confirm the numpy downgrade didn't
+regress Iron itself. **Whoever next sets up this venv from a clean `pip install -r
+requirements.txt` should check whether `numba` still resolves to an incompatible version by
+default** — this may need pinning in `requirements.txt` or `requirements_optional.txt`
+rather than being a one-off fix, since it will silently recur for anyone who reinstalls.
+
+A separate, secondary characteristic (not a bug): numba JIT-compiles on first call, so the
+*first* track any given worker process handles pays a real ~8s one-time cost, dropping to
+~0.5s for every track after in that same (reused) worker. Confirmed directly (same file,
+timed twice in-process: 7.83s cold, then 0.53s warm on a different file same process).
+Visible in §14.4's scale-degradation numbers as librosa getting *faster* over the run, not
+slower — an artifact of warm-up amortizing, not genuine improvement with scale.
+
+### 14.3 The headline numbers, and why librosa's are misleading
+
+n=1000, embedded-tag ground truth, `bpm range=[60.0,180.0]` for Iron (its own tuned
+default), librosa via the real production fallback path (`_load_audio_ffmpeg`'s 90s centered
+window + `_detect_bpm(fix_octaves=True)`, exactly as production actually calls it):
+
+| | Iron | librosa (live) | essentia (historical) |
+|---|---|---|---|
+| BPM exact (0.6) | 17.5% | 83.2% | 91.4% |
+| BPM within 1% | 35.6% | 83.2% | 94.8% |
+| BPM MIREX (4%) | 67.1% | 84.3% | 98.3% |
+| Key exact (Camelot) | 32.5% | 62.2% | n/a (no essentia key path in this codebase) |
+| avg wall-clock/track | 5.65s | 5.78s | (no live data) |
+| errors / hangups | 0 / 0 | 0 / 0 | (no live data) |
+
+**librosa's BPM numbers are a methodological artifact, not evidence it's suddenly better
+than Iron.** `_detect_bpm(fix_octaves=True)`'s `_fold_octave` doesn't detect the correct
+octave — it unconditionally folds the raw `beat_track` output into a hardcoded `[76,152)` by
+repeated doubling/halving, regardless of whether that's musically correct. 90.8% of this
+real library's embedded BPM tags already fall inside that exact range (unsurprising for a DJ
+library), so the fold "succeeds" on most tracks by construction. Splitting the sample on
+this exposes it directly:
+
+| | n | Iron MIREX | librosa MIREX |
+|---|---|---|---|
+| true_bpm inside [76,152) | 908 | 69.4% | 90.4% |
+| true_bpm outside [76,152) | 92 | **44.6%** | **23.9%** |
+
+On the ~9% of tracks the fold structurally cannot rescue, Iron is nearly 2x more accurate.
+That split is the fairer read of actual detection quality. Iron's unsplit 67.1% also lines
+up with its own already-documented range on other large, non-curated real samples this week
+(§9.3: 60.7%, §13: 74.5%) — it is not an outlier; librosa's number was.
+
+**Open question for whoever wants to chase this**: should Iron adopt an *unconditional*
+"when genuinely uncertain, prefer the conventional DJ tempo range" tie-break as a final
+fallback layer, given real libraries skew this hard toward [76,152)? This is different from
+`_GENRE_BANDS` (evidence-gated, only overrides on a decisive rival) — it would be a blind
+prior, the same trade `_fold_octave` makes. Not attempted here; flagged as a real, if
+philosophically uncomfortable, option worth a validated experiment rather than dismissing on
+principle.
+
+### 14.4 Timing, hangups, and scale — none of it moved
+
+- Zero errors, zero hangups, zero track-level timeouts across all 1200 tracks analyzed
+  (1000 + a 100 MP3/100 AIFF `--format-stratified` follow-up) after §14.2's fix.
+- Scale-degradation (first 500 vs. second 500 tracks, by original scan-encounter order, not
+  completion order): Iron +0.39s (flat), librosa -1.11s (faster, not slower — §14.2's numba
+  warm-up amortizing, not real degradation). **Neither engine slows down as the batch grows**
+  — this directly answers docs/iron/RESEARCH.md §7.4's "wall-clock time... matters for real
+  library-scan UX" ask, at least for the 1000-track scale tested here.
+- Format (100 MP3 vs. 100 AIFF, guaranteed-stratified): accuracy identical within noise for
+  both engines (Iron 67.0% MIREX both formats; librosa 88.0% MP3 vs. 87.0% AIFF). Timing
+  nearly identical too (librosa 4.88s MP3 vs. 4.15s AIFF — AIFF's lack of lossy-decode
+  overhead is a small, not dominant, effect). **Format doesn't meaningfully change either
+  engine's accuracy or speed** on this drive.
+- Rekordbox bonus column (this drive's `master.db` cross-referenced by resolvable
+  `FolderPath`): 247/1000 tracks had a stored key (37.7% exact-Camelot match against the
+  embedded tag), but **0/1000 had a stored BPM** — this library slice has essentially no
+  Rekordbox BPM-analysis history, confirming and extending §9's own "only 63 of ~1066
+  DATABASE-resolvable files have ANY stored Rekordbox BPM" finding. "Rekordbox" is not a
+  usable BPM data point for this drive/sample; don't re-attempt without first checking
+  coverage the way this section did.
+
+---
+
 ## How to add to this doc
 
 Append a new dated section (`## N. <short title>`) rather than editing existing sections'

@@ -34,6 +34,16 @@ librosa>=0.10.2
 # Always required: essentia is the accuracy upgrade, librosa is the floor that
 # works on every platform.
 
+numba<0.62
+# Pinned below the version pip resolves by default (0.62.1 as of 2026-08) because that
+# version SEGFAULTS -- not raises an exception, an unrecoverable process crash -- inside
+# librosa.beat.beat_track() on every real file tested, under Python 3.13. Confirmed via
+# `python -X faulthandler`: the crash is inside a numba-JIT-compiled gufunc
+# (numba/np/ufunc/gufunc.py) called from librosa/beat.py's __last_beat. This is the BPM
+# fallback path production actually uses when essentia is unavailable (the common case --
+# see requirements_optional.txt), so an unpinned numba silently breaks it. 0.61.2 confirmed
+# working (docs/IRON_RESEARCH.md SS14.2) -- re-validate before raising this pin.
+
 # essentia is deliberately NOT listed here — see requirements_optional.txt.
 # Its wheel coverage is narrow enough that a hard dependency would abort this
 # entire install on a supported machine, so it is installed best-effort.
