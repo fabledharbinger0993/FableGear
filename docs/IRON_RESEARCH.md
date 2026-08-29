@@ -441,6 +441,13 @@ findings).
   *best*-performing BPM range once the benchmark harness's range bug, §9.2, is corrected).
   Don't re-investigate a DnB-specific fix off a benchmark run's raw numbers without first
   checking that run used `--bpm-min 60 --bpm-max 180` explicitly (§9.2's gotcha).
+- Kick-isolated inter-onset-interval tempo (§7.2's idea) was tried twice against real
+  syncopated-genre tracks — global threshold, then an adaptive local-mean threshold — and
+  both underperformed Iron's existing whole-track answer badly (§15: 20% vs Iron's 45%),
+  with the SAME specific bogus BPM value appearing across unrelated tracks both times. That
+  rules out the peak-picker as the cause. Don't try a third peak-picker variant without
+  first validating `dsp.onset_envelope_multiband`'s kick band directly against a real
+  continuous-bassline track — the problem is suspected to be upstream of peak-picking.
 
 ---
 
@@ -1441,6 +1448,70 @@ principle.
   DATABASE-resolvable files have ANY stored Rekordbox BPM" finding. "Rekordbox" is not a
   usable BPM data point for this drive/sample; don't re-attempt without first checking
   coverage the way this section did.
+
+---
+
+## 15. Kick-isolated inter-onset-interval tempo: tried twice (global then adaptive threshold), reverted both times (2026-08-29)
+
+User-directed follow-up to §14's finding that Iron's tempo detection has a real, still-open
+weak spot on syncopated/human-played genres (hip-hop, R&B, soul, funk) — specifically
+motivated by two of the segmented-vote experiments in this same session landing on
+consistently, confidently WRONG answers on hip-hop tracks regardless of window size,
+suggesting a structural scoring problem rather than a sampling one. §7.2's kick-isolated
+IOI idea (isolate the 20-150Hz kick/sub-bass band, take inter-onset-intervals between kick
+peaks, use the median as a tempo candidate) was the most concrete untried technique already
+flagged in this doc for exactly this failure mode — tested standalone here (not wired into
+`iron.tempo`'s decision logic), against 20 real tracks split 12 syncopated-genre / 8
+straight-time-genre, run in the same 4s-sample-every-15s segmented structure validated
+earlier in this session.
+
+**Both attempts underperformed Iron's existing whole-track answer, badly, including on the
+syncopated genres this was meant to help:**
+
+| | n | Iron (existing) | Kick-IOI, global threshold | Kick-IOI, adaptive threshold |
+|---|---|---|---|---|
+| Overall | 20 | **9/20 (45%)** | 4/20 (20%) | 4/20 (20%) |
+| Syncopated (hip-hop/R&B/soul/funk) | 12 | **6/12 (50%)** | 2/12 (17%) | 2/12 (17%) |
+| Straight-time (house/techno/electronic) | 8 | 3/8 (38%) | 2/8 (25%) | 2/8 (25%) |
+
+**Attempt 1 — global threshold** (`env.mean() + env.std()` over the whole 4s window,
+matching §7.2's own description): a specific bogus value, **143.55 BPM, appeared as the
+answer for 4 of 20 completely unrelated tracks** (a hip-hop instrumental, a James Brown
+funk track, and two different techno tracks) — not a real musical coincidence, a peak-
+picker artifact. Diagnosis: a global mean+std threshold has no notion of "this just rose
+above where it recently was" — on continuous/legato low-end content (a walking bass line,
+a sustained bass note, common in exactly the funk/soul/R&B genres this was meant to help)
+it either fires on gentle natural fluctuation or misses everything, producing a spurious
+near-regular spacing that reflects the threshold statistics, not the audio.
+
+**Attempt 2 — adaptive local-mean threshold** (Dixon 2006, "Onset Detection Revisited": a
+frame must exceed `1.5x` its own local ~1s-neighborhood mean, not one global number,
+plus an absolute floor relative to the segment's own peak to suppress near-silence — an
+independent implementation of a published, non-proprietary method): **same overall
+accuracy, same specific 143.55 BPM artifact still appearing 4 times** across a different
+subset of tracks. This is the important negative result, not the accuracy number alone —
+an adaptive threshold should have killed a pure "global statistics on noise" artifact, and
+didn't. That rules out the threshold *scheme* as the root cause. The more likely
+explanation, not yet confirmed: the problem sits one level deeper, in
+`dsp.onset_envelope_multiband`'s kick-band (20-150Hz) spectral flux itself — a sustained/
+continuous bass note can produce its own periodic energy ripple from the STFT's frame-to-
+frame structure (an artifact of analysis parameters, not rhythmic content), and no amount
+of peak-picking sophistication fixes a feature measuring the wrong thing at the source.
+
+**Don't re-attempt a third peak-picker variant on top of the same feature.** Two
+structurally different threshold schemes converged on the same failure mode and the same
+specific artifact value — that's the signature of a problem upstream of peak-picking, not
+a tunable parameter in it. Whoever picks this up next should first validate
+`onset_envelope_multiband`'s band[0] output directly against a real continuous-bassline
+track (plot it, don't just consume it) before trying another peak-picker on top of it. The
+kick-isolated IOI *idea* itself isn't ruled out by this — only these two implementations of
+it are.
+
+**Standalone scripts, not committed** (scratchpad, per this session's "quick smoke test"
+scope — not production code, not run at validated scale):
+`kick_ioi_experiment.py` (whole-track version) and `kick_ioi_segmented.py` (the 4s/15s
+segmented version both attempts above used, adaptive-threshold version is what's in that
+file currently).
 
 ---
 
