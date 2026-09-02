@@ -14,6 +14,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -250,9 +251,37 @@ def _tokens_from_command(command: str) -> list[str]:
         return command.split()
 
 
+def _is_fablegear_cli_token(tok: str) -> bool:
+    """True only for FableGear's OWN cli.py entry point.
+
+    Basename matching alone ("does some token end in cli.py") is not enough.
+    The companion guard, `str(REPO_ROOT) in command`, looks like it narrows that
+    down but does not: setup.sh creates the venv INSIDE the repo
+    ($SCRIPT_DIR/venv), so on a standard install sys.executable is already
+    `<REPO_ROOT>/venv/bin/python`. The repo path is therefore present in the
+    command line of *anything* launched with FableGear's interpreter, and an
+    unrelated `.../some_other_project/cli.py` run with that Python satisfied both
+    checks — reported as a running FableGear scan, blocking /api/update/apply and
+    eligible for os.killpg() by the emergency stop.
+
+    Compare against str(CLI_PATH) as a string rather than requiring a file on
+    disk: in frozen PyInstaller bundles CLI_PATH is a sentinel that never exists
+    (see its definition, and main.py's argv[1].endswith('cli.py') dispatch), yet
+    every spawn site builds its command with exactly `str(CLI_PATH)`.
+    """
+    if Path(tok).name != "cli.py":
+        return False
+    if tok == str(CLI_PATH):
+        return True
+    try:
+        return Path(tok).resolve() == CLI_PATH.resolve()
+    except OSError:
+        return False
+
+
 def _cli_tool_from_tokens(tokens: list[str]) -> str | None:
     for idx, tok in enumerate(tokens):
-        if Path(tok).name == "cli.py":
+        if _is_fablegear_cli_token(tok):
             if idx + 1 < len(tokens):
                 return tokens[idx + 1]
             return None
@@ -317,9 +346,20 @@ def _registry_meta_matches_cli_tool(meta: dict, tool: str | None = None) -> bool
 
 
 def _list_orphaned_cli_pids(tool: str | None = None) -> list[int]:
-    pattern = f"{REPO_ROOT}/cli.py"
+    # pgrep -f matches the pattern anywhere in a process's argv, and treats it
+    # as an extended regex. Both properties make it a PREFILTER, never proof:
+    #   - `vim /path/to/FableGear/cli.py`, a `tail -f` on it, or the shell that
+    #     merely mentions the path in its own argv all match.
+    #   - an install path containing regex metacharacters (`My Library (2024)`)
+    #     would otherwise be interpreted rather than matched literally.
+    # Callers feed this list to _kill_process_group_or_pid(), which starts with
+    # os.killpg() — so an unvalidated hit means SIGKILLing an unrelated process
+    # GROUP (the user's editor and its shell). Every hit is therefore re-read
+    # from the process table and checked with the same predicate the ps-based
+    # scan below applies, so both paths agree on what counts as a FableGear CLI.
+    pattern = re.escape(f"{REPO_ROOT}/cli.py")
     if tool:
-        pattern = f"{pattern} {tool}"
+        pattern = f"{pattern} {re.escape(tool)}"
 
     try:
         out = subprocess.check_output(
@@ -335,6 +375,8 @@ def _list_orphaned_cli_pids(tool: str | None = None) -> list[int]:
             except ValueError:
                 continue
             if pid <= 0 or pid == os.getpid() or not _pid_exists(pid):
+                continue
+            if not _pid_matches_cli_tool(pid, tool):
                 continue
             pgrep_pids.add(pid)
         if pgrep_pids:

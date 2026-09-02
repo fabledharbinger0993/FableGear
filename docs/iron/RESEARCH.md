@@ -283,3 +283,47 @@ fix.
 ---
 
 <!-- Add new sections below this line, oldest first. -->
+
+## 7. 2026-09-02 — Test-harness finding only (no algorithm change)
+
+Scope note up front, so nobody re-reads this expecting accuracy work:
+**nothing in Iron's detection code was changed.** This section exists only so
+the next session doesn't spend time re-diagnosing a test failure that isn't a
+detection bug.
+
+**`tests/test_iron_dryrun.py` hard-failed on any machine without ffmpeg.**
+Iron decodes through an ffmpeg subprocess by deliberate design (`iron/api.py`:
+going through ffmpeg rather than a container-specific reader is what lets Iron
+analyze anything ffmpeg can decode — that design is unchanged and was not
+questioned here). With no ffmpeg on PATH, `analyze()` returns
+`ok=False, errors=["<name>: ffmpeg invocation failed (...)"]`, so every file in
+the survey reports `status="error"` and the test's
+`assert all(f.status == "ok" ...)` fails.
+
+CI installs ffmpeg via Homebrew, so this was never red on `main` — it only bites
+local runs and any environment without it. `test_audio_processor.py` and
+`test_tagger_effects.py` already had a `_require_ffmpeg()` skip guard for exactly
+this; `test_iron_dryrun.py` did not. Added the same guard.
+
+Two of the four tests in that file are decoder-independent (they only count
+files) and still run everywhere. The guard went on the two that are not:
+
+- `test_survey_reports_files_and_never_writes` — failed outright without ffmpeg.
+- `test_survey_reports_unreadable_file_without_raising` — the more interesting
+  one: it *passed* without ffmpeg, but **vacuously**. It asserts a corrupt mp3
+  yields `status="error"` with a `detail`; with no decoder installed every file
+  yields exactly that, so the assertion could not distinguish "corrupt input"
+  from "no decoder present". It was not testing what it claimed on such a
+  machine. It now skips instead.
+
+Also in `tests/test_iron_key.py`: `_chord()` built its sum with the builtin
+`sum()`, whose accumulator seeds at int `0`, giving an inferred type of
+`NDArray | float` that pyright rejected against the declared `np.ndarray`
+return. That was the repo's single pyright error, and CI gates on pyright.
+Replaced with `np.stack([...]).sum(axis=0)`. Verified bit-identical output
+(`np.array_equal` True, max abs diff 0.0) — this is a typing fix, not a change
+to any fixture the key tests measure against.
+
+**Not investigated here:** none of the §5 accuracy gaps were touched, and no
+measurement against the 12,687-track ground-truth set was attempted. The
+baseline numbers in §1 are unaffected by anything in this section.

@@ -25,7 +25,7 @@ import threading
 from pathlib import Path
 
 import psutil
-from werkzeug.exceptions import NotFound
+from werkzeug.exceptions import HTTPException, NotFound
 
 _SYSTEM = platform.system()  # "Darwin" | "Windows" | "Linux"
 
@@ -39,6 +39,7 @@ from helpers import (
     _release_info,
     _sse_response,
     api_error_from_exc,
+    api_error_response,
     get_step_status,
     limiter,
     list_running_managed_subprocesses,
@@ -61,6 +62,25 @@ app = Flask(
 def _handle_unexpected_exception(exc):
     if request.path.startswith("/api/"):
         import logging as _logging
+
+        # Werkzeug's own HTTPExceptions (405 on a POST-only route, 404, 413,
+        # the 400 from a websocket-route mismatch) already carry the right
+        # status. Falling through to api_error_from_exc() relabelled every one
+        # of them as 500 "Something went wrong.": the caller was told the server
+        # broke when it had actually used the wrong method or URL, and each one
+        # was logged at exception level, burying genuine 500s in the noise.
+        # Probing the read-only API surface turned up 18 of these and 0 real
+        # server faults, which is exactly the signal this handler was hiding.
+        if isinstance(exc, HTTPException):
+            _logging.getLogger(__name__).info(
+                "%s %s → %s %s", request.method, request.path, exc.code, exc.name
+            )
+            return api_error_response(
+                exc.description or exc.name,
+                status=exc.code or 500,
+                code=exc.name.lower().replace(" ", "_"),
+            )
+
         _logging.getLogger(__name__).exception(
             "Unhandled exception on %s %s", request.method, request.path
         )

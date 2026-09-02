@@ -647,3 +647,44 @@ def test_update_apply_not_blocked_by_untracked_only(client, monkeypatch):
     assert resp.status_code != 409
     assert data["ok"] is False
     assert "uncommitted changes" not in data["error"]
+
+
+# ── HTTP error passthrough ────────────────────────────────────────────────────
+#
+# app.py's catch-all @app.errorhandler(Exception) used to hand every exception
+# raised under /api/ to api_error_from_exc(), which is hardcoded to status 500.
+# Werkzeug's routing raises HTTPException subclasses for ordinary client
+# mistakes, so a GET against a POST-only route answered 500 "Something went
+# wrong." instead of 405, and each one was logged at exception level — burying
+# real server faults. Probing the read-only API surface produced 18 such
+# responses and zero genuine 500s.
+
+def test_wrong_method_returns_405_not_500(client):
+    """A GET against a POST-only API route is a client error, not a server fault."""
+    resp = _hit(client, "/api/update/apply", LOOPBACK, method="GET")
+
+    assert resp.status_code == 405, (
+        "a method mismatch must surface as 405; 500 tells the caller the server "
+        "broke and hides the real cause"
+    )
+
+
+def test_unknown_api_path_returns_404_not_500(client):
+    resp = _hit(client, "/api/definitely-not-a-real-endpoint", LOOPBACK)
+
+    assert resp.status_code == 404
+
+
+def test_genuine_server_error_still_returns_500(client, monkeypatch):
+    """The passthrough must not swallow real faults — only HTTPExceptions."""
+    import app as _app
+
+    def _boom():
+        raise RuntimeError("simulated internal fault")
+
+    # /api/status is a plain GET route; make one of its collaborators raise.
+    monkeypatch.setattr(_app, "_rb_is_running", _boom)
+    resp = _hit(client, "/api/status", LOOPBACK)
+
+    assert resp.status_code == 500
+    assert resp.get_json()["ok"] is False

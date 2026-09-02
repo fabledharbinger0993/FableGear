@@ -4,10 +4,25 @@ iron.dryrun: the survey runs clean against real files and never modifies anythin
 
 from __future__ import annotations
 
+import shutil
+
 import numpy as np
+import pytest
 import soundfile as sf
 
 from iron import dryrun
+
+
+def _require_ffmpeg() -> None:
+    """Iron decodes through an ffmpeg subprocess by deliberate design (see
+    iron/api.py: going through ffmpeg rather than a container-specific reader is
+    what lets Iron analyze anything ffmpeg can decode). Without it every file
+    reports status="error", so the assertions below are about the decoder being
+    installed rather than about the survey. Skip, matching the existing
+    _require_ffmpeg() guards in test_audio_processor.py and test_tagger_effects.py.
+    """
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed — skipping decode-dependent survey test")
 
 
 def _write_wav(path, bpm: float = 128.0, seconds: float = 6.0, sr: int = 44100) -> None:
@@ -24,6 +39,7 @@ def _write_wav(path, bpm: float = 128.0, seconds: float = 6.0, sr: int = 44100) 
 
 
 def test_survey_reports_files_and_never_writes(tmp_path):
+    _require_ffmpeg()
     a = tmp_path / "a.wav"
     b = tmp_path / "b.wav"
     _write_wav(a, bpm=128.0)
@@ -63,6 +79,11 @@ def test_survey_respects_limit(tmp_path):
 
 
 def test_survey_reports_unreadable_file_without_raising(tmp_path):
+    # Also decoder-dependent, but in the direction that hides a failure rather
+    # than causing one: with no ffmpeg installed EVERY file reports
+    # status="error", so this passes without proving anything about corrupt
+    # input. Skipping is honest; a vacuous pass is not.
+    _require_ffmpeg()
     bad = tmp_path / "corrupt.mp3"
     bad.write_bytes(b"not actually audio data")
 
