@@ -74,24 +74,35 @@ def test_process_merely_mentioning_cli_path_is_not_a_scan(reaped):
 
 
 def test_foreign_cli_py_run_with_fablegear_python_is_not_a_scan(reaped, tmp_path):
-    """An unrelated project's cli.py, launched with FableGear's own interpreter.
+    """An unrelated project's cli.py, in a command line that mentions the repo.
 
     This is the case the `str(REPO_ROOT) in command` guard was supposed to cover
-    and did not. setup.sh builds the venv at $SCRIPT_DIR/venv -- inside the repo
-    -- so sys.executable is `<REPO_ROOT>/venv/bin/python` on a normal install and
-    the repo path appears in the command line of anything it launches. Combined
+    and did not. On a normal install setup.sh builds the venv at $SCRIPT_DIR/venv
+    -- inside the repo -- so sys.executable is `<REPO_ROOT>/venv/bin/python` and
+    the repo path lands in the command line of anything it launches. Combined
     with matching cli.py on basename alone, a foreign cli.py was reported as a
     running FableGear scan.
+
+    The in-repo interpreter path is passed as an explicit argument rather than
+    relied on from sys.executable. An earlier version of this test asserted
+    sys.executable was inside the repo, which is true for a dev/user install but
+    NOT on CI, where actions/setup-python supplies an interpreter from
+    /Library/Frameworks -- so the guard failed there instead of running. What the
+    defect actually keys on is the repo path being present in argv for a reason
+    unrelated to the cli.py token; spelling that out keeps the test faithful and
+    environment-independent.
     """
     foreign = tmp_path / "cli.py"
     foreign.write_text("import time\ntime.sleep(60)\n")
+    in_repo_python = str(REPO_ROOT / "venv" / "bin" / "python")
 
-    # Deliberately FableGear's interpreter, exactly as a dev/user install has it.
-    proc = reaped([sys.executable, str(foreign), "import"])
+    proc = reaped([sys.executable, "-c", "import time; time.sleep(60)",
+                   in_repo_python, str(foreign), "import"])
     time.sleep(0.5)
     assert proc.poll() is None, "fixture process died before the assertion"
 
-    assert str(REPO_ROOT) in f"{sys.executable} {foreign} import", (
+    cmdline = f"{sys.executable} -c ... {in_repo_python} {foreign} import"
+    assert str(REPO_ROOT) in cmdline, (
         "precondition: the repo path must appear in the command line, otherwise "
         "this test is not exercising the bug it guards"
     )
