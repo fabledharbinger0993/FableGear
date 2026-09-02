@@ -675,6 +675,22 @@ def test_unknown_api_path_returns_404_not_500(client):
     assert resp.status_code == 404
 
 
+@pytest.mark.parametrize("path", ["/favicon.ico", "/nonexistent-page", "/static/nope.png"])
+def test_non_api_404_is_404_not_500(client, path):
+    """Off /api/, the handler used to `raise exc`.
+
+    Re-raising from inside an error handler makes Flask abandon its own error
+    handling and return 500, so every ordinary 404 — a browser probing
+    /favicon.ico, a mistyped page, a missing image — answered 500.
+    """
+    resp = _hit(client, path, LOOPBACK)
+
+    assert resp.status_code == 404, (
+        f"{path} must 404; a 500 here tells the browser the server broke over a "
+        "missing file"
+    )
+
+
 def test_genuine_server_error_still_returns_500(client, monkeypatch):
     """The passthrough must not swallow real faults — only HTTPExceptions."""
     import app as _app

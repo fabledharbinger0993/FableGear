@@ -4671,7 +4671,7 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
 }
 .le-tree-item.active {
   background: rgba(0, 180, 200, 0.13);
-  border-left-color: #00d4e8;
+  border-left-color: var(--room-accent);
   color: #9fe8f8;
   font-weight: 600;
 }
@@ -4717,10 +4717,10 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
   user-select: none;
 }
 .le-track-header .le-col { cursor: pointer; transition: color .12s; }
-.le-track-header .le-col:hover { color: #00d4e8; }
+.le-track-header .le-col:hover { color: var(--room-accent); }
 .le-track-header .le-col-play { cursor: default; }
 .le-track-header .le-col-play:hover { color: rgba(0, 180, 200, 0.5); }
-.le-sort-arrow { color: #00d4e8; font-style: normal; }
+.le-sort-arrow { color: var(--room-accent); font-style: normal; }
 
 .le-track-list {
   flex: 1;
@@ -4759,7 +4759,7 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
 }
 .le-track-row.selected {
   background: rgba(0, 180, 200, 0.16);
-  border-left: 2px solid #00d4e8;
+  border-left: 2px solid var(--room-accent);
   color: #b0eef8;
 }
 
@@ -4835,7 +4835,7 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
   border-radius: 4px;
   padding: 1px 6px;
   font-size: .7rem;
-  color: #00d4e8;
+  color: var(--room-accent);
   font-family: var(--mono);
   letter-spacing: .02em;
 }
@@ -4898,8 +4898,8 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
 }
 .le-load-btn {
   background: rgba(0, 160, 180, 0.14);
-  border: 1px solid rgba(0, 212, 232, 0.38);
-  color: #00d4e8;
+  border: 1px solid rgba(var(--room-accent-rgb), 0.38);
+  color: var(--room-accent);
   border-radius: 6px;
   padding: 3px 14px;
   font-size: .73rem;
@@ -6196,6 +6196,17 @@ footer {
 :root {
   --chop-terminal-w: clamp(260px, 28vw, 380px);
   --chop-readout-h: clamp(110px, 16vh, 170px);
+}
+
+/* --chop-zone-top is declared on `body`, NOT on :root, and that placement is
+   load-bearing. It derives from --rail-h, and the Chop Shop raises --rail-h
+   from 84px to 96px on `body.fg-space-chop`. A custom property is substituted
+   using the value in effect on the element that DECLARES it, so a :root
+   declaration reads :root's 84px and never sees the body override — measured in
+   Chrome: the rail ran to y=180 while #log-panel started at y=172, an 8px
+   overlap. Declaring it here lets it resolve against whichever --rail-h the
+   active room set. Keep it on body if you move it. */
+body {
   --chop-zone-top: calc(var(--titlebar-h) + var(--header-h) + var(--rail-h) + 4px);
 }
 
@@ -6896,14 +6907,15 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
    (left ⅓ read-only terminal = repositioned #log-panel, right ⅔ = #chop-readout).
    All rules are scoped to body.fg-space-chop so the Record Room is untouched.
    ──────────────────────────────────────────────────────────────────────────── */
-:root {
-  /* Terminal takes up the left column; progress bar is a compact strip at the bottom.
-     --chop-terminal-w: width of the left terminal column.
-     --chop-readout-h:  height of the compact progress strip. */
-  --chop-terminal-w: clamp(260px, 28vw, 380px);
-  --chop-readout-h: clamp(110px, 16vh, 170px);
-  --chop-zone-top: calc(var(--titlebar-h) + var(--header-h) + var(--rail-h) + 4px);
-}
+/* The three Chop Shop layout tokens were declared here a second time, byte for
+   byte identical to the block above:
+     --chop-terminal-w  width of the left terminal column
+     --chop-readout-h   height of the compact progress strip
+     --chop-zone-top    top of the content zone, below the rail
+   Two copies of the same values is a trap rather than a conflict — editing one
+   changes nothing until the later copy is edited too. Removed; the block above
+   is the only declaration, and --chop-zone-top now sits on `body` so it can see
+   the Chop Shop's taller --rail-h. */
 
 /* Hide the scrolling card stack + intro — the docked modal is the tool surface */
 body.fg-space-chop #chop-card-stack { display: none; }
