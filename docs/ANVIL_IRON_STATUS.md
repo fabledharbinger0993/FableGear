@@ -111,6 +111,31 @@ implies:
 Whatever the number is, expect it to differ by genre — a benchmark broken down by BPM range
 (and, if taggable, by genre) will be more actionable than one aggregate percentage.
 
+### 3.1 — RESULT (2026-10-02): Iron's tempo detector was rebuilt and now matches essentia
+
+The first real-music run of the original detector (single spectral-flux curve, one global
+autocorrelation, hand-drawn genre bands) scored ~40% within 1% on Rekordbox ground truth --
+no better than librosa. Its errors were dominated by 3:2 and 2x mistakes, and its confidence
+did not separate right from wrong. It was replaced by a multi-onset-function, windowed
+autocorrelation, tempo-prior design (see `iron/tempo.py`), tuned on a 250-track development
+split and confirmed on a disjoint 250-track held-out split, then scored with
+`scripts/benchmark_iron_tempo.py` on a random 300-track sample (271 tracks never used in
+tuning):
+
+| | exact (+-0.6) | within 1% | MIREX (4%) |
+|---|---|---|---|
+| Iron, original | ~38% | ~40-49% | ~41-50% |
+| Iron, rebuilt | **91.7%** | **95.0%** | 96.3% |
+| essentia (historical) | 91.4% | 94.8% | 98.3% |
+| librosa (historical) | 13.4% | 36.8% | 90.7% |
+
+Caveats: ground truth is Rekordbox's own analysis (as in the historical numbers), matched to
+files by filename because the database's stored paths are stale; the tempo prior is tuned to a
+club-music library; Iron is ~2 points under essentia on MIREX (residual half-tempo and 4:3
+errors). `bpm_confidence` is now informative: tracks at confidence >= 0.3 were right ~99% of
+the time. **Wired in as the primary BPM path** in `audio_processor.process_file` (Iron ->
+essentia -> librosa); key detection and Anvil tag-writing are not yet cut over -- see 3.2.
+
 ### 3.2 — Wire Iron + Anvil in, behind a flag, without removing anything
 
 Once Iron clears whatever bar comes out of §3.1:
