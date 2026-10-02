@@ -57,20 +57,16 @@ correlated against the Krumhansl-Schmuckler major/minor key profiles (Krumhansl 
 correlation step was already original code before this package existed -- the only thing that
 used to come from librosa was the chroma extraction itself.
 
-**Tempo** (`iron/tempo.py`): spectral-flux onset detection feeds an autocorrelation
-periodicity analysis (the approach underlying published beat trackers since Scheirer 1998).
-Octave disambiguation -- telling a tempo from its double or half, the single hardest part of
-this problem -- uses two corrections:
-
-- *Harmonic-sum scoring*: a candidate period is scored by its own autocorrelation plus a
-  weighted sum of its first few multiples, which favours true fundamentals (whose multiples
-  are real periodicities of the same pulse train) over subharmonic aliases.
-- *Genre-band correction*: a working DJ library clusters tightly by genre (house ~118-130,
-  techno ~125-145, drum & bass ~160-180, ...) -- real prior information a generic MIR tool
-  doesn't get to assume. Applied only when the raw winner sits outside every band and a
-  multiple/submultiple of it both lands inside one and still carries a meaningful share of
-  the raw winner's score -- never used to override a candidate that's already winning
-  cleanly.
+**Tempo** (`iron/tempo.py`): five onset-strength functions (full-band, low, mid and high
+band log-mel spectral flux, plus high-frequency content) each feed a windowed autocorrelation
+(8 s windows averaged, so a periodicity must hold throughout the track). Each is reduced to a
+tempo curve by harmonic-sum scoring and the curves are summed -- the multi-feature idea of
+Zapata et al. 2014, independently implemented from the published method. Octave and 3:2
+ambiguity -- telling a tempo from its double, half or compound -- is settled by a broad
+log-normal tempo prior (centre 125 BPM, one sigma = 0.6 octave): harmonic-sum scoring alone is
+biased toward slow candidates, and without the prior the detector picks half-tempo on most
+tracks. The prior is a preference, not a band: a clear periodicity still wins from well
+outside it. `bpm_confidence` is the winner's margin over the best unrelated rival tempo.
 
 **Beat grid and meter** (`iron/beats.py`, opt-in via `analyze(want=(..., "downbeat_offset"))`):
 built on top of an already-decided `bpm`, not a separate detector. `iron.dsp.track_beats` --
@@ -104,14 +100,15 @@ not ported.
   means "don't trust which beat is 1 here," the same spirit as `bpm_confidence`. Time
   signature (3/4 vs the 4/4 default) has the same caveat, and doesn't attempt compound
   meters (6/8 and similar) at all -- see `iron/beats.py`'s module docstring for why.
-- **Accuracy is unvalidated against essentia's measured baseline.** essentia's
-  `RhythmExtractor2013` was benchmarked at 91.4% exact-BPM (±0.6 BPM) agreement against 12,687
-  real Rekordbox ground-truth beat grids (see `requirements_optional.txt`); librosa's
-  fallback path measured 13.4% on the same benchmark. Iron has not yet been run through that
-  same benchmark. **essentia and librosa remain in `requirements.txt` /
-  `requirements_optional.txt` and Iron is not yet the primary detection path anywhere in
-  FableGear** -- that cutover happens only after Iron clears an accuracy bar measured the
-  same way, not automatically because this package exists.
+- **Accuracy, measured.** Against Rekordbox's own BPMs for a random 300-track sample of the
+  maintainer's library (5,844 tracks matched by filename), Iron scores 91.7% exact (+-0.6
+  BPM), 95.0% within 1%, 96.3% MIREX (+-4%) -- versus essentia's historical 91.4% / 94.8% /
+  98.3% and librosa's 13.4% / 36.8% / 90.7% (`requirements_optional.txt`). Both sit on the same
+  kind of ground truth (a Rekordbox grid), not on a human-annotated corpus, and the library is
+  club music, so the tempo prior is tuned to it; a library of very slow or very fast music
+  would score lower. Remaining errors are mostly half-tempo and 4:3. **essentia and librosa
+  remain in `requirements.txt` / `requirements_optional.txt` and Iron is not yet the primary
+  detection path anywhere in FableGear** -- that cutover is a separate decision.
 - **A near-perfectly-periodic signal is a genuinely hard case.** Autocorrelation-based
   disambiguation relies on real asymmetry in the onset pattern (dynamics, kick/snare
   contrast); an idealized, exactly-regular pulse train is mathematically ambiguous between
