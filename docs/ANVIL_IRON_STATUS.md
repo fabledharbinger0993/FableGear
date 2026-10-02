@@ -133,7 +133,8 @@ Caveats: ground truth is Rekordbox's own analysis (as in the historical numbers)
 files by filename because the database's stored paths are stale; the tempo prior is tuned to a
 club-music library; Iron is ~2 points under essentia on MIREX (residual half-tempo and 4:3
 errors). `bpm_confidence` is now informative: tracks at confidence >= 0.3 were right ~99% of
-the time. Not yet wired into the app -- see 3.2.
+the time. **Wired in as the primary BPM path** in `audio_processor.process_file` (Iron ->
+essentia -> librosa); key detection and Anvil tag-writing are not yet cut over -- see 3.2.
 
 ### 3.2 — Wire Iron + Anvil in, behind a flag, without removing anything
 

@@ -106,9 +106,10 @@ not ported.
   98.3% and librosa's 13.4% / 36.8% / 90.7% (`requirements_optional.txt`). Both sit on the same
   kind of ground truth (a Rekordbox grid), not on a human-annotated corpus, and the library is
   club music, so the tempo prior is tuned to it; a library of very slow or very fast music
-  would score lower. Remaining errors are mostly half-tempo and 4:3. **essentia and librosa
-  remain in `requirements.txt` / `requirements_optional.txt` and Iron is not yet the primary
-  detection path anywhere in FableGear** -- that cutover is a separate decision.
+  would score lower. Remaining errors are mostly half-tempo and 4:3. Iron is now
+  the **primary BPM detector** in `audio_processor.process_file` (Iron -> essentia if
+  installed -> librosa); key detection is still librosa, as Iron's key detector has not been
+  benchmarked. essentia and librosa stay in the requirements as fallbacks.
 - **A near-perfectly-periodic signal is a genuinely hard case.** Autocorrelation-based
   disambiguation relies on real asymmetry in the onset pattern (dynamics, kick/snare
   contrast); an idealized, exactly-regular pulse train is mathematically ambiguous between
