@@ -65,21 +65,6 @@
    "chain": "#fb-panel:158"
   },
   {
-   "el": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "id": "welcome-backdrop",
-   "position": "fixed",
-   "z": "10100",
-   "rect": [
-    0,
-    0,
-    1440,
-    900
-   ],
-   "area": 1296000,
-   "pe": "auto",
-   "chain": "#welcome-backdrop:10100"
-  },
-  {
    "el": "div#scan-bar \"FableGear \u2014 Ready Remaining \u2014 Complete w\"",
    "id": "scan-bar",
    "position": "fixed",
@@ -110,38 +95,38 @@
    "chain": "#library-editor-overlay:5"
   },
   {
-   "el": "div.sb-toast.toast-success \"Library audit complete \u2713\"",
-   "id": null,
+   "el": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "id": "fg-palette-backdrop",
    "position": "fixed",
-   "z": "20000",
+   "z": "9000",
    "rect": [
-    645,
-    802,
-    151,
-    34
-   ],
-   "area": 5155,
-   "pe": "auto",
-   "chain": "div.sb-toast:20000"
-  }
- ],
- "overlaps": [
-  {
-   "A": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "Az": "10100",
-   "Arect": [
     0,
     0,
     1440,
     900
    ],
-   "B": "div#library-editor-overlay \"RECORD ROOM All Music Library Integrated\"",
-   "Bz": "5",
-   "Brect": [
+   "area": 1296000,
+   "pe": "auto",
+   "chain": "#fg-palette-backdrop:9000"
+  }
+ ],
+ "overlaps": [
+  {
+   "A": "div#library-editor-overlay \"RECORD ROOM All Music Library Integrated\"",
+   "Az": "5",
+   "Arect": [
     80,
     28,
     1360,
     828
+   ],
+   "B": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "Bz": "9000",
+   "Brect": [
+    0,
+    0,
+    1440,
+    900
    ],
    "inter": [
     80,
@@ -151,8 +136,8 @@
    ],
    "area": 1126080,
    "frac_of_smaller": 1,
-   "on_top": "A",
-   "hit_at_center": "img.fgwin-card-art"
+   "on_top": "B",
+   "hit_at_center": "div.fg-palette-item \"Dead Files \u2014 find untracked audio Record\""
   },
   {
    "A": "div#left-panel \"\u21ba\"",
@@ -180,7 +165,7 @@
    "area": 69760,
    "frac_of_smaller": 1,
    "on_top": "neither",
-   "hit_at_center": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\""
+   "hit_at_center": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\""
   },
   {
    "A": "div#left-panel \"\u21ba\"",
@@ -191,8 +176,8 @@
     80,
     872
    ],
-   "B": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "Bz": "10100",
+   "B": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "Bz": "9000",
    "Brect": [
     0,
     0,
@@ -208,7 +193,7 @@
    "area": 69760,
    "frac_of_smaller": 1,
    "on_top": "B",
-   "hit_at_center": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\""
+   "hit_at_center": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\""
   },
   {
    "A": "div#fb-panel \"\u2191 \u2302 \u2715 Drag any item to a drop zone \u2197\"",
@@ -219,8 +204,8 @@
     260,
     872
    ],
-   "B": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "Bz": "10100",
+   "B": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "Bz": "9000",
    "Brect": [
     0,
     0,
@@ -236,24 +221,24 @@
    "area": 69760,
    "frac_of_smaller": 0.31,
    "on_top": "B",
-   "hit_at_center": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\""
+   "hit_at_center": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\""
   },
   {
-   "A": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "Az": "10100",
+   "A": "div#scan-bar \"FableGear \u2014 Ready Remaining \u2014 Complete w\"",
+   "Az": "190",
    "Arect": [
-    0,
-    0,
-    1440,
-    900
-   ],
-   "B": "div#scan-bar \"FableGear \u2014 Ready Remaining \u2014 Complete w\"",
-   "Bz": "190",
-   "Brect": [
     0,
     856,
     1440,
     44
+   ],
+   "B": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "Bz": "9000",
+   "Brect": [
+    0,
+    0,
+    1440,
+    900
    ],
    "inter": [
     0,
@@ -263,8 +248,8 @@
    ],
    "area": 63360,
    "frac_of_smaller": 1,
-   "on_top": "A",
-   "hit_at_center": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\""
+   "on_top": "B",
+   "hit_at_center": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\""
   },
   {
    "A": "div#titlebar \"RekordBox is closed \u2014 safe to write Buil\"",
@@ -275,8 +260,8 @@
     1440,
     28
    ],
-   "B": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "Bz": "10100",
+   "B": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "Bz": "9000",
    "Brect": [
     0,
     0,
@@ -292,63 +277,7 @@
    "area": 40320,
    "frac_of_smaller": 1,
    "on_top": "B",
-   "hit_at_center": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\""
-  },
-  {
-   "A": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "Az": "10100",
-   "Arect": [
-    0,
-    0,
-    1440,
-    900
-   ],
-   "B": "div.sb-toast.toast-success \"Library audit complete \u2713\"",
-   "Bz": "20000",
-   "Brect": [
-    645,
-    802,
-    151,
-    34
-   ],
-   "inter": [
-    645,
-    802,
-    151,
-    34
-   ],
-   "area": 5155,
-   "frac_of_smaller": 1,
-   "on_top": "B",
-   "hit_at_center": "div.sb-toast.toast-success \"Library audit complete \u2713\""
-  },
-  {
-   "A": "div#library-editor-overlay \"RECORD ROOM All Music Library Integrated\"",
-   "Az": "5",
-   "Arect": [
-    80,
-    28,
-    1360,
-    828
-   ],
-   "B": "div.sb-toast.toast-success \"Library audit complete \u2713\"",
-   "Bz": "20000",
-   "Brect": [
-    645,
-    802,
-    151,
-    34
-   ],
-   "inter": [
-    645,
-    802,
-    151,
-    34
-   ],
-   "area": 5155,
-   "frac_of_smaller": 1,
-   "on_top": "B",
-   "hit_at_center": "div.sb-toast.toast-success \"Library audit complete \u2713\""
+   "hit_at_center": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\""
   },
   {
    "A": "div#left-panel \"\u21ba\"",
@@ -376,7 +305,7 @@
    "area": 3520,
    "frac_of_smaller": 0.06,
    "on_top": "neither",
-   "hit_at_center": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\""
+   "hit_at_center": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\""
   },
   {
    "A": "div#fb-panel \"\u2191 \u2302 \u2715 Drag any item to a drop zone \u2197\"",
@@ -404,7 +333,7 @@
    "area": 3520,
    "frac_of_smaller": 0.06,
    "on_top": "neither",
-   "hit_at_center": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\""
+   "hit_at_center": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\""
   }
  ],
  "occluded": [
@@ -420,11 +349,11 @@
     23,
     14
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#titlebar(z=200,fixed)",
    "ctrl_chain": "#titlebar:200",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -440,11 +369,11 @@
     48,
     14
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#titlebar(z=200,fixed)",
    "ctrl_chain": "#titlebar:200",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -460,11 +389,11 @@
     66,
     14
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#titlebar(z=200,fixed)",
    "ctrl_chain": "#titlebar:200",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -480,11 +409,11 @@
     40,
     140
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#left-panel(z=175,fixed)",
    "ctrl_chain": "#left-panel:175",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -500,11 +429,11 @@
     40,
     204
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#left-panel(z=175,fixed)",
    "ctrl_chain": "#left-panel:175",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -520,11 +449,11 @@
     40,
     268
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#left-panel(z=175,fixed)",
    "ctrl_chain": "#left-panel:175",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -540,11 +469,11 @@
     40,
     345
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#left-panel(z=175,fixed)",
    "ctrl_chain": "#left-panel:175 > button.lp-btn:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -560,11 +489,11 @@
     40,
     732
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#left-panel(z=175,fixed)",
    "ctrl_chain": "#left-panel:175",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -580,11 +509,11 @@
     40,
     796
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#left-panel(z=175,fixed)",
    "ctrl_chain": "#left-panel:175",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -600,11 +529,11 @@
     40,
     860
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#left-panel(z=175,fixed)",
    "ctrl_chain": "#left-panel:175",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -620,11 +549,11 @@
     27,
     47
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#fb-panel(z=158,fixed)",
    "ctrl_chain": "#fb-panel:158",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -640,11 +569,11 @@
     57,
     47
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#fb-panel(z=158,fixed)",
    "ctrl_chain": "#fb-panel:158",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -660,11 +589,11 @@
     354,
     52
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-header:1",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -680,11 +609,11 @@
     411,
     52
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-header:1",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -700,11 +629,11 @@
     472,
     52
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-header:1",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -720,11 +649,11 @@
     557,
     52
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-header:1",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -740,11 +669,11 @@
     621,
     52
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-header:1",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -760,11 +689,11 @@
     677,
     52
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-header:1",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -780,11 +709,11 @@
     725,
     52
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-header:1",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -800,11 +729,11 @@
     1196,
     52
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-header:1",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -820,11 +749,11 @@
     1049,
     91
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-header:1",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -840,11 +769,11 @@
     1130,
     91
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-header:1",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -860,11 +789,11 @@
     1206,
     91
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-header:1 > #le-rename-btn:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": true
   },
@@ -880,11 +809,11 @@
     1277,
     91
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-header:1 > #le-delete-btn:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": true
   },
@@ -900,11 +829,11 @@
     1366,
     91
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-header:1",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -920,11 +849,11 @@
     147,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -940,11 +869,11 @@
     218,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -960,11 +889,11 @@
     320,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -980,11 +909,11 @@
     440,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1000,11 +929,11 @@
     538,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-list \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1020,11 +949,11 @@
     551,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-list \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1040,11 +969,11 @@
     564,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-list \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1060,11 +989,11 @@
     577,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-list \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1080,11 +1009,11 @@
     590,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-list \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1100,11 +1029,11 @@
     655,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-list \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2 > button.lf-color-dot:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1120,11 +1049,11 @@
     673,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-list \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1140,11 +1069,11 @@
     691,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-list \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1160,11 +1089,11 @@
     709,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-list \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1180,11 +1109,11 @@
     727,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-list \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1200,11 +1129,11 @@
     745,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-list \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1220,11 +1149,11 @@
     763,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-list \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1240,11 +1169,11 @@
     781,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-list \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1260,11 +1189,11 @@
     799,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-list \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1280,11 +1209,11 @@
     847,
     192
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-list \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #lib-filter-bar:2",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1300,11 +1229,11 @@
     739,
     239
    ],
-   "hit": "div.fgwin-body \"FABLEGEAR Pick a room to enter. Record R\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div.fg-palette-item.active \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #le-create-bar:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1320,11 +1249,11 @@
     1328,
     239
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #le-create-bar:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1340,11 +1269,11 @@
     1394,
     239
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > #le-create-bar:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1360,11 +1289,11 @@
     210,
     321
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-sidebar:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1380,11 +1309,11 @@
     210,
     381
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-sidebar:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1400,11 +1329,11 @@
     210,
     469
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-sidebar:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1420,11 +1349,11 @@
     623,
     291
    ],
-   "hit": "div.fgwin-body \"FABLEGEAR Pick a room to enter. Record R\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div.fg-palette-item \"Relocate \u2014 repair broken paths Record Ro\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > div.le-track-header:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1440,11 +1369,11 @@
     864,
     291
    ],
-   "hit": "div.fgwin-body \"FABLEGEAR Pick a room to enter. Record R\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div.fg-palette-item \"Relocate \u2014 repair broken paths Record Ro\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > div.le-track-header:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1460,11 +1389,11 @@
     1059,
     291
    ],
-   "hit": "div#wstep-intro.welcome-step.fgwin.active \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > div.le-track-header:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1480,11 +1409,11 @@
     1183,
     291
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > div.le-track-header:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1500,11 +1429,11 @@
     1242,
     291
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > div.le-track-header:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1520,11 +1449,11 @@
     1299,
     291
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > div.le-track-header:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1540,11 +1469,11 @@
     1369,
     291
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > div.le-track-header:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1560,11 +1489,11 @@
     386,
     328
    ],
-   "hit": "div#wstep-intro.welcome-step.fgwin.active \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-track-list:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1580,11 +1509,11 @@
     386,
     366
    ],
-   "hit": "div#wstep-intro.welcome-step.fgwin.active \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-track-list:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1600,31 +1529,31 @@
     386,
     404
    ],
-   "hit": "div#wstep-intro.welcome-step.fgwin.active \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-track-list:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
   {
    "el": "button.le-play-btn \"\u25b6\"",
    "rect": [
-    373,
+    375,
     429,
     26,
     26
    ],
    "at": [
-    386,
+    388,
     442
    ],
-   "hit": "div#wstep-intro.welcome-step.fgwin.active \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-track-list:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1640,11 +1569,11 @@
     386,
     480
    ],
-   "hit": "div#wstep-intro.welcome-step.fgwin.active \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-track-list:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1660,11 +1589,11 @@
     386,
     518
    ],
-   "hit": "div#wstep-intro.welcome-step.fgwin.active \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-track-list:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1680,11 +1609,11 @@
     386,
     556
    ],
-   "hit": "div#wstep-intro.welcome-step.fgwin.active \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-track-list:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1700,11 +1629,11 @@
     386,
     594
    ],
-   "hit": "div#wstep-intro.welcome-step.fgwin.active \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-track-list:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1720,11 +1649,11 @@
     386,
     632
    ],
-   "hit": "div#wstep-intro.welcome-step.fgwin.active \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-track-list:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1740,11 +1669,11 @@
     386,
     670
    ],
-   "hit": "div#wstep-intro.welcome-step.fgwin.active \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-track-list:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1760,11 +1689,11 @@
     386,
     708
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-track-list:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   },
@@ -1780,11 +1709,11 @@
     615,
     837
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-status-bar:1 > #le-remove-btn:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": true
   },
@@ -1800,11 +1729,11 @@
     868,
     837
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-status-bar:1 > #le-add-btn:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": true
   },
@@ -1820,13 +1749,13 @@
     1128,
     837
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
-   "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-status-bar:1 > #le-stage-selected-btn:ctx",
-   "hit_chain": "#welcome-backdrop:10100",
+   "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-status-bar:1",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
-   "disabled": true
+   "disabled": false
   },
   {
    "el": "button.le-load-btn \"\u21ba Reload\"",
@@ -1840,11 +1769,11 @@
     1377,
     837
    ],
-   "hit": "div#welcome-backdrop \"\u2715 FABLEGEAR Pick a room to enter. Record\"",
-   "hit_layer": "#welcome-backdrop(z=10100,fixed)",
+   "hit": "div#fg-palette-backdrop \"Audit \u2014 library health check Record Room\"",
+   "hit_layer": "#fg-palette-backdrop(z=9000,fixed)",
    "ctrl_layer": "#library-editor-overlay(z=5,fixed)",
    "ctrl_chain": "#library-editor-overlay:5 > #library-editor:1 > div.le-body:1 > #le-status-bar:1",
-   "hit_chain": "#welcome-backdrop:10100",
+   "hit_chain": "#fg-palette-backdrop:9000",
    "kind": "covered",
    "disabled": false
   }
@@ -1854,7 +1783,7 @@
   {
    "el": "button.undo-panel-close \"\u2715\"",
    "rect": [
-    1804,
+    1619,
     47,
     20,
     18
@@ -1862,29 +1791,29 @@
    "reason": "outside-viewport"
   },
   {
-   "el": "button#undo-tab-timeline.undo-tab-btn.active \"TIMELINE\"",
+   "el": "button#undo-tab-timeline.undo-tab-btn \"TIMELINE\"",
    "rect": [
-    1453,
+    1268,
     94,
     108,
     34
    ],
-   "reason": "outside-viewport"
+   "reason": "clipped-by-scroll-ancestor"
   },
   {
    "el": "button#undo-tab-operations.undo-tab-btn \"OPERATIONS\"",
    "rect": [
-    1569,
+    1384,
     94,
     108,
     34
    ],
-   "reason": "outside-viewport"
+   "reason": "clipped-by-scroll-ancestor"
   },
   {
    "el": "button#undo-tab-database.undo-tab-btn \"DATABASE\"",
    "rect": [
-    1685,
+    1500,
     94,
     108,
     34
@@ -1894,7 +1823,7 @@
   {
    "el": "button#undo-tab-savepoints.undo-tab-btn \"SAVEPOINTS\"",
    "rect": [
-    1801,
+    1616,
     94,
     108,
     34
@@ -1902,31 +1831,11 @@
    "reason": "outside-viewport"
   },
   {
-   "el": "button#undo-tab-trash.undo-tab-btn \"TRASH\"",
+   "el": "button#undo-tab-trash.undo-tab-btn.active \"TRASH\"",
    "rect": [
-    1917,
+    1732,
     94,
     108,
-    34
-   ],
-   "reason": "outside-viewport"
-  },
-  {
-   "el": "select#undo-filter-tool [Filter by tool]",
-   "rect": [
-    1455,
-    153,
-    182,
-    34
-   ],
-   "reason": "outside-viewport"
-  },
-  {
-   "el": "select#undo-filter-state [Filter by status]",
-   "rect": [
-    1645,
-    153,
-    182,
     34
    ],
    "reason": "outside-viewport"
@@ -2015,7 +1924,7 @@
  "clipped_text": [],
  "cut_off": [],
  "layer_state": {
-  "welcome-backdrop": true,
+  "welcome-backdrop": false,
   "settings-backdrop": false,
   "health-modal-backdrop": false,
   "le-export-modal": false,
@@ -2023,7 +1932,7 @@
   "report-modal-backdrop": false,
   "mcp-panel-backdrop": false,
   "path-backdrop": false,
-  "fg-palette-backdrop": "missing",
+  "fg-palette-backdrop": true,
   "deck-panel": false,
   "splash-overlay": false,
   "tool-float-modal": false,
@@ -2050,22 +1959,20 @@
   "db-panel": false,
   "log-panel": false,
   "drive-list": false,
-  "toasts": [
-   "Library audit complete \u2713"
-  ],
+  "toasts": [],
   "body_class": "fg-space-record"
  },
- "active": "body.fg-space-record \"RekordBox is closed \u2014 safe to write Buil\"",
+ "active": "input#fg-palette-input",
  "counts": {
-  "overlays_listed": 8,
-  "overlay_candidates": 7,
-  "controls_checked": 79,
+  "overlays_listed": 7,
+  "overlay_candidates": 6,
+  "controls_checked": 73,
   "occluded": 72,
   "partial": 0,
   "clipped_text": 0,
   "cut_off": 0,
-  "overlaps": 10
+  "overlaps": 8
  },
- "label": "test-load",
- "screenshot": "/home/user/FableGear/docs/audits/2026-10-05/screens/ui-live-record/1440x900_test-load.png"
+ "label": "10_palette",
+ "screenshot": "/home/user/FableGear/docs/audits/2026-10-05/screens/ui-live-record/1440x900_10_palette.png"
 }
