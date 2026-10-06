@@ -14,23 +14,24 @@ Audit of `main` at `1840750`. Run 2026-10-05/06 against the real Flask app in a 
 
 No product code was changed.
 
-> **Status: nearly complete.** 12 of 15 auditors are done; 253 findings, 10 critical.
+> **Status: complete.** 15 auditors, 297 findings.
 >
-> Covered:
+> Coverage:
 >
-> - the code-level z-index review, plus the Record Room and app-wide UI click-through;
-> - **both install paths**: the in-app onboarding wizard (live), and the shell first-run, the update path and the unmerged GUI installer (code plus stubbed runs);
-> - **eight Chop Shop tools**: Tag Tracks, Find Duplicates + Prune, Rename, Organize, Normalize, Convert, Novelty Scanner, Pipeline Wizard;
-> - my own click-through.
+> - the z-index system, plus the Record Room, Chop Shop and app-wide UI;
+> - both install paths and the update path;
+> - every Chop Shop tool, including the Pipeline and the DB tools in the Chop Shop rail;
+> - every undo endpoint, plus an end-to-end "restart from previous session" test.
 >
-> Still running, as round 4 (earlier runs were cut off by account usage limits):
+> **Every critical finding was re-checked by an independent verifier in its own fresh sandbox:**
 >
-> - the undo endpoints, plus the end-to-end "restart from previous session" test;
-> - the DB tools in the Chop Shop rail (Audit, Fix Paths, Link, Import, Dead Files);
-> - the Chop Shop UI layering pass;
-> - **independent verification of all 10 critical findings**.
+> - **All 11 were confirmed.**
+> - **8 stay critical.**
+> - **3 were moved to high, with reasons given in §2.**
 >
-> This file will be updated in place. Until then, findings carry the original auditor's evidence label. Where two or more auditors found the same defect independently, that is noted as **(×N independent)**.
+> Severities below are the verified ones. Where two or more auditors found the same defect independently, that is noted as **(×N independent)**.
+>
+> The work ran in four rounds, because three runs were cut off by account usage limits. Each later round reused the earlier evidence.
 
 ---
 
@@ -51,6 +52,14 @@ No product code was changed.
   - The drive flyout is trapped inside the left rail's layer.
   - The file browser opens under the DB panel's click-catcher.
 - **Two modals can never render at all,** because they live inside a container that is always hidden. That turns real flows into silent no-ops (§2, H1–H2).
+- **Chop Shop static layout: mostly fine.** The Sep 2 rail-overlap fix holds at all three viewports, every rail and DB tool docks cleanly, and the report modal fits at 1024×700.
+- **Chop Shop run-time layer: weak, and that's where the safety controls live:**
+  - Escape during a run closes the docked tool. That tool holds the only Interrupt and Emergency Stop buttons in the Chop Shop, because the scan bar is hidden there.
+  - Stop gives no "Stopping…" feedback.
+  - After a kill the readout says "Complete" with a full progress bar.
+  - **The Pipeline's end-of-run report is never shown.** Its only entry is an 8 px pill under the docked tool.
+  - At 1024×700 with all three safety banners showing, the tool body overruns the readout by 61 px.
+  - The rail overflows at 1280 px and below: Import, Link and Dead Files are off-screen at 1024, behind a 1 px scrollbar.
 
 Full inventory and a proposed token scale: `FINDINGS_DETAIL.md` → Z-index.
 
@@ -110,6 +119,7 @@ Leaving reconfigure without finishing keeps the config byte-identical (good).
 | Convert | Counts only | **None; originals are deleted** | **No** (API refuses) | Browser-only, no format or progress |
 | Novelty Scanner | Counts only | None tied to a run (journal rows only) | Partial: the copy can be undone, leaving empty folders | Browser-only; stale checkpoint silently skips |
 | Pipeline Wizard | Per step | **None for the run** | Partial: only the rename and organize steps; chained moves revert in the wrong order | **Auto mode saves nothing.** Confirm-mode Resume re-runs every step from step 1 (a re-applied Rename moved a file out of the library). |
+| DB tools in the Chop Shop rail (Fix Paths, Link, Import) | Yes, but reports success when every write failed | **Local-DB savepoint before every write** (good) | **No:** restore overwrites the USB device DB; Fix Paths revert reports ok, changes nothing | **None** |
 
 Cross-cutting, for every tool:
 
@@ -130,24 +140,50 @@ So today there is **no UI path to any revert point at all**.
 
 No surface says "last session started at X, did A→B→C, stopped at step N; restore point = Y", and nothing can revert to that point. A design for a session ledger built from the existing pieces is in §5.
 
+**End-to-end test** (demonstrated):
+
+- **The session:**
+  1. Sync the library.
+  2. Rename two folders.
+  3. Organize.
+  4. Normalize 8 long files.
+  5. `kill -9` the app mid-Normalize.
+  6. Relaunch as a returning user.
+- **What the user saw after relaunch:**
+  - One "Interrupted run — Nm ago" banner, *inside the Normalize card*, which has no rail button.
+  - It showed no steps, no progress (4 of 8 files had already been rewritten) and no restore point.
+  - With a fresh browser profile, **nothing at all**.
+  - The Timeline was empty and the Record Room showed nothing.
+- **Trying to get the library back to its starting state using only the app:**
+  - Rename and Organize file moves came back byte-identical, and a second revert was a safe no-op.
+  - **The 4 normalized files could not be restored.**
+  - **4 local Rekordbox rows still point at missing files.**
+  - The only Rekordbox savepoint can only be written onto the *device* DB, which made the USB worse: 4 → 11 tracks, now a copy of the laptop library.
+- **Danger found along the way** (verified high):
+  - The same "Interrupted run" banner also appears **while the job is still running**, for example in a second tab or after a reload.
+  - Clicking **Resume** skips the destructive-action confirmation, and the server has no single-job guard.
+  - So a second Normalize starts on the same folder, and a file gets gain-boosted twice, ending at +10 LUFS against 0 dBFS. That is permanent.
+
 ---
 
 ## 2. Critical and high findings
 
-### Critical: data loss, demonstrated live
+### Critical: data loss, demonstrated live, independently verified
 
-| ID | What happens | Where |
-|---|---|---|
-| **C1** `tool-convert-c-originals-destroyed` | **Convert deletes every original.** The card says originals go to Quarantine. They don't: the `.bak` is unlinked right after each conversion. There's no confirmation, preview or restore point, and the undo API refuses convert. | `audio_processor.py:680` [D] |
-| **C2** `tool-convert-c-aiff-tag-wipe` | **Converting to AIFF wipes every tag** (BPM, key, artist, album, genre, label, artwork). With C1, the loss is permanent. The next library sync then also erases the only surviving copy in the FableGear DB. AIFF is the Pipeline's *default* convert format. | ffmpeg called without `-write_id3v2 1` [D] |
-| **C3** `tool-convert-c-parallel-stem-race` | **With the default 4 workers, two sources with the same name race** (e.g. `X.flac` and `X.wav` → `X.mp3`). One lossless original is destroyed, and the report says "No errors … nothing lost". Reproduced 3 of 3 times. | [D] |
-| **C4** `tool-process-b-normalize-strips-aiff-wav-id3` | **Tag Tracks' normalize option strips all ID3 tags** from AIFF/WAV during the re-encode, and the report still claims the keys were written. | `audio_processor.py` normalize path [D] |
-| **C5** `dupb-fg-playlists-cascade-lost` | **Prune hard-deletes the pruned files' FableGear DB rows.** The FableGear DB is the Record Room's default library, so their Record Room playlist memberships, cues and beatgrids cascade away. Nothing moves them to the keeper and no backup covers them, despite the card's "Your playlists stay intact". | `pruner.py` / `_journal_prune` [D] |
-| **C6** `tool-normalize-no-restore-no-undo` | **Normalize rewrites audio permanently.** There's no restore point, originals are deleted as soon as each swap succeeds, and the undo API refuses. A search of the whole sandbox found 0 of 15 originals surviving. | `audio_processor.py:543-546` [D] |
-| **C7** `tool-normalize-lossless-tags-stripped` | **Standalone Normalize strips every ID3 tag from WAV and AIFF:** title, artist, BPM, key, cover art and Serato cues. | [D] (same root cause as C4) |
-| **C8** `tool-normalize-wav-bitdepth-downgrade` | **WAV is always re-encoded as 16-bit.** 24-bit and 32-bit float sources lose resolution, contradicting the "same bit depth" claim, and the original is deleted. | [D] |
-| **C9** `tool-organize-workers-race-overwrite` | **Organize with 2 or 4 workers lets colliding files overwrite each other.** 2 of 120 distinct files were permanently lost with "No errors" reported. Undo then put the wrong audio into two original paths. | `library_organizer.py` [D] |
-| **C10** `wizard-live-trap7` | **A reload, quit or crash at onboarding steps 5–7 permanently traps a first-run user on step 7.** It has no Back, save-config returns 400, and every relaunch resumes there. | `onboarding.html` step 7 [D, ×2 independent] |
+The verifier re-ran each row in a fresh sandbox. The last column shows its verdict.
+
+| ID | What happens | Where | Verifier |
+|---|---|---|---|
+| **C1** `tool-convert-c-originals-destroyed` | **Convert deletes every original.** The card says originals go to Quarantine. They don't: the `.bak` is unlinked right after each conversion. There's no confirmation, preview or restore point, and the undo API refuses convert. | `audio_processor.py:680` [D] | **Confirmed critical** |
+| **C2** `tool-convert-c-aiff-tag-wipe` | **Converting to AIFF wipes every tag** (BPM, key, artist, album, genre, label, artwork). With C1, the loss is permanent. The next library sync then also erases the only surviving copy in the FableGear DB. AIFF is the Pipeline's *default* convert format. | ffmpeg called without `-write_id3v2 1` [D] | **Confirmed critical** |
+| **C3** `tool-convert-c-parallel-stem-race` | **With the default 4 workers, two sources with the same name race** (e.g. `X.flac` and `X.wav` → `X.mp3`). One lossless original is destroyed, and the report says "No errors … nothing lost". Reproduced 3 of 3 times. | [D] | **Confirmed critical** |
+| **C4** `tool-process-b-normalize-strips-aiff-wav-id3` | **Tag Tracks' normalize option strips all ID3 tags** from AIFF/WAV during the re-encode, and the report still claims the keys were written. | `audio_processor.py` normalize path [D] | **Confirmed critical** |
+| **C5** `dupb-fg-playlists-cascade-lost` | **Prune hard-deletes the pruned files' FableGear DB rows.** The FableGear DB is the Record Room's default library, so their Record Room playlist memberships, cues and beatgrids cascade away. Nothing moves them to the keeper and no backup covers them, despite the card's "Your playlists stay intact". | `pruner.py` / `_journal_prune` [D] | **Confirmed critical** |
+| **C6** `tool-normalize-no-restore-no-undo` | **Normalize rewrites audio permanently.** There's no restore point, originals are deleted as soon as each swap succeeds, and the undo API refuses. A search of the whole sandbox found 0 of 15 originals surviving. | `audio_processor.py:543-546` [D] | **Confirmed, re-graded HIGH.** A blocking confirm() discloses the permanent rewrite (`runners.js:231-238`); the defect is real. |
+| **C7** `tool-normalize-lossless-tags-stripped` | **Standalone Normalize strips every ID3 tag from WAV and AIFF:** title, artist, BPM, key, cover art and Serato cues. | [D] (same root cause as C4) | **Confirmed critical** |
+| **C8** `tool-normalize-wav-bitdepth-downgrade` | **WAV is always re-encoded as 16-bit.** 24-bit and 32-bit float sources lose resolution, contradicting the "same bit depth" claim, and the original is deleted. | [D] | **Confirmed, re-graded HIGH.** Silent quality loss against an explicit promise, but the track stays usable and no clipping is introduced. |
+| **C9** `tool-organize-workers-race-overwrite` | **Organize with 2 or 4 workers lets colliding files overwrite each other.** 2 of 120 distinct files were permanently lost with "No errors" reported. Undo then put the wrong audio into two original paths. | `library_organizer.py` [D] | **Confirmed critical** |
+| **C10** `wizard-live-trap7` | **A reload, quit or crash at onboarding steps 5–7 permanently traps a first-run user on step 7.** It has no Back, save-config returns 400, and every relaunch resumes there. | `onboarding.html` step 7 [D, ×2 independent] | **Confirmed critical** |
 
 ### High
 
@@ -155,7 +191,7 @@ No surface says "last session started at X, did A→B→C, stopped at step N; re
 
 - **H0a — Savepoints and Trash tabs crash.** `undoLoadSavepoints` and `undoLoadTrash` are not defined (`undo.js:39-40`). The tab row also overflows, so Trash is off-screen. [D ×5]
 - **H0b — Timeline is always empty for UI-run jobs.** `routes_undo.py:40-48` reads `job_dispatcher`, which only `mcp_server.py` initialises. [D, lead]
-- **H0c — Savepoint restore always targets the device DB.** Restoring a *local* Rekordbox savepoint overwrites the USB `master.db` (`tool-process-b-savepoint-restore-wrong-db`). [D]
+- **H0c — Savepoint restore always targets the device DB (×3 independent).** Restoring a *local* Rekordbox savepoint overwrites the USB `master.db` (`tool-process-b-savepoint-restore-wrong-db`). [D]
 - **H0d — Trash restore misplaces and overwrites files.** It dumps files flat into the music root under mangled names, silently overwrites same-named files, and restores no DB state (`dupb-trash-restore-flattens-overwrites`). [D]
 
 **Destructive operations with no guard or a wrong result**
@@ -207,6 +243,19 @@ No surface says "last session started at X, did A→B→C, stopped at step N; re
 - **Homebrew install aborts non-interactively** (`wizard-code-homebrew-noninteractive`). [I]
 - **Unmerged GUI installer:** double-clicking skips the package step, a dropped connection counts as success, `/api/complete` is unconditional, and a best-effort essentia failure traps the user (`wizard-code-iw-*`). [D]
 
+**Undo, resume and DB tools (round 4)**
+
+- **A second Resume can double-apply Normalize** (`undo-resume-concurrent-resume-double-gain`). While a job runs, a second tab or a reload shows "Interrupted run" + Resume. Resume skips the destructive-action confirm and the server has no single-job guard. A second Normalize then ran on the same folder, and a file ended at +10 LUFS against 0 dBFS. Verifier: confirmed, re-graded from critical to high. [D, verified]
+- **No session surface after a crash.** After crash and relaunch, nothing names the previous session, its steps, where it stopped, or a restore point (`undo-resume-no-session-surface`). [D]
+- **The app alone can't restore the starting state.** File moves come back, but normalized audio, local Rekordbox rows and the device DB can't, and the one DB restore makes the USB DB worse (`undo-resume-e2e-partial-restore`). [D]
+- **Savepoint restore always overwrites the USB device DB.** Restoring the savepoint a DB tool took overwrites the USB device DB, and the local DB stays wrong (`db-rail-savepoint-restore-overwrites-device`). **3 independent auditors** hit this. [D ×3]
+- **Fix Paths relinks to the wrong file.** It re-points a broken FLAC record to the `.aiff`, although the exact `.flac` filename exists (`db-rail-relocate-wrong-file`). [D]
+- **Fix Paths revert says "ok" and does nothing.** It is listed as "revertible: true", but in the normal broken-path case the revert blocks every row and still reports "ok" with 0 changes (`db-rail-relocate-revert-always-blocked`). [D]
+- **Import "Preview (dry run)" writes.** For targets Both and FableGear it writes the FableGear DB and records an import transaction that can't be reverted (`db-rail-import-preview-writes-fg-db`). [D]
+- **"Move Rekordbox Library to Drive" deletes folders with no restore point** (`rmtree`s an existing destination and the source; no savepoint, report or undo). Its UI button is currently a silent no-op because the guard is inverted, so today it's reachable only by API (`db-rail-migrate-rmtree-no-restore`). [D]
+- **DB tools: jobs whose every write failed still say "Finished successfully".** None of the rail tools offers any resume: `kill -9` left 800 of 1500 rows committed with no journal, report or transaction. [D]
+- **The Pipeline's end-of-run report is never shown** (`ui-live-chop-pipeline-report-unreachable`). [D]
+
 **UI traps and silent no-ops**
 
 - **H1 — Rename with Dry Run off silently does nothing.** Its preflight modal is in an always-hidden container: the probe returned 5 candidates and no file changed (`zindex-static-rename-preflight-unrenderable`). [D]
@@ -217,7 +266,38 @@ No surface says "last session started at X, did A→B→C, stopped at step N; re
 
 ---
 
-## 3. Root causes: fix these and most findings close
+## 3. Recommended fix order, then root causes
+
+**Stop the data loss first.** Each step is small and local, and closes the listed findings:
+
+1. **Keep originals and copy tags.**
+   - In `_convert_file` and `_normalise_file`, move the original into `Archive/Quarantine/<tool>/<run>/` instead of `bak.unlink()`.
+   - Add `-write_id3v2 1` for WAV/AIFF, and keep the source bit depth.
+   - Re-read the tags and refuse the swap on a mismatch.
+   - Closes C1, C2, C4, C6, C7 and C8, plus most of the Convert and Normalize highs.
+2. **Reserve destinations atomically in parallel workers** (`O_EXCL` plus `.part` → `os.replace`) for Convert, Organize and Novelty. Until that ships, default `workers=1`. Closes C3, C9 and the Novelty race.
+3. **Prune keeps Record Room playlists:**
+   - re-thread FableGear playlist rows to the keeper before `delete_content`;
+   - refuse to delete the last copy of a track or a keeper;
+   - confirm before any permanent delete.
+   Closes C5 and four Prune highs.
+4. **Onboarding:**
+   - persist the consent answers;
+   - add Back on step 7 and clear the draft on a 400;
+   - stop save-config defaulting missing consent to `true`;
+   - validate the paths.
+   Closes C10 and three wizard highs.
+5. **Make undo reachable:**
+   - implement `undoLoadSavepoints` and `undoLoadTrash`;
+   - record which DB each savepoint is from, and restore to *that* DB;
+   - write a manifest into each trash folder so files go back where they came from;
+   - write UI runs into the `job_dispatcher` store from the Flask process.
+   Closes H0a–H0d.
+6. **Allow one job per tool.** Add a server-side guard, and show the confirm on Resume too. Closes the double-gain finding.
+7. **Make the in-app Update follow release tags,** as `launch.sh` does.
+8. **Then** build the session ledger (§5) and the layer stack plus z-token scale (§1 and `FINDINGS_DETAIL.md`).
+
+### Root causes: fix these and most findings close
 
 1. **No single undo or run ledger.**
    - Every tool writes (or doesn't write) its own breadcrumbs: savepoints, trash folders, `fg_processing_log` rows, `localStorage` checkpoints, MCP job history.
@@ -243,7 +323,7 @@ No surface says "last session started at X, did A→B→C, stopped at step N; re
 
 ---
 
-## 4. Per-tool safety matrix (tools tested so far)
+## 4. Per-tool safety matrix (every Chop Shop tool)
 
 Each cell is a summary; the full evidence per cell is in `FINDINGS_DETAIL.md`.
 
@@ -261,10 +341,15 @@ Each cell is a summary; the full evidence per cell is in `FINDINGS_DETAIL.md`.
 | Organize | Yes | **None** before mutating (journal only) | Sequential: byte-identical, pruned folders recreated. **Parallel: data loss, wrong audio restored** | SIGTERM can strand a moved file | `localStorage` only; server check broken | Yes | Relinks FableGear DB only; **Rekordbox broken** |
 | Normalize | Mislabelled | **None; `.bak` unlinked** | **None** | Truncated `tmp*.mp3` left in library; no record | `localStorage` only | Preview (clips) is read-only (good) | File only |
 | Pipeline Wizard | Per step | **None per run** | Partial (rename, organize only); wrong order for chained moves | kill -9 leaves child `cli.py` writing | **Auto: none.** Confirm: re-runs all steps | **"Dry Run" writes tags + DB** | Inherits every step's boundary issues |
-| DB tools (Audit, Fix Paths, Link, Import, Dead Files) | *Pending: round 4* | | | | | | |
+| DB tools: Fix Paths / Link / Import (Rekordbox writes) | Yes, but "Finished successfully" even when every write failed | **Savepoint of the local DB before every write, verified row-identical** (good) | **Broken:** restore overwrites the *device* DB; relocate revert reports ok and changes nothing; Import undo refuses honestly | kill -9 left 800/1500 rows committed, no journal | **None** for any rail tool | Import "Preview" **writes** the FableGear DB | DB-layer tools hosted in the Chop Shop rail |
+| DB tools: Audit / Dead Files / export-audit | Yes | n/a (read-only) | n/a | — | — | Yes | Audit runs silently on every page load and writes a report |
+| Move Rekordbox Library to Drive (migrate) | **None** | **None** | **None** (`rmtree` of destination and source) | — | — | — | UI button is a no-op (inverted guard); reachable by API only |
 
 **Confirmed good, so keep these:**
 
+- DB tools take a local-DB savepoint before every Rekordbox write, verified row-identical to the pre-run DB. Import undo refuses honestly, and re-running an interrupted FableGear import skips work already done.
+- Interrupt and Emergency Stop really do kill the job with no orphan `cli.py`, and the Sep 2 rail-overlap fix holds at all three viewports.
+- Savepoint restore blocks path tricks and is itself reversible.
 - Rename's file moves are byte-identical, collisions are numbered "(2)", and Rekordbox local rows are relinked one commit per file, so cancel and kill -9 left the DBs consistent.
 - Organize with 1 worker: undo restores every file byte-identical and recreates pruned folders.
 - Normalize preview is read-only on sources.
@@ -300,13 +385,16 @@ This is built only from pieces that already exist.
 
 ## 6. Coverage and limits
 
-- **Live coverage so far:**
+- **Live coverage:**
   - every Record Room surface, at 1440×900, 1280×800 and 1024×700;
   - z-index conflicts confirmed live;
   - Tag Tracks (about 20 runs), Duplicates + Prune (two DB schemas), Convert (format matrix, races, cancel, kill -9) and Novelty Scanner (15 runs);
   - Rename (dry run, multi-folder live run, 300-file revert, cancel, kill -9, learned rules), Organize (assimilate and integrate, 4-worker stress, Interrupt, kill -9, resume), Normalize (9-format bench including 24-bit and 32-bit float, interrupts, kill -9) and the Pipeline Wizard (all step types, cancel, kill -9, confirm-mode resume);
   - the onboarding wizard at every step, including reload and restart, Finish later, bad inputs, double-clicks, reconfigure and a corrupt config;
-  - the install and update shell scripts, run with stubs in throwaway directories.
+  - the install and update shell scripts, run with stubs in throwaway directories;
+  - every undo endpoint on live data (savepoint, trash, operations, database history, path-traversal attempts), plus the end-to-end crash-and-relaunch session test with a fresh browser profile and two tabs;
+  - the DB tools in the Chop Shop rail, with 29 row-level DB snapshots;
+  - the Chop Shop UI at three viewports (41 new screenshots in round 4).
   - Each run was backed by sha256 before/after snapshots and DB dumps.
 - **The sandbox can't reproduce:**
   - WKWebView rendering and macOS fonts;
@@ -315,4 +403,5 @@ This is built only from pieces that already exist.
   - real CDJ hardware;
   - AcoustID (`fpcalc` absent; the missing-fpcalc paths *were* tested, and they fail silently, which is itself a finding).
 - **Harness note:** the auditors initially shared one app copy, and the product's cancel/quit paths killed each other's jobs. That is product finding `tool-process-b-cross-instance-kill`. From round 2 on, every sandbox runs its own app copy.
-- **Evidence:** full per-finding evidence, repro commands and screenshot paths are in `FINDINGS_DETAIL.md`. Raw scripts and snapshots are in the session scratchpad and are referenced there.
+- **Evidence:** full per-finding evidence, repro commands and screenshot paths are in `FINDINGS_DETAIL.md`.
+- **Screenshots:** the 79 screenshots cited by critical and high findings, plus the lead's own, are committed under `screens/`, palette-reduced to keep the repo small. The other ~1,000 captures, the probe JSON, the raw scripts and the snapshots stay in the session scratchpad, which is why some paths cited in `FINDINGS_DETAIL.md` are absent from the repo.

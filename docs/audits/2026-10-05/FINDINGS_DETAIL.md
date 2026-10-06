@@ -2,14 +2,14 @@
 
 Generated from each auditor's structured output. Every finding carries the auditor's evidence label (demonstrated / inferred / speculative) and, for critical/high findings, the independent verifier's verdict. The prioritized summary is in `AUDIT_FINDINGS.md`; this file is the evidence appendix.
 
-> Auditors with no result (not covered here): ui-live-chop, undo-resume, db-rail
-
 ## Contents
 
 - [Z-index / stacking contexts (static + live confirm)](#z-index--stacking-contexts-static--live-confirm)
 - [Record Room + global chrome click-through](#record-room--global-chrome-click-through)
+- [Chop Shop click-through](#chop-shop-click-through)
 - [Onboarding wizard (live)](#onboarding-wizard-live)
 - [Installers (shell first-run, in-app wizard, unmerged GUI installer) — code](#installers-shell-first-run-in-app-wizard-unmerged-gui-installer--code)
+- [Undo / revert / session resume (cross-cutting)](#undo--revert--session-resume-cross-cutting)
 - [Chop Shop: Tag Tracks](#chop-shop-tag-tracks)
 - [Chop Shop: Find Duplicates + Prune](#chop-shop-find-duplicates--prune)
 - [Chop Shop: Rename](#chop-shop-rename)
@@ -18,6 +18,7 @@ Generated from each auditor's structured output. Every finding carries the audit
 - [Chop Shop: Convert Format](#chop-shop-convert-format)
 - [Chop Shop: Novelty Scanner](#chop-shop-novelty-scanner)
 - [Chop Shop: Pipeline Wizard](#chop-shop-pipeline-wizard)
+- [DB tools in the Chop Shop rail (Audit, Fix Paths, Link, Import, Dead Files, …)](#db-tools-in-the-chop-shop-rail-audit-fix-paths-link-import-dead-files-)
 
 ## Z-index / stacking contexts (static + live confirm)
 
@@ -769,6 +770,162 @@ Confirmed good: the drive flyout closes on Escape and returns focus to 'Connecte
 - **Evidence:** Drive flyout: Escape closes it and returns focus to 'Connected Drives'. USB export: backdrop click closes it, and with no Pioneer drive it shows 'No Pioneer USB drives found…' and keeps Export disabled. Settings modal fits with its footer reachable at 1024x700 (/home/user/FableGear/docs/audits/2026-10-05/screens/ui-live-record/1024x700_05_settings_tab-archive.png). Create bar: Escape inside the input closes it and '+ Playlist' focuses the input. Rename uses a prompt pre-filled with the current name; Delete confirms, saying tracks stay. Toasts (z 20000) render above every modal. Staging '+ Stage Selected' updates the badge and /api/staging. Drag row → playlist adds and toasts. Drag row → deck A loads and plays (deckState playing:true). The palette's '🎛 Decks' opens the deck. A Rekordbox-source title edit takes a master.db backup before writing.
 - **Fix:** Keep these behaviours, and use the drive flyout's focus handling as the model for other layers.
 
+## Chop Shop click-through
+
+_Auditor: `ui-live-chop`_
+
+Round 4 of the live Chop Shop layering and click-through. I ran it on my own sandbox (ui-chop-r4, port 9103, configured, plus an 80-file Stress folder) with headless Chromium at 1440x900, 1280x800 and 1024x700. I reused and re-ran the round-1 and round-2 drivers from this assignment, and wrote two new ones (r4_fb_pipe.py, r4_combo.py). This round saved 41 new screenshots (r4*), alongside the earlier rounds' solo and combo captures for every rail tool, DB tool, wizard page, settings, health, update, toast and palette state.
+
+Verdict: the static layout holds. The 0910d6b rail-overlap fix holds at all three viewports: the rail ends at y=180 and the log panel starts at y=184. Every rail and DB tool docks cleanly. The report modal fits at 1024x700. Interrupt and Emergency Stop really do kill the job, and no cli.py is left behind. Safety banners do render in the Chop Shop dock.
+
+The run-time layer is weak, and that is where the safety controls are:
+- The Pipeline's end-of-run report is never shown. Its only entry point is an 8px pill that the docked tool covers.
+- Escape during a run closes the docked tool. That tool holds the only Interrupt and Emergency Stop controls in the Chop Shop, because the scan bar is display:none there.
+- The docked Emergency Stop and Interrupt buttons give no arm or "Stopping…" feedback. That feedback goes to hidden scan-bar buttons.
+- After a kill or interrupt the readout says "Complete" and shows a full progress bar.
+- The stop controls stay visible after a run ends.
+- With all three safety banners docked at 1024x700, the tool modal body is 118px tall and overruns the readout by 61px.
+
+The rail overflows at 1280 and below: Dead Files is partly cut off at 1280, and Import, Link and Dead Files are fully off-screen at 1024, behind a 1px scrollbar that a vertical mouse wheel doesn't scroll. The DB panel's own tab bar is a workaround. Several combinations reproduce the established Escape problem (E3 and zindex-static): one Escape closes three layers at once.
+
+**Coverage**
+
+- LIVE in round 4 (sandbox ui-chop-r4, port 9103, server killed by PID at the end). Rail and layout geometry at 1440x900, 1280x800 and 1024x700, with and without the FORCED update and Homebrew banners (r4_rail.py, r4_rail.out). Log panel geometry (r4_logpanel.py).
+- LIVE in round 4: a long Tag Tracks run on the 80-file Stress folder, at 1440x900 (r4_running.py, r4_running_1440_interrupt.out). It covered running, Emergency arm, the guard toast, Escape mid-run, another tool docked mid-run, Settings, the DB panel and the Pipeline Wizard mid-run, toasts mid-run, a switch to the Record Room and back, re-docking, Interrupt, the post-end state and a stale Interrupt click. Screenshots r4run_1440x900_*.png.
+- LIVE in round 4: Emergency Stop double-click with process verification (r4_emergency.py). pgrep showed the cli.py job running, then gone after the kill.
+- LIVE in round 4: the report modal after a real Tag Tracks run at 1024x700, then an Audit run in the DB panel (r4_report.py, r4_report_1024.out).
+- LIVE in round 4: Pipeline Wizard p1, the recommended order, p1 plus two toasts, p2 and Escape at 1024x700. File browser opened from a tool's Browse… button (r4_fb_pipe.py, r4_fb_pipe_1024.out). A full dry-run Pipeline run to the end at 1280x800 (r4_pipeline.py, r4_pipeline_1280.out).
+- LIVE in round 4: the dock with all three safety banners for every rail tool at all three viewports (r4_dock.py offline, r4_dock_offline.out). Drive-offline was REAL: I renamed Volumes/DJDRIVE. Health was REAL. The hotplug banner was FORCED, because macOS /Volumes events don't exist on Linux. The app recreated a phantom DJDRIVE tree, including FableGear Archive/Database/fablegear.db, which re-observes E7. I moved that tree aside to DJDRIVE_phantom_created_by_app and restored the real drive.
+- LIVE in round 4: the hotplug 'Scan for music' button against a real folder (r4_hotplug.py). A report modal raised from the DB panel (Preview Canonical Plan), with its Escape and backdrop behaviour, and DB panel plus Staging, at 1024x700 and 1440x900 (r4_combo.py, r4_combo_*.out).
+- REUSED from earlier live attempts at this same assignment (rounds 1 and 2, same drivers, older sandboxes, outputs in the ui-live-chop scratch dir). Solo state probes of every rail tool, the forced Normalize card, all five DB tools, Pipeline p1/p2, file browser via Ctrl+B, staging, undo, settings, health modal, forced banners, update modal, toasts, forced report modal, drive flyout and palette at all three viewports (solo_*.json, run_solo_*.out). Combos at 1440 and 1024 (run_combo_*.out). Dock fit without banners (r2_dock_base.out). Where round 4 re-ran the same state, the results matched.
+- NOT exercised: running states and end reports of Rename, Convert, Organize, Duplicates and Novelty (only Tag Tracks, Pipeline, Audit and Preview Canonical Plan were run live). Run reports of Fix Paths, Import, Link and Dead Files. Duplicates acoustic fingerprinting, because fpcalc/chromaprint is not installed. The Undo wizard opened mid-run. Real macOS hotplug events. WKWebView and macOS font metrics. pywebview drag-and-drop. Resize handles (already covered by ui-live-record). Combos at 1280x800 apart from the pipeline run and rail measurements.
+- Clipping and offscreen counts are elementFromPoint and scroll-container measurements. A button that is 'offscreen' inside a scrollable modal body is reachable by wheel-scrolling. r2_dock showed every primary button reachable after wheel scroll, so I only report those where the squeeze is severe.
+
+**Findings**
+
+#### [HIGH · demonstrated] Pipeline end-of-run report is never shown; its only entry point is an 8px pill hidden under the docked tool
+
+- **ID:** `ui-live-chop-pipeline-report-unreachable` · **Area:** ui-layering · **Tool/surface:** Pipeline Wizard
+- **Expected:** When a pipeline (or a failed tool run) finishes, the user can read its report: it opens automatically like single-tool successes do, or from a visible, clickable 'reopen report' control.
+- **Actual:** The report modal never opens for the Pipeline. The only way to reach the report is an 8x123px pill that the docked tool modal header covers. The user is left with the raw terminal log only.
+- **Evidence:** Live, 1280x800, a dry-run Pipeline (Tag Tracks step on Stress) driven through the real wizard UI (r4_pipeline.py). It ended after 30.2s. Output: report_modal False; pills [{text '📋Pipeline Summary', w 8, h 123, x 676, y 185, hit 'tool-float-modal-header'}]; sessionReports ['Pipeline — Dry Run (preview only)']. The probe reports 'OCCLUDED covered #session-pills-container > button.summary-pill at [680,246] by #tool-float-modal-header'. Screenshot: /home/user/FableGear/docs/audits/2026-10-05/screens/ui-live-chop/r4pipe_1280x800_3_after_end.png. Round 2 got the same result (r2_pipeline_1280.out). Code: static/chop_shop/pipeline.js:1029-1032 only does sessionReports[label]=…; _addOrUpdateSummaryPill(label) and never calls openReportModal. The pill (modals.js:37-53) is the only path to sessionReports, and it renders as an 8px sliver (zindex-static-summary-pills-unreachable). Related, inferred: a failed single-tool run (exit≠0) also only gets a pill (scan_bar.js:337-343). The generic runner's failure path stores the report with no pill at all (runners.js:213-214). Aside: the Pipeline log under 'Pipeline — Dry Run (preview only)' printed 'Key written: 80 files.' and then '✓ Preview complete' (see E9).
+- **Fix:** Call openReportModal at the end of runPipeline, as scan_bar.js does on success, for both success and failure. Move session pills into a reachable, visible home (the readout or the log header), with a real min-width and z above the tool modal. Make runners.js add a pill on failure too.
+
+#### [MEDIUM · demonstrated] Escape during a run closes the docked tool, and with it the only Interrupt/Emergency Stop in the Chop Shop
+
+- **ID:** `ui-live-chop-escape-hides-stop-controls` · **Area:** ui-layering · **Tool/surface:** All Chop Shop rail tools (docked tool modal)
+- **Expected:** While a job runs, Escape doesn't remove the stop controls, or the controls stay visible in a persistent place (readout or log header). The run guard follows isRunning, not which modal is docked.
+- **Actual:** Escape leaves a running job with no visible Interrupt or Emergency Stop anywhere in the Chop Shop. The run guard is bypassed, and the docked tool's title no longer matches the running job.
+- **Evidence:** Live, 1440x900, Tag Tracks running on 80 files (r4_running_1440_interrupt.out). Before Escape: 'visible stop controls: [tfm-interrupt-btn self enabled, tfm-emergency-btn self enabled]'. After one Escape: '[4_after_escape] running=True tool=None … visible stop controls: NONE'. Screenshot r4run_1440x900_4_after_escape.png. Cause: db_rail.js:57 runs closeToolFloatModal() on Escape regardless of isRunning, and fablegear.css:6278 and :6987 set body.fg-space-chop #scan-bar { display:none !important }. Recovery depends on knowing to click a rail icon. Because the run guard is keyed on _toolFloatActive, which Escape cleared, clicking Organize then docks Organize while Tag Tracks keeps running: tfm title 'Organize Library…' with footer 'Tag Tracks — BPM & Key Detection' (state 5, r4run_1440x900_5_other_tool_docked_while_running.png). Organize's run button is correctly disabled. Round 2 reproduced the same result.
+- **Fix:** Ignore Escape for the tool modal while isRunning, or move the Interrupt and Emergency controls into the always-visible #chop-readout. Key the guard in handleToolIconClick on isRunning and the running tool id.
+
+#### [MEDIUM · demonstrated] Docked Emergency Stop shows no 'click again to confirm' arm state; Interrupt shows no 'Stopping…'. Both update only the hidden scan-bar buttons
+
+- **ID:** `ui-live-chop-stop-buttons-no-feedback` · **Area:** ui-layering · **Tool/surface:** Interrupt / Emergency Stop (docked tool modal)
+- **Expected:** The first click on Emergency Stop visibly arms the button ('Click again to confirm') for its 3s window. Interrupt shows 'Stopping…' and disables itself.
+- **Actual:** In the Chop Shop, one click on Emergency Stop appears to do nothing and silently disarms 3s later. Interrupt gives no feedback and can be clicked repeatedly.
+- **Evidence:** Live, round 4, one click on #tfm-emergency-btn (r4_running_1440_interrupt.out, state 2). Result: emergency text compare {'docked': '⚡ Emergency Stop', 'hidden_scanbar': '⚡ Click again to confirm', 'scanbar_display': 'none', 'armed': True}, then 'armed after 3.5s: False'. Interrupt: {'docked': ['⏸ Interrupt', False], 'hidden_scanbar': ['⏸ Stopping…', True]}. Code: audit.js:47 and audit.js:81-86 write text and disabled state to #scan-bar-interrupt and #scan-bar-emergency only. tool_modal.js:188-211 mirrors counters but not these buttons. The kill itself works. r4_emergency.py with two clicks 300ms apart gave 'cli procs while running: [23883 …]', then the log line '✗ Exited with code -9 / ⚡ Emergency stop — process force-killed', then 'cli procs after: []'. The docked button still read '⚡ Emergency Stop' while the hidden one read '⚡ Killing…'.
+- **Fix:** Drive both button sets from a single state function, or have emergencyStop and interruptScan update #tfm-* as well as #scan-bar-*.
+
+#### [MEDIUM · demonstrated] The Chop readout says 'Complete' (and fills the bar to 100%) after Interrupt or Emergency kill
+
+- **ID:** `ui-live-chop-readout-says-complete-after-kill` · **Area:** ui-layering · **Tool/surface:** Chop readout
+- **Expected:** The readout distinguishes completed, interrupted, killed and failed runs, and doesn't show a full bar for a job that did nothing.
+- **Actual:** Every end state, including a SIGKILL at 0%, reads 'Complete' with a full progress bar.
+- **Evidence:** r4_emergency.py after a force-kill: {'running': False, 'readout': 'Complete 0%', 'fill': '100%', lastLog: ['✗ Exited with code -9', '⚡ Emergency stop — process force-killed…']}. After Interrupt (r4_running state 14): readout 'Complete | 0%'. After a DB-panel Audit, the readout shows 'COMPLETE' with '0% complete' and '0 done / — remaining' (screenshot r4rep_1024x700_3_audit_report_over_dbpanel.png). Code: scan_bar.js:116-121 _chopReadoutFinish always sets the title to 'Complete' and sets fill to 100% when it was 0%. It has no exit-code or stopped parameter.
+- **Fix:** Pass the exit code and a stopped/killed flag into finishScanBar and _chopReadoutFinish. Show 'Interrupted', 'Stopped (killed)' or 'Failed' with the error colour. Don't auto-fill the bar.
+
+#### [MEDIUM · demonstrated] With the safety banners docked, the tool modal shrinks to 118px at 1024x700 and overruns the readout by 61px; every run button starts out of view
+
+- **ID:** `ui-live-chop-dock-banners-squeeze-tool` · **Area:** ui-layering · **Tool/surface:** Chop banner dock + docked tool modal
+- **Expected:** Alerts and the active tool share the space without the tool overrunning the readout, and the primary action stays reachable without scrolling a 118px window.
+- **Actual:** Three stacked alerts push the docked tool down until it overlaps the readout. The tool content is a 118px scroll slot.
+- **Evidence:** r4_dock.py offline. Drive-offline was REAL (DJDRIVE folder renamed) and health was REAL; hotplug was FORCED. Dock contents: hotplug 37px, drive-offline 124-136px, health 48px. Tool body height: 235px at 1440x900, 151px at 1280x800, 118px at 1024x700. At 1024 every rail tool shows modal_over_readout=61px, and the primary button is out of view at open for all six tools (for example 'Scan & Organize' needs scrollH 570 in a 118px window). Screenshot: /home/user/FableGear/docs/audits/2026-10-05/screens/ui-live-chop/r4dock_offline_1024x700_process_top.png shows the modal covering the readout title and progress bar, with the folder input row cut to 16%. Baseline without banners (r2_dock_base.out): body 244px at 1024. Organize and Novelty run buttons need scrolling even at 1440. Positive: the banners DO render in the Chop Shop, unlike the Record Room (E7).
+- **Fix:** Cap the banner dock height (collapse it to a one-line summary or a scrollable dock), and/or let the readout shrink. Pin each tool's primary action in a sticky footer inside the modal.
+
+#### [MEDIUM · demonstrated] DB panel or Pipeline Wizard opened mid-run covers the stop controls; the wizard's step editor stays live while its Cancel is disabled
+
+- **ID:** `ui-live-chop-overlays-cover-stop-controls` · **Area:** ui-layering · **Tool/surface:** DB panel / Pipeline Wizard during a run
+- **Expected:** While a job runs, the stop controls are never covered by a non-modal side panel. Opening the Pipeline Wizard mid-run is blocked or read-only, and its Cancel always works.
+- **Actual:** Opening a panel mid-run hides the stop controls behind a click-catcher. The wizard can be edited mid-run, but its Cancel button is disabled.
+- **Evidence:** r4_running_1440_interrupt.out. State 7 (DB panel mid-run): Interrupt and Emergency hit 'db-panel-backdrop', so the first click only closes the panel, and Emergency then needs two more clicks. State 8 (Pipeline Wizard mid-run): stop buttons hit 'STRONG' and 'pipe-action-btn'. The wizard's '★ Load recommended order' and step buttons are enabled (disabled=False), while 'Cancel' and 'Configure Steps →' are disabled by the global setAllButtons lock. State 9: mid-run toasts (z 20000) overlap the readout and each other. Screenshots r4run_1440x900_7_dbpanel_mid_run.png, _8_pipeline_mid_run.png, _9_toasts_mid_run.png. Run buttons of the other tools and DB tools are correctly disabled mid-run.
+- **Fix:** Keep the stop controls above side panels (for example in the readout, at a z above #db-panel-backdrop). Exclude modal Cancel/Close buttons from setAllButtons. Gate openPipelineWizard on isRunning.
+
+#### [MEDIUM · demonstrated] Chop Shop combos: one Escape closes the report, the DB panel and the docked tool together; Escape skips the top layer for the file drawer and Staging; wizard p2 ignores Escape
+
+- **ID:** `ui-live-chop-escape-multi-layer` · **Area:** ui-layering · **Tool/surface:** Global Escape handling (extends E3 / zindex-static-escape-closes-underlying-layers)
+- **Expected:** Escape closes exactly the top-most layer, consistently across all pages of a modal.
+- **Actual:** Escape closes several layers or the wrong layer, depending on which handlers happen to match.
+- **Evidence:** r4_combo_1024x700.out and r4_combo_1440x900.out. Report modal raised from the DB panel (Preview Canonical Plan) over a docked tool: state {tool_modal 'step-process', db_panel 'audit', report True}. After one Escape: {} (all three closed). A report backdrop click closes only the report (good). DB panel + Staging, then Escape: {'staging': True}, so the DB panel underneath closed and Staging (z 9700, top) stayed. r4_fb_pipe_1024x700.out: with the file drawer open over the docked tool, Escape gave 'fb after Escape: True tool: None' (the tool under the drawer closed). On Pipeline Wizard p2, after Escape: pipeline True (still open), even though p1 closes on Escape (round 1 escape run). Code: db_rail.js:56-57 closes the DB panel and the tool modal in the same keydown, alongside the separate Escape handlers in boot.js:11 and info.js:267.
+- **Fix:** Implement one layer stack, as recommended for E3: each opener pushes, and Escape pops only the top entry and calls its close function. Give p2 the same Escape behaviour as p1.
+
+#### [LOW · demonstrated] Rail overflows at ≤1280 behind a 1px scrollbar that a vertical wheel doesn't scroll; the 0910d6b overlap fix itself holds
+
+- **ID:** `ui-live-chop-rail-overflow` · **Area:** ui-layering · **Tool/surface:** Workflow rail
+- **Expected:** Every rail tool is reachable at 1024 and 1280 widths, with a visible overflow cue or a wrapping/compact layout.
+- **Actual:** Three of the five DB tools are invisible at 1024 and can only be reached by horizontal scrolling or keyboard focus.
+- **Evidence:** r4_rail.out. At 1440x900 the rail is y=84..180, the banner dock starts at 180 (touching, no overlap) and log_panel y=184 (gap 4px, exactly the calc's '+4px'). The 0910d6b fix holds at all three viewports, and r4_logpanel.py confirms log y=184..vh at each. At 1280x800 scrollW=1236 vs clientW=1200 and DEAD FILES is 46 of 64px visible. At 1024x700 scrollW=1236 vs clientW=944: FIX PATHS 24px visible, IMPORT, LINK and DEAD FILES 0px. The scrollbar is 1px, a vertical wheel leaves scrollLeft=0, and a horizontal wheel reaches 292. No fade or chevron cue. Screenshots r4_rail_1024x700_base.png and r4_rail_1280x800_base.png. Mitigation: once any DB tool is open, the DB panel's own tab bar reaches all five, and every tab hit 'self' (r4_combo). Extends ui-live-record-chop-rail-overflow. With the update and brew banners shown, banner controls stay clickable, but the brew banner's bottom 10px (y 84-94) sits under the fixed rail.
+- **Fix:** Collapse the DB tool group into one 'Database ▾' rail button below about 1300px, or let the rail wrap. Alternatively add edge fades or chevrons and map vertical wheel to horizontal scroll.
+
+#### [LOW · demonstrated] Staging (z 9700) covers every rail tool icon in the Chop Shop; the DB panel covers the dock's Review/Re-check/dismiss controls
+
+- **ID:** `ui-live-chop-side-panels-cover-chrome` · **Area:** ui-layering · **Tool/surface:** Staging panel / DB panel
+- **Expected:** A non-modal panel doesn't hide the controls the user needs next: the tool icons for processing staged tracks, and the safety-banner actions.
+- **Actual:** The user has to close Staging to pick a tool, and close the DB panel to act on a health or drive alert.
+- **Evidence:** r4_combo_1024x700.out (DB panel + Staging): six rail step-tabs are 'covered … by #staging-panel z 9700', plus #health-panel-badge. At 1440 five are covered. Screenshot r4combo_1024x700_dbpanel_plus_staging.png. With the DB panel open (r4_report_1024 and round-1 solo db_*), Review, #health-recheck-btn and the health dismiss button are covered by #db-panel z 498. In combo_1440x900_3, the hotplug ✕ and drive-offline close are also covered. Staging also survives Escape (see ui-live-chop-escape-multi-layer). These are Chop Shop consequences of zindex-static-staging-above-modals and zindex-static-undo-db-panel-same-slot.
+- **Fix:** Put Staging on the same tier as other side panels (below modals), offset it below the rail, or make it a right-side drawer. Shift the banner dock left by the DB panel width when the panel is open.
+
+#### [LOW · demonstrated] After any run ends, Interrupt/Emergency stay visible and enabled forever, and the docked title can mismatch the job footer
+
+- **ID:** `ui-live-chop-stale-stop-controls` · **Area:** ui-layering · **Tool/surface:** Docked tool modal footer
+- **Expected:** After a run ends, the stop controls disappear, and the docked footer belongs to the docked tool.
+- **Actual:** Dead stop buttons stay on screen indefinitely, and the footer can describe a different job than the docked tool.
+- **Evidence:** r4_running states 14-16 after the job ended: running=False, but the stop controls tfm-interrupt-btn and tfm-emergency-btn remain visible and enabled. post: {scanbar_active True, body_scan_active True, tfm_actions_active True}. Clicking the stale Interrupt changed nothing. Cause: tool_modal.js:164-172 keys on #scan-bar.active, which only dismissScanBar clears (scan_bar.js:66-71), and its Dismiss button lives in the hidden scan bar (fablegear.css:6278). The screenshot after a DB-panel Audit (r4rep_1024x700_3_audit_report_over_dbpanel.png) shows the docked 'TAG TRACKS' modal with Interrupt and Emergency visible under the footer 'Audit — Database + Physical Scan'.
+- **Fix:** In the Chop Shop, call dismissScanBar (or clear tool-float-modal-actions.active) from finishScanBar. Record which tool owns the run and only show its footer in that tool.
+
+#### [LOW · demonstrated] Toasts land on the Pipeline Wizard footer, covering Cancel and the confirm-between-steps toggle, and stack on each other
+
+- **ID:** `ui-live-chop-toasts-cover-wizard-footer` · **Area:** ui-layering · **Tool/surface:** Toasts + Pipeline Wizard
+- **Expected:** Toasts never sit on top of a modal's primary controls and don't stack on the same coordinates.
+- **Actual:** Brief toasts block the wizard's Cancel and its confirm toggle and hide each other.
+- **Evidence:** r4_fb_pipe_1024.out at 1024x700, Wizard p1 with two toasts. Toasts at y=602, z 20000. 'OCCLUDED covered #wiz-confirm-steps at [346,627] by div.sb-toast.toast-warning'. 'OCCLUDED covered … button.btn Cancel at [681,629]'. The two toasts overlap each other (area 3442). Screenshot r4pipe_1024x700_p1_plus_toasts.png. Toasts also overlap the readout mid-run (r4run_1440x900_9_toasts_mid_run.png). Related: ui-live-record-toasts-overlap.
+- **Fix:** Anchor toasts in a top-right stack container with pointer-events:none outside the toast body. Offset them above any open modal footer.
+
+#### [LOW · demonstrated] Hotplug 'Scan for music' in the Chop Shop dock throws the user into the Record Room's filesystem browser (boundary), with a wrong track count
+
+- **ID:** `ui-live-chop-hotplug-leaves-chop-shop` · **Area:** boundary · **Tool/surface:** Hotplug banner
+- **Expected:** A file-layer action (scan a newly connected drive for music) stays in the Chop Shop: for example, it opens the file browser or pre-fills a tool's folder pills.
+- **Actual:** The app switches rooms and shows a Finder-style folder listing in the Record Room, and the header count doesn't match the rows.
+- **Evidence:** r4_hotplug.py with a FORCED banner pointing at a real folder (Stress, 80 files). After clicking #hotplug-scan-btn: {'space': 'fg-space-record', fsSidebarDisplay 'block', activeModeBtn ['All Music'], status '11 tracks…'}. The list shows the Stress files, while the stat card still reads '11 TRACKS'. Screenshot /home/user/FableGear/docs/audits/2026-10-05/screens/ui-live-chop/r4_hotplug_scan_for_music_real_folder.png. This extends ui-live-record-fs-browse-in-record-room.
+- **Fix:** Route hotplug scans to the Chop Shop (file browser drawer, or Tag Tracks/Novelty with the mountpoint pre-filled). If the Record Room must show it, label it as a filesystem view and fix the count.
+
+#### [LOW · demonstrated] Polish: unstyled update-banner ✕, unpadded 'Why this order?' note, clipped Novelty dry-run checkbox, wrapped terminal header
+
+- **ID:** `ui-live-chop-polish` · **Area:** ui-layering · **Tool/surface:** Various
+- **Expected:** Consistent styled controls and padding at all viewports.
+- **Actual:** Minor visual defects as listed.
+- **Evidence:** r4_rail_1024x700_with_update_brew_banners.png: the update banner ✕ renders as a raw white browser button. r4pipe_1024x700_p1_plus_toasts.png: the 'Why this order?' paragraph sits flush against the wizard's left edge, outside the column padding. solo_1440x900.json: #novelty-dry-run 'box-cut-by-overflow-ancestor', 28% visible at open. r4run_1440x900_1_running: the 'How does it detect BPM and key?' summary is clipped while running. r4rep_1024x700_3: the live terminal header 'LIVE TERMINAL — AUDIT — DATABASE + PHYSICAL SCAN' wraps onto two lines at 1024. The unstyled 'Back to Record Room' hint text shows through behind the terminal (zindex-static-back-hint-unstyled).
+- **Fix:** Style #fablegear-update-banner's dismiss like .brew-dismiss. Pad the wizard note. Ellipsize the terminal title. Remove or style #fg-back-hint.
+
+#### [INFO · demonstrated] Confirmed-good Chop Shop behaviour
+
+- **ID:** `ui-live-chop-confirmed-good` · **Area:** other · **Tool/surface:** Chop Shop chrome
+- **Expected:** n/a
+- **Actual:** n/a
+- **Evidence:** These held in round 4.
+- The 0910d6b fix holds: the rail ends at y=180, the log panel starts at y=184, and the gap is 4px at all three viewports (r4_rail.out, r4_logpanel.py).
+- Every rail tool and DB tool docks with no occlusion of its own controls (round-1 solo probes).
+- The Tag Tracks report modal fits at 1024x700, and both ✕ and 'Got it' hit 'self' (r4_report_1024.out).
+- The report modal (z 11000) sits above the DB panel (z 498), and a report backdrop click closes only the report (r4_combo).
+- The run guard toast appears when another tool icon is clicked mid-run, and the other tools' and DB tools' run buttons are disabled mid-run.
+- In the Record Room mid-run, the scan bar shows a working Interrupt and Emergency Stop (r4run_1440x900_10).
+- Interrupt and Emergency Stop actually terminate the job, and no cli.py is left behind (pgrep before and after).
+- Hotplug, drive-offline and health banners DO render in the Chop Shop dock.
+- The file browser opened from a tool's Browse… shows its header ↑/⌂/✕ all hit 'self' at 1024. Round 1's 'covered header' result was a mid-transition capture and is withdrawn.
+- The Pipeline Wizard p1 and p2 footers (Configure Steps →, ← Back, Run Pipeline) are reachable at 1024x700.
+- The DB panel's own tab bar reaches all five DB tools at 1024.
+- **Fix:** No action needed.
+
 ## Onboarding wizard (live)
 
 _Auditor: `wizard-live`_
@@ -817,6 +974,19 @@ Working correctly: "Finish later" on every step, Back keeping values, leaving re
 - **Actual:** The user can never complete onboarding. 'Finish later' quits, and each relaunch resumes on the broken step 7. The only escape is clearing the WebView's localStorage, which no normal user can do.
 - **Evidence:** Round 3: r3_confirm.py trap7 run against :8101. Path taken: Read allowed, Read-only chosen, paths entered, weekly cadence plus master.db, then step 5 and page.reload(). Before the reload confirmedPaths held 11 keys; after it, confirmedPaths={} and masterDbChecked flipped true→false, although the text inputs were restored. Step 6 showed 'No sources discovered…'. Skip led to step 7, whose summary wrongly said 'Limited mode'. Record Room returned 400 'Could not save configuration: Missing required fields: local_db, music_root, device_db', and Chop Shop returned the same. A graceful server restart followed by reopening '/' landed on /onboarding at step 7, and clicking again gave 400 once more. Recorded: save_config_responses=[400,400,400]; gate config_missing; config.json absent. Step 7 has no Back button and the dots are not clickable. Files: audit/wizard-live/r3/R3_trap7.json; screens/wizard-live/R3_trap7_s5_after_reload.png, R3_trap7_s6_no_sources.png, R3_trap7_s7_save_400.png, R3_trap7_after_restart_still_trapped.png. Round 1 C_trap7.json showed the same trap after a second reload. Code: confirmedPaths is a plain JS var (onboarding.html:851); restoreOnboardingProgress restores only step and inputs (878-894); launch() posts confirmedPaths (1604-1610).
 - **Fix:** Persist confirmedPaths (consents, archive mode, backup_dir, mcp, drive_scan) in the progress blob, or better in a server-side draft file. At step 7 (and before any save-config), rebuild the payload from the restored inputs and route the user to step 4 for anything missing. Add a Back button to step 7. When save-config returns 400 for missing fields, jump to the step that owns them.
+- **Independent verifier:** CONFIRMED (severity → critical). DEMONSTRATED with Playwright on a fresh sandbox (port 9201; audit/verify-all-criticals/trap7.py, trap7_A.json).
+
+Path: Read+Write allowed, paths entered manually, Confirm paths, step 5.
+- confirmedPaths held 11 keys before page.reload() and {} after it. The text inputs were restored.
+- Skip to step 7 shows only the two room buttons and no Back. The summary wrongly says 'Limited mode'.
+- Both room buttons give 400 'Missing required fields: device_db, music_root, local_db'.
+- Escape and clicking dot-4 leave step=7.
+- After a graceful server restart, '/' lands on /onboarding at step 7, and the click gives 400 again. The gate is still config_missing.
+- Screenshots: docs/audits/2026-10-05/screens/verify-all-criticals/V_trap7_save_failed.png and V_trap7_after_relaunch_still_trapped.png.
+
+Code: confirmedPaths is a plain var (onboarding.html:851). saveOnboardingProgress stores only step and inputs (:866-876). restoreOnboardingProgress runs unconditionally at :1722. launch() posts confirmedPaths (:1604-1610). Step 7 markup (:828-844) has no Back button, and the dots have no handlers.
+
+Correction to scope (DEMONSTRATED, trap7_B.json): after a reload at step 5, '← Back' to step 4, then 'Enter paths manually', then 'Confirm paths' repopulates confirmedPaths, and setup completes (gate ready). Step 6 also has Back. So reloads at steps 5 and 6 can be recovered by a user who knows to go back, though nothing tells them to. Once the user is on step 7, including quitting at step 7 via 'Finish later' and relaunching, the trap is permanent. The only escape is clearing WebView localStorage. Critical stands: the app is unusable for a first-run user.
 
 #### [HIGH · demonstrated] Declined Rekordbox read/write consent becomes full access after a reload, while the summary still says 'Limited mode'
 
@@ -1159,6 +1329,305 @@ Verdict: neither installer has a dependable checkpoint, exit or rollback story.
 - **Evidence:** (1) Interrupted venv creation is handled. CPython's EnvBuilder writes the activate scripts after ensurepip, and setup.sh:120-123 rebuilds a venv that has no activate. A re-run of setup.sh restarts every stage but is idempotent (brew list checks, venv reuse, pip -r), so it converges, except for the Python 3.9 trap above. (2) launch.sh's update rollback only resets when the tree is clean (launch.sh:131-135), and the diverged path stashes uncommitted changes with -u (launch.sh:153-154); both were seen working in the demo. (3) single_instance.py uses flock(LOCK_EX|LOCK_NB), which the OS releases on crash, so there is no stale-PID problem. (4) save_user_config is atomic (tmp + rename, user_config.py:260-288). (5) /api/update/apply refuses when tracked files are dirty or managed subprocesses are running (app.py:744-779), and update_checker's SHA-vs-tag loop fix holds (update_checker.py:260-294). (6) `bash -n` passes on all shell scripts, and shellcheck reports only minor items: launch.sh:111 unchecked `cd` (SC2164), launch.sh:178 SC2155, setup.sh:99 unused `ver`. (7) The onboarding install-deps and install-app routes use list-form subprocess calls with no shell=True (app.py:1474, 1539-1542).
 - **Fix:** Keep these and add regression tests (e.g. pytest that stubs PATH and runs the launch.sh update block, as in upd/run_update_demo.sh).
 
+## Undo / revert / session resume (cross-cutting)
+
+_Auditor: `undo-resume`_
+
+Round 4 of the undo-resume audit, on sandbox undo-r4 (port 9105). Every cross-cutting undo endpoint was run against live data, plus one end-to-end session. The session synced the library, ran Rename with 2 folders and Organize with 1 worker, then ran a standalone Normalize on 8 fifteen-minute MP3s and killed the Flask server with kill -9 partway through. After that came a restart, a returning-user view, a fresh browser profile, two tabs, and an attempt to restore everything using only the app.
+
+Verdict: FableGear has no session concept. After a crash, the only trace of the interrupted run is a banner stored in localStorage. That banner sits inside the Normalize card, which has no rail button. It shows 'Interrupted run — Nm ago' and a path, with no steps, no progress (4 of 8 files had been rewritten) and no restore point. A fresh browser profile shows nothing at all. The Timeline and Job endpoints are empty for UI runs (E1), and the Record Room shows nothing.
+
+Worse, that same banner appears while the job is still running. A second tab shows the tool as idle and offers Resume. Resume skips the destructive-action confirmation, and /api/run/process has no single-job guard, so a second normalize process started on the same folder. One file was gain-boosted twice: it ended at +10 LUFS, flattened against 0 dBFS (sample peak 0.0 dB, mean -0.3 dB). Normalize has no undo, so this is permanent.
+
+What restored correctly: Rename and Organize file moves came back byte-identical through Operations, including the No-Name quarantine. A second revert does nothing. Savepoint restore blocks path tricks and is reversible.
+
+What could not be restored:
+- The 4 normalised files (E12).
+- 4 local master.db rows, now pointing at missing files (E14). The only local-DB savepoint can only be written onto the device DB (E10, confirmed: the device DB went from 4 tracks to 11).
+- Trash restore after a real Prune puts files in the library root instead of their original folders, silently overwrites a file already there, and does not restore the deleted DB rows.
+- Junk 'savepoints' are restored without any check. Organize's own trash folder is invisible to the Undo Wizard. Undo endpoints have no running-job guard.
+
+A concrete session-ledger change list is the last finding.
+
+**Coverage**
+
+- LIVE Part C (Playwright + API, sandbox undo-r4, port 9105). s0 = sha256 manifest of 22 files plus a DB dump: snap4_s0.txt and dbdump4_s0.json in /tmp/claude-0/-home-user-FableGear/9074577f-2e6a-5e16-bdce-ef5b26f1b16b/scratchpad/audit/undo-resume/. Steps: Rename live with House and Techno (multi-folder, so it actually applies; see E4), then Organize live with workers=1 on House, Techno and Disco. Then Normalize via the real card button and confirm dialog on 'Long Sets' (8 x 900 s MP3s, workers=4). Mid-run: reopened the UI, reverted Organize through the endpoint, then kill -9 of the Flask PID. Observed the orphaned cli.py at +4 s and +44 s, ran restart.sh, and viewed as a returning user (Chop Shop, Normalize card, Undo Wizard Timeline and Operations tabs, Record Room, second tab), then with a fresh profile with empty localStorage. Restore attempt: Undo Wizard Operations 'Preview undo' then 'Return N files' in the UI (run twice), Savepoints tab (E2 ReferenceError), then POST /api/undo/savepoint/restore as the UI would. Final manifest snap4_c4.txt and dbdump4_c4.json.
+- LIVE two-tab test (p4d_tabs.py, p4d_out.json): tab A runs Normalize while tab B, in the same profile, sees the resume banner and clicks Resume. Captured both cli.py PIDs, then checked loudness with ffmpeg ebur128 and volumedetect.
+- LIVE Part B (p4b_endpoints.py, p4b_out.json): GET /api/undo/savepoints, with each savepoint's source DB identified by opening it with pyrekordbox. POST /api/undo/savepoint/restore covering: E10 targeting, restore-of-restore by sha, junk -wal/-shm sidecars, a junk savepoint, ../ traversal, an absolute path outside, a symlink inside Savepoints, /etc/passwd and an empty body. A real Prune via /api/prune/stage + /api/run/prune SSE, then /api/undo/trash, /trash/<f>/files and /trash/restore, covering: default destination, a decoy at the target path, the FableGear_OrgDupes folder, encoded ../, a prefixed ../ in the body, a symlinked dir and a symlinked file inside a trash folder, an arbitrary destination, and destination '/'. /api/undo/operations, /preview (all-ids span, prune, convert, non-int id) and /revert. /api/undo/database/history and /revert (bogus id, missing id). /api/undo/job/<uuid> and an encoded traversal. /api/undo/timeline.
+- LIVE snapshot scheduler: snapshot_state.json and the Archive Savepoints and Database folders after the first run, which happened at startup + 120 s.
+- CODE: routes_undo.py (whole file), snapshot_scheduler.py, db_connection._backup_db, chop_shop/pruner.py:700-890, library_organizer.py:565-580, routes_tools.py checkpoint routes and concurrency guards, helpers._stream, static/shared/undo.js, static/chop_shop/pipeline.js resume banner, runners.js runNormalize, tool_modal.js and utility.js rail routing, archive_sync.py.
+- NOT TESTED / limits:
+- Sidecars: the WAL test used junk -wal/-shm files, not a WAL written by a live SQLCipher session.
+- The local master.db snapshot path (snapshot_include_master_db=true) was not enabled; that finding is inferred from code.
+- Database revert with a real transaction was not exercised, because no session step records one; E15 covers the FableGear Import transaction.
+- Relocate (Fix Paths) revert and novelty_copy revert were not exercised.
+- Staging batches (/api/staging/batch/*) were not exercised.
+- Pipeline resume is not re-tested (E15).
+- macOS ~/.Trash and Finder semantics, WKWebView storage clearing and a running Rekordbox are outside the Linux sandbox.
+- fpcalc is absent, which does not matter for these flows.
+- HARNESS NOTES:
+- Two earlier Playwright runs crashed: a selector timeout, and a race on a vanishing tmpXXXX.mp3 while polling. They were redone with patched scripts (p4a2/p4a3/p4a4), and the timeline is reconstructed from MARK lines.
+- The output of the first UI revert of Rename was lost when the script crashed. The revert itself is proven by journal rows 26-29 (undo_rename at 10:15:28) and the byte-identical manifest.
+- restart.sh writes the PID of its bash subshell, not the Flask process (also noted by the normalize auditor). The real server PID was 6995.
+- My server was stopped by PID at the end.
+
+**Findings**
+
+#### [CRITICAL · demonstrated] While a job is still running, a second tab or a reload shows 'Interrupted run' + Resume; Resume starts a second concurrent Normalize and one file got gain-boosted twice (permanent)
+
+- **ID:** `undo-resume-concurrent-resume-double-gain` · **Area:** session-resume · **Tool/surface:** Normalize (/api/run/process) + per-tool resume banner
+- **Expected:** A tool that is already running is shown as running in every tab, after a reload, and after a WebView restart, using server state. Resume is never offered for a live run. The server refuses (409) a second writer on the same roots. A destructive resume still asks for confirmation.
+- **Actual:** Every new page treats any leftover localStorage checkpoint as an interrupted run. One click starts a parallel rewrite of the same audio files. A file was gain-boosted twice, and there is no restore path.
+- **Evidence:** p4d_tabs.py → p4d_out.json.
+
+Tab A started Normalize on Long Sets (cli.py PID 13074). Tab B, opened in the same profile 8 s later, showed 'IDLE — SELECT A TOOL TO BEGIN' (isRunning=false) and a visible Normalize banner reading 'Interrupted run — 1m ago … Resume / Start Fresh' (screen r4tabs_01_tabB_sees_interrupted_banner_while_A_runs.png). Clicking Resume produced no confirm dialog; only tab A's confirm was captured. A second cli.py (PID 13477) then ran on the same folder alongside 13074 (cli_after_B_resume).
+
+Both logs normalised the same files. Afterwards, Deep Hours - Long Set 1.mp3 measured (ffmpeg, 30 s window) I = +10.0 LUFS, mean_volume -0.3 dB, max_volume 0.0 dB, a waveform flattened against full scale. Long Set 3, normalised once, measured I = -8.0 LUFS, max -5.8 dB. Contention also caused 5 'loudness measurement failed … timed out after 120 seconds' errors in tab B.
+
+The same false 'Interrupted run' banner also appeared during the kill test, while cli.py 5233 was still alive (p4a3_out.json reopened_tab_during_run; r4c_11_reopened_tab_during_run.png).
+
+Code:
+- The banner is driven only by localStorage rb_ckpt_normalize, cleared only on exit 0 (runners.js:246-249; pipeline.js:583-640).
+- _resumeNormalize calls runNormalize(true), which skips the confirm (pipeline.js:685).
+- /api/run/process has no single-job guard; only duplicates and prune have one (routes_tools.py:914-917, 1131).
+- Normalize has no undo (E12).
+- **Fix:** 1. Add a server-side single-writer guard in helpers._stream (helpers.py:858) or in each /api/run/<tool> handler, using list_running_managed_subprocesses (helpers.py:463) keyed by tool and roots. Return 409 like duplicates and prune do.
+2. Before rendering, have _showToolResumeBanner (pipeline.js:598) ask the server whether a run for that tool is live, and show 'Running in another window' instead of Resume.
+3. Make _resumeNormalize and the other destructive resumes go through the same confirm.
+4. Long-term: normalize writes to a temp file and then does an atomic replace, guarded by an fcntl lock per file.
+- **Independent verifier:** CONFIRMED (severity → high). I reproduced this in my own sandbox (sbx-verify-undo-resume, port 9205), with a fresh Chromium profile and 4 quiet 10-11 minute WAV files (-46.8 LUFS, peak -46.1 dB) in Music Library/Race. Script: scratchpad/audit/verify-undo-resume/v2_tabs.py, output v2_out.json.
+
+DEMONSTRATED (second tab, same profile):
+- Tab A clicked Normalize Loudness. Its confirm dialog appeared and was accepted, and cli.py PID 29742 started.
+- Tab B opened 18 s later. It showed 'Interrupted run - just now … Resume / Start Fresh' on the Normalize card and the status 'Idle - select a tool to begin' (isRunning=false), while 29742 was still running. Screenshot: docs/audits/2026-10-05/screens/verify-undo-resume/v2tabs_01_tabB_banner_while_A_runs.png.
+- Clicking Resume in B raised no dialog (dialogs_from_B_resume=[]). A second cli.py (PID 30048) started with identical args on the same folder, alongside 29742.
+- Both logs show the same gain applied to every file: A 'Normalising Race Tone 1.wav: -46.9 LUFS → -8.0 (gain: +38.9 dB)' at 10:53:50, B the same line at 10:54:56, and likewise for Tones 2-4. B measured the original inode it had opened before A's rename (audio_processor.py:546-548), then encoded from the path, which by then held A's output.
+- Both tabs reported '4 tracks were re-encoded … ✓ Finished successfully'. Nothing warned the user.
+- Result: all 4 files ended at I=+2.9 to +3.4 LUFS, max 0.0 dB, mean -0.0 dB, i.e. clipped to a square wave.
+- Control run v1_tabs.py, where B's click missed and only one run happened: the same kind of files ended at -8.0 LUFS, max -7.3 dB.
+- The true-peak cap (_capped_gain_db, audio_processor.py:407-433) does not help, because B computes it from the original's peak.
+- No undo exists for this (E12).
+
+I also re-measured the original auditor's leftover sbx-undo-r4 Long Set 1: I=+10.0 LUFS, max 0.0 dB, against the pristine copy at -41.7 LUFS. Long Set 3 measured -8.0. Both match the reported numbers.
+
+CODE (inferred, re-read by me):
+- The banner depends only on localStorage: _showToolResumeBanner, pipeline.js:598-630.
+- The checkpoint is cleared only on exit 0: runners.js:248-249.
+- _resumeNormalize calls runNormalize(true) and skips the confirm: pipeline.js:680-686, runners.js:231.
+- /api/run/process (routes_tools.py:226-319) goes straight to _sse_response/_stream (helpers.py:858+), which has no running-job check. Only duplicates and prune have guards (routes_tools.py:914-917, 1131).
+- cli.py and audio_processor.py have no lock or flock.
+
+MITIGATIONS I FOUND, which are why I lowered the severity:
+1. The shipping app is one frameless pywebview window behind an OS single-instance lock (main.py:155-166, single_instance.py). By default there is no second tab.
+2. Non-loopback UI requests get 403 unless allow_lan_ui is set (app.py:207-229).
+3. Single-window reload (v3_reload.py → v3_out.json): reloading tab A 2 s after start showed the banner. However, by the time Resume was clickable, the original run was already dead. When _stream's generator closes on a dropped SSE, its finally SIGTERMs the process group (helpers.py:903-910). Only one cli.py ran, and all files ended correct at -8.0 LUFS. So the 'reload' half of the claim did not reproduce for me, and it depends on timing. The auditor's p4a3 showed an orphan surviving at least 3 minutes after its tab closed, with the banner showing. Long files with no log output for minutes therefore probably leave a window open, but I did not demonstrate double gain via reload.
+
+The second-tab path is still reachable: open http://127.0.0.1:<port> in a browser while the app runs, or use the browser-fallback mode when the native window fails (main.py:224-238).
+
+SIDE OBSERVATION (demonstrated): the orphan killed on reload left a 0-byte 'tmpiokda_ky.wav' in the music folder. SIGTERM bypasses _normalise_file's finally cleanup at audio_processor.py:565-567.
+
+SEVERITY: the defect and its permanent, silent damage are real, and the damage alone is critical-grade (4/4 files destroyed, both runs report success, no undo). I rate it high rather than critical because reaching it needs a second UI surface, which the shipping single-window, single-instance app does not offer by default, and the single-window reload path did not reproduce concurrency. The fix guidance (a server-side single-writer 409 keyed on tool and roots, a server-state check before showing Resume, and a confirm on destructive resume) stands as written.
+
+#### [HIGH · demonstrated] After a crash and relaunch, nothing names the previous session, its steps, where it stopped, or a restore point; a fresh WebView shows nothing at all
+
+- **ID:** `undo-resume-no-session-surface` · **Area:** session-resume · **Tool/surface:** App shell, Undo Wizard, checkpoint API
+- **Expected:** Both spaces show a 'Last session' surface from server state, listing for each run: tool, start time, roots and config, files done and remaining, the reports, and the restore points per DB. It offers Resume (skip what is done) and 'Revert to start'.
+- **Actual:** Session state is split across localStorage (rb_ckpt_*), fg_processing_log (moves only), unlabeled savepoints, per-folder .fablegear_state.json files (they record a step and its exit code only) and the reports. None of these is linked to the others, and the one banner sits in a card with no rail button.
+- **Evidence:** Session: Rename 10:09:02, then Organize 10:09:07, then Normalize 10:10:36, then kill -9 at 10:13:26 with Long Set 3/6/7/8 rewritten and 1/2/4/5 untouched (p4a3_out.json ls_state_before_kill), then restart at 10:14:31 (p4a4_out.json).
+
+As a returning user in the same profile:
+- Chop Shop opens on Tag Tracks, 'IDLE — SELECT A TOOL TO BEGIN' (r4c_21_returning_user_chop.png). The only hint is a header pill, 'Last backup: 8m ago'. It refers to the newest savepoint and says neither which DB nor which run.
+- The only session trace is the localStorage banner inside #step-normalize: 'Interrupted run — 4m ago' plus the path (r4c_22). It has no step list, no 4/8 progress and no restore point.
+- That card has no rail entry. The step tabs are only process, rename, convert, organize, duplicates and novelty (grep of data-target; utility.js:186-199 routes clicks only from .step-tab). It was reached only by calling handleToolIconClick('step-normalize') from JS.
+- Undo Wizard Timeline: 'No jobs found' (r4c_23; E1).
+- Operations: Rename and Organize sessions with no link to a run and nothing for Normalize (r4c_24).
+- Record Room: no banner (r4c_25).
+- /api/checkpoint/check returns exists:false for rename, organize and process; tool=normalize returns 400 'tool must be one of …'.
+
+Fresh browser context: no banner and no rb_ckpt_* key, so the session is invisible (r4c_fresh_01, r4c_fresh_02; p4a4_out.json fresh_ctx). A second tab after the restart shows the same as the returning user (r4c_26).
+- **Fix:** Implement the run ledger described in undo-resume-ledger-proposal. Render it as a global card in both spaces, not inside per-tool cards. Give Normalize a rail entry, or move its banner to the global card. Add 'normalize' to valid_tools in routes_tools.py:851 and :898, or key normalize checkpoints as 'process' consistently.
+
+#### [HIGH · demonstrated] Getting the library back to its starting state with the app alone: file moves restore byte-identically, but normalised audio, local Rekordbox rows and the device DB cannot be restored, and restoring makes the device DB worse
+
+- **ID:** `undo-resume-e2e-partial-restore` · **Area:** undo-revert · **Tool/surface:** Undo Wizard (Operations / Savepoints) after Rename + Organize + Normalize
+- **Expected:** One action returns files, both Rekordbox DBs and the FableGear DB to their state at the session's start, and lists exactly what cannot be returned and why.
+- **Actual:** Only journaled file moves come back. The DB restore that exists overwrites the wrong database. Rewritten audio is gone.
+- **Evidence:** Organize was reverted during the run (200, reverted 7). Rename was reverted in the UI via Operations, 'Preview undo' then 'Return 4 files' (journal rows 26-29 undo_rename at 10:15:28). Rounds 2 and 3 showed '0 files can be returned · 4 blocked' and '· 7 blocked', so a second revert does nothing (p4c_out.json, r4restore_01..03.png).
+
+sha256 of s0 vs c4 (snap4_s0.txt vs snap4_c4.txt): every non-Long-Set audio file is byte-identical, including 'untitled track 03.mp3', which came back from 'No-Name tracks for Tagging' (journal id 7). CHANGED:
+- Long Sets 3, 6, 7, 8: no copy anywhere (E12).
+- home/Library/Pioneer/rekordbox/master.db: dbdump c4 shows 4 rows still at the renamed paths, and rb_local_missing_on_disk went from 1 to 5 (E14).
+- PIONEER/Master/master.db: before restore, 4 rows. I POSTed the pre-rename savepoint master.backup_20261006_100905_162524.db, which is the local DB with 11 rows. The response was {ok:true}. The device DB then had 11 rows, including the local-only broken 'Old Location/Vera Lux - Pressure.flac'. The local DB sha 142758446aa14f54 was unchanged (E10 confirmed, with harm).
+
+The Savepoints tab cannot do this from the UI: 'ReferenceError: undoLoadSavepoints is not defined' (E2; r4restore_04).
+
+Leftovers that are not reverted:
+- 9 Reports/Audit files, apparently one per UI load (8 loads in this session plus one earlier audit).
+- 2 .fablegear_state.json files and the _quarantine_manifest.json.
+- 3 new savepoints.
+- An empty ~/.Trash/FableGear_OrgDupes_20261006_100910.
+- **Fix:** 1. Record which DB each savepoint came from, and restore to that DB (see the ledger proposal).
+2. Revert Rekordbox FolderPath in the same revert as the file move: extend _build_revert_plan (routes_undo.py:407) with a db_revert step for rename/organize rows, the same as relocate.
+3. Keep originals for any audio rewrite (normalize, convert, tag) in Archive/Originals/<run_id> until the user discards them.
+
+#### [HIGH · demonstrated] Trash restore after Prune puts files in the library root instead of their folders, silently overwrites an existing file, and does not restore the deleted DB rows
+
+- **ID:** `undo-resume-trash-restore-wrong-place-overwrite` · **Area:** undo-revert · **Tool/surface:** /api/undo/trash/restore (Prune recovery)
+- **Expected:** Each file returns to its original path. Collisions are refused or renamed, never overwritten. The removed DB rows (device/local and fg_content) are re-inserted, or the user is clearly told to re-import.
+- **Actual:** Files come back to the wrong place, can destroy a newer file with the same name, and the library DB stays without them.
+- **Evidence:** A real Prune of Loud/Brick Wall - Clipper.mp3 and Quiet/Soft Hands - Whisper.mp3 via /api/prune/stage + /api/run/prune printed 'Database commit OK (2 row(s) removed)'. The device DB went from 11 to 9 rows and fg_content from 19 to 17 (dbdump4_b4end.json).
+
+The trash folder FableGear_Pruned_20261006_101725 is flat: the relative paths are just the file names (B4_trash_files). Before restoring, I wrote a decoy file at 'Music Library/Soft Hands - Whisper.mp3'. POST /api/undo/trash/restore {folder} returned {ok:true, restored:2, errors:[]}.
+
+Both files landed at the library root (B4_landed keys are root names), not in Loud/ and Quiet/. The decoy was silently replaced: B4_decoy_overwritten=true, sha 58fd6c23… = the pruned original. The deleted DB rows were not restored, and local master.db still points at Loud/… and Quiet/…, which are now missing (rb_local_missing 7). The folder stays listed with file_count 0.
+
+Code:
+- pruner.py:884 dest = trash_dir / p.name, which flattens the path.
+- routes_undo.py:287-294 does target = dest_path / rel, then shutil.move with no exists check.
+- The prune journal (pruner.py:846 _journal_prune) has the original path but restore ignores it.
+- **Fix:** 1. In pruner, mirror the relative path under the trash folder, or write a manifest {trash_name: original_path}.
+2. In undo_trash_restore, restore from the manifest or the fg_processing_log prune rows to the original paths. Refuse if the target exists (use os.link plus unlink, or check exists() first).
+3. Re-add DB rows from the pre-prune savepoint, or record the removed rows (with playlist membership) in the journal so they can be re-inserted.
+4. Remove empty trash folders after a restore.
+
+#### [MEDIUM · demonstrated] The savepoint list doesn't say which DB or which run a savepoint belongs to; scheduler, tool and pre-restore snapshots look identical
+
+- **ID:** `undo-resume-savepoints-unlabeled` · **Area:** undo-revert · **Tool/surface:** /api/undo/savepoints
+- **Expected:** Each savepoint shows the source DB (local or device, with its path), what created it (run_id/tool, scheduler, pre-restore) and a human label.
+- **Actual:** A list of timestamps. Picking the wrong one silently overwrites the device DB (E10).
+- **Evidence:** The listing returned entries of the same shape {filename, path, timestamp, display_time, size}:
+- master.backup_20261006_100835_961468.db: the device DB, 4 rows, written by the snapshot scheduler at startup + 120 s.
+- master.backup_20261006_100905_162524.db: the local DB, 11 rows, written by Rename.
+- master.backup_20261006_101639_485233.db: the device DB, written automatically before my restore.
+
+The source DB could only be determined by opening each file with pyrekordbox (p4c_out.json savepoints; p4b_out.json B0_listing). A symlink placed in Savepoints also shows up in the listing (listing_shows_symlink=true), although restoring it is refused.
+- **Fix:** Have db_connection._backup_db (db_connection.py:148) and snapshot_scheduler._snapshot_* write <backup>.json with {source_db, role, reason, run_id, created_at}. _list_savepoints (routes_undo.py:63) returns those fields; skip symlinks and non-regular files.
+
+#### [MEDIUM · demonstrated] Savepoint restore puts any file named master.backup_*.db over the device DB without checking it is a database or the right database
+
+- **ID:** `undo-resume-junk-savepoint-accepted` · **Area:** undo-revert · **Tool/surface:** /api/undo/savepoint/restore
+- **Expected:** Open the candidate with pyrekordbox/sqlcipher and run an integrity check, and confirm it came from the same DB role, before replacing the live DB.
+- **Actual:** A truncated or corrupt savepoint (for example from a full disk or interrupted copy) silently replaces a working device DB.
+- **Evidence:** I wrote 1.2 KB of text to Savepoints/master.backup_20000101_000000.db. The POST returned 200 {ok:true}. Opening the device DB afterwards gave 'sqlcipher3 DatabaseError: file is not a database' (B3_device_after_junk).
+
+Recovery was possible only because the endpoint takes a backup before every restore: restoring master.backup_20261006_101724_767267.db brought back the original bytes (B3_device_recovered=[true, 11]).
+
+Validation in code is limited to the name prefix, existence and location (routes_undo.py:121-126).
+- **Fix:** Before tmp_path.replace in undo_restore_savepoint (routes_undo.py:156), open tmp_path read-only with the Rekordbox key and run PRAGMA quick_check, and compare it with the provenance sidecar. On failure, delete tmp and return 400.
+
+#### [MEDIUM · demonstrated] Undo endpoints run while a tool job is mid-flight (no lock against running jobs)
+
+- **ID:** `undo-resume-no-running-job-guard` · **Area:** undo-revert · **Tool/surface:** /api/undo/operations/revert, /api/undo/savepoint/restore, /api/undo/trash/restore
+- **Expected:** A revert or restore is refused (409) while any managed tool subprocess is running, or at least while one is running on overlapping roots.
+- **Actual:** Reverts and restores proceed under a running job.
+- **Evidence:** With Normalize running (cli.py 5233 alive, 4 ffmpeg workers), POST /api/undo/operations/revert {type:organize, first_id:9, last_id:17} returned 200 {ok:true, reverted:7, blocked:0} (p4a3_out.json organize_revert_during_run).
+
+The only gate in the savepoint restore is rekordbox_is_running() (routes_undo.py:128); the operations and trash restores have none (routes_undo.py:257-300, 507-647).
+
+The concrete harm in this run was nil, because Normalize was working on a different folder. Reverting files that a running Organize, Rename or Normalize is touching was not reproduced (speculative).
+- **Fix:** At the top of the three write endpoints, call helpers.list_running_managed_subprocesses() (helpers.py:463) and return 409 'A tool is running — wait or Interrupt it first'.
+
+#### [MEDIUM · inferred] Organize's duplicate-trash folder (FableGear_OrgDupes_*) can't be listed or restored by the Undo Wizard
+
+- **ID:** `undo-resume-orgdupes-trash-invisible` · **Area:** undo-revert · **Tool/surface:** Organize (assimilate) + /api/undo/trash
+- **Expected:** Every recovery folder a tool creates is listed and restorable, with the original paths.
+- **Actual:** The prefix allow-list hides Organize's recovery folder.
+- **Evidence:** Organize created ~/.Trash/FableGear_OrgDupes_20261006_100910 (library_organizer.py:573-579: SHA256-confirmed duplicates are moved there in assimilate mode). In this run it stayed empty.
+
+/api/undo/trash lists only FableGear_Pruned_* (routes_undo.py:202). GET /api/undo/trash/FableGear_OrgDupes_…/files and POST /trash/restore both returned 400 'Invalid folder' (p4b_out.json B4_orgdupes, demonstrated). Files actually moved there would therefore be unrecoverable from the app; that part was not reproduced with real duplicates.
+- **Fix:** Accept the FableGear_OrgDupes_ prefix (or one common FableGear_Recovery_<tool>_ prefix) in _list_trash_folders, undo_trash_files and undo_trash_restore, and journal the original path for each duplicate move.
+
+#### [MEDIUM · demonstrated] The snapshot scheduler runs at startup + 120 s and then every 30 days; its local master.db snapshot (opt-in) can never be listed or restored, and its fablegear.db copy has no restore surface
+
+- **ID:** `undo-resume-snapshot-scheduler` · **Area:** undo-revert · **Tool/surface:** snapshot_scheduler.py
+- **Expected:** Periodic snapshots of both Rekordbox DBs and fablegear.db, at a cadence that matters for a working session (for example daily, or before a session), each listed with its source and restorable to its own DB.
+- **Actual:** A monthly device-DB-only savepoint that looks identical to tool savepoints. Local DB snapshots are off by default and unreachable when on.
+- **Evidence:** Live: snapshot_state.json shows last_run 10:08:35, 120 s after server start (_STARTUP_DELAY at snapshot_scheduler.py:16), with last_interval_seconds 2592000 (30 days by default). last_paths = [Archive/Database/fablegear.db, Savepoints/master.backup_20261006_100835_961468.db (device DB, 4 rows)]. The device snapshot is listed and restorable like any savepoint (p4b_out.json B0_*).
+
+Inferred:
+- The local master.db is snapshotted only if snapshot_include_master_db, which defaults to False (config.py:105).
+- That snapshot is named rekordbox.master.backup_<ts>.db (snapshot_scheduler.py:73). _list_savepoints globs master.backup_*.db (routes_undo.py:66), and restore requires that prefix (routes_undo.py:122), so the snapshot is invisible and refused.
+- The archived fablegear.db is only read back automatically at startup when the local copy fails its integrity check (archive_sync.py:176-200). There is no user-facing restore.
+- No route exposes get_status/run_now.
+- **Fix:** Use the master.backup_ naming plus a provenance sidecar for local snapshots as well. Make restore target the recorded source. Expose GET /api/snapshots/status and POST /api/snapshots/run, and a fablegear.db point-in-time restore.
+
+#### [LOW · demonstrated] The Operations tab keeps offering 'Preview undo' for sessions that were already reverted, and explains the block wrongly
+
+- **ID:** `undo-resume-ops-list-stale` · **Area:** undo-revert · **Tool/surface:** Undo Wizard → Operations
+- **Expected:** Sessions show 'Reverted at <time>' and offer Redo, or are hidden.
+- **Actual:** A stale offer with a misleading reason.
+- **Evidence:** After both reverts, both sessions still list 'Preview undo' (ops_rows_after). The re-check says '0 files can be returned · 7 blocked (moved again since, or the original slot is taken)', when the real cause is 'already undone at 10:13:25'.
+
+The undo_organize and undo_rename journal rows are excluded from listing (routes_undo.py:359), so an undo cannot itself be undone. The 15-minute grouping is already reported in E15 and by the rename auditor.
+- **Fix:** In undo_operations, join the undo_* rows by metadata.journal_id and mark a session reverted when all its rows have a matching undo row. Add a redo for undo_* sessions.
+
+#### [INFO · demonstrated] kill -9 of the server orphans the running cli.py; this time it exited within 44 s without corrupting in-flight files, but nothing records which files were rewritten
+
+- **ID:** `undo-resume-crash-orphan-behaviour` · **Area:** session-resume · **Tool/surface:** helpers._stream / Normalize
+- **Expected:** Crash recovery on startup lists the interrupted run and exactly which files changed.
+- **Actual:** The files stayed consistent this time, but the record is empty.
+- **Evidence:** 4 s after the kill, cli.py 5233 had ppid 1 and was still running. At 44 s it was gone. Long Set 1/2/4/5 kept their original size and mode (21601890 bytes, 644); 3/6/7/8 were rewritten (36003092 bytes, 600). No tmp*.mp3 or .bak files were left (p4a3_out.json ls_4s and ls_44s).
+
+The job also kept running after the first browser closed. It continued at least 60 s until the server was killed: _stream only notices a disconnect when it writes the next line (helpers.py:899-908).
+
+The normalize auditor did see orphaned tmp files on an interrupt during encoding; this run did not reproduce that. Nothing (journal, checkpoint, report) lists the 4 rewritten files (E12 and tool-normalize-interrupt-no-record).
+- **Fix:** Write the run record and per-file progress from the Flask side (the ledger proposal). On startup, reap orphaned cli.py processes using the proc registry (helpers._read_proc_registry_unlocked, helpers.py:211) and mark their runs interrupted.
+
+#### [INFO · demonstrated] Confirmed good: savepoint/trash path safety, the automatic pre-restore backup, byte-identical restore-of-restore, and sidecar handling
+
+- **ID:** `undo-resume-endpoint-safety-good` · **Area:** undo-revert · **Tool/surface:** /api/undo/savepoint/restore, /api/undo/trash/*
+- **Expected:** n/a
+- **Actual:** n/a
+- **Evidence:** Savepoint restore returned 400 'Invalid savepoint' for each of:
+- Savepoints/../../evil/master.backup_evil.db
+- an absolute path outside the Savepoints folder
+- a symlink inside Savepoints pointing outside
+- /etc/passwd
+An empty body gave 400 'Missing path'. The device DB was unchanged by all of these.
+
+Every restore first backs up the current device DB. Restoring that backup returned the device DB to the identical sha (8151120c…, matches_pre=true).
+
+Sidecars: when the savepoint has no sidecars, the live -wal/-shm are removed. The pre-restore backup copies the live sidecars, and restoring it puts them back exactly (B2_*).
+
+Trash:
+- Encoded ../ in the URL returns 404.
+- '../../.fablegear' and 'FableGear_Pruned_…/../../../.fablegear' in the body return 400.
+- A symlinked directory inside a trash folder is not traversed: outside_src was untouched.
+- A symlinked file is moved as a symlink; its target is not touched.
+
+Operations:
+- Prune and convert previews are refused (400).
+- An id range of 0..1e9 is safe, because the plan is recomputed on the server.
+- Database revert of a bogus id returns 400, a missing id 400.
+- /api/undo/job/<random uuid> returns 404.
+
+Minor:
+- The trash restore destination is unvalidated: any existing directory, including '/', is accepted (200).
+- A non-integer id gives 500 with the raw Python exception text.
+- database/history stays [] for the whole session, because no Chop Shop tool records transactions (only importer_database.py:116 and routes_player.py:823 do).
+- **Fix:** Keep these protections. Also restrict the trash destination to MUSIC_ROOT or the original parent folders, and return 400 rather than 500 for non-integer ids.
+
+#### [INFO · inferred] Concrete code changes for a session ledger: run record, restore points tied to the run and DB, server-side resume, one-click revert to start
+
+- **ID:** `undo-resume-ledger-proposal` · **Area:** session-resume · **Tool/surface:** cross-cutting
+- **Expected:** n/a
+- **Actual:** n/a
+- **Evidence:** 1. RUN RECORD FROM FLASK. In helpers._stream (helpers.py:858), at Popen time, insert a runs row {run_id, tool, argv, roots, config, started_at, pid, state=running} into fablegear.db (FableGearDatabase), and update it on exit with exit_code, ended_at and the report path. Pass FABLEGEAR_RUN_ID through _subprocess_env (helpers.py:837) so cli.py tags its journal rows and checkpoints. Mirror the record into job_dispatcher's store (_setup_persistence :715, get_history :554, get_output :605). That makes /api/undo/timeline and /api/undo/job/<id> work for UI runs, fixing E1. At startup (app.py near startup_sync_check, app.py:289), mark state=running rows whose PID is dead as interrupted, and reap orphans from the proc registry (helpers.py:211).
+
+2. RESTORE POINTS LINKED TO THE RUN AND THE DB. db_connection._backup_db (db_connection.py:148) and snapshot_scheduler._snapshot_* write a <backup>.json sidecar {run_id, source_db, role local|device, reason}. FableGearDatabase.log_operation (fablegear_database/database.py:868) gains a run_id column, and pruner._journal_prune (pruner.py:846) records original and trash paths. _list_savepoints (routes_undo.py:63) returns the provenance. undo_restore_savepoint (routes_undo.py:108) restores to the recorded source DB instead of always DEVICE_DB (fixes E10) and validates the file first. undo_operations (routes_undo.py:345) groups by run_id instead of _SESSION_GAP_SEC.
+
+3. SERVER-SIDE RESUME. Replace localStorage rb_ckpt_* (_saveToolCkpt and _showToolResumeBanner, pipeline.js:583-640; runners.js:246-249) with GET /api/runs/last, backed by the runs table plus checkpoint.Checkpoint (checkpoint.py:63) keyed by run_id. The banner shows files done and remaining and the restore points, and is suppressed while the run is live. Add a single-writer guard per tool and roots in _stream (409, like routes_tools.py:914).
+
+4. ONE-CLICK REVERT TO START. POST /api/runs/<run_id>/revert (and a session variant covering every run since X) does the following:
+- Replays the run's journal rows newest-first through _build_revert_plan (routes_undo.py:407) restricted to that run_id. Newest-first fixes the chained-move order bug (E15).
+- Adds the matching Rekordbox FolderPath reverts (fixes E14).
+- Restores the run's linked savepoints for each DB it touched.
+- Restores pruned files to their journaled original paths.
+- Returns an explicit 'cannot revert' list for audio rewrites unless originals were kept. That requires normalize, convert and tag writes to copy originals to Archive/Originals/<run_id> before rewriting (E8, E9, E12).
+
+5. SURFACE. A global 'Last session' card in both spaces (not inside the per-tool cards; see E4 and E5) listing the runs, steps, progress, reports and restore points, with Resume and 'Revert to start' buttons.
+- **Fix:** See the evidence above; each item names the existing function to extend.
+
 ## Chop Shop: Tag Tracks
 
 _Auditor: `tool-process-b`_
@@ -1283,6 +1752,13 @@ _Evidence:_ demonstrated: the card's retry row can never become visible (CSS #pr
 - **Actual:** Every ID3 frame in an AIFF/WAV is dropped by the re-encode. The user's DJ metadata (artist, album, BPM, key, Mix In Key comments) is permanently lost, while the report and the archive claim the keys were written.
 - **Evidence:** 1) Created 'Volumes/DJDRIVE/AIFF Test/DJ Real - Anthem.aiff' with ID3 TIT2/TPE1/TALB/TBPM=126/TKEY=4A/COMM. Ran GET /api/run/process?path=<AIFF Test>&bpm_mode=passive&key_mode=passive&normalize_mode=aggressive. The log shows 'Normalising DJ Real - Anthem.aiff: -21.8 LUFS → -8.0' and the report 'Loudness adjusted: 1 files'. mutagen AIFF tags AFTER: None; ffprobe shows only title and comment, from native AIFF chunks. Artist, album, BPM 126 and key 4A are gone. 2) UI run norm1 (normalize passive): the log says 'KEY written: 11B → Vera Lux - Pressure.aiff' and then normalises it; the same holds for Kaito_-_sunrise_FINAL_v2.wav and kick_01.wav. The snapshot afterwards shows {'_tags': None} for all three, yet the report says 'Key written: 10 files' and fg_content stores key 11B. 3) Reproduced with plain ffmpeg using the exact _normalise_file argv: out.aiff tags None. Adding '-write_id3v2 1' preserves TKEY. Cause: audio_processor.py:518-525 builds the command with '-map_metadata 0 -id3v2_version 3' but no '-write_id3v2 1' for wav/aiff. There is no backup after the .bak is deleted (line 548). The same code path backs the standalone Normalize tool.
 - **Fix:** For .wav/.aif/.aiff add '-write_id3v2 1' (and keep '-id3v2_version 3'). After encoding, verify that the tag set of tmp_path is a superset of the source's (mutagen) before swapping; on mismatch, copy the tags across with mutagen or abort. Do not delete the .bak until verification passes, and keep the original in Archive/Originals/<run-id>/ so it can be undone. Add a regression test with an ID3-tagged AIFF and WAV.
+- **Independent verifier:** CONFIRMED (severity → critical). DEMONSTRATED in my own sandbox (port 9201, sbx-verify-all-criticals). I made a tagged AIFF (TIT2/TPE1/TALB/TCON/COMM/APIC, no BPM/key) and ran GET /api/run/process?path=VT_tag&bpm_mode=passive&key_mode=passive&normalize_mode=aggressive. The SSE log shows 'BPM written: 123.0', 'KEY written: 5A', then 'Normalising ... +29.3 dB', and the report says 'BPM written: 1 files. Key written: 1 files. Loudness adjusted: 1 files.' Afterwards mutagen tags are None and the codec is pcm_s16le. After POST /api/library/db/sync, fg_content row 20 has bpm=None, key=None, artist='Tagtest' (taken from the filename). So the report and the archive claim tags that no longer exist anywhere. Log: audit/verify-all-criticals/tagtracks_norm.log.
+
+Code: audio_processor.py writes tags at :1043/:1061 and normalises afterwards at :1101 via _normalise_file. That builds argv with '-map_metadata 0 -id3v2_version 3' and no '-write_id3v2 1' (:518-525), and bak.unlink() at :548 removes the original. No tag write-back follows (:1101-1118).
+
+Mitigation probe: the same ffmpeg argv plus '-write_id3v2 1' keeps APIC/TALB/TBPM/TCON/TIT2/TKEY/TPE1 (tags_convert.log). runProcess (runners.js:120-160) shows no confirm() for Tag Tracks.
+
+This overlaps the already-established E9; the severity stands.
 
 #### [HIGH · demonstrated] Passive ("fill only missing") BPM/key mode overwrites existing M4A BPM and key
 
@@ -1537,6 +2013,22 @@ _Evidence:_ inferred: cli.py:1114-1231
 - **Actual:** The doomed file's fg_content row is deleted. Its Record Room playlist entries, cues and beatgrid cascade away. They are never moved to the keeper, and no backup, journal or undo path can bring them back. The 'Playlist protection … Your playlists stay intact' promise (duplicate_prune.html:25) is false for the app's own library.
 - **Evidence:** Setup: FableGear playlist 'Warmup' with FG ids 10 (House/Nula - Night Drive.mp3), 15 (Disco/Glitterball.m4a) and 9 (House/Nula (copy).mp3), all doomed, while their keepers (ids 6, 11, 1) are in the same DB. UI prune (r2b, Move to Trash) → `python diff.py r2_before r2_after`: fg_db.content loses rows 9, 10, 12, 15 and fg_db.playlist_song loses [1,1,10,1], [2,1,15,2], [3,1,9,3]. GET /api/library/playlists/1/tracks → []. After both API reverts (savepoint + trash restore) the rows are still gone (diff r2_before r2_undo1). The Archive mirror Archive/Database/fablegear.db (synced_at 18:55:32) holds no rows 9/10/12/15 and no playlist songs. The same thing happened in round 1, where the Rekordbox delete failed but the FableGear rows were deleted anyway. Code: pruner.py:846-864 `_journal_prune` → archive.delete_content(rec.id) (database.py:435-448). fg_playlist_song, fg_cue and fg_beatgrid are ON DELETE CASCADE (schema.py:200-201, 247, 266) with foreign_keys=True (database.py:184).
 - **Fix:** In _journal_prune, when keeper_map has a keeper, look up the keeper's fg_content id and run UPDATE fg_playlist_song/fg_cue/fg_beatgrid SET content_id=keeper (dedupe within playlist) before delete_content. Better still: relink the doomed row to a tombstone or mark it pruned instead of hard-deleting. Snapshot fablegear.db (sqlite backup API) before prune_files and record that snapshot in a per-job manifest that the Undo Wizard can restore. Add a test with a FableGear playlist containing the doomed copy.
+- **Independent verifier:** CONFIRMED (severity → critical). DEMONSTRATED (audit/verify-all-criticals/prune_fg.py, prune_fg.log).
+
+Setup: after POST /api/library/db/sync I created FableGear playlist 1 'VerifyPL' and added fg ids 7 ('Nula - Night Drive (copy).mp3') and 8 (the keeper). I then staged a prune of the copy (/api/prune/stage, permanent=false) and ran /api/run/prune.
+
+Results:
+- After the prune, fg_content row 7 is gone, fg_playlist_song (1,1,7,1) has cascaded away, and GET /api/library/playlists/1/tracks returns ['8'].
+- POST /api/undo/trash/restore returned ok/restored:1. Row 7 and its membership did not come back. The file was restored to the Music Library ROOT, not to House/ (a side issue).
+- A resync created a NEW row 12 that is in no playlist. The membership is permanently lost.
+
+Code: pruner.py:846-864 _journal_prune calls archive.delete_content(rec.id) and never consults keeper_map (keeper_map only drives the Rekordbox rethreading). database.py:435-448 runs a plain DELETE. schema.py:200-201/247/266 declare ON DELETE CASCADE, and database.py:184 sets foreign_keys=True. routes_tools.py:1170-1189 takes only the Rekordbox write_db backup; nothing backs up fablegear.db.
+
+The card promise is false: duplicate_prune.html:25 says 'its playlist slots are re-threaded to point at the keeper. Your playlists stay intact'.
+
+I did not exercise a keeper_map, but it cannot change the FableGear side, because _journal_prune ignores it.
+
+I kept critical: this is silent, unrecoverable loss of the user's curation in the app's default library. The audio itself is recoverable from the trash.
 
 #### [HIGH · demonstrated] Undo Wizard Savepoints and Trash tabs call undefined functions; there is no UI way to revert a prune
 
@@ -2030,6 +2522,15 @@ _Evidence:_ Snapshots s0-s4 and diff.py output in audit/tool-organize/; SSE capt
 - **Actual:** With workers > 1, files that compute the same free slot overwrite each other. The loss is unreported (exit 0, 'No errors'), the overwritten audio is unrecoverable, and undo writes the survivor into the wrong owner's original path.
 - **Evidence:** Built 120 distinct, same-size MP3s (30 groups x 4 folders, all tagged RaceArtist/RaceAlbum and named 'Race - TNN.mp3'; 120 unique sha256 values). Ran GET /api/run/organize?source=RaceSrc&target=RaceTarget&no_dry_run=1&workers=4 (the UI offers '4 workers'). Result: 118 files at the target, 0 left in the source, 2 distinct sha256 values gone (comm against race_before.sha). Report: '120 files were moved… 90 name clashes… No errors.' Journal: 120 rows but only 118 distinct destinations; RaceArtist/RaceAlbum/Race - T07_1.mp3 is journaled for both T07_d and T07_c, and Race - T01_2.mp3 for both T01_a and T01_b. The undo revert returned reverted:118 with errors ['Race - T07_1.mp3: filesystem error', 'Race - T01_2.mp3: filesystem error']. Afterwards T07_d/Race - T07.mp3 holds T07_c's audio (trailing marker '07c'), T01_a holds T01_b's audio, and T07_c and T01_b are missing. Cause: check-then-act race between the dest.exists() check / numbered-slot search in _resolve_dest (library_organizer.py:369-401) and shutil.move, which is os.rename and overwrites silently (library_organizer.py:651), under ThreadPoolExecutor (library_organizer.py:700). No test uses max_workers > 1.
 - **Fix:** Reserve destinations atomically: compute all final destinations single-threaded before any I/O, using an in-memory set of claimed paths, and only parallelize the byte copy. Or claim each slot with os.open(O_CREAT|O_EXCL) / os.link and never use a rename that can replace an existing file (renameat2 RENAME_NOREPLACE on Linux; on macOS, link plus unlink or an exclusive create). Hash-verify after each move and store the sha in the journal row so undo can check it is moving the right content. Until fixed, remove the 2 and 4 worker options from the UI.
+- **Independent verifier:** CONFIRMED (severity → critical). DEMONSTRATED (organize_race.py / organize_race2.py). Setup: 120 same-size, distinct-sha MP3s, 30 groups x 4 folders, all tagged RaceArtist/RaceAlbum, named 'Race - TNN.mp3'. I ran GET /api/run/organize?source=RaceSrc&target=RaceTarget&no_dry_run=1&workers=4.
+
+Loss: 3 of 7 runs lost one original each (T23_d, T30_b, T19_b). The clean run (org2_run2.log) reported '120 files were moved ... 90 name clashes ... No errors', but only 119 distinct sha values remain. I reverted only that run's journal rows (first_id 1230 to last_id 1348, which avoids the E15 15-minute session merge). The revert gave reverted:119, errors [], and T19_b/Race - T19.mp3 is still missing. The overwritten audio is unrecoverable.
+
+Wrong-owner undo: 'T23_c now holds MARK23a' was seen only in runs whose revert was contaminated by the E15 session merge. In the clean run, wrong content = []. So 'undo restores wrong audio' is plausible (and the original auditor showed it), but I did not cleanly reproduce it.
+
+Code: library_organizer.py:369-392 is check-then-act (dest.exists(), sha compare, numbered-slot search). :651 shutil.move overwrites silently. :700 is the ThreadPoolExecutor. No lock exists anywhere in the module (grep).
+
+Mitigation the auditor did not mention: the UI default is '1 — sequential (safe)' (organizer.html:117), so loss needs the user to pick the offered 2 or 4 workers. I kept critical because the loss is silent and permanent on an offered option.
 
 #### [HIGH · demonstrated] Organize relinks the FableGear DB but leaves every Rekordbox FolderPath broken, with no warning
 
@@ -2221,6 +2722,17 @@ _Evidence:_ out3/preview/{q,l}_{orig,norm}.mp3 measured: q_norm -10.41 LUFS / TP
 - **Actual:** The originals are gone the moment each swap succeeds. Nothing the user can find identifies or restores them.
 - **Evidence:** Main UI run (out3/r3_main_log.txt) rewrote 15 files. Diff r3_before.json vs r3_after1.json: no new entries in Savepoints, Quarantine or trash, and /api/undo/operations {sessions:[]}, /trash [], /timeline [] (E1), /database/history [] are all unchanged. POST /api/undo/operations/revert {type:'normalize'|'tag_tracks'|'process', first_id:1, last_id:1} returns "'normalize' operations cannot be reverted by moving files" (the same message comes back for each type). Hashing every file in the sandbox found 0 copies of any of the 15 original sha256s. Code: audio_processor.py:543-546 does shutil.move(path->.bak), move(tmp->path), bak.unlink(). routes_undo.py:344-360 whitelists only organize/rename/novelty_copy/convert/relocate. The UI confirm text only promises that the .bak exists 'during the operation'. The single savepoint master.backup_20261006_053432 is a master.db copy taken at page load, unrelated.
 - **Fix:** In _normalise_file, replace bak.unlink() with a move into an archive trash folder keyed by job id. Write fg_processing_log rows with operation_type='normalize' per file (src, archived_original, sha_before, sha_after, gain_db, lufs_before, lufs_after). Add 'normalize' to the revert whitelist, with a plan that verifies current sha == sha_after before swapping back and is idempotent when run twice. Purge the trash only on explicit user action or by age.
+- **Independent verifier:** CONFIRMED (severity → high). DEMONSTRATED.
+- Standalone Normalize, which runners.js:241 sends as /api/run/process?no_bpm=1&no_key=1&workers=4, left no .bak or copy in VT_norm (tags_normalize.log).
+- POST /api/undo/operations/revert with type normalize returns "'normalize' operations cannot be reverted by moving files"; type process returns the same.
+- routes_undo.py:358 whitelists only organize/rename/novelty_copy/convert/relocate.
+- snapshot_scheduler.py snapshots only master.db and the device DB, never audio.
+
+The defect is real: no restore point and no undo.
+
+Mitigation the auditor under-weighted: runNormalize shows a blocking confirm() (runners.js:231-238): 'This will rewrite audio files ... Originals are renamed .bak during the operation and deleted only after the new file is verified ... Make sure you have an independent backup'. The CLI repeats the warning in the log. So the permanent rewrite is disclosed and consented to, and the gain change is the intended effect. The truly undisclosed losses (tags, bit depth) are separate findings.
+
+Under the rubric ('undo/revert missing for a destructive op' = high), I downgrade this from critical to high. Note that the Tag Tracks normalize mode (runProcess) has no such confirm.
 
 #### [CRITICAL · demonstrated] WAV and AIFF lose every ID3 tag (title, artist, BPM, key, cover, Serato cues) on the standalone Normalize path
 
@@ -2229,6 +2741,16 @@ _Evidence:_ out3/preview/{q,l}_{orig,norm}.mp3 measured: q_norm -10.41 LUFS / TP
 - **Actual:** All metadata is silently destroyed, and the original is deleted (see no-restore finding), so the loss is permanent.
 - **Evidence:** r3 diff. 'Bench Wav - Boost 24bit.wav' TAGS LOST ['APIC:Cover','COMM::eng','GEOB:Serato Markers2','TALB','TBPM','TCON','TDRC','TIT2','TKEY','TPE1','TXXX:FABLE_TEST'], video_streams 1->0. 'Bench Aiff16 - Cover.aiff' TAGS LOST ['APIC:Cover','GEOB:Serato Markers2','TBPM','TIT2','TPE1']; the header shows an ID3 chunk before and none after. The pre-existing 'Vera Lux - Pressure.aiff' and the WAVs also came out with no ID3 chunk. This is the same code path E9 found for Tag Tracks normalize mode; the standalone tool is equally affected. Cause: audio_processor.py:529-536 passes '-map_metadata 0 -id3v2_version 3', which writes no ID3 for the wav/aiff muxers (needs -write_id3v2 1), and does not map the cover stream.
 - **Fix:** After ffmpeg writes the tmp file, copy the original's tag container verbatim with mutagen (ID3 for MP3/WAV/AIFF, Vorbis comments plus pictures for FLAC, MP4 atoms for M4A) before the swap. Verify by comparing the tag key sets of source and tmp, and refuse the swap on any mismatch.
+- **Independent verifier:** CONFIRMED (severity → critical). DEMONSTRATED (tags_check.py normalize, tags_normalize.log). I made three files, each with APIC/COMM/TALB/TBPM/TCON/TIT2/TKEY/TPE1:
+- 'Bench - Wav24.wav' (pcm_s24le)
+- 'Bench - Wav32f.wav' (pcm_f32le)
+- 'Bench - Aiff16.aiff' (pcm_s16be)
+
+I ran the standalone Normalize request (/api/run/process?no_bpm=1&no_key=1&workers=4). The log shows 'Normalising ... +29.4 dB' for all three. Afterwards mutagen tags are None on every file: all eight frames, including the cover, are gone, and no .bak remains.
+
+Cause: audio_processor.py:518-525 passes '-map_metadata 0 -id3v2_version 3' with no '-write_id3v2 1'. My ffmpeg probe shows adding it preserves the frames.
+
+normalizer.html promises a lossless re-encode, and the confirm() mentions only the .bak, not metadata loss. The loss is undisclosed and permanent.
 
 #### [CRITICAL · demonstrated] WAV is always re-encoded as 16-bit: 24-bit and 32-bit float lose resolution, contradicting the 'same bit depth' claim
 
@@ -2237,6 +2759,11 @@ _Evidence:_ out3/preview/{q,l}_{orig,norm}.mp3 measured: q_norm -10.41 LUFS / TP
 - **Actual:** Irreversible reduction to 16-bit (truncation after a gain change). The original is deleted.
 - **Evidence:** r3 diff. 'Bench Wav - Boost 24bit.wav' codec pcm_s24le->pcm_s16le, bits_raw 24->None, size 35.7 MB->23.8 MB. 'Bench Wav32f - Float.wav' pcm_f32le->pcm_s16le, size 47.6 MB->23.8 MB. Code: audio_processor.py:450-452 returns ['-codec:a','pcm_s16le'] for every .wav. normalizer.html:18 tells the user 'AIFF/WAV -> re-encoded losslessly at the same bit depth as the original'. FLAC kept 24-bit (confirmed good).
 - **Fix:** Choose the codec from sf.info(path).subtype for WAV as already done for AIFF: PCM_24->pcm_s24le, PCM_32->pcm_s32le, FLOAT->pcm_f32le, DOUBLE->pcm_f64le. Add a post-encode check that the output subtype equals the input subtype before swapping.
+- **Independent verifier:** CONFIRMED (severity → high). DEMONSTRATED (tags_normalize.log): 'Bench - Wav24.wav' went from pcm_s24le to pcm_s16le, and 'Bench - Wav32f.wav' from pcm_f32le to pcm_s16le, after the standalone Normalize run. The originals are deleted.
+
+Code: audio_processor.py:451-452 returns ['-codec:a','pcm_s16le'] for every .wav. The AIFF branch (:444-447) maps only '24' subtypes to s24, so 32-bit AIFF would also drop to 16-bit. The same logic appears in convert (:633-634). This contradicts normalizer.html:18 'same bit depth as the original'.
+
+Severity corrected to high: this is a silent, irreversible quality reduction against an explicit promise (rubric 'silent wrong result'), but the track remains fully usable at CD resolution. Gain is capped by the true-peak ceiling (audio_processor.py:430-433), so no clipping is introduced. The loss of the original itself is already counted under the no-restore and originals findings.
 
 #### [HIGH · demonstrated] Every 24-bit AIFF and every M4A/AAC/ALAC file always fails normalisation
 
@@ -2420,6 +2947,13 @@ Card text, screenshot screens/tool-convert-c/convert_card_explainers.png:
 
 Code: audio_processor.py:670-680 moves the original to <name>.<ext>.bak, then bak.unlink(). The comment says '⚠ PERMANENT OPERATION'.
 - **Fix:** In _convert_file, replace bak.unlink() with a move into QUARANTINE_DIR/Convert/<timestamp>/<path relative to the library root>. Journal that quarantine path in the 'convert' fg_processing_log row as metadata.original_kept_at. Add 'convert' to _REVERTIBLE in routes_undo.py with a revert action that moves the original back and deletes or quarantines the converted file. Until that ships, correct file_converter.html:6 and :27, and add a confirm modal: 'N files will be re-encoded and the originals permanently deleted'.
+- **Independent verifier:** CONFIRMED (severity → critical). DEMONSTRATED. I ran GET /api/run/convert?format=aiff&path=Loud (convert_aiff.log) and format=mp3&path=Techno&workers=4 (convert_race.log). In both runs every original is gone and no .bak is left. 'FableGear Archive/Quarantine' does not even exist, and /api/undo/savepoints only gained master.db backups. A sandbox-wide search for '*Pressure*' finds only the new .mp3. A third run, MP3 to AIFF on VT_conv, also left 'src exists: False'.
+
+Code: audio_processor.py:670-680 moves the original to .bak and then calls bak.unlink(). The '⚠ PERMANENT OPERATION' comment shows this is intentional. runConvert (runners.js:380-392) has no confirm().
+
+The UI says the opposite. file_converter.html:27 reads 'original files are moved to the FableGear Archive Quarantine folder, so you can recover them', and line 6 reads 'Metadata is preserved.'
+
+I found no mitigating path. The Normalize-style confirm() does not exist for Convert, and E8 already shows the undo API refuses convert. Critical stands.
 
 #### [CRITICAL · demonstrated] Converting to AIFF wipes all tags (BPM, key, artist, album, genre, label, artwork); a later library sync then erases BPM/key from the FableGear DB too
 
@@ -2439,6 +2973,17 @@ Cascade:
 
 Cause: audio_processor.py:638-644 runs ffmpeg -map_metadata 0 -id3v2_version 3. The AIFF muxer only writes ID3 with -write_id3v2 1, which is never passed.
 - **Fix:** For AIFF pass -write_id3v2 1 -id3v2_version 3. Better: after ffmpeg, copy tags with mutagen from source to destination using an explicit mapping (TBPM/TKEY/COMM/TPUB/APIC, vorbis BPM/INITIALKEY/LABEL/COMMENT/picture, MP4 tmpo/----:initialkey/covr). Then verify by re-reading the output and refuse to delete or quarantine the original if BPM or key went missing. Add a regression test per source/target pair.
+- **Independent verifier:** CONFIRMED (severity → critical). DEMONSTRATED (tags_check.py convert, tags_convert.log).
+
+The source 'VT_conv/Tagged - Song.mp3' had APIC/COMM/TALB/TBPM/TCON/TIT2/TKEY/TPE1. After sync, fg_content row 15 = (bpm 126.0, key 4A, genre Techno, artist 'Verify Artist', album 'Verify Album').
+
+I ran /api/run/convert?format=aiff. The output .aiff has no tags at all (mutagen tags None) and the source is deleted. Row 15 still held the values right after the convert. After POST /api/library/db/sync it became (bpm None, key None, genre None, artist 'Tagged', album None), so the resync really does erase the only surviving copy.
+
+A second run on the fixture's Loud/Brick Wall - Clipper.mp3 lost TPE1. ffprobe shows only title=Clipper, which comes from the native AIFF NAME chunk.
+
+Cause: audio_processor.py:638-644 passes '-map_metadata 0 -id3v2_version 3' without '-write_id3v2 1'. My probe shows that adding '-write_id3v2 1' keeps all frames.
+
+The UI explainer (file_converter.html:27) promises 'All metadata (BPM, key, cue points...) is copied'.
 
 #### [CRITICAL · demonstrated] With the default 4 workers, two sources sharing a stem race to the same target; one lossless original is silently destroyed and the report says 'nothing lost'
 
@@ -2458,6 +3003,18 @@ race.sh reproduced it 3 out of 3 with workers=4. With workers=1: 'Vera Lux - Pre
 
 Code: audio_processor.py:601-603 checks new_path.exists(), then encodes, then shutil.move(tmp, new_path) at line 672, which overwrites. This is a TOCTOU race across the ThreadPoolExecutor at cli.py:3053.
 - **Fix:** Before submitting jobs, group tracks by path.with_suffix(target_ext), compared case-insensitively. Skip and report every group with more than one member, and any target that already exists. In _convert_file, create the destination atomically, for example os.link(tmp, new_path) (fails if it exists) followed by unlinking the tmp, or os.open(new_path, O_CREAT|O_EXCL) as a reservation, instead of shutil.move. Count the archive-update failure as an error, not a success.
+- **Independent verifier:** CONFIRMED (severity → critical). DEMONSTRATED first try (convert_race.py race, convert_race.log). Techno/ held 'Vera Lux - Pressure.aiff' (sha c19779ff) and '.flac' (sha ee435e13). I ran /api/run/convert?format=mp3&workers=4; workers=4 is the UI default, labelled '4 workers (recommended)' at file_converter.html:70.
+
+SSE output: '✓ Pressure.aiff: Converted to mp3', then 'UNIQUE constraint failed: fg_content.file_path ... Archive update failed ... Pressure.flac', then '✓ Pressure.flac: Converted to mp3'. The report says '2 of 3 files converted ... No errors' and '1 skipped ... (nothing lost)'.
+
+Afterwards:
+- Both originals are deleted (no .bak) and only one 'Vera Lux - Pressure.mp3' exists (sha 73609a1c, 282229 B).
+- fg_content row 2 is relinked to it with a stale hash 9e14f464 and size 282186, which belong to the overwritten first encode.
+- Row 3 still points at the deleted .flac.
+
+Code: audio_processor.py:601-603 checks new_path.exists() before encoding, and :672 shutil.move overwrites. That is a TOCTOU race under the ThreadPoolExecutor at cli.py:3053, with no lock.
+
+Trigger: two same-stem sources in one folder. That is less common, but one lossless original is lost permanently and the report says nothing was lost.
 
 #### [HIGH · demonstrated] Cross-format conversion remaps BPM/key/comment/label into non-standard frames and drops M4A BPM and all WAV-target DJ tags
 
@@ -3467,6 +4024,333 @@ _Evidence:_ out/r3_normdry.sse; curl outputs in this report
 - **Actual:** Dead or hidden step type. Normalisation is reachable only through Tag Tracks' normalize_mode.
 - **Evidence:** The wizard p1 has no pipelineAddStep('normalize') button (template lists audit, convert, duplicates, import, link, novelty, organize, process, prune, relocate, rename; probe 'normalize button present: 0'). routes_tools.py:455-466 and pipeline.js _pipeWizConfigHTML still handle it. An API dry run of a normalize step wrote no audio (r3_s50 to s51: only a report, fg_processing_log and state changed), which is good.
 - **Fix:** Remove the normalize branch or add a button. Either way, keep its dry run non-writing.
+
+## DB tools in the Chop Shop rail (Audit, Fix Paths, Link, Import, Dead Files, …)
+
+_Auditor: `db-rail`_
+
+Round 4 for db-rail: Audit, Fix Paths, Link, Import (all three targets plus preview), Dead Files and the Audit panel's "Consolidate Duplicates" were run through the real Chop Shop DB panel in sandbox dbrail-r4 on port 9119. The API-only endpoints (rekordbox-dedupe, bidirectional-sync, export-audit, migrate-pioneer-db) were called directly. Evidence is 29 row-level snapshots (sha256 of every file, plus pyrekordbox row dumps of both master.db files and the FableGear DBs). Good: every Rekordbox write took a savepoint of the local DB before writing, and that savepoint was verified row-identical to the pre-run DB. Import undo refuses honestly. Re-running an interrupted FableGear import skips the work already done.
+
+Overall verdict: the DB rail has no usable revert path. (1) Fix Paths re-pointed the broken FLAC record to the .aiff file, even though the same-named .flac exists in the new root. (2) The relocate op-journal lists the run as "revertible: true" but blocks every row in the normal broken-path case, and "revert" reports ok with 0 changes. (3) Per E10, the only other undo is restoring the savepoint. Doing that overwrote the USB device DB (4 → 11 tracks, now byte-identical to the local savepoint) and left the local DB wrong. (4) Import "Preview (dry run)" writes the FableGear DB and records an undo transaction that can't be reverted. (5) Jobs where every DB write failed still show "Finished successfully". (6) The migrate endpoint deletes an existing destination folder (rmtree) with no savepoint, report or undo. Its UI button is a silent no-op because the guard is inverted, so the endpoint is only reachable by API today.
+
+Resume: none for any rail tool. kill -9 left 800 of 1500 rows committed with no journal, report or transaction. After restart there is no banner, and /api/checkpoint/check rejects every rail tool.
+
+**Coverage**
+
+- LIVE via real UI (Playwright + /opt/pw-browsers/chromium, opened from the Chop Shop rail with openDbPanel; folder pills added with addFolderPill because osascript pickers are unavailable): Audit, Dead Files, Fix Paths (twice: once failing, once succeeding), Link (twice, 0 links), Import preview rekordbox, Import rekordbox (two runs), Import preview both, Import both, Import fablegear, Audit-panel Preview Canonical Plan and Consolidate Duplicates (confirm auto-accepted), Organize card > 'Move Rekordbox Library to Drive' button. Screenshots are in /home/user/FableGear/docs/audits/2026-10-05/screens/db-rail/ (relocate_done.png, relocate_chip_occluded.png, import_*_done.png, canon_preview.png, canon_done.png, migrate_section_open.png, migrate_click_noop.png, restart_landing.png, restart_import_panel.png, link_chip_hidden.png, and others).
+- LIVE via API: /api/undo/operations, /operations/preview, /operations/revert (relocate); /api/undo/savepoint/restore (pre-Fix-Paths savepoint, then the automatic pre-restore backup); /api/undo/database/history and /database/revert (both import transactions); /api/cancel at 2 s and 12 s of a 1500-file FableGear import; kill -9 of the server at 799/1500, then restart.sh and a UI reload to look for resume; re-run of the interrupted folder with inputs changed (1 file deleted, 1 added); /api/run/rekordbox-dedupe (default dry run); /api/run/bidirectional-sync?dry_run=1; /api/run/export-audit; POST /api/migrate-pioneer-db over a pre-existing destination folder.
+- Evidence files: snapshots /tmp/claude-0/-home-user-FableGear/9074577f-2e6a-5e16-bdce-ef5b26f1b16b/scratchpad/audit/db-rail/snaps/s00..s28 (diff with snap.py --diff A B); per-run UI logs, SSE output, report-modal state and console are in .../audit/db-rail/logs/*.json and *.sse; scripts are snap.py, drive.py, cancel.py, api.py, fgq.py, resume_probe.py and migrate_ui.py in .../audit/db-rail/.
+- Fixture limits (stated, not product claims): (a) the sandbox rekordbox dir had no share/ folder, so the first Fix Paths run failed inside pyrekordbox update_content_path. I created an empty share/ (real installs always have one) and re-ran. (b) Rekordbox-target imports failed on the fixture schema: djmdArtist.SearchStr NOT NULL for a new artist, and 'No row was found when one was required' for an existing artist. So a successful Rekordbox import write, and the restore after it, could not be shown. (c) The fixture has 0 playlists, and creating one with pyrekordbox failed (djmdPlaylist.ImagePath NOT NULL), so Link wrote 0 rows and its DB-write undo is inferred from code. (d) The Consolidate preview found one group (Pressure aiff/flac) but flagged it ambiguous, so no rows were removed.
+- NOT tested live: cancel or kill of Fix Paths / Link / Consolidate mid-write (they finish in under 1 s on this fixture; behaviour inferred from relocator.py batch commits and the write_db savepoint); rekordbox-dedupe and bidirectional-sync with --no-dry-run; migrate on a real /Volumes path (on Linux, _drive_root_from_path falls back to the target path itself; the rmtree-of-existing-destination logic does not depend on platform); a running Rekordbox process (pgrep-based guards always saw it as closed); fpcalc (not installed; not needed by these tools).
+- Harness note for other auditors: after restart.sh, server.pid holds the wrapper bash subshell's PID, not the Flask python PID. So `kill -9 $(cat server.pid)` after a restart kills the wrapper, not the server. My kill -9 test ran before any restart, so it hit the real server (PID from launch_sandbox.sh). Also, `restart.sh | tail` blocks, because the wrapper keeps the pipe open. My server (PIDs 17354/17357) was stopped by PID at the end.
+
+**Per-tool safety matrix**
+
+### Audit (/api/run/audit)
+
+| Check | Result |
+|---|---|
+| R — Report | Yes: Archive/Reports/Audit/audit_<ts>.txt. The UI did not open the report modal (title 'Step Complete', hidden) and the log never shows the path. A silent GET /api/run/audit fires on every page load (utility.js:62), adding a new Audit report each time. |
+| M — Revert marker | N/A (read-only: read_db, no savepoint; no rows changed s01→s02) |
+| U — Undo | N/A |
+| C — Cancel / interrupt | Not tested (about 3 s run); read-only |
+| S — Resume after restart | None; /api/checkpoint/check?tool=audit → 400 |
+| D — Dry run / preview | Is itself read-only. But the same panel hosts 'Consolidate Duplicates', which writes (see that row). |
+| B — Boundary | DB tool reached only from the Chop Shop rail. Writes .fablegear_state.json into the music folder (mark_step_complete). |
+
+_Evidence:_ demonstrated: logs/audit.json, snaps s01→s02, Reports/Audit/*.txt
+
+### Fix Paths / Relocate (/api/run/relocate)
+
+| Check | Result |
+|---|---|
+| R — Report | Yes: Reports/Relocate/relocate_<ts>.txt; modal opens with the saved path. Wording is wrong: '1 matched by filename' when it matched by stem only and picked a different file. |
+| M — Revert marker | Savepoint of the LOCAL master.db taken before the write (master.backup_20261006_101332_410139, row-identical to the pre-run DB). Op-journal row 'relocate' plus 'relocate_batch'. Neither references the savepoint. A savepoint is also taken on a failed run. |
+| U — Undo | BROKEN. The op-journal revert blocks the normal case ('original path no longer exists on disk'; revert returns ok, reverted 0). Savepoint restore writes the DEVICE DB instead (E10): device went 4→11 rows, local DB stayed wrong. The pre-restore device backup does restore the device byte-identically. |
+| C — Cancel / interrupt | Not tested live (under 1 s run). Inferred: batch commits and journal flush happen after each commit; the savepoint is taken at session open. |
+| S — Resume after restart | None (checkpoint check rejects 'relocate') |
+| D — Dry run / preview | None. No preview of which file each record will be re-pointed to. The path-roots pre-fill found no dead root (dead_roots {}). |
+| B — Boundary | Pure DB write; no file touched. The Rekordbox write is covered only by a savepoint that the app can't restore onto the right DB. |
+
+_Evidence:_ demonstrated: logs/relocate2.json, snaps s06→s07→s08→s09, sha256 listing of Savepoints vs both master.db
+
+### Link (/api/run/link)
+
+| Check | Result |
+|---|---|
+| R — Report | No report file (cmd_link only prints, cli.py:599-644); no modal |
+| M — Revert marker | Savepoint of the LOCAL DB on every run, even with 0 links (101520, 101548: identical copies). No journal, no FG transaction. |
+| U — Undo | Savepoint restore only, which targets the device DB (E10). Inferred; the fixture produced 0 links. |
+| C — Cancel / interrupt | Not tested (2 s run) |
+| S — Resume after restart | None |
+| D — Dry run / preview | API and CLI support dry_run=1, but the UI never sends it (runners.js:303-309) |
+| B — Boundary | Pure DB write from the Chop Shop rail |
+
+_Evidence:_ demonstrated (savepoint, no report) + inferred (write path): logs/link.json, link2.json, snaps s10→s11, s12→s13
+
+### Import target=rekordbox
+
+| Check | Result |
+|---|---|
+| R — Report | Yes: Reports/Import/import_<ts>.txt (preview_import_<ts>.txt for a dry run). No modal; path not shown in the log. |
+| M — Revert marker | Savepoint of the LOCAL DB before the write (101623, 101756). No journal row, no FG transaction. |
+| U — Undo | Savepoint restore only, which targets the device DB (E10). No successful import on this fixture to revert. |
+| C — Cancel / interrupt | Not tested live (fixture writes fail at once). Inferred: batch commits; progress saved only when --resume is set (importer.py:522). |
+| S — Resume after restart | None from the UI: resume=1 is never sent, and progress is only recorded when resume is already on. So crash-resume can't be reached (inferred). |
+| D — Dry run / preview | Yes; it really is read-only (no rows changed s13→s14). Selecting the radio button rewrites the saved default target. |
+| B — Boundary | DB write from the Chop Shop rail |
+
+_Evidence:_ demonstrated: logs/import-dry_rekordbox_rb.json, import_rekordbox_rb.json, import_rekordbox_rb2.json ('Failed 1' but '✓ Finished successfully'), snaps s13→s15, s19→s20
+
+### Import target=both
+
+| Check | Result |
+|---|---|
+| R — Report | Yes: Reports/Import/import_<ts>.txt, listing Rekordbox sync errors. UI still says '✓ Finished successfully'. |
+| M — Revert marker | FG: 'import' journal row plus an undo transaction with empty affected_records. Rekordbox: savepoint (101648). |
+| U — Undo | /api/undo/database/revert → 400 'no per-record history' (honest refusal, matches E15). Rekordbox side: savepoint → device only. |
+| C — Cancel / interrupt | See the fablegear row (same FG import path) |
+| S — Resume after restart | None offered; a re-run skips files already imported |
+| D — Dry run / preview | BROKEN: the preview writes the FG DB (fg_content +1, journal row, undo transaction 20261006_101636_909771). The real run that followed then skipped that file. |
+| B — Boundary | Writes FG DB and Rekordbox from the Chop Shop rail |
+
+_Evidence:_ demonstrated: logs/import_seq.txt, snaps s15→s16→s17, /api/undo/database/history
+
+### Import target=fablegear
+
+| Check | Result |
+|---|---|
+| R — Report | Yes: Reports/Import/import_<ts>.txt on success. None on cancel or kill. |
+| M — Revert marker | Journal row plus undo transaction (no per-record data), recorded only on clean completion. The kill -9 run left 800 committed rows with no journal row and no transaction. |
+| U — Undo | Refused (400 no per-record history) |
+| C — Cancel / interrupt | /api/cancel at 2 s and at 12 s: exit -15, 0 rows, no report. kill -9 at 799/1500: 800 rows committed; the child died soon after; runtime/active_subprocesses.json kept a stale entry for pid 17202. |
+| S — Resume after restart | No banner, no localStorage key, checkpoint check → 400. A manual re-run is incremental: 800 skipped, 700 new including a newly added file, 2 s. |
+| D — Dry run / preview | Preview writes the FG DB (same code path as 'both') |
+| B — Boundary | FG DB only; Rekordbox untouched (verified) |
+
+_Evidence:_ demonstrated: logs/bulk_full.sse, bulk2_rerun.sse, cancel.py output, fgq.py counts, resume_probe output
+
+### Dead Files (/api/run/dead-files)
+
+| Check | Result |
+|---|---|
+| R — Report | Yes: Reports/DeadFiles/dead_files_<ts>.txt; modal opens with the path; plus a 'dead_file_scan' journal row |
+| M — Revert marker | N/A (read-only) |
+| U — Undo | N/A |
+| C — Cancel / interrupt | Not tested (under 1 s) |
+| S — Resume after restart | None |
+| D — Dry run / preview | Read-only by nature |
+| B — Boundary | Reads both master.db files; writes nothing except the journal and .fablegear_state.json |
+
+_Evidence:_ demonstrated: logs/deadfiles.json, snaps s02→s03
+
+### Consolidate Duplicates (Audit panel → /api/library/integrity/canonical-paths/execute)
+
+| Check | Result |
+|---|---|
+| R — Report | Result shown in a modal only; no report file, no journal row |
+| M — Revert marker | Savepoint of the LOCAL DB (101827), taken even though the only group was skipped as ambiguous |
+| U — Undo | Savepoint → device only (E10). Deletes DjmdContent rows, yet the panel is labelled 'Read-only health check'. |
+| C — Cancel / interrupt | N/A (synchronous POST) |
+| S — Resume after restart | N/A |
+| D — Dry run / preview | Yes: 'Preview Canonical Plan' (read-only modal). Execute is limited to the previewed signatures. |
+| B — Boundary | DB delete sitting inside the 'read-only' Audit panel of the Chop Shop rail |
+
+_Evidence:_ demonstrated: logs/canon.json, snaps s21→s22, canon_preview.png
+
+### rekordbox-dedupe (/api/run/rekordbox-dedupe)
+
+| Check | Result |
+|---|---|
+| R — Report | Yes: Reports/Rekordbox Dedupe/*.txt |
+| M — Revert marker | Dry-run default: none needed. --no-dry-run not tested. |
+| U — Undo | Not tested |
+| C — Cancel / interrupt | Not tested |
+| S — Resume after restart | None |
+| D — Dry run / preview | Dry run is the default. Without db_path it scans the DEVICE DB (4 tracks). |
+| B — Boundary | No UI caller in static/ or templates/ (API only) |
+
+_Evidence:_ demonstrated (dry run) / inferred (no UI): curl output, snaps s25→s26
+
+### bidirectional-sync (/api/run/bidirectional-sync)
+
+| Check | Result |
+|---|---|
+| R — Report | Log only |
+| M — Revert marker | Dry run: none needed. Live mode not tested. |
+| U — Undo | Not tested |
+| C — Cancel / interrupt | Not tested |
+| S — Resume after restart | None |
+| D — Dry run / preview | dry_run=1 wrote nothing (fg_content unchanged) but logs 'Tracks imported to FableGear: 4' |
+| B — Boundary | No UI caller (API only) |
+
+_Evidence:_ demonstrated: curl output, snaps s25→s26
+
+### export-audit (/api/run/export-audit)
+
+| Check | Result |
+|---|---|
+| R — Report | Log plus an 'export_audit' journal row |
+| M — Revert marker | N/A (read-only) |
+| U — Undo | N/A |
+| C — Cancel / interrupt | Not tested |
+| S — Resume after restart | None |
+| D — Dry run / preview | Read-only |
+| B — Boundary | Reached from the Record Room USB export panel (usb_export.js:257); fine |
+
+_Evidence:_ demonstrated: curl output
+
+### Move Rekordbox Library to Drive (/api/migrate-pioneer-db)
+
+| Check | Result |
+|---|---|
+| R — Report | None (SSE log only) |
+| M — Revert marker | NONE: no savepoint (11→11), no journal row, no report |
+| U — Undo | None. Only a printed `ln -s` hint. The pre-existing destination was rmtree'd and is unrecoverable. |
+| C — Cancel / interrupt | Not tested |
+| S — Resume after restart | None |
+| D — Dry run / preview | None; the only gate is a confirm checkbox |
+| B — Boundary | Moves the Rekordbox app-data folder from a Chop Shop Organize card |
+
+_Evidence:_ demonstrated: UI click is a silent no-op (migrate_ui.py, requests_after_click []); the API run deleted the sentinel older-library/master.db, snaps s27→s28
+
+**Findings**
+
+#### [HIGH · demonstrated] Fix Paths re-points a broken FLAC record to the .aiff file even though the exact .flac filename exists
+
+- **ID:** `db-rail-relocate-wrong-file` · **Area:** db-tool · **Tool/surface:** Fix Paths (relocate)
+- **Expected:** A same-name (stem plus extension) file in new_root wins. Stem-only or format-changing matches are shown for confirmation before writing. The report says when a different filename or format was chosen.
+- **Actual:** The FLAC-typed DB record silently points at an AIFF file, so Rekordbox's cues and analysis belong to a different file. The report calls it a filename match.
+- **Evidence:** UI run: old_root=Volumes/DJDRIVE/Old Location, new_root=Music Library. Log: 'Fuzzy index stem collision: vera lux - pressure — keeping Vera Lux - Pressure.aiff over Vera Lux - Pressure.flac (higher format tier)', then 'Final commit: 1 relocations'. Snap diff s06_pre_reloc2→s07_after_reloc2, djmdContent ID 1031: FolderPath '.../Old Location/Vera Lux - Pressure.flac', FileNameL 'Vera Lux - Pressure.flac' became '.../Music Library/Techno/Vera Lux - Pressure.aiff', FileNameL 'Vera Lux - Pressure.aiff'. Music Library/Techno/Vera Lux - Pressure.flac exists. Report Reports/Relocate/relocate_20261006_101333.txt says '1 matched by filename'. Code: the fuzzy index is keyed on stem only, and collisions are resolved by format tier (chop_shop/relocator.py:156-210, warning at :203). There is no preview of the planned path changes. Screens: relocate_done.png.
+- **Fix:** In _try_fuzzy, prefer exact filename (including extension) first; then break ties on the record's FileType/extension, size and duration before format tier. Treat stem-only and cross-format matches as 'needs review'. Add a dry-run/preview mode to relocate (CLI flag plus UI button) that lists old → new per record.
+
+#### [HIGH · demonstrated] Restoring the savepoint a rail tool took overwrites the USB device DB; the local DB stays modified
+
+- **ID:** `db-rail-savepoint-restore-overwrites-device` · **Area:** undo-revert · **Tool/surface:** Fix Paths / Link / Import / Consolidate (all write LOCAL master.db)
+- **Expected:** Each savepoint records which DB it came from, and restore writes back to that same DB.
+- **Actual:** The user's 'undo Fix Paths' replaces the USB stick's export DB with the laptop library and leaves the mistake in place.
+- **Evidence:** This is the concrete consequence of E10 for the DB rail. The pre-Fix-Paths savepoint master.backup_20261006_101332_410139.db is row-identical to the local DB before Fix Paths (rb_dump(savepoint) == s06.rb_local → True). POST /api/undo/savepoint/restore {path: that file} → 200 {ok:true}. After: device master.db sha256 b332e8a5… equals the local savepoint; device djmdContent went 4 → 11 rows (snap s09). Local master.db is unchanged (00057b76…), still holding the wrong .aiff path. Restore took a pre-restore device backup (101400_913888); restoring that brought the device rows back to BEFORE exactly (True). Every rail write tool opens write_db(LOCAL_DB) (cli.py:615, 670, 566; database_dedup via write_db), but restore always copies onto DEVICE_DB (routes_undo.py:131-190). Savepoints of both DBs share the name 'master.backup_<ts>.db' with no source label (routes_undo.py:63-92). The 10:07:22 savepoint is a device copy (sha 1f41a9 = device DB); the others are local copies.
+- **Fix:** Write a sidecar (or encode in the filename) {source_db, tool, job_id, started_at} when _backup_db runs. Restore to the recorded source path. Refuse when the source is unknown. Show the DB (Local / USB) and the tool in the savepoint list. Cross-reference E10.
+
+#### [HIGH · demonstrated] Relocate is listed as 'revertible: true', but the revert blocks every row in the normal broken-path case and still reports ok
+
+- **ID:** `db-rail-relocate-revert-always-blocked` · **Area:** undo-revert · **Tool/surface:** Fix Paths (relocate)
+- **Expected:** Restoring FolderPath is a DB-only change, so it should be revertible whether or not the old file exists. Or the session should not be advertised as revertible.
+- **Actual:** The user is told the run can be reverted. The revert reports success and changes nothing.
+- **Evidence:** GET /api/undo/operations → {type:'relocate', first_id:3, last_id:3, revertible:true}. POST /api/undo/operations/preview → items[0] {action:'skip', ok:false, reason:'original path no longer exists on disk'}, revertible 0, blocked 1. POST /api/undo/operations/revert → 200 {ok:true, reverted:0, blocked:1}. Snap s07→s08: no change. Code: routes_undo.py:438-451 requires the OLD path to exist. Fix Paths only targets rows whose old path is missing (relocator 'Scoped to broken paths'), so this is always the case.
+- **Fix:** For op_type 'relocate', allow db_revert whenever the current DB row still equals the journalled new path. Warn, but don't block, when the old path is missing (it was broken before). Return ok:false when reverted == 0 and blocked > 0. Set 'revertible' in the session list from a computed plan.
+
+#### [HIGH · demonstrated] Import 'Preview (dry run)' for target Both / FableGear writes the FableGear DB and records an import transaction that can't be reverted
+
+- **ID:** `db-rail-import-preview-writes-fg-db` · **Area:** db-tool · **Tool/surface:** Import (target=both / fablegear)
+- **Expected:** Preview changes nothing (as with target=rekordbox, whose preview really is read-only: s13→s14 no row change).
+- **Actual:** The preview permanently adds tracks to FableGear's library, shows up in the DB-history list as a real import, can't be undone, and changes what the real import then does.
+- **Evidence:** UI Preview with target Both on Incoming/both. The log says 'DRY RUN — no writes will occur', then 'fablegear_database.undo — Recorded transaction 20261006_101636_909771: Imported 1 files'. Snap s15→s16: fg_content +1 row (Both Way - Dual Target.mp3), fg_processing_log +1 'import' row, transaction_history.json.gz created. The real Both import afterwards reported 'New files: 0 / Skipped files: 1' (s17). POST /api/undo/database/revert on that transaction → 400 "'import' transactions don't carry per-record history". Code: cli.py:486-496 calls import_multi_drive_database_first(roots, export_to_rekordbox=False, force_refresh=False) with no dry-run argument.
+- **Fix:** Pass dry_run through import_multi_drive_database_first so it scans without inserting (or run it against a temporary copy of the FG DB). Don't record an undo transaction for previews. Add a regression test asserting that the FG DB is byte-identical after a preview.
+
+#### [HIGH · demonstrated] Move Rekordbox Library to Drive deletes an existing <drive>/Pioneer/rekordbox and the source folder with no savepoint, report or undo
+
+- **ID:** `db-rail-migrate-rmtree-no-restore` · **Area:** db-tool · **Tool/surface:** Move Rekordbox Library to Drive (/api/migrate-pioneer-db)
+- **Expected:** Refuse (or ask) when the destination exists. Take a savepoint or archive copy of the source before removing it. Write a report, and offer a revert (remove the symlink, copy back).
+- **Actual:** Any existing folder at the destination is permanently deleted. The original library folder is deleted with no restore point recorded by the app.
+- **Evidence:** Pre-created $D/Volumes/DJDRIVE/Pioneer/rekordbox/older-library/master.db as a sentinel, then POST /api/migrate-pioneer-db {target:$D/Volumes/DJDRIVE}. SSE: 'Destination already exists — removing stale copy…', 'Copy complete', 'Symlink : ~/Library/Pioneer/rekordbox → …', '✓ Migration complete'. Snap s27→s28: the sentinel is gone, ~/Library/Pioneer/rekordbox is now a symlink, Savepoints count 11 → 11 (none taken), no report, no journal row, /api/undo/* unchanged. Code: db_migrator.py:130-132 rmtree(dst) without asking; :170 rmtree(src) after only a size check of master.db. Not reachable from the UI today because of db-rail-migrate-ui-inverted-guard; fixing that guard alone would expose this. On Linux the drive root fell back to the target path; the rmtree logic is the same on macOS.
+- **Fix:** Never rmtree an existing destination: abort, or move it aside to Archive/Quarantine with a timestamp. Before removing src, verify the copy fully (file count, total bytes, sha of master.db) and rename src to src.fablegear-migrated-<ts> instead of deleting it. Journal the operation and provide /api/undo for it.
+
+#### [MEDIUM · demonstrated] Rail jobs show '✓ Finished successfully' (exit 0) when every DB write failed
+
+- **ID:** `db-rail-false-success` · **Area:** db-tool · **Tool/surface:** Fix Paths, Import (rekordbox, both)
+- **Expected:** A non-zero exit (or a distinct 'completed with errors' state) when failed > 0 or the sync failed, so the UI shows a failure headline and toast.
+- **Actual:** The user is told the run succeeded and has to read the log to find out nothing was written to Rekordbox.
+- **Evidence:** Fix Paths run 1: '0 of 1 tracks were updated … 1 tracks had write errors', then '✓ Finished successfully' (logs/relocate.json). Import rekordbox on Incoming/rb2: 'Imported: 0 / Failed: 1', then '✓ Finished successfully' (logs/import_rekordbox_rb2.json). Import Both: 'Rekordbox sync: Sync failed: … IntegrityError', 'Synced to Rekordbox: 0', then '✓ Finished successfully' (logs/import_both_both.json). In each case the relocate_batch/import journal row is status 'ok'. The underlying failures came from fixture schema limits (missing share/, NOT NULL columns); the defect is the status reporting. Code: cmd_relocate (cli.py:646-713) and _cmd_import_rekordbox_only (cli.py:547-596) never exit non-zero on per-item failures.
+- **Fix:** Exit with a dedicated code (e.g. 3 = partial) when failed > 0, not_found > 0 or Rekordbox sync errors exist. Map it in scan_bar.js to a warning state. Set the journal row status to 'partial' or 'error'.
+
+#### [MEDIUM · demonstrated] An interrupted rail run leaves committed DB rows with no journal, transaction, report or resume offer
+
+- **ID:** `db-rail-no-resume-or-trace-after-interrupt` · **Area:** session-resume · **Tool/surface:** Import (fablegear; same for every rail tool)
+- **Expected:** A starting-point record (when, roots, target, savepoint, done/remaining) that survives a restart, shows up as a resume/revert offer, and links the partial rows to a revertible transaction.
+- **Actual:** The partial import is invisible and can't be reverted. Resuming is only possible by knowing to re-run the same folder.
+- **Evidence:** kill -9 of the server at FABLEGEAR_PROGRESS 799/1500 (cancel.py kill). The CLI child (pid 17202) died shortly after. FG DB: 800 bulk2 rows committed; the latest fg_processing_log row is still the previous run; no transaction or report. After restart.sh: runtime/active_subprocesses.json still lists pid 17202; the UI reload shows no banner, localStorage keys are only fablegear-* (no rb_ckpt_*), /api/checkpoint/check?tool=import → 400 'tool must be one of: convert, duplicates, novelty, organize, process, rename' (routes_tools.py:850-852). A manual re-run of the same folder skipped the 800 and imported 700, including a newly added file. Cancel at 2 s and 12 s: exit -15, 0 rows, no report (no progress lines reached the stream before those cancels). For target=rekordbox, progress is only saved when --resume is already set (importer.py:522, 552), and the UI never sends resume=1 (runners.js:289-300) (inferred).
+- **Fix:** Write a run record (job id, tool, args, savepoint path, started_at) to the archive before the first write. Update the done count per batch, and mark it finished or failed on exit. On startup, list unfinished run records in the rail panel with Resume / Revert-to-savepoint. Always save importer progress (not only when --resume is set). Clear stale active_subprocesses entries whose PID is dead.
+
+#### [MEDIUM · demonstrated] 'Move Library to Drive' button is a silent no-op when Rekordbox is closed (inverted guard); its section header needs two clicks to open
+
+- **ID:** `db-rail-migrate-ui-inverted-guard` · **Area:** db-tool · **Tool/surface:** Move Rekordbox Library to Drive (UI)
+- **Expected:** With Rekordbox closed, the migration starts (after the safety fixes in db-rail-migrate-rmtree-no-restore). With it open, a visible block message.
+- **Actual:** Nothing happens and there is no feedback. With Rekordbox open, the guard passes and only the server-side check stops it.
+- **Evidence:** Real UI: Organize tab, header clicked (first click leaves it hidden: style.display 'none'; second click opens it), checkbox checked, button 'Move Library to Drive →' clicked. rbRunning=false; requests after the click: []; toasts: []; log empty (migrate_ui.py output; screens migrate_section_open.png, migrate_click_noop.png). Code: static/chop_shop/dedupe.js:35 `if (!checkRbBlock(rbMsg)) return;`. checkRbBlock returns false when Rekordbox is closed and expects an element id, not a message string (scan_bar.js:362-370). dedupe.js:14 tests the inline style, which is '' on first load.
+- **Fix:** Use `if (checkRbBlock('<a real block element id>')) return;`. Toggle with getComputedStyle or a class. Land this only together with the migrate safety fixes.
+
+#### [MEDIUM · demonstrated] Rail savepoints aren't linked to the job, aren't labelled by DB, and are also taken for no-op runs
+
+- **ID:** `db-rail-savepoints-unlinked-and-noop` · **Area:** undo-revert · **Tool/surface:** All rail write tools
+- **Expected:** One savepoint per run, labelled '<tool> on <Local|USB> DB at <time>' and referenced by that run's journal or transaction. Skip or dedupe the savepoint when nothing was written.
+- **Actual:** The user sees a growing list of identical 'master.backup_<ts>.db' entries and can't tell which one is 'before Fix Paths'.
+- **Evidence:** Savepoints during this session: 100722 (device copy at onboarding), 101206 (failed relocate), 101332 (relocate), 101400 (pre-restore device), 101520 and 101548 (Link, 0 links), 101623 and 101756 (failed Rekordbox imports), 101648 (both), 101827 (Consolidate, all groups skipped). Several are byte-identical (00057b76… ×5). /api/undo/savepoints returns only filename/time/size. The relocate journal rows and import transactions carry no savepoint reference. The Undo Timeline stays empty (E1).
+- **Fix:** Have write_db return the backup path and store it in the run record and journal metadata. Write a sidecar JSON {tool, job_id, source_db, args}. Delete the backup when the session commits nothing (or mark it 'unchanged').
+
+#### [MEDIUM · demonstrated] 'Consolidate Duplicates' (deletes DjmdContent rows) sits in the Audit panel labelled 'Read-only health check' and leaves no report or journal
+
+- **ID:** `db-rail-consolidate-in-readonly-audit` · **Area:** boundary · **Tool/surface:** Consolidate Duplicates (Audit panel)
+- **Expected:** Destructive DB actions live outside a panel advertised as read-only, write a report and journal, and have a working revert.
+- **Actual:** A user expecting a read-only audit is one confirm away from deleting library records, with only an unlinked savepoint behind it.
+- **Evidence:** templates/partials/rekordbox_db/audit.html: blurb 'Read-only health check…' next to the 'Consolidate Duplicates' button. Live: the preview listed 1 group (keep Pressure.aiff, remove Pressure.flac, AMBIGUOUS). Execute (confirm accepted) skipped it but still created savepoint master.backup_20261006_101827_026064.db. No report file, no fg_processing_log row (snap s21→s22). Removal undo would only be the savepoint → device DB (E10). The row-removal path wasn't exercised because the only group was ambiguous.
+- **Fix:** Move Consolidate into its own panel or step with a destructive-action style. Write Reports/Consolidate/*.txt and a journal row listing removed ContentIDs and re-threaded playlist slots, so a targeted revert is possible.
+
+#### [MEDIUM · inferred] Link writes playlists with no dry-run in the UI, no report file and no journal
+
+- **ID:** `db-rail-link-no-dryrun-no-report` · **Area:** db-tool · **Tool/surface:** Link
+- **Expected:** Preview of the proposed links, a saved report, and per-link journal rows so links can be undone.
+- **Actual:** The only record and revert is an unlabelled savepoint that restores onto the wrong DB (E10).
+- **Evidence:** runners.js:303-309 never sends dry_run, although api_link (routes_rekordbox.py:117-122) and the CLI support it. cmd_link (cli.py:599-644) only prints the summary: no _write_report or _emit_report, no archive journal. Live: two UI runs produced savepoints but no Reports/Link file and no modal (logs/link.json, link2.json). The fixture had 0 playlists, so no link rows were written; the write and undo path is inferred.
+- **Fix:** Add a 'Preview links' button (dry_run=1). Emit the report through _emit_report('Link', …). Journal created DjmdSongPlaylist IDs so a revert can delete exactly those.
+
+#### [LOW · demonstrated] Choosing an Import target (even just to preview) silently changes the saved default for all future imports
+
+- **ID:** `db-rail-import-target-persisted-by-preview` · **Area:** db-tool · **Tool/surface:** Import
+- **Expected:** Per-run choice, with an explicit 'make default' action.
+- **Actual:** A one-off preview changes where later imports write.
+- **Evidence:** runners.js:269-276 POSTs /api/settings {import_target} on every radio change. Live: after a 'Rekordbox only' preview, the next panel open showed saved_default 'rekordbox' (logs/import_rekordbox_rb.json), and home/.fablegear/config.json changed hash (s13→s14). /api/run/import falls back to this saved value when no target is passed (routes_rekordbox.py:69-76).
+- **Fix:** Persist only on an explicit 'Remember as default' control.
+
+#### [LOW · demonstrated] Report surfacing is inconsistent: Audit and Import write report files but never show them; page load writes an Audit report each time
+
+- **ID:** `db-rail-report-surface-inconsistent` · **Area:** db-tool · **Tool/surface:** Audit, Import, Link
+- **Expected:** Every rail run ends with the same report card linking the saved file. Background audits don't spam Reports.
+- **Actual:** Users can't find the Audit and Import reports from the UI. The Reports folder fills with duplicate audits.
+- **Evidence:** Dead Files and Fix Paths open the report modal with 'Report saved to: …/Reports/<Tool>/…'. Audit and Import (preview and real) end with the modal hidden (title 'Step Complete', empty) and no path in the log, although Reports/Audit and Reports/Import files exist. Link writes no file. Each UI load fires GET /api/run/audit (utility.js:62 runSilentAudit), and Reports/Audit gained a file per load (audit_100853, 100947, 101029, 101141, …).
+- **Fix:** Route Audit and Import through _emit_report (with markers) like Dead Files and Relocate. Let the silent audit skip _write_report, or keep only the latest.
+
+#### [LOW · demonstrated] The open DB panel covers the top-rail DB chips; DB tools are only reachable from the Chop Shop
+
+- **ID:** `db-rail-panel-occludes-rail-chips` · **Area:** ui-layering · **Tool/surface:** DB panel (#db-panel)
+- **Expected:** Rail chips stay clickable, or are hidden while the panel is open. DB-layer tools are reachable from the database workspace.
+- **Actual:** The panel tabs (#rail-btn-*) work, but the chips the user just used are covered. DB maintenance only lives in the file workspace.
+- **Evidence:** With #db-panel open, elementFromPoint at the #nav-btn-rb-relocate centre (1124,103,64x56) is .db-panel-tool-blurb inside #db-panel. The Playwright click timed out ('<div class=db-panel-tool-blurb> from <div class=open id=db-panel> subtree intercepts pointer events'); screen relocate_chip_occluded.png. In the Record Room space the chips have parent display:none (link_chip_hidden.png); openDbPanel force-switches to the Chop Shop (db_rail.js:20).
+- **Fix:** Offset #db-panel below the rail or raise the rail's z-index. Consider moving Audit, Fix Paths, Link, Import and Dead Files into the Record Room per the boundary rule.
+
+#### [INFO · demonstrated] DB-only rail tools write .fablegear_state.json into the user's music or import folders
+
+- **ID:** `db-rail-state-file-in-music` · **Area:** boundary · **Tool/surface:** Audit, Fix Paths, Link, Import, Dead Files
+- **Expected:** DB tools don't write into the user's media folders, or the file layer owns this.
+- **Actual:** Harmless, but it's a file-layer write by DB tools and is left behind in source folders.
+- **Evidence:** Every rail run changed Music Library/.fablegear_state.json (s02…s22 diffs), and imports created .fablegear_state.json inside Incoming/<sub> (incoming section of s14, s16, s18, s24). Source: _sse_response → mark_step_complete(library_root, …) (helpers.py:582).
+- **Fix:** Keep step-state under ~/.fablegear/state keyed by root.
+
+#### [INFO · speculative] Rekordbox-target import fails on the project's own fixture schema (djmdArtist.SearchStr NOT NULL / 'No row was found')
+
+- **ID:** `db-rail-rb-import-fixture-schema` · **Area:** db-tool · **Tool/surface:** Import (target=rekordbox / both)
+- **Expected:** The importer and fixture agree with real master.db constraints.
+- **Actual:** Either the fixture is stricter than Rekordbox, or the importer would fail on real libraries too.
+- **Evidence:** A new artist failed with 'NOT NULL constraint failed: djmdArtist.SearchStr' (importer inserts SearchStr=None). Importing a track by an existing artist (Vera Lux) failed with 'No row was found when one was required' (logs/import_rekordbox_rb.json, import_rekordbox_rb2.json). The fixture comes from fablegear_database.rekordbox_fixture. I couldn't check the real Rekordbox schema here.
+- **Fix:** Compare against a real master.db. Set SearchStr in _get_or_create_artist. Find the missing lookup row behind 'No row was found'. Add a fixture import test.
+
+#### [INFO · demonstrated] rekordbox-dedupe and bidirectional-sync have no UI caller; dedupe defaults to the device DB; sync dry-run wording claims imports
+
+- **ID:** `db-rail-api-only-endpoints` · **Area:** db-tool · **Tool/surface:** rekordbox-dedupe, bidirectional-sync, export-audit
+- **Expected:** Dead endpoints removed or surfaced. Dry-run wording says 'would import'.
+- **Actual:** Unreachable code paths whose --no-dry-run behaviour is untested by the UI.
+- **Evidence:** grep of static/ and templates/ finds no caller for /api/run/rekordbox-dedupe or /api/run/bidirectional-sync. Dedupe (default dry run) scanned 4 files, i.e. the DEVICE DB, and wrote Reports/Rekordbox Dedupe/*.txt. bidirectional-sync?dry_run=1 logged 'Tracks imported to FableGear: 4' while fg_content was unchanged (s25→s26). export-audit is read-only, called from Record Room usb_export.js:257, and logs an 'export_audit' journal row.
+- **Fix:** Remove the endpoints or wire them into the Record Room with the same savepoint, report and journal contract. Fix the dry-run wording.
 
 ## Lead auditor's own click-through (sandbox port 5090)
 
