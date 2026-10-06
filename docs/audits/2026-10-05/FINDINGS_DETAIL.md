@@ -2,16 +2,22 @@
 
 Generated from each auditor's structured output. Every finding carries the auditor's evidence label (demonstrated / inferred / speculative) and, for critical/high findings, the independent verifier's verdict. The prioritized summary is in `AUDIT_FINDINGS.md`; this file is the evidence appendix.
 
-> Auditors with no result (not covered here): ui-live-chop, wizard-live, wizard-code, undo-resume, tool-rename, tool-organize, tool-normalize, tool-pipeline, db-rail
+> Auditors with no result (not covered here): ui-live-chop, undo-resume, db-rail
 
 ## Contents
 
 - [Z-index / stacking contexts (static + live confirm)](#z-index--stacking-contexts-static--live-confirm)
 - [Record Room + global chrome click-through](#record-room--global-chrome-click-through)
+- [Onboarding wizard (live)](#onboarding-wizard-live)
+- [Installers (shell first-run, in-app wizard, unmerged GUI installer) — code](#installers-shell-first-run-in-app-wizard-unmerged-gui-installer--code)
 - [Chop Shop: Tag Tracks](#chop-shop-tag-tracks)
 - [Chop Shop: Find Duplicates + Prune](#chop-shop-find-duplicates--prune)
+- [Chop Shop: Rename](#chop-shop-rename)
+- [Chop Shop: Organize](#chop-shop-organize)
+- [Chop Shop: Normalize Loudness](#chop-shop-normalize-loudness)
 - [Chop Shop: Convert Format](#chop-shop-convert-format)
 - [Chop Shop: Novelty Scanner](#chop-shop-novelty-scanner)
+- [Chop Shop: Pipeline Wizard](#chop-shop-pipeline-wizard)
 
 ## Z-index / stacking contexts (static + live confirm)
 
@@ -763,6 +769,396 @@ Confirmed good: the drive flyout closes on Escape and returns focus to 'Connecte
 - **Evidence:** Drive flyout: Escape closes it and returns focus to 'Connected Drives'. USB export: backdrop click closes it, and with no Pioneer drive it shows 'No Pioneer USB drives found…' and keeps Export disabled. Settings modal fits with its footer reachable at 1024x700 (/home/user/FableGear/docs/audits/2026-10-05/screens/ui-live-record/1024x700_05_settings_tab-archive.png). Create bar: Escape inside the input closes it and '+ Playlist' focuses the input. Rename uses a prompt pre-filled with the current name; Delete confirms, saying tracks stay. Toasts (z 20000) render above every modal. Staging '+ Stage Selected' updates the badge and /api/staging. Drag row → playlist adds and toasts. Drag row → deck A loads and plays (deckState playing:true). The palette's '🎛 Decks' opens the deck. A Rekordbox-source title edit takes a master.db backup before writing.
 - **Fix:** Keep these behaviours, and use the drive flyout's focus handling as the model for other layers.
 
+## Onboarding wizard (live)
+
+_Auditor: `wizard-live`_
+
+I audited the in-app onboarding wizard (templates/onboarding.html, 8 steps, plus /api/onboarding/* and _setup_gate_status) live on Linux with headless Chromium. This round's sandbox was sbx-wizard-r3 on port 8101. I reused round-1 and round-2 evidence, which came from the same product code (the app copy diffs clean against the repo), and re-ran the top findings live on port 8101.
+
+The wizard's only checkpoint is the step index plus five text inputs, kept in localStorage. Every consent and choice lives in a JS variable (confirmedPaths) that a reload, restart or crash wipes.
+
+The worst result is a permanent trap. Reload or relaunch at step 5, 6 or 7, carry on, and you reach step 7, which has no Back button. Both room buttons then POST an empty config and get a 400. Every relaunch resumes at step 7 again, so the app can never be entered (critical; demonstrated again in round 3, including after a server restart).
+
+Three high findings:
+- **Consent flip:** after a reload, consent you declined is silently turned into full read+write access, because save-config treats a missing value as true.
+- **Reconfigure wipes settings:** it shows no current values, and finishing it resets the AcoustID key, excluded dirs, mode, import target, LUFS target, snapshot settings and the MCP config.
+- **Setup marked complete too early:** step 5 "Enable AI" and step 6 Import mark setup complete. The "Finish later" text and the localStorage draft then lie, and leaving mid-import kills the server and leaves the library half-imported.
+
+The gate admits a `{}` or invalid config.json. It also sends a configured user whose state file is missing back to a blank first-run wizard.
+
+The wizard validates no paths: a .txt file is accepted as the Rekordbox DB, a folder as the device DB, and /proc as the archive.
+
+Working correctly: "Finish later" on every step, Back keeping values, leaving reconfigure without finishing (config stays byte-identical), double-submit guards on the AI and Import buttons, nothing written to the server before step 5, and reload during an import.
+
+**Coverage**
+
+- STEP TABLE (from code + live). Format is: index | purpose | inputs | server calls | Continue enabled when | Back | Finish later.
+- step-0 | dependency check | none | GET /api/onboarding/dep-check; optional POST install-deps (`open -a Terminal setup.sh`), then dep-check polled every 5s up to 180 times | Continue starts disabled and enables once dep-check returns (also on fetch error, onboarding.html:974); 'Skip for now' is always enabled | Back: none (first step) | Finish later: yes
+- step-1 | install FableGear.app | toggles 'Add to Applications' and 'Pin to Dock' | POST /api/onboarding/install-app (osacompile/sips/iconutil, Dock plist, killall Dock) | 'Install & continue' and 'Skip' always enabled | Back: NONE (cannot return to step 0) | Finish later: yes
+- step-2 | Rekordbox read consent | none | GET /api/onboarding/check-fda on entry; 'Open Settings' POSTs open-fda-prefs | Allow Read goes to step 3; 'Skip — limited mode' sets read=false, write=false and jumps to step 4 | Back: to step 1 | Finish later: yes
+- step-3 | write consent | none | none | 'Allow Write' or 'Read-only mode' goes to step 4 | Back: to step 2 | Finish later: yes
+- step-4 | library paths | scan consent card (Allow scan runs GET /api/onboarding/scan-library; or 'Enter paths manually'); local DB and device DB as free text (Browse uses pywebview or GET /api/pick-file); music root is readonly (pick from scan list or Open Finder, GET /api/pick-folder); archive mode auto or custom; snapshot cadence; include master.db | Confirm paths is always enabled; client-side check is non-empty local DB, device DB and music root (and custom archive) only | Back: to step 3 | Finish later: yes
+- step-5 | AI/MCP opt-in | client picker | 'Enable AI integration' POSTs save-config (sets setup_complete=true) then POST /api/mcp/enable | 'Not now' goes to step 6; after enabling, a Continue button appears | Back: to step 4 | Finish later: yes
+- step-6 | seed FableGear DB | checkboxes for home library and scan roots | 'Import selected' POSTs save-config (setup_complete=true) and POST import-sources, then polls status every 700ms and auto-jumps to step 7 when done | 'Skip for now' always enabled; Import is disabled while running | Back: to step 5 (also during import) | Finish later: yes
+- step-7 | summary and room choice | none | 'Record Room' or 'Chop Shop' POSTs save-config, then clears localStorage and goes to /?space=… | always enabled | Back: NONE; dots not clickable | Finish later: yes (on first run it quits the server)
+- WHAT IS PERSISTED WHERE: localStorage key fg_onboarding_progress_v1 holds {step, inputs: local-db, device-db, music-root, archive-root, cadence, master-db value 'on'}; it is written on every goToStep and on input change. NOT persisted: confirmedPaths (db_read/db_write, mcp_opted_in, drive_scan, backup_dir), scanConsent, scan results, the archive-mode radio, the master-db checked state, install toggles, the import summary. Server side: fablegear-state.json is written with defaults on the first gate check; config.json and the state file (setup_complete:true) are written by save-config at step 5 Enable / step 6 Import / step 7; MCP keys by /api/mcp/enable; ~/.fablegear/fablegear.db by import; ~/Applications is created by install-app even when the install fails.
+- LIVE in round 3 (port 8101, sbx-wizard-r3, script audit/wizard-live/r3/r3_confirm.py, results in r3/R3_*.json, screenshots screens/wizard-live/R3_*.png): the step-7 trap (reload plus graceful restart/relaunch), consent flip and its no-reload control, double-click on step-1 Skip, reconfigure (no prefill; leave without finishing; full run; config diff), gate with config `{}` and with the state file deleted.
+- LIVE in rounds 1 and 2 (same code; JSON in audit/wizard-live/*.json and r2/*.json, screenshots A_..K_, R2_*): happy path; reload and restart at every step 0-7 (B_resume); kill -9 at steps 3 and 4 (r2_resume.log); Finish later at every step plus after MCP enable (D_finish_later); empty, nonexistent, non-Rekordbox and unwritable (/proc) inputs (E_*); double-click on every button (F_dblclick); install-deps and install-app failure on Linux; reload during scan; Back, Finish later and reload during an 8000-file import (G_*); reconfigure (H_); gate with corrupt config and state files (J_); layout at 1440x900, 1024x700 and 900x600 (K_, R2_layout); Back navigation (R2_back).
+- NOT testable here: Homebrew/setup.sh in Terminal, osacompile/sips/Dock pinning, the Full Disk Access prompt and denial path, osascript and pywebview native pickers (music root was set with selectMusicRoot(path) to stand in for a successful Finder pick, which is labelled where relevant), WKWebView localStorage persistence semantics, network-less behaviour (only inferred: the update check and dep-check fail quietly). fpcalc is not involved in onboarding.
+- NOT covered: the shell first-run installer (launch.sh, setup.sh, install.sh, .fablegear_ready/.fablegear_failed sentinels, .launch_lock), which is outside this live wizard assignment; an import-sources exception partway through a run (only the 400 'not a directory' path was exercised; the s.error to 'Retry import' path is inferred from onboarding.html:1546-1554).
+- Sandbox tooling note for the lead: round-2 notes say sbx-*/restart.sh stores `$!` of a `cd … && nohup …&` list, which can be the wrapper subshell's PID, so its kill can miss the real server. Round 3 restarted by SIGTERM to the real python PID and relaunched with the same env (lib3.server_restart). The server on 8101 was killed by PID 2510 at the end.
+
+**Findings**
+
+#### [CRITICAL · demonstrated] A reload, quit or crash at steps 5-7 permanently traps a first-run user on step 7 (save-config always fails, no Back, every relaunch resumes there)
+
+- **ID:** `wizard-live-trap7` · **Area:** install-wizard · **Tool/surface:** onboarding wizard (templates/onboarding.html, /api/onboarding/save-config)
+- **Expected:** Resuming at any step restores every value needed to finish. If a save fails, the user gets a way back to the step that collects the missing data.
+- **Actual:** The user can never complete onboarding. 'Finish later' quits, and each relaunch resumes on the broken step 7. The only escape is clearing the WebView's localStorage, which no normal user can do.
+- **Evidence:** Round 3: r3_confirm.py trap7 run against :8101. Path taken: Read allowed, Read-only chosen, paths entered, weekly cadence plus master.db, then step 5 and page.reload(). Before the reload confirmedPaths held 11 keys; after it, confirmedPaths={} and masterDbChecked flipped true→false, although the text inputs were restored. Step 6 showed 'No sources discovered…'. Skip led to step 7, whose summary wrongly said 'Limited mode'. Record Room returned 400 'Could not save configuration: Missing required fields: local_db, music_root, device_db', and Chop Shop returned the same. A graceful server restart followed by reopening '/' landed on /onboarding at step 7, and clicking again gave 400 once more. Recorded: save_config_responses=[400,400,400]; gate config_missing; config.json absent. Step 7 has no Back button and the dots are not clickable. Files: audit/wizard-live/r3/R3_trap7.json; screens/wizard-live/R3_trap7_s5_after_reload.png, R3_trap7_s6_no_sources.png, R3_trap7_s7_save_400.png, R3_trap7_after_restart_still_trapped.png. Round 1 C_trap7.json showed the same trap after a second reload. Code: confirmedPaths is a plain JS var (onboarding.html:851); restoreOnboardingProgress restores only step and inputs (878-894); launch() posts confirmedPaths (1604-1610).
+- **Fix:** Persist confirmedPaths (consents, archive mode, backup_dir, mcp, drive_scan) in the progress blob, or better in a server-side draft file. At step 7 (and before any save-config), rebuild the payload from the restored inputs and route the user to step 4 for anything missing. Add a Back button to step 7. When save-config returns 400 for missing fields, jump to the step that owns them.
+
+#### [HIGH · demonstrated] Declined Rekordbox read/write consent becomes full access after a reload, while the summary still says 'Limited mode'
+
+- **ID:** `wizard-live-consent-flip` · **Area:** install-wizard · **Tool/surface:** onboarding wizard + /api/onboarding/save-config
+- **Expected:** A declined consent stays declined until the user changes it. A missing consent value never defaults to granted.
+- **Actual:** A reload or relaunch silently upgrades the user to write access on their Rekordbox DB, and the UI tells them the opposite.
+- **Evidence:** Round 3 consentflip case: 'Skip — limited mode' set confirmedPaths {db_read:false, db_write:false}. Paths were filled and confirmed, landing on step 5, then the page was reloaded. Back showed the consent card again, with inputs restored. 'Enter paths manually', then Confirm, then Not now, then Skip. The step-7 summary read '⚠ Limited mode — database tools unavailable…'. After clicking Record Room, fablegear-state.json = {setup_complete:true, db_read:true, db_write:true} and /api/setup-status reports db_read true / db_write true. Control run with no reload (R3_limitedcontrol.json) correctly saved db_read:false, db_write:false. Files: R3_consentflip.json, R3_consentflip_s7_summary_limited.png, R3_consentflip_main_ui.png. Round 1 C_consent_read.json and C_consent_write.json show the same (a read-only choice became write:true). Root cause: app.py:1729-1730 `bool(data.get("db_read", True))` / `bool(data.get("db_write", True))`, combined with consent never being persisted client-side.
+- **Fix:** Default db_read and db_write to False (or reject a missing value with 400) in save-config. Persist the consent answers with the wizard progress. If consent is unknown on resume, send the user back to step 2. Build the step-7 summary from the same payload that will be saved.
+
+#### [HIGH · demonstrated] Reconfigure shows none of the current settings and, when finished, resets settings the wizard never asked about (AcoustID key, excluded dirs, mode, import target, LUFS target, MCP config)
+
+- **ID:** `wizard-live-reconfigure-wipes` · **Area:** install-wizard · **Tool/surface:** /onboarding?reconfigure=1 + /api/onboarding/save-config
+- **Expected:** Reconfigure pre-fills the current values and merges its changes into the existing config.
+- **Actual:** Every completed reconfigure destroys user settings with no warning or way to revert.
+- **Evidence:** Round 3 reconf case on a completed setup, with config.json extended by acoustid_api_key=MYOWNKEY123, excluded_dirs=['Sample Packs'], mode=rural, import_target=fablegear, snapshot weekly + master.db, target_lufs=-9. Plain /onboarding redirects to '/' (good). /onboarding?reconfigure=1 opens at step 0 with 'Exit setup' and every input empty (cadence 'monthly', master.db unchecked). Exit setup goes to '/' with config sha unchanged (good). Running the wizard through again with the same paths gave this config diff: acoustid_api_key MYOWNKEY123→wAbRWVEfls, excluded_dirs ['Sample Packs']→[], import_target fablegear→both, mode rural→suburban, snapshot_cadence weekly→monthly, snapshot_include_master_db true→false, target_lufs -9.0→-8.0. Round 1 H_reconfigure.json H4 also showed mcp_enabled, mcp_autostart, mcp_expose, mcp_port and mcp_token dropped, and H3 showed the token regenerated when enabling AI during reconfigure. Files: R3_reconf.json, R3_reconf_open_empty.png. Code: save-config builds cfg only from wizard fields plus DEFAULTS (app.py:1706-1720) and save_user_config overwrites the file (user_config.py:260-283). There is no backup of the old config and no undo.
+- **Fix:** In save-config, load the existing config and update only the keys the wizard owns; never re-apply DEFAULTS over existing keys. Render current values into the wizard when already_configured is true. Write a timestamped config backup before overwriting.
+
+#### [HIGH · demonstrated] Setup is marked complete at step 5/6 before the user finishes; 'Finish later' then misleads, can cut an import in half, and leaves a stale draft that hijacks later reconfigures
+
+- **ID:** `wizard-live-setup-complete-early` · **Area:** install-wizard · **Tool/surface:** onboarding wizard (mcpOptIn/importSelectedSources → _saveConfigNow) + obExitSetup → /api/quit
+- **Expected:** setup_complete is set only when the user finishes (step 7), or the wizard knows it has become 'configured' and its exit text and behaviour change to match. Leaving during an import either warns and cancels cleanly, or keeps the import running and reports it.
+- **Actual:** The app can open into a half-imported library with no notice, and the user was told setup was not finished. Stale drafts reappear in later reconfigure sessions.
+- **Evidence:** Round 1 D_finish_later.json '5mcp': after 'Enable AI integration', fablegear-state.json had setup_complete:true. The Finish-later dialog still said 'FableGear needs setup finished… you'll pick up right here next time'. After accepting, the server quit, and relaunch went to '/' (main UI), not the wizard. Round 1 G_import_exit.json: during an 8000-file import the gate was already 'ready'. Finish later then quit; /api/quit killed the server with 1200 of 8000 tracks imported. Relaunch landed on '/' with import status idle, no toast and no pill, and the import never resumes. Page error: 'Cannot read properties of null (reading 'classList')', from the import poll running against the replaced body. Round 3 R3_reconf.json reconf_reopen_step=4: a draft left in localStorage (launch() is the only thing that clears it, onboarding.html:1615) makes the next /onboarding?reconfigure=1 resume mid-wizard. Code: _saveConfigNow is called in mcpOptIn (1420) and importSelectedSources (1522); alreadyConfigured is fixed at render time (855), so the exit control keeps quitting.
+- **Fix:** Split save-config into 'save draft config' (no setup_complete) and 'finish'. Set alreadyConfigured=true after any successful save-config. Make Finish-later during an import confirm with a dedicated message and either block it or let the import finish in the background with a resumable job. Clear the progress draft whenever the gate turns ready.
+
+#### [MEDIUM · demonstrated] Setup gate admits the main UI with an empty or invalid config.json, and sends a configured user back to a blank first-run wizard when the state file is missing
+
+- **ID:** `wizard-live-gate-integrity` · **Area:** install-wizard · **Tool/surface:** _setup_gate_status (app.py:1257-1282) / user_config.config_exists (user_config.py:157-159)
+- **Expected:** The gate admits the main UI only when the config is parseable and has the required keys. A configured user with a lost state flag is not treated as a first-run user who must redo setup and lose settings.
+- **Actual:** config_exists() only checks that the file exists. The state flag alone decides between full admission and a full blank wizard.
+- **Evidence:** Round 3 gate case: with config.json='{}', GET / returned 200, /api/setup-status gave gate_reason 'ready', and /api/status showed drives.configured=false with every path null. The browser landed on '/' with no banner (R3_gate_empty_config_main_ui.png). With fablegear-state.json deleted and a valid config, gate_reason was setup_incomplete; '/' redirected to /onboarding with exit label 'Finish later' (quits the app) and every input blank (R3_gate_state_deleted_wizard.png). Finishing that wizard overwrites the config (see wizard-live-reconfigure-wipes). Round 1 J_gate.json showed the same for invalid JSON and for a config missing music_root (both 'ready'), and a corrupt state file (back to the wizard).
+- **Fix:** Have the gate validate config (parse it and require local_db, device_db and music_root), and return a 'config_invalid' reason that opens reconfigure pre-filled. If config is valid but the state file is missing or corrupt, rebuild setup_complete=true, or open reconfigure mode with prefill instead of first-run mode.
+
+#### [MEDIUM · demonstrated] Nonexistent paths, a non-Rekordbox file as the DB, a directory as the device DB and an unwritable archive are all accepted and marked setup-complete
+
+- **ID:** `wizard-live-no-path-validation` · **Area:** install-wizard · **Tool/surface:** confirmPaths (onboarding.html:1338-1376) + /api/onboarding/save-config (app.py:1677-1720)
+- **Expected:** Each path is checked at Confirm: the file exists, it opens as an encrypted Rekordbox master.db, the device DB is a file, the music root is a directory, and the archive/backup dir is creatable and writable. Clear inline errors are shown.
+- **Actual:** Only emptiness is checked. Users end up in a main UI that silently cannot read their library or write savepoints.
+- **Evidence:** Round 1 E_nonexistent.json: local_db=/nonexistent/rekordbox/master.db, device_db=/Volumes/NOPE/…, music_root=/nonexistent/Music. Confirm went to step 5 with no notice. Import returned 400 'not a directory', but save-config had already set setup_complete:true. Skip then Record Room opened the main UI; /api/status showed local/device_db_ok false, /api/audit/path-roots returned 500, and no toast or banner appeared. E_notrekordbox.json: local_db=not_a_db.txt and device_db=a music folder were both accepted, and /api/status reported local_db_ok:true and device_db_ok:true; library sync 'skipped 11' with no error. E_unwritable_archive.json: custom archive /proc/fablegear-archive was accepted, setup completed, and the archive was never created. Screenshots: E_*_confirm.png, E_*_main_ui.png.
+- **Fix:** Add a /api/onboarding/validate-paths endpoint that checks existence and type, tries to open the DB with pyrekordbox (or checks the SQLCipher header), and mkdir/touch-tests the archive. Call it from confirmPaths and again in save-config. Show per-field errors.
+
+#### [MEDIUM · demonstrated] 'Limited mode' and users without a DJ drive still must supply both Rekordbox DB paths; the only way through is typing a fake path
+
+- **ID:** `wizard-live-limited-mode-needs-db-paths` · **Area:** install-wizard · **Tool/surface:** confirmPaths (onboarding.html:1347-1350) + save-config required fields (app.py:1689-1692)
+- **Expected:** Limited mode, and setups without a DJ drive, can finish with the DB paths left blank or marked 'not configured'.
+- **Actual:** Both DB paths are hard-required on the client and the server, whatever the consent choice.
+- **Evidence:** Round 1 E_empty.json: with both DB fields empty, Confirm shows 'Please fill in the database paths before continuing.' even after 'Skip — limited mode'. Round 2 R2_table_s4_results.png: scan finds no device DB ('No DJ drive detected — connect your drive and re-scan, or enter path manually'). E_nonexistent.json shows that a bogus device_db path is accepted. So a user with no DJ drive (or no Rekordbox) can finish only by entering a fake path, which is then saved as real config.
+- **Fix:** Make device_db optional (and local_db optional when db_read=false) in confirmPaths and save-config. Store null or empty, and let the main UI show 'not configured' states.
+
+#### [MEDIUM · demonstrated] Music root can't be typed (readonly); if the scan finds nothing and the native picker fails, step 4 can't be completed, and Re-scan wipes the choice
+
+- **ID:** `wizard-live-musicroot-readonly` · **Area:** install-wizard · **Tool/surface:** step-4 music root (onboarding.html:690, 1297-1307, 1257)
+- **Expected:** A typed path is accepted (validated). A picker failure is shown to the user. Re-scan keeps a valid existing selection.
+- **Actual:** Completing the wizard depends entirely on the scan or a working native dialog, and failures are silent.
+- **Evidence:** Round 2 R2_table.json: music_root_readonly=true. Typing produced '' (music_root_after_typing). Open Finder on Linux (no pywebview API, /api/pick-folder has no osascript) left the value '' with no notice: the failure is only console.warn'd (onboarding.html:1306). The sandbox scan found music_roots=[]. Confirm then showed 'Select your home library folder…' (confirm_without_music_root). R2_back.json confirm_after_rescan: after Re-scan, the previously selected root was cleared (populateScan sets musicInput.value='' at onboarding.html:1257), and Confirm failed again. On macOS the pywebview picker normally works; that path was not testable here (inferred).
+- **Fix:** Remove readonly (or add an 'enter path' toggle) and validate on change. Surface picker errors through obNotice. In populateScan, only clear the music root if it is no longer valid.
+
+#### [MEDIUM · demonstrated] Double-clicking 'Skip' on step 1 also clicks step 2's 'Skip — limited mode', silently declining Rekordbox access
+
+- **ID:** `wizard-live-dblclick-skip` · **Area:** install-wizard · **Tool/surface:** goToStep / step-1 & step-2 action rows
+- **Expected:** One activation per step transition; a consent decision is never made by the second half of a double-click.
+- **Actual:** The consent choice is set by accident and nothing on screen says so.
+- **Evidence:** Round 3 dblskip case: page.mouse.dblclick on the centre of the step-1 'Skip' button (bbox x=924.9,y=461.5,w=28,h=29) landed on step 4 with confirmedPaths {db_read:false, db_write:false} (R3_dblskip.json, R3_dblskip_landed.png). Round 1 F_dblclick.json shows the same for step-1 Skip. Correct double-submit handling also observed there: 'Enable AI' sent one save-config plus one mcp/enable; 'Import selected' sent one save-config plus one import-sources (both buttons disable). Step-7 double-click sent save-config twice (harmless).
+- **Fix:** Ignore clicks for about 400ms after a step transition (or disable the new step's action row until its enter animation ends). Avoid putting a destructive or consent-declining button in the same spot as the previous step's advance button.
+
+#### [MEDIUM · demonstrated] 'Resumed where you left off' restores only the step number and text fields; consents, scan state, archive mode and the master.db checkbox are lost (and resume is browser-profile local)
+
+- **ID:** `wizard-live-resume-partial` · **Area:** session-resume · **Tool/surface:** saveOnboardingProgress / restoreOnboardingProgress (onboarding.html:862-894)
+- **Expected:** Resume restores every answer the user gave, or re-asks those that can't be restored. The resume notice is accurate.
+- **Actual:** Partial restoration feeds the step-7 trap and the consent flip, and silently drops snapshot and archive choices.
+- **Evidence:** Round 1 B_resume_0_1_2_3_4_5_6_7.json: reload and server restart at every step 0-7 resumed the same step index with the notice. Lost every time: confirmedPaths (reset to {}), scanConsent (back to null, so the consent card shows again), scan results, archive mode (custom→auto at steps 5-7), and the master.db checkbox (true→false). The checkbox is saved as el.value 'on' whatever its checked state (line 872) and restored by setting .value, not .checked (line 886). The 'fresh_profile' runs started at step 0, so progress is browser-local only. r2_resume.log: kill -9 at steps 3 and 4 behaved the same as a reload. Round 3 R3_trap7.json: masterDbChecked true→false after a reload. No server-side writes happen before step 5 (disk snapshots unchanged), which is good.
+- **Fix:** Serialize a full wizard model {step, confirmedPaths, scanConsent, archiveMode, checkbox states, mcp, importDone} into localStorage and, ideally, a server-side ~/.fablegear/onboarding-draft.json, so a WebView storage reset doesn't lose it. Restore checkboxes with .checked and radios by value.
+
+#### [MEDIUM · demonstrated] Long operations have no cancel; navigating Back during an import gets yanked to step 7; the library scan is a blocking request with no progress
+
+- **ID:** `wizard-live-long-ops` · **Area:** install-wizard · **Tool/surface:** importSelectedSources (onboarding.html:1501-1578), triggerScan (1138-1163), installDeps/pollDeps (978-1022)
+- **Expected:** Long operations can be cancelled, and leaving the step doesn't produce surprise navigation.
+- **Actual:** The user can't stop a mis-chosen import, and gets moved between steps without asking.
+- **Evidence:** Round 1 G_import_back.json: during an 8000-file import, Back is enabled and goes to step 5. When the import finishes, the still-running poll calls goToStep(7) (line 1568), and the user was pulled to step 7 after 7.1s from wherever they were. There is no cancel control and no cancel endpoint (_OB_IMPORT has no stop flag, app.py:1593-1637). G_import_reload.json (good): a reload mid-import lands on '/' with a background pill 'Importing 4,772/8,000' and a 'Background import complete: 8000 new' toast. G_scan_reload.json: the scan is a single GET with no cancel; a reload mid-scan returns to the consent card. Dependency install was observed on Linux only: install-deps returns 500 with "[Errno 2] No such file or directory: 'open'", and the UI shows 'Could not start the installer… Run setup.sh manually, or Skip for now' (G_install_deps.json). The poll ceiling of 180×5s was not exercised (inferred).
+- **Fix:** Add a cancel flag to _OB_IMPORT that FileImporter checks between files, plus a Cancel button. Only auto-advance if currentStep is still 6. Run the scan as a background job with status polling and a cancel option.
+
+#### [MEDIUM · demonstrated] The main app's body padding and 10px root font leak into the wizard: the content area is about 60% of the window, the primary buttons sit below an inner-scroll fold, and the text is tiny
+
+- **ID:** `wizard-live-layout-clipped` · **Area:** ui-layering · **Tool/surface:** templates/onboarding.html + static/fablegear.css
+- **Expected:** The wizard uses the full window, its primary action is visible without hidden inner scrolling, and its text is readable.
+- **Actual:** The content is cut off at roughly 60% of the window height, with a 4px scrollbar as the only cue. Text is very small, and the exit control can be covered by the update banner.
+- **Evidence:** Round 2 R2_layout.json at 1400x900: body padding is '28px 0 318px 80px' (from fablegear.css:66-76, padding-left var(--left-panel-w) and padding-bottom calc(var(--log-h)+var(--scan-bar-h)+4px)). The .ob-wrap scroller is 554px tall (bottom 582) for 978px of step-4 content. 'Confirm paths' sits at y=974, hit-test BODY, and becomes reachable only after wheeling inside the wrap; wheeling in the dead area scrolls 0. At 900x600 the wrap is 344px. Round 1 K_layout.json at 1024x700: wrap 414px; step-0 'Skip for now' and step-3 'Back' are clipped (hit BODY); the update banner overlaps the 'Finish later' pill (overlapExitBanner:true). fablegear.css:65 sets html{font-size:10px}, so the wizard's rem sizes (e.g. .82rem) render at about 8px. Screenshots: R2_table_s4_results.png, R2_layout_1400x900_step4_manual.png, K_1024x700_step*.png, K_1024x700_update_banner.png.
+- **Fix:** Give onboarding.html a body class that resets padding (e.g. body.ob-page{padding:0}) and set html{font-size:16px}, or stop loading the full fablegear.css. Make the step's .ob-actions sticky at the bottom of .ob-wrap. Offset #ob-exit below the update banner.
+
+#### [LOW · demonstrated] App-install step: masked 500, stray ~/Applications, a button stuck at 'Installing…' after Back, silent advance on network error, insecure tempfile.mktemp
+
+- **ID:** `wizard-live-install-app-errors` · **Area:** install-wizard · **Tool/surface:** installApp (onboarding.html:1032-1062) + /api/onboarding/install-app (app.py:1508-1582)
+- **Expected:** Install failures produce a specific, actionable message. Nothing is created on failure. Button state resets on every path.
+- **Actual:** The install step mostly fails cleanly, with these rough edges.
+- **Evidence:** Round 1 G_install_app.json (Linux): POST install-app returned 500 {error:'internal_error', message:'Something went wrong.'}. The UI notice read 'Installation failed: internal_error', and home/Applications was created anyway (install_dir.mkdir at app.py:1523, before the attempt; the FileNotFoundError from the missing osacompile is not caught). Round 2 R2_back.json: with 'Add to Applications' unchecked, Install disables the button and sets its text to 'Installing…', then goes to step 2 (line 1040). After Back, install_btn_after_back = {text:'Installing…', disabled:true}, so the step is stuck (R2_back_install_btn_stuck.png). Inferred: `.catch(function(){ goToStep(2); })` (line 1061) silently advances on a network error, and app.py:1537 uses tempfile.mktemp, which has a name race.
+- **Fix:** Catch OSError and FileNotFoundError around osacompile and return a clear message. Create ~/Applications only on success. Reset the button before the early goToStep(2) and in the catch. Use tempfile.NamedTemporaryFile or mkstemp.
+
+#### [LOW · demonstrated] No Back on step 1 or step 7, and step dots aren't navigable
+
+- **ID:** `wizard-live-missing-back` · **Area:** install-wizard · **Tool/surface:** templates/onboarding.html step-1/step-7 action rows
+- **Expected:** Every step after 0 offers Back, including the summary step.
+- **Actual:** Users can't return to dependencies from step 1, or fix anything from the summary. This combines with wizard-live-trap7.
+- **Evidence:** R2_table.json rows: s1 buttons are ['Skip', 'Install & continue →'] with no Back; s7 buttons are only the two room cards. C_trap7.json dots_clickable:false. After a resume, dots for steps 1-6 aren't marked done (R3_trap7_after_restart_still_trapped.png). Back on steps 2-6 works and keeps every value (R2_back.json rows b_s4…b_s2 keep inputs and confirmedPaths).
+- **Fix:** Add '← Back' to steps 1 and 7. Make done dots clickable for backward navigation. Re-mark dots 0..n-1 as done on resume.
+
+#### [LOW · demonstrated] After choosing a room on wizard step 7, the main UI shows the room picker again
+
+- **ID:** `wizard-live-room-picker-repeat` · **Area:** install-wizard · **Tool/surface:** launch() → /?space=record + main UI room picker
+- **Expected:** The ?space= choice from the wizard is honoured without asking again.
+- **Actual:** The user is asked the same question twice in a row.
+- **Evidence:** R3_consentflip_main_ui.png: after clicking 'Record Room' on step 7, the main UI opened with the FableGear room-picker modal (Record Room / Chop Shop) over the Record Room.
+- **Fix:** Skip the startup room picker when a ?space= parameter is present, or on the first load after onboarding.
+
+#### [INFO · demonstrated] Confirmed-good behaviour: Finish later on every step, Back keeps values, leaving reconfigure without finishing is non-destructive, no early server writes, double-submit guards, import survives reload
+
+- **ID:** `wizard-live-good` · **Area:** install-wizard · **Tool/surface:** onboarding wizard
+- **Expected:** n/a
+- **Actual:** Works as intended.
+- **Evidence:** D_finish_later.json for steps 0-7: confirm dialog; Cancel keeps the step and the server alive; Accept quits (own sandbox app copy, so E6 is not triggered across auditors) and shows 'You can close this window…'; relaunch resumes the same step. R2_back.json: Back from 5→4→3→2 keeps every input and confirmedPaths. R3_reconf.json exit_cfg_unchanged=true and exit_url '/'. B_resume disk snapshots show no config or state writes before step 5. F_dblclick.json: Enable-AI and Import send exactly one request each. G_import_reload.json: a reload mid-import goes to the main UI with a progress pill and a completion toast. user_config.save_user_config writes atomically (temp file then rename, user_config.py:279-283).
+- **Fix:** Keep these behaviours when fixing the findings above (especially the atomic config write and non-destructive exit from reconfigure).
+
+## Installers (shell first-run, in-app wizard, unmerged GUI installer) — code
+
+_Auditor: `wizard-code`_
+
+I audited the code of both installers and the update path: launch.sh, setup.sh, install.sh, the bootstrap launcher in build_release.sh, packaging/, single_instance.py, main.py, update_checker.py, /api/update/apply and the in-app onboarding wizard (onboarding.html and /api/onboarding/*). I also audited the unmerged origin/feature/install-wizard installer. No product server was started. Instead I re-ran the pure-logic parts in throwaway directories with stubs, against real git and real setup.sh/launch.sh code blocks, and ran the branch wizard's Flask app under Playwright with stubbed commands.
+
+Verdict: neither installer has a dependable checkpoint, exit or rollback story.
+- **Shell first-run path.**
+  - Steps are idempotent, so re-running restarts and mostly converges.
+  - A fresh Mac whose only Python is Apple's 3.9 gets stuck in a venv it never rebuilds (demonstrated with stubs).
+  - setup.sh keeps no log and sets no trap, so a closed Terminal window leaves launch.sh waiting silently for up to 40 minutes (demonstrated).
+  - The lock goes stale at 30 minutes while setup is allowed 40, so a second setup.sh starts (demonstrated).
+  - None of the .app wrappers shows a failure in the GUI.
+- **Update path.**
+  - All three lead claims are confirmed. The in-app update moves the install to untagged main, launch.sh then leaves it there, and the version shown is the old tag (demonstrated).
+  - A release tag that is not on main makes launch.sh hard-reset the local branch, after which the in-app updater fails with "Not possible to fast-forward" (demonstrated).
+  - /api/update/apply never rolls back. launch.sh's rollback runs again on every launch with no GUI message (demonstrated).
+  - The SIGTERM shutdown handler is never installed in the desktop app, so Quit and Update skip the archive sync.
+- **In-app wizard.** The consent answers and confirmed paths are kept in page memory only. After a restart, save-config therefore treats missing consent as granted, and the user can get stuck on step 7, which has no Back button (code root cause; the wizard-live auditor reproduced both). setup_complete is also written partway through the wizard (steps 5 and 6).
+- **Branch installer.** All four leads are confirmed live. On top of them, double-clicking Continue on the System tools step skips the Python package install entirely (3 of 3 trials), and a failed optional essentia install blocks the whole wizard.
+
+**Coverage**
+
+- LIVE (throwaway dirs, stubs, real git/bash): launch.sh lines 106-165 (update block) run verbatim against a throwaway origin repo with stubbed curl, pip and osascript. Scripts and output: <scratch>/audit/wizard-code/upd/run_update_demo.sh and .out, where <scratch> = /tmp/claude-0/-home-user-FableGear/9074577f-2e6a-5e16-bdce-ef5b26f1b16b/scratchpad
+- LIVE: the whole launch.sh first-run and lock section run in a throwaway dir with a stub `open` command (no Terminal, no setup actually runs). Script and output: <scratch>/audit/wizard-code/lock/run_lock_demo.sh and .out
+- LIVE: setup.sh run under SIGHUP with a stubbed Homebrew installer: <scratch>/audit/wizard-code/setup/
+- LIVE: setup.sh lines 90-148 (Python and venv section) run verbatim with stub interpreters (CLT python3 3.9, then python3.12): <scratch>/audit/wizard-code/pyvenv/run_py_trap.sh and .out
+- LIVE: the origin/feature/install-wizard Flask app (extracted to <scratch>/audit/wizard-code/iw_branch) run through iw_harness.py with stubbed checks and commands. It listened on an OS-assigned ephemeral 127.0.0.1 port: I had no assigned port, and this avoids collisions with other auditors. Tests: disconnect with orphaned children, a dropped connection under Playwright (iw_ui.py / iw_ui.json), a bare /api/complete call, and double-click Continue (iw_dbl.py / iw_dbl.json). Screenshots are in /home/user/FableGear/docs/audits/2026-10-05/screens/wizard-code/
+- LIVE: bash -n on every shell script (all pass). shellcheck (installed via shellcheck-py) output is in <scratch>/audit/wizard-code/shellcheck.txt; only minor items (launch.sh:111 SC2164, launch.sh:178 SC2155, setup.sh:99 SC2034).
+- LIVE: the Python rule that signal.signal() raises ValueError outside the main thread (this is the reason app.py's SIGTERM handler is never installed under main.py)
+- FETCHED for citation: Homebrew's current install.sh, saved to <scratch>/audit/wizard-code/dl_homebrew/install.sh (non-TTY non-interactive logic at lines 129-145, 293-299 and 594-595)
+- CODE ONLY: app.py /api/update/apply, /api/onboarding/*, the gate, /api/quit; main.py; single_instance.py; update_checker.py; install.sh; the build_release.sh bootstrap; packaging/*; onboarding.html JS state machine
+- I did not drive the in-app onboarding wizard live; the wizard-live auditor did. I cite their artifacts (<scratch>/audit/wizard-live/C_consent_write.json, C_trap7.json, J_gate.json, G_install_*.json) only as corroboration, and label those findings inferred from code.
+- NOT TESTABLE on Linux: open -a Terminal, osacompile, the Dock plist and cfprefsd, the real Homebrew install, sudo prompts, Full Disk Access, pywebview window-close semantics, WKWebView, and power loss in the middle of a git checkout (left speculative). I ran no real pip or brew installs. fpcalc is not involved here.
+
+**Findings**
+
+#### [HIGH · demonstrated] setup.sh builds the venv from Apple's Python 3.9, aborts as 'too old', and never rebuilds it, so following the on-screen advice can never fix it
+
+- **ID:** `wizard-code-setup-py39-venv-trap` · **Area:** install-wizard · **Tool/surface:** setup.sh
+- **Expected:** Candidates outside 3.11-3.13 are rejected, and python@3.13 is installed when none qualifies. An existing venv whose interpreter is too old, or not the chosen one, is recreated automatically.
+- **Actual:** Setup fails the same way on every run until the user deletes ~/FableGear/venv by hand. Nothing on screen tells them to.
+- **Evidence:** <scratch>/audit/wizard-code/pyvenv/run_py_trap.sh runs setup.sh lines 90-148 verbatim with PATH limited to stub interpreters. Run 1 has only python3, reporting 3.9 like Apple's CLT /usr/bin/python3: 'OK Python 3.9.0 ... ✗ Python 3.9.0 in this venv is too old ... Run: brew install python@3.12', then fail(). Next, a python3.12 stub is added, as if the user did what the message says. Runs 2 and 3 both print 'OK Python 3.12.0' and then the same '✗ Python 3.9.0 in this venv is too old', and fail(). The final venv is still 3.9. Root cause: setup.sh:97-107 only rejects minor > 13 (`[ "${major:-99}" -le 13 ]`), so 3.9 is accepted. setup.sh:120-128 only rebuilds the venv when bin/activate is missing. setup.sh:140-147 fails on the existing old venv without removing it. Precondition (how common it is, speculative): python3.11, 3.12 and 3.13 are all missing from PATH, e.g. a fresh Mac where nothing brewed a Python.
+- **Fix:** In the candidate loop, require 11 <= minor <= 13. Before reusing $VENV, compare `$VENV/bin/python -c 'import sys;print(sys.version_info[:2])'` with the minimum and `rm -rf` it when too old. Write a marker file recording the interpreter used, and rebuild the venv when it changes.
+
+#### [HIGH · demonstrated] Branch install wizard: double-clicking Continue on 'System tools' skips the Python package step, writes .fablegear_ready and launches the app with no packages
+
+- **ID:** `wizard-code-iw-dblclick-skips-packages` · **Area:** install-wizard · **Tool/surface:** installer_wizard.html (origin/feature/install-wizard)
+- **Expected:** Continue is disabled synchronously on click, and /api/complete is only reachable after the package step reports [SEQUENCE_OK].
+- **Actual:** One double-click marks the install complete and hands off to main.py with no packages installed.
+- **Evidence:** <scratch>/audit/wizard-code/iw_dbl.py: Get Started, then Continue, then the stubbed brew step finishes, then a Playwright dblclick() on #primaryBtn. Result in iw_dbl.json, 3 of 3 trials: the requests were GET /api/plan, then POST /api/complete, then GET /api/install/python. The step label showed 'Done', sentinel_written was true and wizard_process_exited was true. Root cause: transitionToStep() sets `step = n` synchronously (html:710). The step-2 branch calls showPlan() (html:990-991), which only disables the button after the /api/plan fetch resolves. The second click therefore lands in `else if (step === 3)` (html:992-997) and calls fetch('/api/complete'). That writes the sentinel and runs os._exit(0) (installer_wizard.py:379-400), killing any pip that had started.
+- **Fix:** Set els.primary.disabled = true before any async work in every branch of the click handler. Track the phase result explicitly (pythonOk=true only on [SEQUENCE_OK]) and require it before calling /api/complete. Also make the server refuse (see wizard-code-iw-complete-unconditional).
+
+#### [HIGH · demonstrated] Branch install wizard: /api/complete writes .fablegear_ready without checking that any install sequence succeeded
+
+- **ID:** `wizard-code-iw-complete-unconditional` · **Area:** install-wizard · **Tool/surface:** installer_wizard.py /api/complete
+- **Expected:** The server records each phase's exit status and refuses /api/complete (409) unless brew and the required Python groups succeeded.
+- **Actual:** Any POST marks setup complete; launch.sh then skips setup.sh, and its own pip runs (launch.sh:98-99) are unchecked and log-only.
+- **Evidence:** <scratch>/audit/wizard-code/iw_ui.py run B started a fresh wizard and made a bare `curl -X POST /api/complete` with nothing installed. Response {"ok":true}, sentinel_after_bare_complete=true, harness2_exit_code=0 (os._exit after spawning main.py). Code: installer_wizard.py:379-383 calls `(REPO_ROOT / ".fablegear_ready").touch()` unconditionally. stream_steps (py:285-299) keeps no server-side record of [SEQUENCE_OK]. tests/test_installer_wizard.py:305 (on the branch) asserts this unconditional behaviour. The sentinel matters because launch.sh:_setup_needed (launch.sh:37-50) checks only brew formulas, venv/bin/activate and the sentinel, not the Python packages.
+- **Fix:** Keep a server-side phase_status dict set only on [SEQUENCE_OK]. Gate /api/complete on it. Add a test that /api/complete fails before the installs.
+
+#### [HIGH · demonstrated] Branch install wizard: a dropped SSE connection (server crash, window reload, network blip) is shown as a successful install
+
+- **ID:** `wizard-code-iw-dropped-connection-success` · **Area:** install-wizard · **Tool/surface:** installer_wizard.html streamInstall()/runPythonStep()
+- **Expected:** Success only on an explicit [SEQUENCE_OK]. A connection error before it is shown as 'interrupted', offering Retry or Re-check.
+- **Actual:** An interrupted install is reported as done, and the user is sent to Finish or the next phase.
+- **Evidence:** <scratch>/audit/wizard-code/iw_ui.py with output in iw_ui.json. During the stubbed 60 s Python step, the wizard server was sent SIGKILL. 1.5 s later the button read 'Finish' (enabled), all three cards were 'grp is-done' (including requirements.txt and requirements_optional.txt, which never ran), and the failure details panel stayed closed. Clicking Finish showed 'You're all set — Launching now'. fetch('/api/complete') has no catch (pageerror 'Failed to fetch'), so nothing launches. Screenshots: docs/audits/2026-10-05/screens/wizard-code/iw_02_dropped_connection_shown_as_success.png and iw_03_all_set_with_dead_server.png (the panels in iw_03 are stacked; see the low finding). Code: html:792 `es.addEventListener("error", () => { es.close(); onDone && onDone(!failed); })`; html:961-975 has the same pattern in the Python step. Success is defined as 'no [SEQUENCE_FAILED] seen', not '[SEQUENCE_OK] seen'.
+- **Fix:** Track `sawOk` and call onDone(sawOk && !failed) from the error handler. Handle fetch('/api/complete') failure and only show 'all set' after a 200.
+
+#### [HIGH · demonstrated] Branch install wizard: a failure in the best-effort essentia group fails the whole Python step, and the only offer is 'Try Again', so the user is trapped
+
+- **ID:** `wizard-code-iw-optional-blocks-install` · **Area:** install-wizard · **Tool/surface:** installer_wizard.py python_install_commands/stream_steps
+- **Expected:** Optional groups run with failures tolerated and shown as 'degraded'. Finish stays available.
+- **Actual:** On macOS 12-14 with Python 3.13, the wizard can never reach Finish.
+- **Evidence:** Running the branch module directly: build_plan() marks ('requirements_optional.txt', False), but python_install_commands() returns a plain `pip install -r .../requirements_optional.txt` as the 4th step of the same fail-fast sequence (py:330-338). `stream_steps([[true],[true],[bash -c 'echo ERROR: Failed building wheel for essentia; exit 1']])` ends with 'data: [SEQUENCE_FAILED]' (py:285-299). The UI then offers only 'Try Again', which re-runs everything (html:971). There is no Skip, Cancel or Finish-later. requirements_optional.txt:23-33 itself says there is no cp313 essentia wheel below macOS 15, so pip tries an sdist build that fails. setup.sh:177-183 and launch.sh:104 treat this group as best-effort. The branch wizard does not, and test_stream_steps_stops_at_first_failure enshrines that.
+- **Fix:** Run the required groups in one fail-fast sequence and the optional group as a separate stream whose failure is non-fatal. Pass group.required through to the client.
+
+#### [HIGH · inferred] Homebrew is installed with non-TTY stdin by the documented `curl | bash` install and by the branch wizard, so Homebrew goes non-interactive (`sudo -n`) and aborts on a normal Mac
+
+- **ID:** `wizard-code-homebrew-noninteractive` · **Area:** install-wizard · **Tool/surface:** install.sh -> setup.sh; installer_wizard.py brew_install_commands
+- **Expected:** Homebrew is installed in a context with a TTY (`/bin/bash -c "$(curl ...)" < /dev/tty`, or INTERACTIVE=1 with a tty) or via the official .pkg. Formula commands resolve brew after installing it.
+- **Actual:** The documented one-liner and the GUI wizard cannot install Homebrew on a Mac without cached sudo credentials.
+- **Evidence:** install.sh:6 documents `curl -fsSL .../install.sh | bash`. The script runs `bash "$INSTALL_DIR/setup.sh"` (install.sh:89) with stdin = the curl pipe. setup.sh:51 runs `/bin/bash -c "$(curl ...Homebrew/install/HEAD/install.sh)"`, which inherits that stdin. In Homebrew's current install.sh (fetched to <scratch>/audit/wizard-code/dl_homebrew/install.sh), lines 135-140 set `elif [[ ! -t 0 ]] ... NONINTERACTIVE=1` and lines 297-299 add `SUDO+=("-n")`. Lines 594-595 then `abort "Insufficient permissions to install Homebrew..."` when /opt is not writable and sudo -n fails. The branch wizard deliberately uses `curl ... | /bin/bash` (installer_wizard.py:319-324), so the inner bash's stdin is the pipe there too. Also, setup.sh fail() runs `read -rp` (setup.sh:21) on that pipe, which swallows a line of install.sh instead of waiting. Separately (demonstrated): with brew absent, brew_install_commands() returns `['brew','install','ffmpeg']` with a bare 'brew', resolved before Homebrew exists (py:302-327). Under a GUI PATH (main.py:47-54 explains it lacks /opt/homebrew/bin), the first attempt therefore fails with '[ERROR] could not start'.
+- **Fix:** In install.sh, run setup.sh with `< /dev/tty`. In the wizard, use Homebrew's .pkg installer or open Terminal for that one step. Compute the brew path after the Homebrew step (call _find_brew() per command, or re-plan after step 1).
+
+#### [HIGH · demonstrated] In-app Update pulls untagged origin/main; launch.sh then leaves it there and the app reports the old release tag. An off-main release tag makes launch.sh hard-reset the branch, which breaks the in-app updater
+
+- **ID:** `wizard-code-update-untagged-main` · **Area:** undo-revert · **Tool/surface:** app.py /api/update/apply + launch.sh + update_checker.py
+- **Expected:** Every updater targets the same release tag (`git fetch --tags && git merge --ff-only <latest tag>`), and the version shown matches HEAD.
+- **Actual:** Users run untested main while the UI shows the release tag. After an off-main hotfix, the in-app updater stays broken until a later launch.sh realign.
+- **Evidence:** <scratch>/audit/wizard-code/upd/run_update_demo.sh (output in .out). Setup: origin has A (tagged v1.0), then B (main, untagged); the user sits on v1.0. Step 1, app.py:784's `git pull origin main --ff-only`: HEAD = 'B (untagged main)'. Step 2, launch.sh's update block with GitHub latest = v1.0: no-op and empty log (launch.sh:117-118 sees describe == LATEST_TAG; lines 140-143 never downgrade a descendant). FABLEGEAR_VERSION and update_checker report 'v1.0' while running B. Step 3, hotfix v1.0.1 tagged on a release branch: update_checker flags an update (is-ancestor rc=1); in-app Update gives 'Already up to date.' with rc=0, so the API returns ok and relaunches; launch.sh logs 'clone diverged from v1.0.1; realigning' and runs `git reset --hard v1.0.1`, after which local main != origin/main. Step 4, next release v1.1 on main: the in-app update fails with 'fatal: Not possible to fast-forward, aborting.' (rc=128). Also: the docstring (app.py:736) says 'Pull the latest release'. The comment at app.py:802-805 says 'launch.sh no longer pulls or reinstalls on every open; this ... is now the only updater', which is false (launch.sh:98-104, 106-165). install.sh:44 and :61 also track main.
+- **Fix:** Make /api/update/apply fetch tags and ff-merge to update_checker's latest_version (same logic as launch.sh:122-139). Compute the version with `git describe --tags` without --abbrev=0, or flag 'tag+N'. Make install.sh check out the latest release tag.
+
+#### [HIGH · inferred] /api/update/apply has no rollback: pip failures are ignored, and a half-applied update (new code, missing deps) leaves an app that silently never opens
+
+- **ID:** `wizard-code-update-no-rollback-brick` · **Area:** undo-revert · **Tool/surface:** app.py /api/update/apply, launch.sh, main.py
+- **Expected:** Record HEAD before the pull. If pip fails, or the new build does not come up healthy within N seconds, reset to the recorded HEAD, reinstall from the old requirements, and surface the error in the GUI.
+- **Actual:** The update is fire-and-forget with no failure surface and no way back except manual git.
+- **Evidence:** app.py:800-821 runs `pip install --upgrade` with check=False and capture_output, and discards the result. There is no PREV_HEAD, and git is never reset. It then relaunches (app.py:823-838). On relaunch, launch.sh:98-99 pip installs are unchecked (log only). The tag logic will not roll back because HEAD is now a descendant of the tag (launch.sh:140-143). main.py imports app inside the server thread (main.py:80-84). If that import fails (missing module), _wait_for_server gives up after 30 s and does `sys.exit(1)` with the message only in fablegear.log (main.py:171-176). No window or dialog appears, and every relaunch repeats this until pip succeeds. The docstring step 1 'Refuse if ... Rekordbox is open' (app.py:739) is not implemented; only managed subprocesses are checked (app.py:744-752). Speculative: a git pull killed by the 60 s timeout (subprocess.run SIGKILL) or by power loss mid-checkout can leave .git/index.lock or a mixed tree. Every later update then fails ('fast-forward failed' is logged silently by launch.sh:138), and nothing removes the lock.
+- **Fix:** Write the pre-update SHA to ~/.fablegear/update_pending.json. In launch.sh/main.py, if the server fails to start and that file exists, `git reset --hard <sha>` plus pip install, then show a native alert (osascript display dialog) pointing to fablegear.log. Return a pip failure from the API as an error before the restart.
+
+#### [HIGH · inferred] In-app wizard: consent answers are not persisted, and save-config treats missing db_read/db_write as granted, so after a restart a declined write permission is saved as granted
+
+- **ID:** `wizard-code-onboarding-consent-default-true` · **Area:** session-resume · **Tool/surface:** templates/onboarding.html + app.py /api/onboarding/save-config
+- **Expected:** Consent is persisted with the draft (or re-asked on resume), and the server never defaults consent to granted.
+- **Actual:** A user who declined write access gets write access recorded after any refresh, quit or crash between the permission step and the save.
+- **Evidence:** confirmedPaths is in memory only (onboarding.html:852). saveOnboardingProgress stores only {step, 6 path inputs} (html:867-875). restoreOnboardingProgress jumps to the saved step (html:891), so permGrant/Deny (html:1081-1105) are never replayed. confirmPaths copies `db_read: confirmedPaths.db_read` (html:1370-1371), which is undefined, and JSON.stringify drops the key. app.py:1729-1730 `bool(data.get("db_read", True))` / `bool(data.get("db_write", True))` then writes true. scanConsent, the MCP choice and the archive mode are also not persisted. Corroborated live by the wizard-live auditor (<scratch>/audit/wizard-live/C_consent_write.json): before reload {db_read:true, db_write:false}; after reload state_file.db_write=true, while the summary still said 'Limited mode'.
+- **Fix:** Persist confirmedPaths (minus secrets) and scanConsent in the draft. On resume to a step after 2-3 with consent unknown, send the user back to step 2. Change the server defaults to False/None and reject a request when the key is missing.
+
+#### [HIGH · inferred] In-app wizard: resuming at step 7 (or reloading there) leaves the user permanently stuck: step 7 has no Back, launch() always fails with 400, and the draft is never cleared
+
+- **ID:** `wizard-code-onboarding-step7-trap` · **Area:** session-resume · **Tool/surface:** templates/onboarding.html
+- **Expected:** Resume validates that the data needed for the saved step exists; otherwise it rewinds to the path step. Every step has a Back control.
+- **Actual:** The only way out is clearing WKWebView localStorage by hand.
+- **Evidence:** Step 7 markup (html:827-845) has only the two launch('record'|'chop') buttons, with no Back or Skip, and the dots are not clickable. After a restore, confirmedPaths is {} (html:852), so launch() posts {} (html:1604-1609) and gets 400 'Missing required fields'. clearOnboardingProgress runs only on success (html:1615), so every relaunch restores step 7 again (html:889-892). 'Finish later' on first run quits (html:901-922). Corroborated live by wizard-live (C_trap7.json: after_second_reload_step 7; notice 'Could not save configuration: Missing required fields: music_root, local_db, device_db'; gate config_missing).
+- **Fix:** Persist confirmedPaths. In restoreOnboardingProgress, if saved.step >= 5 and the required paths are missing, go to step 4. Add Back to step 7. On a save-config 400, show a 'Review paths' button that calls goToStep(4).
+
+#### [MEDIUM · demonstrated] launch.sh retries the same failing release update on every launch: fast-forward, pip fails, rollback, with no record, backoff or GUI notice, and the venv is left partially upgraded
+
+- **ID:** `wizard-code-launch-rollback-loop` · **Area:** undo-revert · **Tool/surface:** launch.sh
+- **Expected:** A failed update is recorded and skipped (or retried with backoff), the venv is restored (e.g. from `pip freeze`), and the user is told.
+- **Actual:** Each launch is slowed by a doomed update attempt, and the user sees nothing.
+- **Evidence:** run_update_demo.sh scenario 5 makes the stub pip fail on `--upgrade -r requirements.txt`. Three launches each logged 'updating v1.0 -> v1.1 / Fast-forward / dependency install failed after update; rolling back / HEAD is now at b97f91f A', with 6 pip calls in total. requirements_ui.txt was upgraded before requirements.txt failed, and the git reset (launch.sh:130-135) does not undo that, so the old code runs on partially upgraded packages. All output goes to fablegear.log after `exec > /dev/null` (launch.sh:82). The realign branch (launch.sh:156-159) does not check pip at all.
+- **Fix:** Write a .update_failed_<tag> marker and skip that tag until the next release. Snapshot `pip freeze` before upgrading and reinstall it on rollback. Apply the same checks to the realign path.
+
+#### [MEDIUM · demonstrated] The launcher lock goes stale at 30 min while setup may take 40, so a second click re-runs setup.sh on the same venv. The first launcher's EXIT trap then deletes the second's lock. Clicks inside 30 minutes exit silently.
+
+- **ID:** `wizard-code-launch-lock-stale-race` · **Area:** install-wizard · **Tool/surface:** launch.sh / setup.sh / app.py install-deps
+- **Expected:** One setup at a time, guarded by a lock held for setup's whole lifetime (e.g. flock or a PID file inside setup.sh). Stale detection uses PID liveness, not age. A second click brings the setup window forward or shows a notification.
+- **Actual:** Concurrent setup.sh runs, a lock deleted by the wrong owner, and silent no-op clicks.
+- **Evidence:** <scratch>/audit/wizard-code/lock/run_lock_demo.sh (output in .out), using a stub `open`. A: launcher #1 polls with no sentinel (setup window gone). B: a second click exits 0 with no 'open' call and no feedback. C: with the lock at 31 min, launcher #3 takes it over and calls `open -a Terminal .../setup.sh` again (2 opens logged) while #1 is still polling. D: when #1 ends, its trap (launch.sh:26) removes the lock #3 owns; 'lock dir exists while #3 still running? NO-removed-by-#1', and launcher #4 got in concurrently (3 opens). Code: launch.sh:19 `-mmin +30` vs launch.sh:73 `2400` s. Two setup.sh runs race on one venv, and setup.sh:120-123 `rm -rf "$VENV"` can delete a venv the other run is still creating (activate is written last). The in-app 'Install dependencies' path also races (inferred): app.py:1474 opens setup.sh, setup.sh:15 deletes .fablegear_ready immediately, and any Dock click or relaunch while it runs gives launch.sh:48 `_setup_needed`, which opens a second setup.sh (the lock is free because the app's launcher has already exited).
+- **Fix:** Have setup.sh take its own lock (mkdir plus a PID file and `kill -0` liveness check, or `flock` via python). In launch.sh, store $$ in the lock and only rmdir if it still holds your PID. Replace the age heuristic with a PID check, and show `osascript display notification` on a blocked click.
+
+#### [MEDIUM · demonstrated] setup.sh has no trap and no log file, and every .app wrapper discards launch.sh's stderr. An interrupted or failed first run is never shown in the GUI, and launch.sh waits silently for up to 40 minutes.
+
+- **ID:** `wizard-code-setup-no-trap-no-log` · **Area:** install-wizard · **Tool/surface:** setup.sh / launch.sh / packaging
+- **Expected:** `trap 'touch "$FAILED"' INT HUP TERM ERR`, with output tee'd to ~/FableGear/setup.log. The launcher shows a native alert on failure or timeout that points to the log.
+- **Actual:** Closing the setup window, or a brew failure, gives silence; at best the next launch quietly re-runs setup.
+- **Evidence:** `grep trap setup.sh` returns nothing. In <scratch>/audit/wizard-code/setup/, setup.sh was sent SIGHUP mid-'Homebrew install' (stub). setup.sh died, no .fablegear_ready or .fablegear_failed was written, and its child was re-parented to PID 1 (orphan). launch.sh:66-77 then polls until 2400 s. Its messages (launch.sh:68, 74) go to stderr, which build_release.sh:65 (`>/dev/null 2>&1 &`), packaging/FableGearLauncher.applescript:5 and the app.py:1536 osacompile script all discard. setup.sh output exists only in the Terminal window, with no tee to a file. setup.sh:84-86 prints '✓ <formula> installed' even when `brew install` fails, and `brew update` / `pip install --upgrade pip` results are ignored (setup.sh:65, 157). Only the osacompile fallback in setup.sh:210-212 (blocking `do shell script`, no redirect) would show launch.sh's stderr as a dialog, so the three .app generators behave differently.
+- **Fix:** Add the trap and a `exec > >(tee -a "$SCRIPT_DIR/setup.log") 2>&1`. Check the `brew install` exit status and call fail(). In launch.sh, use osascript to show 'Setup failed or was interrupted — see setup.log' instead of writing to stderr. Unify the .app generators.
+
+#### [MEDIUM · inferred] In the desktop app the SIGTERM/SIGINT 'clean shutdown' handler is never installed, so Quit and Update kill the process without the archive DB sync
+
+- **ID:** `wizard-code-sigterm-handler-not-installed` · **Area:** other · **Tool/surface:** app.py signal handlers / main.py
+- **Expected:** Quit and Update perform the documented clean-shutdown checkpoint.
+- **Actual:** The checkpoint runs only when the window is closed normally (atexit). Quit and Update skip it.
+- **Evidence:** main.py:80-84 imports app inside the server daemon thread (`from app import app` runs at module level in _start_server, which is started at main.py:173). app.py:345-352 calls signal.signal() and swallows ValueError/OSError. Demonstrated Python behaviour: calling signal.signal(SIGTERM, ...) from a non-main thread raises "ValueError('signal only works in main thread of the main interpreter')", and the disposition stays SIG_DFL (0). So the os.kill(SIGTERM) in /api/quit (app.py:1752) and /api/update/apply (app.py:836) terminates the process immediately. Neither _sync_archive_db_on_exit (atexit/handler, app.py:305-338) nor main.py:242-247 runs. The comment at app.py:323-331 claims these paths are routed through the sync. This affects the in-app 'Finish later' (onboarding obExitSetup, then /api/quit) and Update. See also E6 (/api/quit kills every cli.py under the install dir).
+- **Fix:** Install the handlers from main.py's main thread (e.g. call an app.install_signal_handlers() after import), or avoid self-SIGTERM: run the sync explicitly in the _shutdown and _relaunch threads before os.kill, or call webview window.destroy() so main returns normally.
+
+#### [MEDIUM · inferred] In-app wizard: opting into MCP (step 5) or starting an import (step 6) writes setup_complete=true before the wizard finishes
+
+- **ID:** `wizard-code-onboarding-setup-complete-midway` · **Area:** install-wizard · **Tool/surface:** onboarding.html _saveConfigNow + app.py save-config
+- **Expected:** Mid-wizard saves write the config without setup_complete; only launch() marks completion. The state file is written atomically.
+- **Actual:** Completion is recorded early, and drafts go stale.
+- **Evidence:** mcpOptIn (html:1415-1421) and importSelectedSources (html:1521) call _saveConfigNow(), which hits /api/onboarding/save-config. That route always writes `"setup_complete": True` (app.py:1727-1739). If the user then chooses Finish later or quits, the gate (app.py:1257-1281) admits them on the next launch, and the remaining steps (import, summary) are skipped silently. The localStorage draft is cleared only by launch() (html:1615), so a later /onboarding?reconfigure=1 resumes the stale step and paths. With alreadyConfigured=false baked in at render time (html:856), 'Finish later' still tells the user that setup must be finished. Both config writes are non-atomic: save_user_config is atomic (user_config.py:260-288), but the state file uses write_text (app.py:1247, 1738). A torn state file is 'repaired' to defaults (setup_complete false, consent null) by _load_setup_state (app.py:1222-1254).
+- **Fix:** Add a `complete` flag to save-config, set only by launch(). Clear the draft whenever setup_complete flips. Use the same tmp+rename write for fablegear-state.json.
+
+#### [MEDIUM · inferred] The setup gate admits the main UI with an empty or invalid config.json because it checks only that the file exists
+
+- **ID:** `wizard-code-gate-config-exists-only` · **Area:** install-wizard · **Tool/surface:** app.py _setup_gate_status / user_config.config_exists
+- **Expected:** The gate requires REQUIRED_KEYS (user_config.py:61) and parseable JSON. A drive being offline should be shown as a state, not let a broken config through.
+- **Actual:** A corrupt or empty config lets the user into the main UI with failing APIs instead of the repair or onboarding path.
+- **Evidence:** user_config.py:157-159 is `return CONFIG_FILE.exists()`, and its docstring says '(may still be incomplete)'. app.py:1270-1281 returns ready whenever that is true and setup_complete is set. save-config validates only that the three path strings are non-empty (app.py:1691-1694), not that they exist or are Rekordbox DBs. Corroborated live by wizard-live (J_gate.json): config '{}' and invalid JSON both give gate_reason 'ready', landing on '/' with 500s in the console.
+- **Fix:** In the gate, load the config and check REQUIRED_KEYS. If they are missing, return 'config_incomplete', and have /onboarding pre-fill the paths it can.
+
+#### [MEDIUM · inferred] Every launch re-attempts the optional essentia install (an sdist build on macOS 12-14 with cp313) and runs an untimed `git fetch` before the window appears, with no feedback
+
+- **ID:** `wizard-code-launch-every-launch-cost` · **Area:** install-wizard · **Tool/surface:** launch.sh / update_checker.py
+- **Expected:** Optional installs happen once (record the failure for that interpreter and macOS version). Network steps are bounded and run after the window is up.
+- **Actual:** Every launch is slowed and the user sees nothing.
+- **Evidence:** launch.sh:104 runs `pip install --quiet -r requirements_optional.txt ... || true` on every launch, before main.py. requirements_optional.txt:23-33 says there is no cp313 wheel below macOS 15 and that pip falls back to the sdist and a failing C++ build. pip does not cache failed builds, so the download and build attempt repeat on every launch, with output only in fablegear.log (launch.sh:82). launch.sh:113 `git fetch origin --tags` has no timeout (only curl has --max-time 10), so a stalled network (captive portal) blocks the launch with all output silenced. update_checker.py:70 `git fetch --tags` likewise has no timeout, and it runs inside the synchronous /api/update/status?refresh=1 request (app.py:725-727).
+- **Fix:** Write a marker such as .optional_failed-<pyver>-<macos> and skip while it exists; or move optional installs to a background Health action. Use `timeout 20 git fetch` (or GIT_HTTP_LOW_SPEED_LIMIT/TIME). Add timeout=20 to update_checker's subprocess.run.
+
+#### [MEDIUM · inferred] Clicking the Dock icon while FableGear is running re-runs pip and a possible git update under the live app, then exits silently instead of focusing the window
+
+- **ID:** `wizard-code-second-launch-while-running` · **Area:** install-wizard · **Tool/surface:** launch.sh / main.py / single_instance.py
+- **Expected:** launch.sh checks the instance lock (or port 5001) first and, if the app is running, only activates the existing window.
+- **Actual:** A mid-session update can be applied under the running app, and the second click seems to do nothing.
+- **Evidence:** launch.sh's lock is released when the launcher exits right after starting main.py (launch.sh:26, 183-185), so a second click runs launch.sh again. That run does pip installs (launch.sh:98-104) and possibly `git merge --ff-only` or `git reset --hard <tag>` (launch.sh:125, 156), changing code and packages under the running server: templates and static files are served fresh from disk while the Python routes are stale. Only then does main.py hit single_instance.acquire() (main.py:160-168), print 'already running' to the log and `sys.exit(0)`, so no window is raised. The main.py docstring (lines 13-14), 'the existing server is reused and a new window is opened', is stale. single_instance.py itself is correct (flock, released by the OS).
+- **Fix:** At the top of launch.sh, probe the flock (python -c using single_instance) or curl 127.0.0.1:5001/api/setup-status; if live, `open` the app or send a focus request and exit before any pip or git step.
+
+#### [MEDIUM · demonstrated] Branch install wizard: no Cancel, Back or Finish-later; children keep running after the client disconnects; a failed check disables Continue with no way to re-check
+
+- **ID:** `wizard-code-iw-no-exit-orphans` · **Area:** install-wizard · **Tool/surface:** installer_wizard.py stream_command / installer_wizard.html
+- **Expected:** Cancel stops the child cleanly (terminate, then kill after a grace period) and leaves a resumable state. A Re-check button is shown on failed checks. Back is offered between phases.
+- **Actual:** The only exit is closing the window, which orphans or truncates brew/pip mid-run. Fixing a failed check requires restarting the wizard.
+- **Evidence:** The page has exactly one button, ['primaryBtn:Get Started'] (iw_ui.json; html:501). Disconnect test (<scratch>/audit/wizard-code/iw_harness.py orphan mode): curl disconnected after 2.5 s from /api/install/python (a chatty child printing every 1 s), and after 1.5 s from /api/install/brew (a silent child doing `sleep 6`). Both children kept running and finished (DONE_SILENT and DONE_CHATTY were created). The server never terminated them, because stream_command (py:260-282) has no try/finally and no proc.terminate() on GeneratorExit. When the wizard process exits (window closed, or os._exit in py:400), running children are re-parented, and the next write to the closed pipe kills them with SIGPIPE at an arbitrary point (inferred; observed in the SIGHUP setup demo as re-parenting to PID 1). runChecks: a 'fail' result (e.g. network) sets primary.disabled=true with no pendingRetry or re-check (html:838). fetch('/api/checks') has no catch (html:812), so the button stays 'Checking…'.
+- **Fix:** Wrap stream_command in try/finally: proc.terminate(); proc.wait(5); proc.kill(). Track active procs and add /api/cancel. Handle pywebview's closing event to cancel. On a check failure set pendingRetry=runChecks with the label 'Re-check'.
+
+#### [LOW · inferred] install-app rewrites com.apple.dock.plist in place (non-atomic, bypassing cfprefsd), uses tempfile.mktemp, and quotes paths unsafely in the AppleScript
+
+- **ID:** `wizard-code-install-app-dock-plist` · **Area:** install-wizard · **Tool/surface:** app.py /api/onboarding/install-app, _pin_to_dock
+- **Expected:** Use `defaults write com.apple.dock persistent-apps -array-add ...` or a tmp+rename write, and use NamedTemporaryFile.
+- **Actual:** A crash during the write can reset the user's Dock layout.
+- **Evidence:** app.py:1481-1505 opens com.apple.dock.plist for 'wb' and calls plistlib.dump directly (no tmp+rename), then `killall Dock`; it also runs killall when the tile already exists (app.py:1490-1491). The duplicate check compares a raw POSIX path with _CFURLString, which the Dock may normalise to a file:// URL, so duplicate tiles are possible (speculative). app.py:1537 uses tempfile.mktemp. app.py:1536 interpolates launch_sh into `do shell script "bash '{launch_sh}' ..."`, which breaks on paths containing quotes. All subprocess calls use list argv with no shell=True: no injection from request data, and `force` and `dock` are the only inputs. Exit while running is harmless (synchronous, short). The existing-.app branch (app.py:1527-1532) does not verify that the .app points to this install.
+- **Fix:** Use `defaults` (via cfprefsd) or a dockutil-like tmp+atomic replace. Use tempfile.NamedTemporaryFile(delete=False). Escape the path for AppleScript (or use the packaged launcher).
+
+#### [LOW · demonstrated] launch.sh's 'diverged' realign hard-resets the current branch ref to the tag; only uncommitted changes are stashed, and committed local work survives only in the reflog
+
+- **ID:** `wizard-code-realign-moves-branch` · **Area:** undo-revert · **Tool/surface:** launch.sh / install.sh
+- **Expected:** Realign by checking out the tag (detached) or a dedicated release branch, never by moving a user branch.
+- **Actual:** Local commits on the checked-out branch become unreachable except through the reflog.
+- **Evidence:** run_update_demo.sh scenario 3: after realign, 'HEAD now: 2239a68 hotfix; local main == origin/main? NO'. The local main branch was moved to the off-main tag. launch.sh:153-156 stashes only when `git diff` is non-empty, then runs `git reset --hard "$LATEST_TAG"` on whatever branch is checked out. install.sh:49-50 does the same with origin/main. The comment says 'never silently discarded', which holds for the working tree but not for local commits. This affects anyone without .dev (launch.sh:112).
+- **Fix:** Use `git checkout -B fablegear-release "$LATEST_TAG"`, or a detached checkout, and leave other branches alone. Log the old SHA.
+
+#### [LOW · demonstrated] Branch wizard: not wired into any launcher; installs into whatever Python runs it when the venv is missing; quick clicks can leave two panels shown
+
+- **ID:** `wizard-code-iw-misc` · **Area:** install-wizard · **Tool/surface:** installer_wizard.py / installer_wizard.html
+- **Expected:** The wizard creates or validates the venv itself (or refuses without it), and the panel transition is idempotent.
+- **Actual:** If wired in as-is, it could pip install into a system or externally-managed Python.
+- **Evidence:** Neither setup.sh nor launch.sh on origin/feature/install-wizard references installer_wizard.py (grep). The diff vs main touches only installer_wizard.py, the template, the tests and the mascot PNGs, yet the docstring (py:5-8) says it 'runs after setup.sh'. With no venv, python_install_commands() printed `-m pip install ...` for sys.executable (py:331-332), i.e. the system or brew Python. The wizard never creates the venv; check_venv only warns (py:161-165). Under instant stubs, a click landing within 200 ms of a transition left two `.panel.active` sections at once (screens/wizard-code/iw_03 shows step 3 and step 4 stacked), because transitionToStep reads `.panel.active` before the deferred activateNext runs (html:696-717).
+- **Fix:** Fail the Python phase (or run `python -m venv`) when VENV_DIR/bin/python is missing. In transitionToStep, cancel the pending timeout and clear 'active' from all panels before activating.
+
+#### [INFO · inferred] Confirmed-good behaviour in the installer and update paths
+
+- **ID:** `wizard-code-confirmed-good` · **Area:** install-wizard · **Tool/surface:** launch.sh / setup.sh / single_instance.py / user_config.py / app.py
+- **Expected:** n/a
+- **Actual:** n/a
+- **Evidence:** (1) Interrupted venv creation is handled. CPython's EnvBuilder writes the activate scripts after ensurepip, and setup.sh:120-123 rebuilds a venv that has no activate. A re-run of setup.sh restarts every stage but is idempotent (brew list checks, venv reuse, pip -r), so it converges, except for the Python 3.9 trap above. (2) launch.sh's update rollback only resets when the tree is clean (launch.sh:131-135), and the diverged path stashes uncommitted changes with -u (launch.sh:153-154); both were seen working in the demo. (3) single_instance.py uses flock(LOCK_EX|LOCK_NB), which the OS releases on crash, so there is no stale-PID problem. (4) save_user_config is atomic (tmp + rename, user_config.py:260-288). (5) /api/update/apply refuses when tracked files are dirty or managed subprocesses are running (app.py:744-779), and update_checker's SHA-vs-tag loop fix holds (update_checker.py:260-294). (6) `bash -n` passes on all shell scripts, and shellcheck reports only minor items: launch.sh:111 unchecked `cd` (SC2164), launch.sh:178 SC2155, setup.sh:99 unused `ver`. (7) The onboarding install-deps and install-app routes use list-form subprocess calls with no shell=True (app.py:1474, 1539-1542).
+- **Fix:** Keep these and add regression tests (e.g. pytest that stubs PATH and runs the launch.sh update block, as in upd/run_update_demo.sh).
+
 ## Chop Shop: Tag Tracks
 
 _Auditor: `tool-process-b`_
@@ -1357,6 +1753,602 @@ _Evidence:_ inferred: cli.py:1114-1231
 - **Actual:** See evidence.
 - **Evidence:** (a) This session's UI opens created 20 'FableGear Archive/Reports/Audit/audit_<ts>.txt' files, one per page load. (b) GET /api/library/playlists?db=device lists 'Peak Time' (id 777001), but GET /api/library/playlists/777001/tracks?db=device → {"error":"Playlist not found"}, because the route imports LOCAL_DB for both sources (routes_player.py:1206-1207; the same pattern appears in the create/add routes at 1145 and 1231). (c) At 1440x900 the Undo Wizard panel renders mispositioned and clipped: tab labels cut ('TIONS'), body text cut ('re moved to Trash…'), as in r2_undo_trash.png.
 - **Fix:** Route to the owning auditors: (a) do not write an audit report on passive page load, or dedupe them; (b) use _resolve_db(source) in the playlist track and write routes; (c) fix the undo panel width and positioning.
+
+## Chop Shop: Rename
+
+_Auditor: `tool-rename`_
+
+Rename Files audit (round 3, sandbox rename-r3 on port 8113, configured; round-2 evidence reused and cited). Live, through the real UI: a dry run on the music root, a live multi-folder run (Edits/Disco/Techno/House), Undo Wizard → Operations → Return files, Probe Ambiguities, cancel mid-run, relaunch + resume from the banner, and kill -9 of the real server PID + relaunch + resume. Through the API: the second revert, the learned-rule manual/quarantine actions on /api/rename/preflight/apply, and a root-level live run.
+
+What works: renames are byte-identical (sha256 unchanged). Collisions are numbered "(2)". A savepoint of the local master.db is taken before mutating. Rekordbox local rows are relinked one commit per file (pyrekordbox update_content_path has commit=True by default), so cancel and kill -9 left Rekordbox and FableGear consistent in round 3. The journal-based revert returns every file byte-identical (9 of 9, and 300 of 300), and running it twice is safe. After a relaunch, a resume banner does appear and resume finishes the job.
+
+Main problems:
+(1) Revert never touches Rekordbox. After "Returned 9 files.", 9 local master.db rows point at missing files (300 at scale), and later runs then silently relink 0 rows.
+(2) The device DB on the drive is never relinked: 3 of 4 rows broke after the run.
+(3) Learned manual-rename targets are not validated, so "../../X" or an absolute path moves a file outside the library. The log shows only the basename, and the rules persist and fire again on later runs.
+(4) Preflight quarantine moves files right away, with no journal row and no Rekordbox update.
+(5) Undo sessions are grouped by a 15-minute gap, not by job: four separate runs merged into one undoable lump.
+(6) The dry run shows counts only.
+(7) Cancel and crash write no report, and the resume banner has no done/remaining count, no restore point and no config.
+
+Overall: the forward rename is solid, but rename and revert together are not safe for a Rekordbox library.
+
+**Coverage**
+
+- LIVE (round 3, sandbox sbx-rename-r3, port 8113): BEFORE/AFTER snapshots (sha256 of every file under Volumes and Incoming, ~/.fablegear, ~/Library/Pioneer, local and device Rekordbox rows decrypted, fg_content and fg_processing_log, renamer_learned.json, /api/undo/{timeline,operations,savepoints,trash,database/history}, /api/checkpoint/check). Scripts: /tmp/claude-0/-home-user-FableGear/9074577f-2e6a-5e16-bdce-ef5b26f1b16b/scratchpad/audit/tool-rename/r3/{snap.py,diff.py,consist.py,ui_rename.py,ui_undo.py,sse.sh}. Outputs: .../r3/out/*.json, *_log.txt, *_sse.json, *.sse
+- LIVE via the real UI (Playwright + Chromium): dry run on the music root (d1_dry), live 4-folder run (l1_live_multi), Undo Wizard Operations tab: Preview undo, then Return files (u1), Probe Ambiguities (p1_probe), cancel mid-run (c1_cancel; no visible #scan-bar-interrupt in the headless viewport, so the driver sent POST /api/cancel, which is what the interrupt button calls, audit.js:50), relaunch + banner observation (s1_observe), resume from the banner (k1), kill -9 of the real server mid-run (k2_kill9), then relaunch + resume (k3_resume). Screenshots: /home/user/FableGear/docs/audits/2026-10-05/screens/tool-rename/r3/
+- LIVE via the API: second revert (/api/undo/operations/preview + revert), preflight/apply with manual traversal targets and an out-of-root quarantine, live run on the music root (/api/run/rename?path=<Music Library>&no_dry_run=1). The root run stands in for the single-folder path that E4 makes a no-op in the UI; the Pipeline rename step builds the same CLI command (routes_tools.py:469-480).
+- REUSED from round 2 (sandbox sbx-rename-r, port 7113; evidence in /tmp/claude-0/-home-user-FableGear/9074577f-2e6a-5e16-bdce-ef5b26f1b16b/scratchpad/audit/tool-rename/out/): chained rename A->B->C revert (before_chain/after_chain_rev1/after_chain_rev2); cancel during quarantine leaving one orphan (before_cancel/after_cancel, c1_cancel_log.txt); preflight quarantine of a Rekordbox-tracked file (after_pfq); missing rekordbox/share causing rollback of every rename (r3_live_multi_log.txt / r3_live_multi_sse.json); 'AC/DC' target erroring (trav.sse)
+- Fixture note: the template has no ~/Library/Pioneer/rekordbox/share directory, which makes every pyrekordbox update_content_path call raise ENOENT. In round 3 I created it (a real Rekordbox install has it) before the runs. The ENOENT rollback behaviour comes from round 2.
+- Harness note: restart.sh writes the PID of a `cd && nohup python` subshell into server.pid, so my first kill -9 (k1) hit only that wrapper and the run finished normally. k1 is therefore treated as a clean 'resume after cancel + relaunch'. The real kill -9 test (k2) used the actual Flask PID (7816, found via /proc/<pid>/cwd).
+- NOT TESTED (and why): case-insensitive APFS case-only renames (the sandbox filesystem is case-sensitive; inferred from code); NFD/NFC filename mismatches against Rekordbox FolderPath (speculative); ANLZ PPTH rewrite by update_content_path and whether revert restores it (the fixture has no ANLZ files; inferred); the Rekordbox-running gate _require_rb_closed (no Rekordbox process on Linux; inferred); the Pipeline Wizard rename step through the UI (its confirm gate is hidden, E4); restoring the rename savepoint (E10: the restore targets the device DB, so I did not run it); fpcalc is not installed but is not used by Rename.
+- Server stopped by PID (10330) at the end. No product code was edited.
+
+**Per-tool safety matrix**
+
+### Rename Files (/api/run/rename -> cli.py rename; UI #step-rename)
+
+| Check | Result |
+|---|---|
+| R — Report | PARTIAL. On success: Archive/Reports/Rename/rename_<ts>.txt, with the path shown in the report modal. Counts only, no per-file old->new list. On cancel (exit -15) and kill -9: no report and no rename_batch journal row; the UI shows only '✗ Exited with code -15' or 'Connection error'. When rollbacks happen (missing ANLZ share), the run still ends '✓ Finished successfully' with '9 files had errors' (round 2). |
+| M — Revert marker | PARTIAL. A local master.db savepoint is written before the first mutation (Savepoints/master.backup_<ts>.db), and every file move gets a fg_processing_log 'rename' row (from/to). However: the savepoint is not linked to the job, operations session, report or banner; it covers the local DB only (the device DB is neither written nor backed up); there is no entry in /api/undo/timeline (E1); and savepoints accumulate with no labels (5 after this audit). |
+| U — Undo | FILES YES, DB NO. Undo Wizard -> Operations -> Return files restored 9/9 (and 300/300) files byte-identical, and a second revert is a no-op (0 reverted, 9 blocked). Rekordbox local rows are NOT reverted (9, then 300 rows left pointing at missing files). Leftovers: an orphan _quarantine_manifest.json, and fg_content status stays 'relinked'. Sessions are grouped by a 15-minute gap, not by job, so separate runs merge; a chain A->B->C needs two reverts. Learned rules and preflight quarantines are not undoable. |
+| C — Cancel / interrupt | DATA CONSISTENT, NO REPORT. POST /api/cancel at about 90 files and kill -9 at about 60 files: Rekordbox and FableGear stayed consistent (per-file commits), and no cli.py was orphaned. The checkpoint lags (saved every 25: 75 of 90, 50 of 60, total=0). Round 2 had one quarantined file moved but neither relinked nor journaled (race between the move and the DB update). |
+| S — Resume after restart | OFFERED, THIN. After relaunch the #step-rename banner shows 'Interrupted run — Nm ago', the roots, and Resume/Start Fresh. It comes from localStorage rb_ckpt_rename (E5); the server checkpoint also exists (completed=75, total=0). There is no done/remaining count, no live/dry flag, no restore point and no start time beyond 'Nm ago'. Resume re-walks every file (done_paths hold original names), silently picks up files added between sessions, and the final report counts files renamed before the interruption as 'already had clean names'. It finished correctly, with Rekordbox consistent. |
+| D — Dry run / preview | COUNTS ONLY. The Dry Run checkbox is on by default, and the dry-run report lists only counts (8 renamed / 5 clean / 1 clash / 1 quarantined), with no per-file mapping and no quarantine destination. The Probe Ambiguities and preflight modal are hidden (E4). |
+| B — Boundary | CROSSES INTO THE DB LAYER. This file tool writes Rekordbox local master.db (FolderPath/FileNameL, plus ANLZ PPTH through pyrekordbox) and the FableGear archive (fg_content relink + journal). The savepoint covers the local DB, but the undo path does not revert it. Device DB rows pointing at the same drive files are left broken and are not backed up. |
+
+_Evidence:_ r3/out: before.json, d1_dry_log.txt, l1_live_multi_log.txt, after_l1.json, after_u1.json, after_u2.json, before_t.json, after_t.json, after_tu.json, before_c.json, c1_cancel_log.txt, after_c1.json, k1_resume_kill_log.txt, after_k1.json, after_k1u.json, before_k2.json, k2_kill9_log.txt, after_k2.json, k3_resume_log.txt, after_k3.json, root.sse, after_root.json; screens/tool-rename/r3/*.png
+
+### Rename learned rules (/api/rename/preflight/apply; ~/.fablegear/renamer_learned.json)
+
+| Check | Result |
+|---|---|
+| R — Report | NONE. Returns JSON only; the UI modal that would call it is hidden (E4). |
+| M — Revert marker | NONE. 'quarantine' moves the file immediately, with no savepoint, no fg journal row, no Rekordbox update, and only a _quarantine_manifest.json entry. Manual and alias rules are written to renamer_learned.json with no backup. |
+| U — Undo | NONE. Preflight quarantines don't appear in /api/undo/operations. Rules have no list or retract route (LearnedRules.retract exists but is not exposed), so a stale rule fires again on every later run. |
+| C — Cancel / interrupt | N/A (synchronous request) |
+| S — Resume after restart | Rules persist across restarts by design, with no expiry and no record of which run used them. |
+| D — Dry run / preview | NONE. The quarantine action has no preview; manual targets show only on the next run. |
+| B — Boundary | Quarantining a Rekordbox-tracked file breaks its master.db row (round 2, after_pfq: Techno/untitled track 03.mp3). The source path is not confined to the 'path' root (round 3 moved Incoming/Newcomer - Fresh Cut.mp3). |
+
+_Evidence:_ r3/out/pf_trav.json, r3/out/pf_quar.json, r3/out/trav.sse, r3/out/root.sse, r3/out/after_t.json, r3/out/after_root.json; round 2 out/after_pfq.json
+
+### Rename probe (/api/rename/probe; 'Probe Ambiguities' button)
+
+| Check | Result |
+|---|---|
+| R — Report | Read-only JSON listing up to top_n ambiguous files with proposed filenames. |
+| M — Revert marker | N/A (read-only) |
+| U — Undo | N/A |
+| C — Cancel / interrupt | N/A |
+| S — Resume after restart | N/A |
+| D — Dry run / preview | It is a preview, but it covers only the top-N ambiguous files, and its modal opens at 0x0 because #chop-card-stack is display:none (E4). |
+| B — Boundary | Read-only, no DB writes. |
+
+_Evidence:_ screens/tool-rename/r3/p1_probe_3_done.png; probe JSON for House returned 1 candidate
+
+**Findings**
+
+#### [HIGH · demonstrated] Rename revert moves files back but never reverts Rekordbox master.db: every relinked track becomes 'missing'
+
+- **ID:** `tool-rename-undo-leaves-rekordbox-broken` · **Area:** undo-revert · **Tool/surface:** rename
+- **Expected:** Reverting a rename restores the Rekordbox FolderPath/FileNameL (and ANLZ PPTH) that the run changed, in the same operation, so file names and the DB return together to the pre-run state.
+- **Actual:** Files go back and the FableGear archive is relinked, but Rekordbox keeps the new names, so N tracks show as missing in Rekordbox. The success toast says nothing about it, and later renames can no longer relink those tracks.
+- **Evidence:** Round 3. The UI run (l1_live_multi) relinked 9 local master.db rows. Undo Wizard -> Operations -> 'Return 9 files' showed the toast 'Returned 9 files.' (screens/tool-rename/r3/u1_2_preview.png, u1_3_after_return.png). Afterwards, consist.py on r3/out/after_u1.json gives: rb_local rows 15, missing-on-disk 10 (9 renamed paths + 1 fixture-broken track); fg_content missing 0; audio files byte-identical to BEFORE. At scale: reverting the 301-file Bulk2 session (API, 1.4 s) left 'rb_local rows 315 missing-on-disk 300' (r3/out/after_k1u.json). It compounds: the next run on House logged 'Final commit: 3 file(s) renamed, 0 rekordbox row(s) updated' (r3/out/trav.sse), because _update_db_path matches FolderPath exactly against the stale rows and silently returns 0. Code: routes_undo.py:468 and 574-581 (move_back = shutil.move + FableGear relink only); only op_type=='relocate' opens a Rekordbox write session and runs db_revert (routes_undo.py ~541-559, 586-597). The only DB rollback, the savepoint restore, targets the device DB (E10), and its UI tab is broken (E2).
+- **Fix:** Journal the Rekordbox content IDs and the old/new paths for each rename (the metadata already has 'from'). In the rename revert, open write_db(LOCAL_DB) like the relocate branch does and call update_content_path(row, old_path) for each moved item, committing per batch. Warn when a forward run renames a file with no matching Rekordbox row. Link the pre-run savepoint to the session as a fallback.
+
+#### [HIGH · demonstrated] Rename relinks only the local master.db; device DB rows for the same drive files are broken and not backed up
+
+- **ID:** `tool-rename-device-db-not-relinked` · **Area:** boundary · **Tool/surface:** rename
+- **Expected:** A file-layer rename on the drive updates (or at least warns about) every configured Rekordbox DB that references the renamed files, with a restore point for each DB it writes.
+- **Actual:** The device library silently loses tracks: the rows point at the old filenames. The report says 'No errors.'
+- **Evidence:** The sandbox device DB (Volumes/DJDRIVE/PIONEER/Master/master.db) has 4 rows referencing drive files. After the live UI run: 'rb_device rows 4 missing-on-disk 3' (Disco/Marlo & The Tens - Glitterball (Extended Mix).mp3, Disco/...Glitterball.m4a, Edits/Chain_Track_123456.mp3), from r3/out/after_l1.json. It recurred on the root run (r3/out/after_root.json). The log shows a single 'Write session opening on home/Library/Pioneer/rekordbox/master.db', and the only savepoint is of the local DB. Code: cli.py:3583-3584 `with write_db(LOCAL_DB) as db:`.
+- **Fix:** Also relink matching rows in DEVICE_DB (or refuse/warn when the device DB references files under the selected roots), back up the device DB before the run, and include both DBs in the revert.
+
+#### [HIGH · demonstrated] Learned 'exact rename' target is not validated: '../..' or an absolute path moves files outside the library, and the log hides it
+
+- **ID:** `tool-rename-manual-target-path-escape` · **Area:** chop-shop-tool · **Tool/surface:** rename (/api/rename/preflight/apply + /api/run/rename)
+- **Expected:** A manual target is a bare filename: the server strips or rejects path separators, '..' and absolute paths, confines the result to path.parent, and logs the full destination.
+- **Actual:** Arbitrary relative or absolute destinations are honoured, the log shows only the basename, and DB rows get non-normalised paths.
+- **Evidence:** POST /api/rename/preflight/apply with manual target '../../Escaped Kaito.wav' and an absolute target '<sandbox>/OutsideLibrary - Nula.mp3' returned ok (r3/out/pf_trav.json). The next live run on House logged 'Renamed: Kaito_-_sunrise_FINAL_v2.wav -> Escaped Kaito.wav' and 'Renamed: Nula - Night Drive.mp3 -> OutsideLibrary - Nula.mp3' (basenames only), and the report said '3 files were renamed to clean titles … No errors.' On disk the files were at Volumes/DJDRIVE/Escaped Kaito.wav (outside Music Library) and sbx-rename-r3/OutsideLibrary - Nula.mp3 (outside the drive) (r3/out/after_t.json, `ls`). In a later root run, Rekordbox and FableGear stored the literal path '.../Music Library/House/../../Escaped Kaito.wav' (r3/out/after_root.json). The revert brought both files back, but the FableGear row stayed at the un-normalised path (after_tu.json: fg_content missing-on-disk 1), because revert normalises the path (_safe_absolute_path) while the journal stored it raw. Code: the client sends the input raw (static/chop_shop/runners.js:621-630); the server stores it raw (routes_tools.py:791-799, renamer_learned.py:117-119); it is applied raw (renamer.py:1022 and 1069, `new_path = path.parent / new_name`). Round 2: a target like 'AC/DC - Night Drive.mp3' errors (trav.sse). Today this is reachable only through the API because the modal is hidden (E4); once E4 is fixed it is a free-text field.
+- **Fix:** In add_manual_rename and in _rename_one: reject a target_name if Path(target).name != target or it contains os.sep, '..' or NUL; run it through _sanitize_filename; assert new_path.resolve().parent == path.resolve().parent. Log full old and new paths. Normalise paths before writing the journal and DBs.
+
+#### [MEDIUM · demonstrated] Learned manual-rename and quarantine rules persist forever, re-fire on later runs, and cannot be listed, retracted or undone
+
+- **ID:** `tool-rename-learned-rules-permanent` · **Area:** chop-shop-tool · **Tool/surface:** rename learned rules
+- **Expected:** A manual rename applies once (or is visibly listed), and the user can review and delete learned rules; reverting a run tells the user the rules that drove it are still active.
+- **Actual:** Rules are invisible, permanent and silently re-applied; reverting a run does not stop the next run repeating it.
+- **Evidence:** The rules written at 05:19 (renamer_learned.json gained manual_renames for Kaito/Nula, r3/out/before_t.json) fired again on an unrelated root-level run at 05:26 ('Renamed: Kaito_-_sunrise_FINAL_v2.wav -> Escaped Kaito.wav' and '... -> OutsideLibrary - Nula.mp3' in r3/out/root.sse), after the earlier run had been reverted. Rules are keyed by absolute source path and never consumed. No route lists or retracts them: grep of routes_*.py/app.py finds only preflight apply; LearnedRules.retract (renamer_learned.py ~152) is not exposed. renamer_learned.json is not covered by savepoints or the operations journal.
+- **Fix:** Expose GET/DELETE /api/rename/rules (wire up LearnedRules.retract), show active rules in the Rename card, consume one-shot manual renames after a successful apply, and record rule IDs in the journal metadata.
+
+#### [MEDIUM · demonstrated] Preflight 'quarantine' moves a file immediately, from any path, with no journal row, no Rekordbox relink and no undo
+
+- **ID:** `tool-rename-preflight-quarantine-unjournaled` · **Area:** chop-shop-tool · **Tool/surface:** rename (/api/rename/preflight/apply action=quarantine)
+- **Expected:** Quarantine choices are applied during the live run (with Rekordbox relink and journal), or at least journaled and relinked, and confined to the selected root.
+- **Actual:** It is an immediate, untracked move that breaks Rekordbox links and cannot be reverted from the Undo Wizard.
+- **Evidence:** Round 3: POST with path=Music Library/Techno and source_path=<sandbox>/Incoming/Newcomer - Fresh Cut.mp3 (outside 'path') moved it to Music Library/No-Name tracks for Tagging/ at once (response in r3/out/pf_quar.json; Incoming emptied). No fg_processing_log row was added, and /api/undo/operations didn't change. Round 2: quarantining the Rekordbox-tracked Techno/untitled track 03.mp3 this way left its master.db row pointing at the old path (round-2 out/after_pfq.json: rb_local missing 'Techno/untitled track 03.mp3'). Code: routes_tools.py:806-809 calls quarantine_track(Path(source_path), root) with no containment check, no DB and no archive. Today this is reachable only through the API, because the preflight modal is hidden (E4).
+- **Fix:** Record quarantine as a rule only and let the live run apply it through _rename_one (which relinks and journals), or call _sync_db_path_or_revert + _archive_rename here. Reject source paths outside 'path'.
+
+#### [MEDIUM · demonstrated] Undo 'sessions' are built by a 15-minute gap, not by job: runs merge, reverted rows stay inside, and chains need several reverts
+
+- **ID:** `tool-rename-undo-sessions-by-time-gap` · **Area:** undo-revert · **Tool/surface:** rename (/api/undo/operations)
+- **Expected:** One session per job (job id / rename_batch), reverted in reverse order, marked as reverted afterwards, and linked to that job's report and savepoint.
+- **Actual:** Time-clustered lumps: you cannot undo only the last run, reverted rows linger, and chained renames need repeated reverts.
+- **Evidence:** Four separate runs (live multi-folder 05:17, traversal 05:19, cancelled 05:20, resumed 05:23) appeared as ONE session: ('rename', first_id 3, last_id 335, count 313) (r3/out/after_k1.json). After the first revert, the UI row still offered 'Preview undo' (u1 'after row 0'), and the API still reported revertible:true. The preview over ids 3..27 planned move_back twice for the same file (rows 13 and 26); the revert returned errors ['Nula - Drives - Night Drive (copy).mp3: filesystem error'] (after_tu step). Round 2: chain A->B (run 1) then B->C (run 2) merged; the first revert left the file at B (after_chain_rev1.json), and a second click was needed to reach A (after_chain_rev2.json). Rekordbox was left at C. Code: routes_undo.py:322 (_SESSION_GAP_SEC = 15*60) and 344-404.
+- **Fix:** Write a job_id into each journal row's metadata (the rename_batch row already marks the end of a root), group sessions by job_id, process items newest-first and collapse chains, and hide or mark sessions whose rows all have matching undo_* rows.
+
+#### [MEDIUM · demonstrated] Pre-run savepoint exists but is not referenced by the job, report, undo session or resume banner
+
+- **ID:** `tool-rename-restore-point-unlinked` · **Area:** undo-revert · **Tool/surface:** rename
+- **Expected:** The job records 'restore point: <savepoint> of <local DB> taken at <time>', shown in the report, the operations session and the resume banner, with a working restore to the same DB.
+- **Actual:** The user cannot tell which backup belongs to which rename run, and the endpoint that would restore it targets the wrong DB.
+- **Evidence:** Each live run logs 'Backup created: …/FableGear Archive/Savepoints/master.backup_<ts>.db' before mutating (l1 log 05:17:59). By the end, /api/undo/savepoints listed 5 unlabeled backups (051759, 051831 from an unrelated action, 051923, 052032, 052353; after_k1.json), with no tool, job or DB name. The report, the operations session and the resume banner never mention it. Each resume creates a NEW savepoint (k3 log: master.backup_20261006_052559…), so the pre-interruption point is not identified. Restoring it goes to the device DB (E10), and the Savepoints tab throws (E2).
+- **Fix:** Return the backup path from write_db and include it in the rename_batch metadata, the FABLEGEAR_REPORT and the checkpoint payload. Tag savepoint filenames with tool, job and DB. Fix E10/E2.
+
+#### [MEDIUM · demonstrated] Dry run / preview gives counts only: no per-file old -> new list and no quarantine destination
+
+- **ID:** `tool-rename-dry-run-counts-only` · **Area:** chop-shop-tool · **Tool/surface:** rename
+- **Expected:** The preview lists each file's current name -> proposed name (and the No-Name destination folder) before anything changes; the live report lists what changed.
+- **Actual:** The user must run live to learn which files get which names; the report says only how many.
+- **Evidence:** UI dry run on the music root: the modal and the report file (FableGear Archive/Reports/Rename/rename_20261006_051712.txt) contain only '15 audio files scanned. 8 files would be renamed… 5 already have clean names… 1 would get numbered suffixes… 1 unresolved files would be moved to No-Name tracks for Tagging.' (r3/out/d1_dry_log.txt). The dry-run log has no per-file lines (cli.py:3555-3577 prints only counts). The live report also lacks the mapping. Probe Ambiguities shows proposals for top-N files only, and its modal renders at 0x0 (p1_probe: modal_open_class true, rect 0x0, hidden ancestor chop-card-stack; E4).
+- **Fix:** In dry run, log 'Would rename: <old> -> <new>' per RenameResult and add a per-file table to the report (capped, with the full list in Archive/Logs). Show the absolute quarantine destination.
+
+#### [MEDIUM · demonstrated] Cancel and server crash write no report and no batch summary; checkpoint lags the real progress
+
+- **ID:** `tool-rename-cancel-crash-no-report` · **Area:** chop-shop-tool · **Tool/surface:** rename
+- **Expected:** An interrupted run leaves a partial report (what was renamed, the restore point, how to resume), and the checkpoint matches the journal.
+- **Actual:** Nothing is written; the only record is the time-grouped operations journal.
+- **Evidence:** c1: POST /api/cancel after about 60 files ended with '✗ Exited with code -15', no report modal, no new file in Reports/Rename (the listing still showed only 051712/051759/051923), no rename_batch row; the journal showed 90 renames while the checkpoint said completed=75, total=0 (r3/out/c1_cancel_log.txt, after_c1.json). k2: kill -9 of the real server (PID 7816) after 45-60 files: the UI showed 'Connection error — check the server is running.', no report, 60 renamed, checkpoint completed=50 (after_k2.json). No cli.py child survived. cli.py installs no SIGTERM handler; the checkpoint is saved every 25 results (cli.py:3541-3548). Confirmed good: Rekordbox and FableGear stayed consistent in both cases, because pyrekordbox update_content_path commits per call (commit=True default), which makes renamer's 500-file 'batch' commit cosmetic.
+- **Fix:** Install a SIGTERM handler in cli.py that flushes the checkpoint and emits a partial report. Save the checkpoint per file (or derive progress from the journal). Write the report incrementally to Archive/Logs/rename.
+
+#### [MEDIUM · demonstrated] Interrupt between the quarantine move and the DB update orphans the file: Rekordbox and FableGear point at the old path, and there is no journal or manifest entry
+
+- **ID:** `tool-rename-cancel-race-orphan` · **Area:** chop-shop-tool · **Tool/surface:** rename
+- **Expected:** Write-ahead intent (journal row or checkpoint entry) before each move, so an interrupted move can be completed or rolled back on resume.
+- **Actual:** A kill in the window leaves an untracked moved file and broken DB links that neither resume nor undo can see.
+- **Evidence:** Round 2 (sandbox rename-r): a cancel during a 1200-file quarantine run left 'rb_local missing-on-disk 1 [Music Library/Bulk/bulk_000102_trk.mp3]', with fg_content also missing the same path. The file was moved, but no journal row exists, and the resume did not repair it (round-2 out/after_cancel.json, after_resume.json via r3/consist.py). It was not reproduced in round 3 (0/90 and 0/60 inconsistent on rename actions), so it is a timing window. Code: renamer.py:1031-1057 does quarantine_track (move) -> _sync_db_path_or_revert -> _record_quarantine_manifest -> _archive_rename, with nothing durable before the move.
+- **Fix:** Journal an 'intent' row (from/to, status=pending) before moving, finalise it after the DB relink, and on startup or resume reconcile pending rows.
+
+#### [MEDIUM · demonstrated] Resume banner lacks starting-point details; resume re-scans everything, silently includes new files, and misreports the total
+
+- **ID:** `tool-rename-resume-banner-and-semantics` · **Area:** session-resume · **Tool/surface:** rename
+- **Expected:** The banner states when the run started, whether it was live, its roots and config, files done/remaining, and the restore point. Resume warns about inputs changed since, and the final report covers the whole session.
+- **Actual:** A bare 'Interrupted run' prompt; resume is effectively a fresh run, and the report understates what this session changed.
+- **Evidence:** After relaunch the banner shows only 'Interrupted run — 3m ago', the roots, and Resume/Start Fresh (screens/tool-rename/r3/s1_observe_0_open.png). Under it, the form still shows 'Music Library' with Dry Run checked. The state comes from localStorage rb_ckpt_rename (E5); the server checkpoint (completed=75, total=0) is not shown. There is no live/dry flag, no done/remaining count, and no restore point. Resume: 'Found checkpoint … (75/0 done) — resuming', then 'Renaming 301 files' (done_paths hold original names that no longer exist, cli.py:3535-3548). A file added between sessions (zz_new_between_sessions.mp3) was silently renamed. The final report said '211 renamed / 91 already had clean names' (k1), and after the crash '241 renamed / 61 already had clean names' (k3), counting the 90 and 60 files renamed before the interruption as 'already clean'. Confirmed good: both resumes finished, with Rekordbox and FableGear fully consistent (after_k1.json, after_k3.json).
+- **Fix:** Show the server checkpoint info (/api/checkpoint/check) and the linked savepoint in the banner. Store renamed targets as well as sources in the checkpoint. Diff the file list against the checkpoint and warn on new or missing files. Merge pre-interruption counts into the final report.
+
+#### [MEDIUM · demonstrated] Running Rename on the music root quarantines files to a folder outside the music library
+
+- **ID:** `tool-rename-root-quarantine-outside-library` · **Area:** chop-shop-tool · **Tool/surface:** rename
+- **Expected:** Quarantine goes to one predictable folder inside the configured music root, whatever folder was selected.
+- **Actual:** The location depends on the selection; selecting the root pushes files outside the library that other tools scan.
+- **Evidence:** Live run on <DJDRIVE>/Music Library via /api/run/rename (the single-root path that the API and Pipeline use) moved Techno/untitled track 03.mp3 to Volumes/DJDRIVE/No-Name tracks for Tagging/ (sibling of Music Library), with Rekordbox relinked there (r3/out/root.sse, after_root.json, `ls Volumes/DJDRIVE`). Multi-folder runs put it inside Music Library/No-Name tracks for Tagging (after_l1.json). Code: renamer.py:899-900 `_no_name_dir = library_root.resolve().parent / _NO_NAME_FOLDER`, with library_root = the scanned root (renamer.py:1320).
+- **Fix:** Derive the No-Name folder from config music_root (or the first root itself), never from root.parent; show the absolute destination in the preview and report.
+
+#### [MEDIUM · inferred] Case-only renames on case-insensitive APFS would be treated as collisions and get a bogus ' (2)' suffix
+
+- **ID:** `tool-rename-case-only-macos` · **Area:** chop-shop-tool · **Tool/surface:** rename
+- **Expected:** A case-only change is detected (same inode / samefile) and done via a temporary name, without a suffix.
+- **Actual:** (Inferred) the file gets a spurious '(2)' and the report claims a clash.
+- **Evidence:** On Linux (case-sensitive), 'dj case - lower title.mp3 -> DJ Case - Lower Title.mp3' renamed cleanly, Rekordbox was relinked, and undo restored it byte-identical (demonstrated, l1/u1). On macOS: renamer.py:1072 compares PosixPaths case-sensitively (not equal), then renamer.py:1081 `new_path.exists()` is True because it is the same file on a case-insensitive volume, so _resolve_filename_collision (renamer.py:880-896) yields 'DJ Case - Lower Title (2).mp3', counted as a name clash. Not testable in the sandbox.
+- **Fix:** If new_path.exists() and os.path.samefile(path, new_path): rename via a temp name (path -> .tmp -> new_path) and treat it as 'renamed'.
+
+#### [LOW · demonstrated] Root-level run renames sample-pack one-shots into 'Artist - Title' form
+
+- **ID:** `tool-rename-sample-pack-renamed` · **Area:** chop-shop-tool · **Tool/surface:** rename
+- **Expected:** Sample-pack folders are excluded, or flagged as non-track audio, as other library tools do.
+- **Actual:** One-shots are renamed with a junk artist ('kick').
+- **Evidence:** The root run logged 'Renamed: kick_01.wav -> kick - 01.wav' in Music Library/Sample Packs (r3/out/root.sse). The fixture's Rekordbox build excludes Sample Packs, but the renamer's walk (_walk_audio_files, renamer.py:958) does not.
+- **Fix:** Skip known sample-pack folders and short one-shots, or require artist and title tags before renaming.
+
+#### [LOW · demonstrated] When every Rekordbox relink fails (missing ANLZ share dir), files are rolled back but the run ends '✓ Finished successfully'
+
+- **ID:** `tool-rename-rollback-reported-as-success` · **Area:** chop-shop-tool · **Tool/surface:** rename
+- **Expected:** A run where every change was rolled back is reported as failed or partial, and the log says 'rolled back'.
+- **Actual:** A success banner with buried error counts.
+- **Evidence:** Round 2, pristine fixture without ~/Library/Pioneer/rekordbox/share: each 'Renamed: X -> Y' was followed by 'Database lookup/update failed … [Errno 2] No such file or directory: …/rekordbox/share'. _sync_db_path_or_revert (renamer.py:1183-1227) renamed each file back, which is correct and consistent. The run printed '9 files had errors' and still ended with '✓ Finished successfully' (round-2 out/r3_live_multi_log.txt). The log line 'Renamed:' is printed before the rollback, so it is misleading.
+- **Fix:** Exit non-zero (or emit a 'partial' status) when errors > 0. Log the 'Renamed' line only after the DB sync succeeds, or log 'Rolled back' on revert.
+
+#### [LOW · demonstrated] After undo: orphan quarantine manifest, stale fg status, and report wording that doesn't match behaviour
+
+- **ID:** `tool-rename-undo-leftovers-and-copy` · **Area:** undo-revert · **Tool/surface:** rename
+- **Expected:** Undo also removes or updates the quarantine manifest; messages match the tool and the real naming.
+- **Actual:** Minor stale artefacts and inaccurate copy.
+- **Evidence:** After reverting, Music Library/No-Name tracks for Tagging/_quarantine_manifest.json still lists 'untitled track 03.mp3' as quarantined, although it is back in Techno; .fablegear_state.json files remain; fg_content.processing_status stays 'relinked' (diff before -> after_u1). The revert-plan reason for an already-reverted rename reads 'file is no longer at the organized location' (organize wording). Reports say 'numbered suffixes … (e.g. title_1.mp3)' while the actual format is 'Title (2).mp3' (d1_dry_log.txt vs renamer.py:880-896).
+- **Fix:** Remove reverted entries from _quarantine_manifest.json during undo, reset processing_status, and make the reason strings and the clash example tool-specific and accurate.
+
+#### [INFO · demonstrated] Confirmed-good behaviour (forward rename, byte identity, idempotent revert, crash consistency)
+
+- **ID:** `tool-rename-confirmed-good` · **Area:** chop-shop-tool · **Tool/surface:** rename
+- **Expected:** n/a
+- **Actual:** n/a
+- **Evidence:** Forward rename keeps content byte-identical (every renamed path has the same sha256, diff before/after_l1). Collisions are numbered (dup_one.mp3 -> 'Dup Artist - Same Song (2).mp3'). Local Rekordbox FolderPath/FileNameL and FableGear rows are relinked per file. A local master.db savepoint is created before the first mutation. A report is written to FableGear Archive/Reports/Rename, and its path is shown in the report modal. Revert restores 9/9 and 300/300 files byte-identical, and a second revert is a no-op (0 reverted, 9 blocked; after_u2 diff shows no change). Cancel and kill -9 left Rekordbox and FableGear consistent with no orphan cli.py (after_c1/after_k2). The resume banner renders after relaunch, and resume completes. Failed DB syncs roll the file back (round 2). Live runs require Rekordbox closed (routes_tools.py:712-716 _require_rb_closed; inferred, not exercised).
+- **Fix:** Keep these behaviours, and add regression tests around them when fixing the findings above.
+
+## Chop Shop: Organize
+
+_Auditor: `tool-organize`_
+
+Organize Library (#step-organize, /api/run/organize, chop_shop/library_organizer.py), tested live in sandbox organize-r3 on port 8114. Runs: a UI dry run, then a UI live assimilate run over 2 sources with seeded edge cases (a same-name collision, a byte-identical duplicate, .DS_Store and ._ AppleDouble junk, a cover.jpg, a pre-existing empty folder). Then undo through the app's endpoints, a second revert, an integrate (copy) run triggered by a cross-site-headed GET, a 4-worker collision stress run, a UI Interrupt mid-run (on Linux, /api/cancel sends SIGTERM), a kill -9 of the server mid-run, restart.sh, resume from the UI banner, a byte-identical duplicate-to-trash run, and the Undo panel's Operations tab.
+Verdict: with 1 worker and no interruption, the basic move/undo cycle is solid. Every audio file came back byte-identical, the pruned folders were recreated, the FableGear DB paths were restored, and reverting twice is a safe no-op.
+Serious problems:
+(1) CRITICAL: with parallel workers (the UI offers 2 and 4), files that map to the same destination overwrite each other. 2 of 120 distinct files were permanently lost while the report said "No errors". Undo then put the wrong audio into two original slots.
+(2) HIGH: Organize relinks the FableGear DB but never touches Rekordbox master.db. Every moved track's FolderPath is silently broken (10/10 local and 4/4 device paths missing).
+(3) HIGH: an Interrupt can leave a moved file with no journal row, so undo strands it.
+(4) HIGH: the undo journal groups by "same type within 15 min", so 7 separate runs showed in the UI as one 309-file "Organize" session that cannot be reverted per run.
+Also: integrate-mode copies cannot be undone and they re-point the FableGear library at the copies. The dry run does not predict collisions or duplicates. Trashed duplicates are invisible to the Trash API. Resume works only from browser localStorage (cite E5): /api/checkpoint/check says exists:false, and the banner has no starting-point details. The report is summary-only and makes false "cleaned up" / "left alone" claims. No restore point is taken before the run (the journal is written after each move).
+
+**Coverage**
+
+- LIVE via the real UI (Playwright + headless Chromium against the sandbox Flask server; script audit/tool-organize/ui_org.py):
+- - dry run (r1); live assimilate run (r2), sources Music Library + Incoming, target Music Library
+- - live run with Interrupt at 33+ files done (r5; the #scan-bar-interrupt selector was not visible, so the script used POST /api/cancel; the screenshot shows a visible Interrupt / Emergency Stop pair)
+- - resume from the banner after restart (r6); kill -9 of the server mid-run, then resume (r7/r8)
+- - banner check with a fresh browser profile (r8_nostorage)
+- - Undo panel Operations tab plus Preview (r9; audit/tool-organize/undo_ui.py)
+- LIVE via the API: integrate-mode live run sent as a GET with a cross-site Origin header (r3); 4-worker collision stress run with 120 files (r4); byte-identical duplicate to trash (DupSrc); /api/undo/operations, preview and revert (twice, plus a range revert); /api/checkpoint/check; /api/undo/trash, /savepoints, /timeline, /database/history
+- SNAPSHOTS (sha256 of every file under Music Library and Incoming, dir lists, Archive tree, ~/.Trash, ~/.fablegear, fg_content and fg_processing_log rows, Rekordbox local and device master.db sha plus FolderPath existence, undo APIs): audit/tool-organize/s0_before.json, s1_afterdry.json, s2_afterlive.json, s3_afterundo.json, s4_afterundo2.json; diffs from audit/tool-organize/diff.py
+- SCREENSHOTS in /home/user/FableGear/docs/audits/2026-10-05/screens/tool-organize/:
+- - r1_dry_*, r2_live_*, r5_cancel_2_running.png (shows the Interrupt / Emergency Stop buttons), r6_resume_*, r7_kill_*, r8_*
+- - r9_undo_operations.png, r9_undo_preview.png
+- CODE-ONLY (inferred):
+- - the mix threshold and --by scheme are not part of the resume state
+- - the Undo-panel success toast ignores out.errors
+- - dupe_trashed journal rows revert from Trash through Operations
+- NOT TESTED / LIMITS:
+- - --by scheme options and --by playlist mirror: the UI exposes no scheme selector, so these are reachable only via the API; not exercised
+- - cross-volume moves: the sandbox is a single filesystem, so moves are renames; a real cross-drive move is copy+unlink and has a wider interrupt window
+- - macOS Finder Trash semantics and exFAT AppleDouble metadata
+- - Emergency Stop (SIGKILL of the CLI) as distinct from SIGTERM
+- - WKWebView rendering
+- - the browser-side exploit for the cross-site GET (only the server's acceptance was demonstrated)
+- - fpcalc is absent, but Organize does not use it
+
+**Per-tool safety matrix**
+
+### Organize Library (step-organize, /api/run/organize)
+
+| Check | Result |
+|---|---|
+| R — Report | Partial. Success and dry run: a summary-only report at <drive>/FableGear Archive/Reports/Organize/organize_<ts>.txt, shown in the report modal with its path. There is no per-file from-to list, no rename list, no trash path, no pruned or junk-deleted list, no Rekordbox impact and no link to the undo session. No Logs/Organize folder is created. Cancel (SIGTERM) and server kill -9 produce no report. Two claims are false: 'Empty source folders were cleaned up' is printed unconditionally (cli.py:3331) even when 41 or 32 emptied folders remain after resume, and 'were already at the destination — left alone' (cli.py:3321) is printed when the source copy was in fact moved to ~/.Trash. |
+| M — Revert marker | None before the first mutation. No savepoint (/api/undo/savepoints unchanged by any organize run; the master.db savepoint at 05:21:52 came from the snapshot scheduler and is unlinked to organize), and /api/undo/timeline stays empty (E1). The only marker is fg_processing_log rows written after each move (library_organizer.py:672-684) plus one organize_batch row per source at the end. Those batch rows are excluded from /api/undo/operations, so a run has no start marker and runs merge by a 15-minute gap (routes_undo.py:322). |
+| U — Undo | Sequential assimilate run: all 14 audio files returned byte-identical to the exact original paths, pruned folders recreated, fg_content paths restored, Rekordbox paths valid again (they were never updated). Not restored: .DS_Store and ._ junk (deleted for good), 11 empty target folders left behind, the empty ~/.Trash/FableGear_OrgDupes_* folder, fg_content processing_status changed scanned to relinked. Second revert: safe no-op (reverted 0, blocked 14). The revert itself cannot be undone ('undo_organize' is not revertible), and the session still shows revertible:true. Integrate (copy) runs cannot be undone: all 13 items blocked with 'original location is occupied'. After the 4-worker race, undo errored on 2 items and restored the wrong audio into 2 original slots. A file moved just before a SIGTERM has no journal row and is stranded. |
+| C — Cancel / interrupt | /api/cancel sends SIGTERM (helpers.py:516); cli.py has no handler. Live: 41 moved, 40 journaled (1 move unjournaled), checkpoint at 25/41, no report, no batch row, 41 emptied source folders not pruned. Server kill -9: the CLI stopped at 32/80 (32 journaled), checkpoint 25, no report, 32 emptied folders left. No byte corruption in either case. |
+| S — Resume after restart | Resume is offered only through localStorage rb_ckpt_organize. A fresh browser profile gets no banner although ~/.fablegear/checkpoints/organize/*.json.gz exists, and /api/checkpoint/check?tool=organize returns exists:false because of a config-key mismatch. The banner says only 'Interrupted run — Nm ago' and the source path; no target, mode, done/remaining counts or restore point. Resume completed the run with every file byte-intact. It skips done work only because moved files are gone from the source; the checkpoint lags by up to 24 files and logged '25/0 done'. A file added between sessions was silently included. The mix threshold is not restored (inferred). The report after resume covers only the resumed part, and the interrupted session's emptied folders are never pruned. See E5. |
+| D — Dry run / preview | Yes, and it is the default (checkbox checked); it shows a PLAN line per file in the log plus a report. Fidelity gaps: 3 files planned to the same 'Nula/Drives/Nula - Night Drive.mp3' while the summary said '14 would be moved', with no clash or duplicate prediction (the live run renamed 2). Prunes, junk deletions, trash moves and Rekordbox impact are not listed. A dry run still writes .fablegear_state.json into the target and a report into the Archive. The live run has no confirm gate (window.confirm never called); the checkbox is the only safeguard. |
+| B — Boundary | Crosses into the DB layer. It writes the FableGear DB (relink_content per moved file, library_organizer.py:677), but that write is not covered by any savepoint; it is reversed only incidentally by the operations revert, and in integrate mode it is not reversed at all. It never writes Rekordbox master.db (sha unchanged), so every moved track's FolderPath is broken with no warning. |
+
+_Evidence:_ Snapshots s0-s4 and diff.py output in audit/tool-organize/; SSE captures out/r*_sse.json and out/r3_integrate_sse.txt; undo JSON in out/undo_*.json; screenshots under screens/tool-organize/ (r1, r2, r5, r6, r7, r8, r9).
+
+**Findings**
+
+#### [CRITICAL · demonstrated] Parallel workers overwrite colliding files: silent permanent data loss, and undo restores the wrong audio
+
+- **ID:** `tool-organize-workers-race-overwrite` · **Area:** chop-shop-tool · **Tool/surface:** Organize Library
+- **Expected:** Two different files never end up sharing one destination; every source file is either at a unique destination or reported as an error; undo returns each file to its own original path.
+- **Actual:** With workers > 1, files that compute the same free slot overwrite each other. The loss is unreported (exit 0, 'No errors'), the overwritten audio is unrecoverable, and undo writes the survivor into the wrong owner's original path.
+- **Evidence:** Built 120 distinct, same-size MP3s (30 groups x 4 folders, all tagged RaceArtist/RaceAlbum and named 'Race - TNN.mp3'; 120 unique sha256 values). Ran GET /api/run/organize?source=RaceSrc&target=RaceTarget&no_dry_run=1&workers=4 (the UI offers '4 workers'). Result: 118 files at the target, 0 left in the source, 2 distinct sha256 values gone (comm against race_before.sha). Report: '120 files were moved… 90 name clashes… No errors.' Journal: 120 rows but only 118 distinct destinations; RaceArtist/RaceAlbum/Race - T07_1.mp3 is journaled for both T07_d and T07_c, and Race - T01_2.mp3 for both T01_a and T01_b. The undo revert returned reverted:118 with errors ['Race - T07_1.mp3: filesystem error', 'Race - T01_2.mp3: filesystem error']. Afterwards T07_d/Race - T07.mp3 holds T07_c's audio (trailing marker '07c'), T01_a holds T01_b's audio, and T07_c and T01_b are missing. Cause: check-then-act race between the dest.exists() check / numbered-slot search in _resolve_dest (library_organizer.py:369-401) and shutil.move, which is os.rename and overwrites silently (library_organizer.py:651), under ThreadPoolExecutor (library_organizer.py:700). No test uses max_workers > 1.
+- **Fix:** Reserve destinations atomically: compute all final destinations single-threaded before any I/O, using an in-memory set of claimed paths, and only parallelize the byte copy. Or claim each slot with os.open(O_CREAT|O_EXCL) / os.link and never use a rename that can replace an existing file (renameat2 RENAME_NOREPLACE on Linux; on macOS, link plus unlink or an exclusive create). Hash-verify after each move and store the sha in the journal row so undo can check it is moving the right content. Until fixed, remove the 2 and 4 worker options from the UI.
+
+#### [HIGH · demonstrated] Organize relinks the FableGear DB but leaves every Rekordbox FolderPath broken, with no warning
+
+- **ID:** `tool-organize-rekordbox-paths-broken` · **Area:** boundary · **Tool/surface:** Organize Library
+- **Expected:** A file tool that moves library files either updates Rekordbox paths in the same job (behind a savepoint and journal so the change can be reverted), or clearly reports which Rekordbox tracks are now missing and offers a relink.
+- **Actual:** After any assimilate run Rekordbox shows every moved track as missing. The FableGear library and Rekordbox now disagree, and the user is not told.
+- **Evidence:** s1_afterdry vs s2_afterlive: local and device master.db sha unchanged. The Rekordbox local DB's 10 content rows for moved tracks went from exists=True to exists=False, and the device DB's 4/4 went True to False. The fg_content table was relinked for all 13 rows (processing_status='relinked'). The report and UI say nothing about Rekordbox; after a live run the UI only calls _promptSetLibraryRoot(target) (pipeline.js:1201-1206). Code: the only DB write is archive.relink_content (library_organizer.py:677); nothing opens master.db.
+- **Fix:** After a live run, map the journal's from-to pairs onto DjmdContent.FolderPath and offer an 'Update Rekordbox paths' step. That step needs a master.db savepoint (M) and relocate-type journal rows so /api/undo/operations can revert it, and it must refuse while Rekordbox is running. At minimum, add a 'N Rekordbox tracks now point to moved files — run Fix Paths' line to the report and the completion modal.
+
+#### [HIGH · demonstrated] Interrupt (SIGTERM) can land between a move and its journal row; that file is stranded by undo
+
+- **ID:** `tool-organize-cancel-unjournaled-move` · **Area:** undo-revert · **Tool/surface:** Organize Library
+- **Expected:** Every completed move has a journal row, even if the process is interrupted, so undo can return every file.
+- **Actual:** A file moved just before the signal has no record; undo reports success and silently leaves it in the organized tree.
+- **Evidence:** UI live run of 80 colliding 16MB WAVs (SlowSrc to SlowTarget); POST /api/cancel at done=33; the SSE ended with exit_code -15 after '[41/80] CONFLICT_RENAMED'. State: 41 WAVs at the target but only 40 fg_processing_log rows for SlowTarget; checkpoint completed=25; no report, no organize_batch row, 41 empty source folders. After resume and then a revert of the SlowTarget journal range (ids 288-367): reverted 80, blocked 0, errors []. But SlowTarget/Slow/Slow - Track_40.wav (trailing id 00000035) stayed behind, and the original slot SlowSrc/F035/Slow - Track.wav is empty. Code: /api/cancel sends SIGTERM (helpers.py:516, routes_tools.py:1249); cli.py has no SIGTERM handler; the move (library_organizer.py:651) and the journal write in _tally (library_organizer.py:672-684) are separate, non-atomic steps.
+- **Fix:** Write a 'pending' journal row (src, intended dest) before the move and mark it done after. Undo should treat pending rows by checking which of src or dest exists. Install a SIGTERM handler that finishes the current file, flushes the checkpoint and writes a partial report before exiting. Save the checkpoint every file, or at least on signal.
+
+#### [HIGH · demonstrated] Undo groups organize journal rows by type with a 15-minute gap, merging separate runs into one irreversible-per-run session
+
+- **ID:** `tool-organize-undo-session-merge` · **Area:** undo-revert · **Tool/surface:** Organize Library
+- **Expected:** Each tool run appears as its own revertible entry ('revert to before Organize at HH:MM'), and an entry that has been reverted shows that state.
+- **Actual:** Running Organize twice within 15 minutes makes the runs indistinguishable in the Undo panel. 'Return N files' reverts all of them together, including copies made by a different mode, and a reverted run still looks revertible.
+- **Evidence:** After 7 distinct organize runs between 05:22 and 05:33 (UI assimilate, API integrate, 4-worker race, UI cancelled plus resumed, UI killed plus resumed, duplicate test), /api/undo/operations returned ONE session {first_id:5, last_id:451, count:309, started 05:22:14}. The Undo panel's Operations tab (screens/tool-organize/r9_undo_operations.png) shows 'Organize — files moved · 309 files', and Preview offers 'Return 162 files · 147 blocked' (r9_undo_preview.png). Earlier, the integrate run (ids 35-47) merged into an assimilate run that had already been reverted (ids 5-19). After a full revert the session is still listed as revertible:true, because the undo_organize rows are filtered out (routes_undo.py:359). Code: routes_undo.py:322 (_SESSION_GAP_SEC) and the grouping loop at routes_undo.py:365-395; organize_batch rows (one per source, written at the end) are not used as boundaries.
+- **Fix:** Give every job a run_id (write a start row before the first mutation and stamp it into each per-file row's metadata) and group sessions by run_id. Record reverts against the run so it shows as reverted, and offer redo. Show mode, sources and target in the session label.
+
+#### [MEDIUM · demonstrated] Integrate (copy) mode cannot be undone, and silently re-points the FableGear library at the copies
+
+- **ID:** `tool-organize-integrate-no-undo-fg-repointed` · **Area:** undo-revert · **Tool/surface:** Organize Library
+- **Expected:** Copy mode leaves the library DB pointing at the originals (or asks first), and its undo removes the copies (as novelty_copy undo does, parking them in the Archive).
+- **Actual:** The FableGear library silently follows the copies. If the user deletes the copy folder, believing it was 'just a copy', every FableGear track goes missing. Undo cannot remove the copies.
+- **Evidence:** GET /api/run/organize?source=Music Library&target=Organized&no_dry_run=1&mode=integrate copied 13 files; the report said 'Source folders were not modified.' fg_content rows 1-13 now all point to /Volumes/DJDRIVE/Organized/... (processing_status 'relinked') while the originals still exist and Rekordbox still points at them. Undo preview on the session: the 13 integrate rows are all blocked with 'original location is occupied' (routes_undo.py:466), so the copies cannot be removed and the DB repoint cannot be reverted. Journal rows say action 'moved', the SSE log says 'MOVED' for every copy, and the Undo panel labels the session 'Organize — files moved'. Code: library_organizer.py:672-684 relinks for both modes; the undo plan has no copy branch for organize.
+- **Fix:** In integrate mode, journal the rows as organize_copy (or record action 'copied') and do not relink. If relinking is wanted, make it an explicit option. Add a remove_copy revert branch, as already exists for novelty_copy (routes_undo.py:449-457). Fix the log and UI wording to say 'COPIED'.
+
+#### [MEDIUM · demonstrated] Dry run does not predict clashes, duplicates, prunes or deletions; the live run has no confirm gate
+
+- **ID:** `tool-organize-dryrun-misses-collisions` · **Area:** chop-shop-tool · **Tool/surface:** Organize Library
+- **Expected:** The preview matches what the live run will do, including renames, duplicate trashing, folder prunes, junk deletion and the DB effect, and a destructive live run asks for confirmation.
+- **Actual:** The preview understates the changes, and unchecking one box goes straight to moving files.
+- **Evidence:** The UI dry run (r1) planned 'Nula - Night Drive.mp3 → Nula/Drives/Nula - Night Drive.mp3' three times (Promo, House, Backup) and summarized '14 would be moved', with no clash or duplicate lines. The live run (r2) then produced Nula - Night Drive_1.mp3 and _2.mp3 and reported '2 name clashes'. The dry run did not list the 7 folders the live run pruned, the 2 junk files it deleted, or that Rekordbox paths would break. The live run raised no confirm (window.confirm calls: [] in both runs); runOrganize (pipeline.js:1177-1207) goes straight to runCommand. Code: in dry-run mode _process returns before _resolve_dest (library_organizer.py:609-612), so collisions are never simulated.
+- **Fix:** In dry run, simulate destination claims with an in-memory set (the same structure the race fix needs) and run _resolve_dest against it. List the clash renames, the files that would go to Trash, the folders that would be pruned and the junk files that would be deleted. Add a confirm step for live assimilate runs (rendered outside #chop-card-stack; see E4).
+
+#### [MEDIUM · demonstrated] Byte-identical duplicates are kept as _1/_2 when a different file already holds the canonical name
+
+- **ID:** `tool-organize-identical-dupe-missed` · **Area:** chop-shop-tool · **Tool/surface:** Organize Library
+- **Expected:** Assimilate mode ('remove source duplicates') recognizes an identical file in any numbered slot.
+- **Actual:** Duplicate copies pile up as _1, _2 … depending on scan order.
+- **Evidence:** Seeded House/Nula - Night Drive.mp3 and Backup/Nula - Night Drive.mp3 (identical sha f12684de160c272e), plus a different same-size Promo/Nula - Night Drive.mp3 (55e58a1a…). After the assimilate run: Nula/Drives/Nula - Night Drive.mp3 = Promo version, Nula - Night Drive_1.mp3 = f12684de…, Nula - Night Drive_2.mp3 = f12684de… (s2_afterlive diff). Nothing went to Trash. Code: _resolve_dest (library_organizer.py:359-401) compares only against the canonical slot, never against existing _N siblings. When the canonical slot was free (DupSrc test), the identical duplicate was correctly trashed.
+- **Fix:** Before choosing a new _N slot, compare the size and sha256 of the source against every existing stem_N sibling, or keep a per-destination-folder hash index for the run.
+
+#### [MEDIUM · demonstrated] Trashed duplicates go to ~/.Trash/FableGear_OrgDupes_*, which the Trash API never lists; the report says 'left alone'
+
+- **ID:** `tool-organize-dupe-trash-invisible` · **Area:** undo-revert · **Tool/surface:** Organize Library
+- **Expected:** Files the tool moves to Trash appear in the Undo panel's Trash list with their run, and the report says they were moved to Trash, with the path.
+- **Actual:** The trash folder is invisible to the Trash API (and the Trash tab is broken anyway, E2), and the report wording hides that the source file was moved away.
+- **Evidence:** DupSrc/a and DupSrc/b held identical 'Dup - One.mp3' files. The live run logged 'Organizer duplicate-trash folder: ~/.Trash/FableGear_OrgDupes_20261006_053354' and 'SKIPPED Dup - One.mp3', and the report said '1 were already at the destination — left alone.' The file is now at ~/.Trash/FableGear_OrgDupes_20261006_053354/Dup - One.mp3, but GET /api/undo/trash returns []. _list_trash_folders accepts only names starting 'FableGear_Pruned_' (routes_undo.py:202, 236, 267). The OrgDupes folder is also created eagerly even when nothing is trashed: an empty FableGear_OrgDupes_20261006_052214 was left by the first run (library_organizer.py:574-579). Code-inferred: the dupe_trashed journal row has operation_type 'organize', so a revert through Operations would move it back.
+- **Fix:** Include FableGear_OrgDupes_* (or a shared prefix) in _list_trash_folders and the restore whitelist. Report 'N exact duplicates moved to <trash path>'. Create the folder lazily.
+
+#### [MEDIUM · demonstrated] Resume relies on localStorage only; the banner has no starting-point details; changed inputs and the interrupted run's leftovers are ignored
+
+- **ID:** `tool-organize-resume-no-starting-point` · **Area:** session-resume · **Tool/surface:** Organize Library
+- **Expected:** After a restart the app says when the run started, its sources, target and mode, how many files are done and remaining, and which journal session or restore point to roll back to. Resume detects changed inputs and finishes the interrupted run's cleanup.
+- **Actual:** The banner shows only an age and a source path, and depends on WebView storage. The server endpoint denies the checkpoint exists. The resumed run's report covers only its own slice and makes a false cleanup claim.
+- **Evidence:** After cancel and restart (r6), and after kill -9 and restart (r8): the banner says only 'Interrupted run — 5m ago / <SlowSrc path> / Resume / Start Fresh'. It is visible only after the script re-ran _showToolResumeBanner on the opened card (see E5 about hidden cards). With a fresh browser profile (r8_nostorage), no banner appears although ~/.fablegear/checkpoints/organize/d1ad88856112b7a8.json.gz exists. GET /api/checkpoint/check?tool=organize&path=SlowSrc returned {exists:false} both times: the route builds config only for duplicates (routes_tools.py:855-869), while the CLI key includes target and mode (cli.py:3222-3224). On resume the CLI logged 'Found checkpoint from 2026-10-06T05:25:42 (25/0 done)'. One WAV added to SlowSrc between sessions was silently included ('Organizing 40 files'). The report after resume said '40 files were moved' and 'Empty source folders were cleaned up', yet 41 (SlowSrc) and 32 (SlowSrc2) emptied folders from the interrupted sessions remain, because only folders emptied by the current process are pruned. Code-inferred: _saveToolCkpt('organize', …) (pipeline.js:1196) does not save mix_threshold, so a resume silently reverts to the 15-minute default; the scheme is not part of the checkpoint key either.
+- **Fix:** Use the server checkpoint as the source of truth: fix the /api/checkpoint/check key so it includes target and mode, and render the banner from it. Store started_at, the full config (threshold, scheme, workers), total, done and the journal run_id, and show them in the banner. Persist the set of emptied folders so a resumed run prunes them. Warn when the source file set differs from the checkpoint.
+
+#### [MEDIUM · demonstrated] A live, file-moving organize run is a plain GET with no Origin or CSRF check
+
+- **ID:** `tool-organize-get-live-cross-site` · **Area:** chop-shop-tool · **Tool/surface:** Organize Library
+- **Expected:** Destructive runs require a same-origin POST, or at least reject cross-site Origin / Sec-Fetch-Site values on mutating routes.
+- **Actual:** Any GET reaching loopback with the right query string moves the user's library.
+- **Evidence:** curl -G /api/run/organize with headers 'Origin: https://evil.example', 'Sec-Fetch-Site: cross-site', 'Sec-Fetch-Mode: no-cors' plus source, target, no_dry_run=1 and mode=integrate ran a live job (13 files copied, exit_code 0; out/r3_integrate_sse.txt). The only gate is the loopback check (app.py:209-228); api_organize (routes_tools.py:597-638) takes no_dry_run from the query string. The browser-side vector (a web page firing an <img>/no-cors request at localhost:<port>) is inferred, not demonstrated, and needs the port.
+- **Fix:** Reject requests with Sec-Fetch-Site 'cross-site' or a foreign Origin on /api/run/* and other mutating routes. Better: start jobs with POST plus a per-session token and stream progress over a separate GET keyed by job id.
+
+#### [MEDIUM · inferred] The Undo panel's 'Returned N files' success toast ignores the revert's errors array
+
+- **ID:** `tool-organize-undo-ui-hides-errors` · **Area:** undo-revert · **Tool/surface:** Organize Library
+- **Expected:** Partial failures are shown with the affected files, and the preview lists what will move where.
+- **Actual:** A partly failed undo looks like a full success.
+- **Evidence:** API demonstrated: after the race run, /api/undo/operations/revert returned {ok:true, reverted:118, errors:['Race - T07_1.mp3: filesystem error — check server logs', 'Race - T01_2.mp3: filesystem error — check server logs']}. UI code: undo.js:202 shows showToast(`Returned ${out.reverted} file…`, 'success') and never reads out.errors or out.blocked. The preview also shows counts only, with no per-file list (undo.js:178-181). The toast was not clicked live, because doing so would have reverted 162 files across merged runs.
+- **Fix:** Show errors and blocked items in the result, using a warning toast style when errors is non-empty. Render the per-item plan (current path to returns_to, reason) in the preview.
+
+#### [MEDIUM · demonstrated] No restore point or start marker before the first move; the journal is after-the-fact only
+
+- **ID:** `tool-organize-no-pre-run-marker` · **Area:** undo-revert · **Tool/surface:** Organize Library
+- **Expected:** Before mutating, the job records 'Organize started at T: sources, target, mode' plus a FableGear DB savepoint, and the report and Undo panel point to it.
+- **Actual:** The user can find the run only through the merged Operations list, with no link from the report or the completion modal.
+- **Evidence:** /api/undo/savepoints, /api/undo/trash, /api/undo/timeline and /api/undo/database/history were unchanged across every organize run (s1 vs s2 vs s3 diffs). The only artifacts are per-file fg_processing_log rows written after each move, plus organize_batch rows written at the end of each source (library_organizer.py:735-747), so an interrupted run never gets a batch row. The FableGear DB relinks have no savepoint (Archive/Database/fablegear.prev.db existed before the run and was not refreshed). The timeline is empty (E1).
+- **Fix:** Write a start row (run_id, config) and snapshot fablegear.db before the first move. Put the run_id and an 'Undo this run' link in the report and the completion modal.
+
+#### [LOW · demonstrated] Undo leaves empty organized folders and an empty trash folder, cannot restore deleted junk, and marks DB rows 'relinked'
+
+- **ID:** `tool-organize-undo-orphans-junk` · **Area:** undo-revert · **Tool/surface:** Organize Library
+- **Expected:** Undo restores the tree exactly: no leftover destination folders, and the junk files are recoverable (AppleDouble files carry Finder tags and xattrs on exFAT).
+- **Actual:** Close to exact for the audio, but the folder tree and metadata files differ from BEFORE.
+- **Evidence:** s1_afterdry vs s3_afterundo: all 14 audio files are back byte-identical, but 11 empty folders remain (Brick Wall, Marlo & The Tens/Club Nights, Newcomer, Nula/Drives, Orphaned Tracks/2026, Soft Hands, Vera Lux/Pressure EP). The empty ~/.Trash/FableGear_OrgDupes_20261006_052214 remains. Quiet/.DS_Store and 'Quiet/._Soft Hands - Whisper.mp3' are gone for good (unlinked by the prune, library_organizer.py:803; this is intended per tests/test_library_organizer_cleanup.py:102-117). fg_content processing_status went scanned to relinked. Preview of undo_organize returns "'undo_organize' operations cannot be reverted by moving files" (no redo). Revert twice: reverted 0, blocked 14, no changes (safe).
+- **Fix:** On revert, prune destination folders the run created (journal the mkdirs). Move junk files into the run's trash folder instead of unlinking them, and journal that. Restore the previous processing_status.
+
+#### [LOW · demonstrated] Runs, including dry runs, write .fablegear_state.json into the user's music/target folder
+
+- **ID:** `tool-organize-state-file-in-library` · **Area:** chop-shop-tool · **Tool/surface:** Organize Library
+- **Expected:** A preview touches nothing in the library.
+- **Actual:** A hidden state file is written into the library root on every run.
+- **Evidence:** s0_before vs s1_afterdry: '+ Music Library/.fablegear_state.json' after a dry run only. The same file appeared in Organized/ and RaceTarget/ ({library_root, steps_completed.organize.last_run, exit_code}). Written by _sse_response with library_root=target (routes_tools.py:637-638).
+- **Fix:** Skip state writes for dry runs, or keep the state under ~/.fablegear keyed by root.
+
+#### [INFO · demonstrated] Confirmed-good behaviour (sequential runs)
+
+- **ID:** `tool-organize-confirmed-good` · **Area:** chop-shop-tool · **Tool/surface:** Organize Library
+- **Expected:** -
+- **Actual:** -
+- **Evidence:** Behaviour confirmed with workers=1 (s0-s4 diffs):
+- Moves preserve bytes; all 14 sha256 values match.
+- A same-size different-content clash is renamed _1 rather than overwritten.
+- The pre-existing empty 'Empty Crate/Sub' was left alone; Disco/ was kept because of cover.jpg; source roots are never removed.
+- Every move is journaled the moment it lands.
+- Undo restored all files to their exact original paths, recreated the pruned folders, restored fg_content paths, and is a safe no-op when run twice.
+- Resume after cancel and after kill -9 completed with every file intact (80/80 sha match).
+- Interrupt and Emergency Stop are visible during a run (r5_cancel_2_running.png).
+- A live run without the archive is refused (_require_archive, cli.py:85-103, code).
+- **Fix:** Keep these behaviours; add regression tests for the parallel-worker case.
+
+## Chop Shop: Normalize Loudness
+
+_Auditor: `tool-normalize`_
+
+Round-3 live audit of Chop Shop "Normalize Loudness" (it runs GET /api/run/process?no_bpm=1&no_key=1&path=…&workers=N, i.e. cli.py process with --normalize-mode passive). Sandbox normalize-r3 on port 8115. I added 9 fully tagged bench files: MP3, FLAC 24-bit, WAV 24-bit, WAV 32-bit float, AIFF 16-bit with cover and Serato GEOB, untagged AIFF 24-bit, M4A, a no-headroom crest MP3 and a hot master. I also added 8 ten-minute MP3s so I could interrupt runs. I drove the real UI with Playwright (preview, confirm, run, Interrupt, Resume banner), took sha256/ffprobe/LUFS/tag snapshots before and after, tried the undo endpoints, re-ran the tool, cancelled during measure and during encode, killed the Flask server with kill -9 mid-run, and restarted.
+
+Verdict: Normalize is the most destructive tool in the kit and it is not reversible. Originals are deleted as soon as the swap succeeds. There is no restore point, no per-file journal, and no undo path: the revert endpoint refuses 'normalize', 'tag_tracks' and 'process'. A search of the whole sandbox found 0 surviving copies of the 15 rewritten originals.
+
+It also does damage beyond gain. WAV goes to 16-bit (24-bit and 32-bit float both). WAV and AIFF lose every ID3 tag, including cover art and Serato cue data. AIFF becomes little-endian AIFF-C 'sowt'. MP3 loses COMM and the Serato GEOB frame and is always re-encoded at 320k. 24-bit AIFF and every M4A always fail. Those failures are reported as "Tag Write Failures — BPM/key detection succeeded", and the offered "Retry with Force" overwrote BPM/key tags and never retried normalisation. The run summary says tracks "match the loudness target" when many land at -11.7 to -12.8 LUFS.
+
+Interrupts are a second problem. Cancelling, or closing the window, during an encode leaves truncated tmpXXXX.mp3 files in the music folder; the next run scanned and processed them as tracks. Interrupted runs write no report and no journal row. Resume relies on localStorage only and skips the confirm dialog.
+
+What works: no output was ever pushed above -1.0 dBTP, failed files were left byte-identical, re-running did not apply gain twice (0 re-encoded, hashes unchanged), FLAC kept its bit depth and cover, and master.db was never touched.
+
+Harness note: restart.sh records the subshell PID, not the Python server's, so `kill -9 $(cat server.pid)` does not kill the server. My first 'kill -9' attempt was invalid; I redid it against the real PID (found via /proc/*/cwd).
+
+**Coverage**
+
+- LIVE (UI via Playwright, Chromium /opt/pw-browsers/chromium): Chop Shop > Normalize card. Added a folder, waited for the preview, accepted the confirm dialog, ran with 4 workers and with 2 workers, read the report modal, clicked Interrupt mid-run, reloaded after restart, clicked the Resume banner. No console errors or page errors in any run.
+- LIVE before/after: sha256, ffprobe (codec, sample_fmt, bit depth, video/cover streams), ffmpeg loudnorm LUFS and true peak, and mutagen tag keys for all 22 files. Also listings of the FableGear Archive (Savepoints/Quarantine/Reports/Logs/Database/Checkpoints) and ~/.fablegear, plus GET /api/undo/operations|savepoints|trash|database/history|timeline. Files: audit/tool-normalize/r3_before.json, r3_after1.json, r3_after2.json, diff.py.
+- LIVE undo: POST /api/undo/operations/revert and /preview with type tag_tracks / normalize / process were all refused. Searched the whole sandbox for any copy of the 15 original hashes (0 found).
+- LIVE re-run on already-normalised files (double-gain check): 0 re-encoded, 16 skipped, every audio hash identical.
+- LIVE preview: POST /api/normalize/preview on the library root (non-recursive, so 0 tracks found) and on a flat folder of the original bench files. Downloaded all 4 clips and measured them with ffmpeg loudnorm.
+- LIVE cancel: three Interrupt-button runs. Two landed during measurement (no orphans); one landed during encode (2 truncated tmp*.mp3 left in the folder). Then restart.sh and a UI reload to see the resume banner, and Resume clicked (no confirm dialog shown).
+- LIVE kill -9: SIGKILL of the real Flask server PID mid-encode. The in-flight swaps completed, the job then died silently, the UI showed 'Connection error'. Restart, then banner and /api/checkpoint/check checked.
+- LIVE: the report modal's 'Retry N failed tracks with Force' path, via the exact POST /api/run/process-retry body the button sends (bpm/key passive from the Tag Tracks defaults), with tag and hash diffs before and after.
+- LIVE: decoded-sample alignment of original vs normalised files (MP3 Bench Hot: lag 0, identical length; periodic synthetic tracks were inconclusive). AIFF form type read from the file header bytes. ffmpeg check: the AIFF muxer rejects pcm_s24le (exit 234) and accepts pcm_s24be.
+- CODE: audio_processor.py:356-563 (measure, gain cap, codec args, _normalise_file), 1066-1103 (decision logic); cli.py:905-945 (_persist_process_results), 2650-2680 (checkpoint every 25 files), 2822-2852 (error categorisation); routes_tools.py:225-300 (/api/run/process), 330-352 (process-retry), 1248-1270 (cancel), 1301-1485 (preview); helpers.py:1136-1160 (SSE finally sends SIGTERM to the job's process group); routes_undo.py:344-360, 507-530; static/chop_shop/runners.js:228-250; static/chop_shop/pipeline.js:600-625 and 680-686; static/shared/modals.js:110-128; templates/partials/physical_library/normalizer.html.
+- NOT TESTED: the Pipeline Wizard's normalize step; Tag Tracks normalize mode (E9 already covers it; the standalone path is the same code); aggressive/force_normalize mode; the disk-full branch; true peak = None (uncapped gain branch); the move(path->.bak)/move(tmp->path) window (too narrow to hit, so only inferred).
+- NOT TESTABLE here: real CDJ or Rekordbox playback of AIFF-C 'sowt' or re-encoded MP3s; whether Rekordbox notices the changed audio or stale analysis/auto-gain; macOS WKWebView and APFS. fpcalc is absent but not used by Normalize.
+
+**Per-tool safety matrix**
+
+### Normalize Loudness (step-normalize -> /api/run/process normalize_mode=passive)
+
+| Check | Result |
+|---|---|
+| R — Report | PARTIAL. On completion only: Archive/Reports/Normalize/normalize_<ts>.txt (784 bytes), linked from the report modal. It holds counts and errors only: no list of changed files, gains, before/after LUFS or originals. Logs/Normalize is always empty. Cancel or crash: no report (5 interrupted runs, 0 reports). Normalisation failures are mislabelled 'Tag Write Failures — BPM/key detection succeeded'. |
+| M — Revert marker | NONE. No savepoint, trash or op-journal entry is made before mutating. The only row written is one aggregate fg_processing_log row (operation_type 'tag_tracks', in ~/.fablegear/fablegear.db) after a run completes, with no per-file data and no originals. The single savepoint present (master.backup_…053432) is a master.db copy made at page load, unrelated to Normalize. |
+| U — Undo | NONE. .bak is unlinked right after the swap (audio_processor.py:543-546). /api/undo/operations/revert refuses type normalize/tag_tracks/process: "'normalize' operations cannot be reverted by moving files". 0 copies of the 15 originals exist anywhere. Revert-twice is N/A. |
+| C — Cancel / interrupt | UNSAFE. Interrupt sends SIGTERM to the process group; there is no handler, so no cleanup runs. Cancel during encode left 2 truncated tmpXXXX.mp3 (7.8 MB, 194 s of 600 s) in the music folder. Closing or reloading the window does the same (SSE finally, helpers.py:1154-1160). No partial report, checkpoint or journal row. Files already swapped stay rewritten with no record. kill -9 of the server: in-flight swaps completed, then the job died silently. |
+| S — Resume after restart | WEAK. The banner comes from localStorage rb_ckpt_normalize {paths, workers, ts} only. /api/checkpoint/check gives exists:false and the checkpoints dir is never created (saved every 25 files, never on SIGTERM). The banner shows age and path but no done/remaining, config or restore point. Resume skips the confirm dialog. Done files are skipped only by chance, because their loudness re-measures in tolerance or with no headroom. Orphan tmp files are processed as tracks. Changed inputs are not detected. |
+| D — Dry run / preview | NO dry-run. The preview player is the only look-ahead. It is non-recursive (found 0 tracks in the real library root) and uses ffmpeg loudnorm (a dynamic limiter, TP -1.5) on a 10 s clip labelled -8 LUFS: measured -10.4 LUFS / -0.86 dBTP, while the real tool produced -11.8 LUFS for that file. |
+| B — Boundary | Does not write master.db (sha unchanged). Writes FableGear DB ~/.fablegear/fablegear.db fg_processing_log (mislabelled 'tag_tracks', not revertable), ~/rekordbox-toolkit/scan_index.json, and <music folder>/.fablegear_state.json. Rekordbox analysis is left stale (inferred). The report's Retry-with-Force button turns a failed normalize into BPM/key tag writes on the same files. |
+
+_Evidence:_ audit/tool-normalize/r3_before.json, r3_after1.json, r3_after2.json; out3/r3_main_log.txt, r3_cancel_log.txt, r3_cancel3_log.txt, r3_realkill_log.txt, retry_sse.txt; screens/tool-normalize/r3_main_3_done.png, r3_restart_after_kill_0_open.png, r3_restart_after_realkill_0_open.png
+
+### Normalize loudness preview (/api/normalize/preview*)
+
+| Check | Result |
+|---|---|
+| R — Report | N/A (status JSON only) |
+| M — Revert marker | N/A (read-only on sources) |
+| U — Undo | N/A. Writes clips to ~/.fablegear/previews (20 files after 5 previews, deleted only by TTL). |
+| C — Cancel / interrupt | No cancel. It runs on a daemon thread. |
+| S — Resume after restart | In-memory jobs are lost on restart, which is harmless. |
+| D — Dry run / preview | It is the preview, but it misrepresents the tool: a different algorithm (loudnorm vs capped static gain), a hard-coded '-8.0' label, and non-recursive folder listing ('Need at least 2 tracks >= 2 min (found 0)' on the configured library root). |
+| B — Boundary | No DB writes. |
+
+_Evidence:_ out3/preview/{q,l}_{orig,norm}.mp3 measured: q_norm -10.41 LUFS / TP -0.86; real tool output for the same file -11.79 LUFS; routes_tools.py:1351-1361, 1367-1371
+
+**Findings**
+
+#### [CRITICAL · demonstrated] Normalize permanently rewrites audio with no restore point and no undo; originals are deleted immediately
+
+- **ID:** `tool-normalize-no-restore-no-undo` · **Area:** undo-revert · **Tool/surface:** Normalize Loudness
+- **Expected:** Before the first rewrite, move or hardlink each original into Archive/Trash/<job-id>/ (same-volume rename, so no extra space until purge). Journal per-file rows: path, original sha, new sha, gain, LUFS before/after. Show the job in the undo timeline as 'revert to before Normalize at <time>'. Restore should put originals back byte-identically.
+- **Actual:** The originals are gone the moment each swap succeeds. Nothing the user can find identifies or restores them.
+- **Evidence:** Main UI run (out3/r3_main_log.txt) rewrote 15 files. Diff r3_before.json vs r3_after1.json: no new entries in Savepoints, Quarantine or trash, and /api/undo/operations {sessions:[]}, /trash [], /timeline [] (E1), /database/history [] are all unchanged. POST /api/undo/operations/revert {type:'normalize'|'tag_tracks'|'process', first_id:1, last_id:1} returns "'normalize' operations cannot be reverted by moving files" (the same message comes back for each type). Hashing every file in the sandbox found 0 copies of any of the 15 original sha256s. Code: audio_processor.py:543-546 does shutil.move(path->.bak), move(tmp->path), bak.unlink(). routes_undo.py:344-360 whitelists only organize/rename/novelty_copy/convert/relocate. The UI confirm text only promises that the .bak exists 'during the operation'. The single savepoint master.backup_20261006_053432 is a master.db copy taken at page load, unrelated.
+- **Fix:** In _normalise_file, replace bak.unlink() with a move into an archive trash folder keyed by job id. Write fg_processing_log rows with operation_type='normalize' per file (src, archived_original, sha_before, sha_after, gain_db, lufs_before, lufs_after). Add 'normalize' to the revert whitelist, with a plan that verifies current sha == sha_after before swapping back and is idempotent when run twice. Purge the trash only on explicit user action or by age.
+
+#### [CRITICAL · demonstrated] WAV and AIFF lose every ID3 tag (title, artist, BPM, key, cover, Serato cues) on the standalone Normalize path
+
+- **ID:** `tool-normalize-lossless-tags-stripped` · **Area:** chop-shop-tool · **Tool/surface:** Normalize Loudness
+- **Expected:** Tags and cover art are carried over unchanged, as the card implies ('re-encoded losslessly'). Or the tool copies the tag block back with mutagen after the swap and checks it.
+- **Actual:** All metadata is silently destroyed, and the original is deleted (see no-restore finding), so the loss is permanent.
+- **Evidence:** r3 diff. 'Bench Wav - Boost 24bit.wav' TAGS LOST ['APIC:Cover','COMM::eng','GEOB:Serato Markers2','TALB','TBPM','TCON','TDRC','TIT2','TKEY','TPE1','TXXX:FABLE_TEST'], video_streams 1->0. 'Bench Aiff16 - Cover.aiff' TAGS LOST ['APIC:Cover','GEOB:Serato Markers2','TBPM','TIT2','TPE1']; the header shows an ID3 chunk before and none after. The pre-existing 'Vera Lux - Pressure.aiff' and the WAVs also came out with no ID3 chunk. This is the same code path E9 found for Tag Tracks normalize mode; the standalone tool is equally affected. Cause: audio_processor.py:529-536 passes '-map_metadata 0 -id3v2_version 3', which writes no ID3 for the wav/aiff muxers (needs -write_id3v2 1), and does not map the cover stream.
+- **Fix:** After ffmpeg writes the tmp file, copy the original's tag container verbatim with mutagen (ID3 for MP3/WAV/AIFF, Vorbis comments plus pictures for FLAC, MP4 atoms for M4A) before the swap. Verify by comparing the tag key sets of source and tmp, and refuse the swap on any mismatch.
+
+#### [CRITICAL · demonstrated] WAV is always re-encoded as 16-bit: 24-bit and 32-bit float lose resolution, contradicting the 'same bit depth' claim
+
+- **ID:** `tool-normalize-wav-bitdepth-downgrade` · **Area:** chop-shop-tool · **Tool/surface:** Normalize Loudness
+- **Expected:** Output keeps the source sample format (s24le/s32le/f32le), or the tool refuses.
+- **Actual:** Irreversible reduction to 16-bit (truncation after a gain change). The original is deleted.
+- **Evidence:** r3 diff. 'Bench Wav - Boost 24bit.wav' codec pcm_s24le->pcm_s16le, bits_raw 24->None, size 35.7 MB->23.8 MB. 'Bench Wav32f - Float.wav' pcm_f32le->pcm_s16le, size 47.6 MB->23.8 MB. Code: audio_processor.py:450-452 returns ['-codec:a','pcm_s16le'] for every .wav. normalizer.html:18 tells the user 'AIFF/WAV -> re-encoded losslessly at the same bit depth as the original'. FLAC kept 24-bit (confirmed good).
+- **Fix:** Choose the codec from sf.info(path).subtype for WAV as already done for AIFF: PCM_24->pcm_s24le, PCM_32->pcm_s32le, FLOAT->pcm_f32le, DOUBLE->pcm_f64le. Add a post-encode check that the output subtype equals the input subtype before swapping.
+
+#### [HIGH · demonstrated] Every 24-bit AIFF and every M4A/AAC/ALAC file always fails normalisation
+
+- **ID:** `tool-normalize-aiff24-m4a-always-fail` · **Area:** chop-shop-tool · **Tool/surface:** Normalize Loudness
+- **Expected:** 24-bit AIFF, the most common lossless DJ format, normalises losslessly. M4A is either supported (re-encode AAC, or ALAC losslessly) or excluded up front with a clear 'unsupported format' message.
+- **Actual:** These files can never be normalised. The failure is reported as a tag-write problem (see the retry finding).
+- **Evidence:** Main run errors: 'Bench Aiff24 - No Tags.aiff', 'Bench Mid - Capped 24bit.aiff', 'Bench M4a - Boost.m4a', 'Marlo & The Tens - Glitterball.m4a', all 'normalisation failed'. The log shows '[out#0/aiff] Could not write header (incorrect codec parameters ?)' and "Filtergraph 'volume=7.5900dB' was specified, but codec copy was selected". Standalone check: ffmpeg -c:a pcm_s24le to .aiff exits 234; pcm_s24be exits 0. Code: audio_processor.py:446 picks the little-endian pcm_s24le for AIFF (the AIFF muxer only takes big-endian 24-bit), and :455-456 returns ['-codec:a','copy'] for anything else while '-af volume' is set. Good: the originals stayed byte-identical (sha 'same').
+- **Fix:** AIFF: use pcm_s24be / pcm_s16be (big-endian; this also fixes the AIFC conversion below). M4A: detect the codec. For ALAC use -c:a alac; for AAC either re-encode at the source bitrate with a warning or skip with an explicit 'unsupported for in-place normalize' entry. Never pair '-codec:a copy' with an audio filter.
+
+#### [HIGH · demonstrated] Normalize failures are labelled 'Tag Write Failures'; the offered 'Retry with Force' rewrites BPM/key tags and never retries normalisation
+
+- **ID:** `tool-normalize-retry-force-wrong-remedy` · **Area:** chop-shop-tool · **Tool/surface:** Normalize Loudness -> report modal 'Retry N failed tracks with Force'
+- **Expected:** Normalisation failures get their own category with the real cause (unsupported codec / ffmpeg error). Any retry re-attempts normalisation and never writes BPM/key.
+- **Actual:** The user is told BPM/key detection succeeded (it never ran). The one-click remedy mutates unrelated metadata with detected values, here overwriting an existing BPM, with no undo.
+- **Evidence:** Report text (normalize_20261006_053445.txt and screens/tool-normalize/r3_main_3_done.png): 'Tag Write Failures (4) — BPM/key detection succeeded, but writing the tag to the file failed … re-run with Force tag-overwrite on', with a 'Retry 4 failed tracks with Force' button. I sent the exact request the button sends (POST /api/run/process-retry {paths, bpm_mode:'passive', key_mode:'passive'}); output in out3/retry_sse.txt. Result: 'Bench M4a - Boost.m4a' tmpo 124->117; 'Glitterball.m4a' gained BPM 162 / key 5A; the untagged 24-bit AIFF gained TBPM 123 / TKEY 11B. 3 of 4 hashes changed and no file was normalised (routes_tools.py:345-352 hardcodes --no-normalize --force). Code: cli.py:2822-2852 puts 'normalisation failed' into tag_fail_results; static/shared/modals.js:110-128 builds the retry button.
+- **Fix:** Add a 'normalize_failed' bucket to FABLEGEAR_ERROR_SUMMARY and the report, carrying the ffmpeg stderr tail. Hide 'Retry with Force' for runs where BPM and key were off. If a retry is offered for normalize failures, route it to /api/run/process with normalize only.
+
+#### [HIGH · demonstrated] Interrupt or window close during encode leaves truncated tmpXXXX.mp3 files in the library, which later runs treat as real tracks
+
+- **ID:** `tool-normalize-cancel-orphan-tmp-tracks` · **Area:** chop-shop-tool · **Tool/surface:** Normalize Loudness
+- **Expected:** An interrupted run leaves no stray files in the music library. Temp output goes to a hidden or ignored name (e.g. .fg-normalize-*.part) or the archive's work dir, and cancel stops between files after cleanup.
+- **Actual:** Truncated audio files with a real .mp3 extension stay in the library, then get scanned, normalised, and could be imported or deduped as tracks.
+- **Evidence:** r3_cancel3: Interrupt clicked at 58 s while ffmpeg was encoding Mix 7/8. Log: '✗ Exited with code -15'. Long/ was left with tmp9rnxqipi.mp3 (7,780,438 B) and tmpnqxch6fi.mp3 (7,807,605 B), mode 0600; ffprobe duration 194.5 s of a 600 s source; no cli.py remained to clean up. scanner.scan_directory(Long) returned 10 tracks including both tmp files. The next normalize run processed them: '[6/10] tmp9rnxqipi.mp3' (out3/r3_realkill_log.txt). Cause: audio_processor.py:509-512 runs mkstemp(dir=path.parent) inside the user's folder; cli.py has no SIGTERM handler, so the finally block never runs; /api/cancel (routes_tools.py:1248-1250) and the SSE generator's finally on client disconnect (helpers.py:1154-1160) both SIGTERM the process group.
+- **Fix:** Install a SIGTERM handler in cli.py that sets a stop flag; workers finish or abort the current file and unlink tmp. Name temps with a dot prefix and a .part suffix that scanner.py ignores. On startup, sweep known temp patterns under the roots. Also: closing the window should not silently kill a destructive job; detach it, or warn before unload.
+
+#### [HIGH · demonstrated] Cancelled or crashed runs leave rewritten files with no report, journal or checkpoint naming them
+
+- **ID:** `tool-normalize-interrupt-no-record` · **Area:** session-resume · **Tool/surface:** Normalize Loudness
+- **Expected:** Every swapped file is journaled as it happens, so an interrupted run can still say which files were rewritten and where their originals are. A partial report is written on cancel.
+- **Actual:** The user cannot tell which files an interrupted run changed.
+- **Evidence:** Five interrupted runs (r3_cancel, r3_resume_kill, r3_cancel2, r3_cancel3, r3_realkill) rewrote Long Mix 2, 3, 4, 5, 7 and 8 (24,002,479 B, mode 0600, new mtimes). Reports/Normalize still holds only the 2 completed-run reports. fg_processing_log gained no row for any of them (only rows from completed runs plus the retry). ~/.fablegear/checkpoints was never created; /api/checkpoint/check?tool=process&path=…/Long returns {exists:false}. In r3_cancel the UI log shows 'Normalising Long Mix 3…' with no completion line, yet the file was swapped. kill -9 of the real server PID (r3_realkill): in-flight swaps of Mix 7/8 landed at 05:49:53-54 as the server died, then the job died silently; UI: 'Connection error — check the server is running.' Code: cli.py:2668-2674 saves a checkpoint every 25 results only; _persist_process_results (cli.py:905-945) and the report run only after a root completes.
+- **Fix:** Journal per file inside the worker, right after the swap (the same row the undo needs). Flush the checkpoint per file for destructive tools. Emit a partial report from a SIGTERM/stop-flag path.
+
+#### [HIGH · demonstrated] MP3 rewrite drops COMM and Serato GEOB frames, re-encodes cover art, and upsizes every MP3 to 320k
+
+- **ID:** `tool-normalize-mp3-tags-reencode` · **Area:** chop-shop-tool · **Tool/surface:** Normalize Loudness
+- **Expected:** Cue/beatgrid frames (Serato GEOB, etc.), comments and cover art survive unchanged. Bitrate stays at or near the source's (a 128k source gains nothing at 320k).
+- **Actual:** DJ cue data and comments are lost permanently, cover art is re-encoded, and files bloat with an extra lossy generation.
+- **Evidence:** 'Bench Hot - Loud Master.mp3': TAGS LOST ['COMM::eng','GEOB:Serato Markers2'], tags added ['TXXX:comment'], APIC changed (50955->69901 chars repr). 'Nula - Night Drive (copy).mp3' 128k->320k (129,250->322,974 B); 'Soft Hands - Whisper.mp3' 192k->320k. Code: audio_processor.py:441-442 always uses libmp3lame -b:a 320k; :529-536 uses -map_metadata 0, which does not carry GEOB/private frames and maps COMM to TXXX. Good: decoded length identical and cross-correlation lag 0 on Bench Hot, so no sample offset observed in ffmpeg decode.
+- **Fix:** After the encode, copy the full ID3 frame set from the original with mutagen (ID3(orig).save(tmp)). Match the source bitrate (or VBR quality). Consider skipping MP3 attenuations under ~1 dB, since a lossy generation costs more than the level change.
+
+#### [MEDIUM · demonstrated] Summary and log claim '-> -8.0' / 'match the loudness target' when capped files land 3-5 dB short; the -8 'DJ standard' contradicts the project's own findings
+
+- **ID:** `tool-normalize-claims-target-met` · **Area:** chop-shop-tool · **Tool/surface:** Normalize Loudness
+- **Expected:** Each file reports its achieved LUFS and whether it was capped. The summary separates 'reached target' from 'raised but capped by true peak'. The card's target guidance matches the project's own findings.
+- **Actual:** Users are told files match the target when they don't.
+- **Evidence:** Log: 'Normalising Bench Flac - Quiet 24bit.flac: -31.3 LUFS -> -8.0 (gain: +19.5 dB)'. Measured result -11.79 LUFS. WAV and AIFF16 -11.66, kick_01 -8.86, Long Mix -12.6/-12.8. Summary: '15 tracks were re-encoded to match the loudness target.' The report contains no per-file achieved loudness. normalizer.html:7 says 'Target is −8.0 LUFS — the DJ standard'. docs/loudness_findings.md §3/§6 measured that 98% of real tracks cannot reach -8 with gain alone and recommends -11; that is not applied and not mentioned in the UI.
+- **Fix:** Log the measured after-LUFS (already computed in result.loudness_after) instead of TARGET_LUFS. Add 'capped' and 'reached' counts and a per-file table to the report. Revisit the -8 default per loudness_findings.md.
+
+#### [MEDIUM · demonstrated] Resume after cancel or crash is a localStorage banner with no starting-point reference; Resume skips the destructive-op confirm
+
+- **ID:** `tool-normalize-resume-localstorage-only` · **Area:** session-resume · **Tool/surface:** Normalize Loudness
+- **Expected:** Resume carries a server-side record: when the run started, roots and config, done vs remaining, files changed since, and the restore point. Resume re-confirms a destructive operation.
+- **Actual:** A browser-local path and timestamp only. It is lost if WebView storage is cleared, and it re-launches a destructive job without confirmation.
+- **Evidence:** After cancel and restart.sh, and again after kill -9 and restart: the Normalize card shows '⏸ Interrupted run — 2m ago | <path> | Resume | Start Fresh' (screens/tool-normalize/r3_restart_after_cancel_0_open.png, r3_restart_after_kill_0_open.png, r3_restart_after_realkill_0_open.png). Its source is localStorage rb_ckpt_normalize {paths, workers, ts}; the server says exists:false (relates to E5). It shows no done/remaining, no config, and no restore point (none exists). Clicking Resume started a run with dialogs: [] (pipeline.js:680-686 calls runNormalize(true), which skips confirm). The Resume tooltip promises 'files already done are skipped', but the run re-measured all 8 files and skipped done ones only because they were now in tolerance or had no headroom. Changed inputs are not detected: the orphan tmp files were picked up as new tracks.
+- **Fix:** Build the banner from a server-side job journal (see the interrupt finding) and show 'N of M rewritten, originals in Trash/<job>' plus a 'Revert this run' action. Keep the confirm on Resume. Record input mtimes/sizes in the checkpoint to detect changes.
+
+#### [MEDIUM · demonstrated] Loudness preview fails on a normal library and, when it works, demonstrates a different algorithm than the tool runs
+
+- **ID:** `tool-normalize-preview-misleading` · **Area:** chop-shop-tool · **Tool/surface:** Normalize preview (/api/normalize/preview)
+- **Expected:** The preview recurses like the tool's scanner and renders exactly what _normalise_file would produce (same capped gain), labelled with the predicted LUFS and a 'capped/no headroom' note.
+- **Actual:** It either shows nothing or promises an outcome the tool can't deliver.
+- **Evidence:** With the configured 'Music Library' root (tracks only in subfolders) the card shows 'Need at least 2 tracks ≥ 2 min (found 0).' (r3_main): routes_tools.py:1367-1371 uses folder.iterdir() with no recursion. On a flat folder of the original bench files, the quietest clip 'Normalized −8 LUFS' measured -10.41 LUFS and TP -0.86 dBTP, which exceeds the tool's -1.0 dBTP ceiling. The real tool produced -11.79 LUFS for that same file. The preview uses loudnorm=I=-8:TP=-1.5:LRA=11, a dynamic limiter (routes_tools.py:1351-1361), while the tool applies static gain capped by true peak. The label is hard-coded to lufs -8.0. Clips accumulate in ~/.fablegear/previews (20 files after 5 previews; TTL cleanup only).
+- **Fix:** Reuse scanner.scan_directory for candidates. Compute gain with _capped_gain_db from a full-track _measure_lufs, then apply 'volume=<gain>dB' to the clip. Show predicted after-LUFS and whether it is capped.
+
+#### [MEDIUM · demonstrated] 16-bit AIFF is silently converted to little-endian AIFF-C 'sowt'
+
+- **ID:** `tool-normalize-aiff-to-aifc-sowt` · **Area:** chop-shop-tool · **Tool/surface:** Normalize Loudness
+- **Expected:** Format preserved: plain big-endian AIFF.
+- **Actual:** The container and encoding change, so the file is no longer what the user exported or bought.
+- **Evidence:** Header bytes: original 'Bench Aiff16 - Cover.aiff' form 'AIFF'; after normalising, form 'AIFC' with compression 'sowt'. Same for 'Vera Lux - Pressure.aiff' (ffprobe pcm_s16be->pcm_s16le). Code: audio_processor.py:446 uses pcm_s16le. Whether older CDJs or Rekordbox play AIFF-C sowt was not testable here (speculative).
+- **Fix:** Use pcm_s16be / pcm_s24be for .aif/.aiff, which also fixes the 24-bit failure.
+
+#### [LOW · demonstrated] Every rewritten file's permissions change from 0644 to 0600
+
+- **ID:** `tool-normalize-file-mode-0600` · **Area:** chop-shop-tool · **Tool/surface:** Normalize Loudness
+- **Expected:** Original mode, owner and (optionally) times preserved.
+- **Actual:** Restricted mode on every normalised track.
+- **Evidence:** All 15 files rewritten in the main run, and the Long Mix files, went from 0644 to 0600. Cause: tempfile.mkstemp (audio_processor.py:509) creates the file 0600, and shutil.move keeps that mode. Impact on shared drives/NAS or another user account is speculative.
+- **Fix:** shutil.copymode(original, tmp) before the swap, or os.chmod to the original st_mode.
+
+#### [LOW · demonstrated] Normalize writes a mislabelled aggregate FableGear DB row and state files; Rekordbox analysis is left stale with no warning
+
+- **ID:** `tool-normalize-boundary-db-writes` · **Area:** boundary · **Tool/surface:** Normalize Loudness
+- **Expected:** The DB write is labelled 'normalize', carries per-file rows usable by undo, and is covered by the same revert marker. The UI suggests re-analysing changed tracks in Rekordbox.
+- **Actual:** A DB-layer side effect of a file tool that has no revert marker, plus no re-analysis guidance.
+- **Evidence:** master.db (device and local) sha unchanged, so Normalize does not write the Rekordbox DB. ~/.fablegear/fablegear.db fg_processing_log gained (1,'tag_tracks',…,'{"files_processed": 20, … "normalized": 15, "errors": 4}') per completed run, with no per-file data and no revert cover (cli.py:905-945). The drive-side Archive/Database/fablegear.db was unchanged, so the two archives diverge. New files: ~/rekordbox-toolkit/scan_index.json and <music folder>/.fablegear_state.json (records exit_code -15 for cancels). Inferred, not testable: Rekordbox's stored analysis (waveform, auto-gain, file size) for re-encoded tracks goes stale and the UI does not suggest re-analysis.
+- **Fix:** Fold into the per-file normalize journal (no-restore finding). Write to the active archive DB consistently. After a run, list the changed tracks that are present in Rekordbox and advise re-analysis.
+
+#### [LOW · demonstrated] One-shot samples in Sample Packs are normalised like tracks
+
+- **ID:** `tool-normalize-sample-packs-included` · **Area:** chop-shop-tool · **Tool/surface:** Normalize Loudness
+- **Expected:** Short one-shots and sample-pack folders are excluded, or at least listed for confirmation.
+- **Actual:** Samples are boosted and rewritten in place.
+- **Evidence:** 'Sample Packs/kick_01.wav' went from -33.4 LUFS to -8.86 LUFS (+24.5 dB), with tags created ('Created new tag block for tagless file'). There is no exclusion when the library root is chosen, while the Rekordbox fixture and other tools treat Sample Packs as non-tracks.
+- **Fix:** Skip files under a minimum duration (the preview already uses 2 min) or folders matching the sample-pack exclusions used elsewhere.
+
+#### [INFO · demonstrated] Confirmed good: true-peak cap holds, failures leave originals intact, re-running does not apply gain twice
+
+- **ID:** `tool-normalize-good-peak-and-idempotence` · **Area:** chop-shop-tool · **Tool/surface:** Normalize Loudness
+- **Expected:** n/a
+- **Actual:** n/a
+- **Evidence:** No output above -1.0 dBTP (FLAC/WAV/AIFF exactly -1.0; MP3 at or below -2.09). Hot master attenuated -5.55 to -8.00 LUFS (TP -0.27 to -2.67). The no-headroom crest MP3 was skipped with a clear 'Needs a limiter' log line. Failed M4A and 24-bit AIFF files stayed byte-identical. No .bak was ever left behind. Re-run on the normalised library: '0 tracks were re-encoded … 16 were already at the right level' and every audio sha was unchanged (r3_after1 vs r3_after2). FLAC kept 24-bit and its cover stream. File extensions are preserved.
+- **Fix:** Keep these properties when adding the journal/trash and the codec fixes. Add regression tests for re-run idempotence.
+
+#### [INFO · demonstrated] Harness: restart.sh records the subshell PID, so 'kill -9 $(cat server.pid)' does not kill the Flask server
+
+- **ID:** `tool-normalize-harness-restart-pid` · **Area:** other · **Tool/surface:** audit harness (sbx-*/restart.sh)
+- **Expected:** server.pid holds the python PID.
+- **Actual:** Other auditors' 'kill -9 after restart' tests may not have killed the server.
+- **Evidence:** After restart.sh, server.pid=17793 but the Flask process was 17794, a child of the `cd … && nohup python app.py &` subshell. Killing 17793 left 17794 serving on 8115, and the next restart.sh failed to bind (new pid 19174 died) while the old server kept running. I redid the crash test against the real PID found via /proc/*/cwd. The initial launch_sandbox.sh PID is correct; only restart.sh is affected.
+- **Fix:** In restart.sh, use `( cd "$DST/app" && exec env HOME=… nohup python app.py ) &` or `cd` first and then background python directly, so $! is the python PID.
 
 ## Chop Shop: Convert Format
 
@@ -2174,6 +3166,307 @@ This is cross-cutting rather than novelty-specific (novelty creates no savepoint
 2. Each load also rewrote 'Music Library/.fablegear_state.json' (steps_completed.audit).
 3. This is noise in the Archive and a write to the library root on every app open.
 - **Fix:** Write silent-audit reports only when results change or once a day, or keep them in Logs with rotation.
+
+## Chop Shop: Pipeline Wizard
+
+_Auditor: `tool-pipeline`_
+
+Round 3 live audit of the Chop Shop Pipeline Wizard (static/chop_shop/pipeline.js, POST /api/run/pipeline in routes_tools.py:366, _stream_pipeline in helpers.py:1103). Sandbox pipeline-r3 on port 8118, driven through the real UI with headless Chromium. I took sha256, tag, DB and undo-API snapshots before and after every run. Covered: dry run of 9 step types; a live 5-step run followed by reverts through the undo endpoints; a failing middle step; Cancel mid-run; kill -9 of the server mid-run, then relaunch and re-run; a confirm-mode checkpoint, relaunch, then Resume.
+
+Overall verdict: the pipeline has no working session model and no run-level undo.
+- In the default (auto) mode it never writes a checkpoint, so a crash or cancel offers nothing to resume. The only mode that saves a checkpoint (confirm between steps) is the one that locks the UI (E4).
+- "Resume" re-runs every step from step 1, even though the UI shows it starting at step N. A re-applied Rename step moved a file out of the library on its second pass.
+- "Dry Run (preview only)" is on by default, yet it wrote tags to every file and wrote a new row into the FableGear DB from the Import step.
+- There is no restore point for the run as a whole. Only the organize and rename moves can be reverted. Tag writes, normalisation and the Import DB row cannot. Revert order is wrong for chained moves of the same file.
+- A kill -9 left the cli.py child running unattended and still writing files. A Cancel left a truncated temp audio file inside the music library.
+
+Confirmed good: steps run in order; a failing step stops the run cleanly and is marked failed in the UI; each step writes its own report under FableGear Archive/Reports/<Tool> (Link Playlists excepted); DB-writing steps take a master.db savepoint before writing; convert and relocate are refused in dry run; reverting organize and rename twice is safe.
+
+**Coverage**
+
+- LIVE (round 3, sandbox sbx-pipeline-r3, port 8118, driven through the UI): dry-run pipeline audit, process, rename, duplicates, prune, import, link, organize, novelty with snapshots r3_s01 to r3_s02 (scripts and outputs: /tmp/claude-0/-home-user-FableGear/9074577f-2e6a-5e16-bdce-ef5b26f1b16b/scratchpad/audit/tool-pipeline/r3_t1_dry.py, out/r3t1_dry.json, snaps/r3_s0*.json).
+- LIVE: 'Load recommended order' with the default Dry Run, which is refused because of relocate (screens/tool-pipeline/r3/r3t1b_recommended_dry_01_recommended_dry_refused.png).
+- LIVE: live auto-mode run process, rename, import, link, organize, then reverts through /api/undo/operations/revert (organize and rename, each twice) and /api/undo/database/revert (import), then re-hash against BEFORE (r3_t2_live.py, snaps r3_s10/s11/s12, out/r3_undo_*.json).
+- LIVE: kill -9 of the server while Tag Tracks was running (19 files, including 8 long mp3s): checked orphaned cli.py processes, restarted, reloaded the UI with the same browser profile (same localStorage), checked the resume banner, /api/checkpoint/check and ~/.fablegear/checkpoints, then re-ran the same pipeline and counted per-file actions (r3_t3_kill.py, r3_t3b_relaunch.py, out/r3t3_kill*.json, out/r3_t3b.log, snaps r3_s20 to s24).
+- LIVE: confirm-between-steps run (rename, process) up to the step-1 checkpoint, then restart.sh, Resume banner, Resume, Run, with the request body captured (r3_t4_resume.py, out/r3_t4.log, snaps r3_s30 to s33).
+- LIVE: failing middle step (import of a typo path) and Cancel mid Tag Tracks through #tfm-interrupt-btn (r3_t5_fail_cancel.py, out/r3_t5.log, snaps r3_s40/s41).
+- LIVE via API: dry run of the 'normalize' step (it has no UI button) and dry run of convert, which is refused (out/r3_normdry.sse, snaps r3_s50/s51).
+- ROUND 2 artifacts reused as corroboration (same scripts, earlier sandbox sbx-pipeline-r; moved to prev_r2/ under the same label dir): full recommended live run including relocate; cancel run t4 (exit -15, no report).
+- CODE: pipeline.js (checkpoint save, resume and finish logic), routes_tools.py:366-592, helpers.py:1103-1190, state_tracker.py and state_tracker.js, routes_undo.py (_SESSION_GAP_SEC, ORDER BY id, database/revert), audio_processor.py:500-545 (normalise temp file).
+- NOT TESTED: prune actually deleting or trashing files. fpcalc (chromaprint) is absent and exact-hash matching found 0 duplicate groups, so prune had nothing to act on. Convert run live inside the pipeline (E8 covers convert itself). Novelty run live. AcoustID enrichment (fpcalc absent). Closing the window or navigating away mid-run: the SSE generator's finally sends SIGTERM to the step (helpers.py:1150-1160); this is inferred only. The Rekordbox-running gate (no Rekordbox process on Linux). WKWebView-specific behaviour.
+- Housekeeping: my sandbox server was stopped by PID; nothing is left listening on port 8118. Note that restart.sh writes the PID of its backgrounding subshell to server.pid, not the PID of python app.py, so `kill $(cat server.pid)` after a restart.sh does not stop the server. I located the real PID through /proc/<pid>/cwd.
+
+**Per-tool safety matrix**
+
+### Pipeline Wizard (auto mode, the default)
+
+| Check | Result |
+|---|---|
+| R — Report | PARTIAL. Each step writes its own report: Archive/Reports/{Audit,Tag Tracks or Normalize,Rename,Duplicates,Prune,Import,Organize,Novelty Scan,Relocate}/*.txt. Link Playlists writes none. There is no pipeline-level report. The UI keeps only the last step's FABLEGEAR_REPORT block as one 'Pipeline Summary' pill with reportPath null (pipeline.js:1028, 1140). Archive/Logs/<tool> folders are created but hold 0 files. A cancelled step writes no report. On failure, the failed step's report may be missing. |
+| M — Revert marker | NONE for the run as a whole. Per step: rename and organize write op-journal rows; rename, import, link and relocate each write an unlabelled master.backup_*.db in Archive/Savepoints. Nothing references the pipeline run or job. /api/undo/timeline stays [] (E1). |
+| U — Undo | PARTIAL. Organize (11 files) and rename (1 file) revert through /api/undo/operations/revert, and a second revert is blocked safely. Tag and normalise writes cannot be undone (E9). The Import FG DB row is refused by /api/undo/database/revert. After the reverts, all 11 audio files still differ from BEFORE. |
+| C — Cancel / interrupt | Stops the current step (exit -15) and skips the rest, but the UI says 'had an error', not 'stopped by user'. No checkpoint, no report for the cancelled step. Left a truncated temp audio file (tmp_8hukl03.flac) in Music Library/Techno. |
+| S — Resume after restart | NONE. Auto mode never saves sb_pipe_checkpoint (only confirm mode does, pipeline.js:1059). After kill -9 and relaunch: no banner, /api/checkpoint/check returns exists:false, ~/.fablegear/checkpoints does not exist. The orphaned cli.py kept writing for at least 21s after the crash. |
+| D — Dry run / preview | Default ON, labelled 'preview only', but NOT side-effect free. Process wrote key tags to all 11 files and BPM to the m4a. Import inserted an fg_content row plus an 'Imported 1 files' transaction. A dry run containing relocate or convert is refused with HTTP 400, which includes the recommended pipeline. |
+| B — Boundary | Steps write the Rekordbox DB (rename, relocate, import and link open master.db write sessions, each with a savepoint) and the FableGear DB (process: fg_content and fg_processing_log; import: fg_content plus transaction_history). Savepoints are unlabelled, and restore targets the device DB (E10). The FG DB import write cannot be reverted. |
+
+_Evidence:_ r3_t1_dry.py / r3_t2_live.py / r3_t3*.py / r3_t5_fail_cancel.py; snaps r3_s01-s51; screens/tool-pipeline/r3/*.png
+
+### Pipeline Wizard (confirm between steps, plus Resume)
+
+| Check | Result |
+|---|---|
+| R — Report | Same per-step reports. The gate summary never renders (E4). |
+| M — Revert marker | None at run level. The localStorage checkpoint holds steps and config only; no restore point. |
+| U — Undo | Same as auto mode. A re-run inside the same 15 minutes merges with the original run in /api/undo/operations, and chained moves revert in the wrong order (two reverts needed). |
+| C — Cancel / interrupt | Gate Stop button is in a hidden container (E4); isRunning stays true. |
+| S — Resume after restart | The banner appears after relaunch ('Checkpoint — resume at step 2 of 2: "Tag Tracks" / Saved just now · Live Run'), but Resume re-sends all steps from step 1 (request body ['rename','process']) and forces confirm mode back on (pipeline.js:71). The checkpoint lives only in localStorage. |
+| D — Dry run / preview | Restored from the checkpoint's dryRun flag. |
+| B — Boundary | Same as auto mode. |
+
+_Evidence:_ out/r3_t4.log; screens r3t4_confirm_01_stuck_after_step1.png, r3t4_resume_01_resume_banner.png, r3t4_resume_02_after_resume_click.png
+
+### step: audit (in pipeline)
+
+| Check | Result |
+|---|---|
+| R — Report | Archive/Reports/Audit/audit_*.txt |
+| M — Revert marker | n/a (read-only) |
+| U — Undo | n/a |
+| C — Cancel / interrupt | not tested |
+| S — Resume after restart | n/a |
+| D — Dry run / preview | Report only. Also writes .fablegear_state.json. |
+| B — Boundary | Reads both DBs |
+
+_Evidence:_ r3_s01->s02
+
+### step: process / Tag Tracks (in pipeline)
+
+| Check | Result |
+|---|---|
+| R — Report | Reports/Tag Tracks/ or Reports/Normalize/ when normalize_mode is on |
+| M — Revert marker | none |
+| U — Undo | none (E9) |
+| C — Cancel / interrupt | SIGTERM mid-normalise leaves a tmp*.<ext> file in the track's folder |
+| S — Resume after restart | Re-run is mostly idempotent: passive BPM/key skips tagged files and loudness inside the 0.5 LU tolerance is skipped, so no double gain was observed. The AIFF key tag is rewritten on every run. |
+| D — Dry run / preview | WRITES tags (11 of 11 files changed) and FG DB rows |
+| B — Boundary | Writes fablegear.db fg_content and fg_processing_log |
+
+_Evidence:_ r3_s01->s02; out/r3t3_kill_relaunch.json (rerun: no 'Normalising' line for the 5 files normalised before the crash)
+
+### step: rename (in pipeline)
+
+| Check | Result |
+|---|---|
+| R — Report | Reports/Rename/*.txt (terse; says 'check the log above') |
+| M — Revert marker | op-journal rows plus master.db savepoint |
+| U — Undo | Reverts work. Chained rename then quarantine needs two reverts (ORDER BY id). The quarantine manifest is left stale. |
+| C — Cancel / interrupt | not isolated |
+| S — Resume after restart | NOT idempotent: a second pass quarantined the file the first pass had renamed |
+| D — Dry run / preview | No changes |
+| B — Boundary | Opens a RB write session (0 rows updated in the sandbox) |
+
+_Evidence:_ out/r3_t4.log; r3_s31->s32->s33
+
+### step: import (in pipeline)
+
+| Check | Result |
+|---|---|
+| R — Report | Reports/Import/import_*.txt or preview_import_*.txt |
+| M — Revert marker | master.db savepoint plus FG transaction with affected_records [] |
+| U — Undo | Refused: "'import' transactions don't carry per-record history" |
+| C — Cancel / interrupt | not tested |
+| S — Resume after restart | n/a |
+| D — Dry run / preview | WRITES the FG DB (new fg_content row for Incoming/Newcomer - Fresh Cut.mp3, plus a transaction_history entry) |
+| B — Boundary | Writes the FG DB. The RB sync failed with IntegrityError and rolled back, but the step still exited 0. |
+
+_Evidence:_ r3_s01->s02 undo_db_history; out/r3t2_live.json
+
+### step: link (in pipeline)
+
+| Check | Result |
+|---|---|
+| R — Report | No report file (dry run or live) |
+| M — Revert marker | master.db savepoint (live) |
+| U — Undo | Savepoint restore only (E10 caveat) |
+| C — Cancel / interrupt | not tested |
+| S — Resume after restart | n/a |
+| D — Dry run / preview | No writes ('DRY RUN — no playlist rows will be written') |
+| B — Boundary | RB write session |
+
+_Evidence:_ out/r3t1_dry.json, r3t2_live.json
+
+### step: organize (in pipeline)
+
+| Check | Result |
+|---|---|
+| R — Report | Reports/Organize/*.txt |
+| M — Revert marker | op-journal rows |
+| U — Undo | 11 of 11 moved back; second revert blocked safely |
+| C — Cancel / interrupt | not reached (cancelled earlier) |
+| S — Resume after restart | Re-run moves whatever is in the source, including stray tmp files |
+| D — Dry run / preview | No moves |
+| B — Boundary | Updates FG DB paths |
+
+_Evidence:_ out/r3_undo_org1.json, r3_undo_org2.json
+
+### step: duplicates / prune / novelty (in pipeline)
+
+| Check | Result |
+|---|---|
+| R — Report | Reports/Duplicates, Reports/Prune, Reports/Novelty Scan |
+| M — Revert marker | not exercised (0 duplicate groups; novelty dry run only) |
+| U — Undo | not exercised |
+| C — Cancel / interrupt | not tested |
+| S — Resume after restart | not tested |
+| D — Dry run / preview | No file changes; processing-log rows written |
+| B — Boundary | fg_processing_log only |
+
+_Evidence:_ r3_s01->s02 (fpcalc absent, so exact-hash matching only)
+
+### step: relocate / convert / normalize (in pipeline)
+
+| Check | Result |
+|---|---|
+| R — Report | relocate: Reports/Relocate (round 2 live run); normalize via API: Reports/Tag Tracks |
+| M — Revert marker | relocate: savepoint; convert: none (E8) |
+| U — Undo | relocate: op-journal type 'relocate'; convert: refused (E8) |
+| C — Cancel / interrupt | not tested |
+| S — Resume after restart | not tested |
+| D — Dry run / preview | relocate and convert: HTTP 400 refusal. normalize: no audio writes (good), but it has no UI button. |
+| B — Boundary | relocate writes the RB DB |
+
+_Evidence:_ out/r3_normdry.sse; curl outputs in this report
+
+**Findings**
+
+#### [HIGH · demonstrated] Pipeline 'Resume' re-runs every completed step from step 1; a re-applied Rename moved a file out of the library
+
+- **ID:** `tool-pipeline-resume-reruns-completed-steps` · **Area:** session-resume · **Tool/surface:** Pipeline Wizard
+- **Expected:** Resume starts at completedIdx+1, shows earlier steps as done or skipped, and checks that inputs have not changed since the checkpoint.
+- **Actual:** Resume restarts the whole pipeline. Completed steps are applied again, and Rename is not idempotent: its second pass quarantined a file the first pass had renamed.
+- **Evidence:** r3_t4_resume.py (out/r3_t4.log). Confirm-mode live run of rename then process. After step 1, localStorage sb_pipe_checkpoint = {steps:[rename,process], completedIdx:0, dryRun:false}. Ran restart.sh and reloaded. Banner: 'Checkpoint — resume at step 2 of 2: "Tag Tracks" / Saved just now · Live Run' (screens/tool-pipeline/r3/r3t4_resume_01_resume_banner.png). Clicking Resume focuses step 2 and forces 'Confirm between steps' back on (r3t4_resume_02_after_resume_click.png). With confirm unchecked, the captured request was RESUMED REQUEST steps: ['rename','process']. The second Rename logged 'Rename complete: 0 renamed, 4 skipped, 0 collisions handled, 1 quarantined'. Snapshot diff r3_s31 to r3_s32: REMOVED Music Library/Sample Packs/kick - 01.wav, ADDED Volumes/DJDRIVE/No-Name tracks for Tagging/kick - 01.wav. The first pass had renamed kick_01.wav to 'kick - 01.wav'. Code: resumeFromCheckpoint rebuilds all steps (pipeline.js:47-78) and keeps no start index; confirm mode loops from `let i = 0` (pipeline.js:1035); auto mode posts every step (pipeline.js:1105).
+- **Fix:** Store startIdx (and a run id) in the checkpoint and send only steps[startIdx:]; mark earlier steps 'done' in the sidebar; don't force confirm mode on resume (pipeline.js:71) until E4 is fixed; before resuming, compare a file manifest (path/size/mtime) captured at checkpoint time and warn if the inputs changed.
+
+#### [HIGH · demonstrated] Default (auto) pipeline never saves a checkpoint: after a crash, cancel or failure nothing is offered to resume
+
+- **ID:** `tool-pipeline-no-checkpoint-auto-mode` · **Area:** session-resume · **Tool/surface:** Pipeline Wizard
+- **Expected:** Any interrupted run (crash, cancel, failed step) leaves a server-side record (run id, start time, roots and config, steps done and remaining, restore point) and is offered for resume after relaunch.
+- **Actual:** No record survives. The only code path that writes a checkpoint is the confirm mode that locks the UI, and even that is browser localStorage only.
+- **Evidence:** r3_t3_kill.py / r3_t3b_relaunch.py. Live auto run of rename, process and organize over 19 files. kill -9 of the server when Tag Tracks had 4 actions done; UI log: '[Connection error] network error ✗ Exited with code 1'. ls ckpt: None, rb_ckpt keys: []. After restart: ~/.fablegear/checkpoints does not exist; /api/checkpoint/check?tool=process|rename|organize all return {"exists":false}; visible resume banners []; pipe-resume-banner hidden (r3t3_kill_relaunch_01_relaunch_wizard.png). .fablegear_state.json lists only 'audit' and 'Rename Files', with no record of the interrupted Tag Tracks step. Cancel (r3_t5) and failing-step (r3_t5) runs also left 'FAIL ckpt: None' / 'CANCEL ckpt: None' and no banner. Code: _savePipeCheckpoint is called only at pipeline.js:1059 (confirm mode), and confirm mode is unusable (E4). The checkpoint lives only in localStorage (pipeline.js:756-771).
+- **Fix:** Write a server-side pipeline run record before step 1 and update it on every step_end (e.g. ~/.fablegear/checkpoints/pipeline/<run_id>.json); have /api/checkpoint/check support tool=pipeline; render the banner from the server record; also write it on cancel and failure.
+
+#### [HIGH · demonstrated] Pipeline 'Dry Run (preview only)', which is on by default, writes audio tags and the FableGear DB, including a new Import row
+
+- **ID:** `tool-pipeline-dry-run-writes` · **Area:** chop-shop-tool · **Tool/surface:** Pipeline Wizard (process + import steps)
+- **Expected:** A run labelled 'preview only' changes nothing but report files.
+- **Actual:** Tags are written to every file, and the Import preview inserts a FableGear DB row and a transaction that /api/undo/database/revert refuses to revert.
+- **Evidence:** r3_t1_dry.py with dry-run-2 checked. Diff r3_s01 to r3_s02: all 11 audio files CHANGED (e.g. Vera Lux - Pressure.flac gains initialkey 11B; Glitterball.m4a gains bpm 162). fgdb.fg_content has keys written for 11 rows plus a NEW row [23, Incoming/Newcomer - Fresh Cut.mp3]. /api/undo/database/history gains {operation_type:'import', description:'Imported 1 files from 1 drives', affected_records: []}. fg_processing_log gains 'tag_tracks ok key_written 11' and 'import ok new 1'. The CLI itself logs 'DRY RUN — loudness normalisation suppressed. BPM/key tag writes will still occur unless --no-bpm / --no-key are set.' Round 2 produced the identical diff (prev_r2/snaps/s01_before_dry vs s02_after_dry). Per step type: audit, rename, duplicates, prune, link, organize and novelty made no file changes; normalize via the API made no audio writes (r3_s50 to s51). Extends E9 with the Import dry-run DB write.
+- **Fix:** When dry_run is set, route the process step to a pure analysis/preview path (no _write_tags) and the import step to a no-write preview (no importer.commit and no history record); add a regression test that hashes the library and DB before and after a dry-run pipeline.
+
+#### [HIGH · demonstrated] No 'revert to before this pipeline run' marker; per-step undo is partial and not linked to the run
+
+- **ID:** `tool-pipeline-no-run-level-revert` · **Area:** undo-revert · **Tool/surface:** Pipeline Wizard
+- **Expected:** Before step 1 the pipeline creates a restore point (file manifest plus hashes, DB snapshots) recorded against a run id, and the undo UI offers 'Revert pipeline run at <time>', which restores byte-identical files and DB rows.
+- **Actual:** The user must find and revert each step's artefacts separately. Tag, normalise and import changes cannot be reverted, and nothing ties the savepoints or journal rows to the pipeline run.
+- **Evidence:** r3_t2_live.py: live process, rename, import, link, organize. Afterwards /api/undo/operations shows two unrelated sessions (organize ids 7-17, rename id 4); /api/undo/savepoints shows three unlabelled master.backup_*.db files (taken by rename, import and link); /api/undo/timeline returns [] (E1). Reverts: organize {reverted:11}, again {blocked:11}; rename {reverted:1}, again {blocked:1}; database/revert of the import transaction returns {"error":"'import' transactions don't carry per-record history and can't be reverted this way."}. Diff r3_s10 (BEFORE) to r3_s12 (after all reverts): all 11 audio files still CHANGED (tags and normalisation, E9), fg_content still has the imported row, and .fablegear_state.json and the archive DB copies remain. The savepoints back up the local master.db, but restore targets the device DB (E10).
+- **Fix:** Generate a run_id in api_pipeline; pass it to every CLI step (env FABLEGEAR_RUN_ID) so that op-journal rows, savepoints and DB transactions carry it; snapshot the tag and audio state of every file a step will mutate (or hard-link copies into Archive/Trash/<run_id>) before mutating; expose /api/undo/run/<run_id>/preview and /revert.
+
+#### [MEDIUM · demonstrated] After the server is killed (app crash) the step's cli.py keeps running unattended and keeps mutating files; the run ends half-applied with no record
+
+- **ID:** `tool-pipeline-orphan-continues-after-crash` · **Area:** chop-shop-tool · **Tool/surface:** Pipeline Wizard
+- **Expected:** Either the job dies with the app and is recorded as interrupted, or it continues as a tracked job that the relaunched app reconnects to and reports.
+- **Actual:** The work continues invisibly for a while and then stops. The library is left half-processed, with no report, checkpoint or UI indication.
+- **Evidence:** r3_t3_kill.py. After `kill -9 <server pid>`, cli_procs at 2s showed '21364 1 9 .../venv/bin/python $S/app/cli.py process ...' (PPID 1) and at 10s '21364 1 21 ...'. Diff r3_s21 (at kill) to r3_s22 (10s later): BPM tags written to Longform Drone 01/03/07/08, Soft Hands - Whisper.mp3 and kick - 01.wav re-encoded, temp file Longform/tmpgylvx1ra.mp3 created. Final state r3_s24: 8 of 19 files modified, 11 untouched, and the organize step never ran. ~/.fablegear/runtime/active_subprocesses.json still listed pid 21364 after restart. Code: helpers.py:1141 Popen(start_new_session=True) detaches the child from the server's lifetime.
+- **Fix:** On startup, read the subprocess registry, report surviving or dead job PIDs and mark their runs interrupted; make the CLI exit cleanly on stdout EOF or BrokenPipe, or have the server use a parent-death signal; persist a run record (see the no-checkpoint finding) so relaunch can say exactly which files were done.
+
+#### [MEDIUM · demonstrated] Cancel during normalisation leaves a truncated temp audio file inside the music library, and later steps then treat it as a track
+
+- **ID:** `tool-pipeline-cancel-temp-file` · **Area:** chop-shop-tool · **Tool/surface:** Pipeline Wizard (process step)
+- **Expected:** Cancel leaves the library exactly as it was, or as it was after the last completed file. Temp files are invisible to scans and cleaned up on SIGTERM.
+- **Actual:** A partial audio file with real tags is left among the tracks, where later Tag, Organize or Import steps will pick it up.
+- **Evidence:** r3_t5_fail_cancel.py: clicked #tfm-interrupt-btn while Tag Tracks was normalising. Diff r3_s40 to r3_s41: ADDED 'Music Library/Techno/tmp_8hukl03.flac' (246,841 bytes; the original Vera Lux - Pressure.flac is 488,347 bytes and was untouched). `find $S/Volumes -name 'tmp*'` still lists it. The next run (API normalize dry run) reported files_processed 11, which counts the tmp file as a library track. Code: audio_processor.py:509 `tempfile.mkstemp(suffix=suffix, dir=path.parent)` creates a file with an audio extension next to the track; cleanup is in try/finally, but cli.py installs no SIGTERM handler, so /api/cancel's SIGTERM skips it. Also seen after kill -9 (tmpgylvx1ra.mp3).
+- **Fix:** Write temps with a non-audio suffix (e.g. '.fgtmp') or into Archive/Tmp on the same volume; install a SIGTERM handler in cli.py that raises SystemExit so finally blocks run; sweep stray temp files at the start of each run.
+
+#### [MEDIUM · demonstrated] User cancel is reported as a step error; no report and no summary of what was already applied
+
+- **ID:** `tool-pipeline-cancel-reported-as-error` · **Area:** chop-shop-tool · **Tool/surface:** Pipeline Wizard
+- **Expected:** Cancel is shown as 'stopped by you after step 1 of 3; step 2 partially applied to N files', with a partial report and a checkpoint.
+- **Actual:** Cancel looks like a tool failure, and the user is not told that step 1 was fully applied and step 2 partly applied.
+- **Evidence:** r3_t5 cancel: EV {'step_end': 2, 'step_name': 'Tag Tracks', 'exit_code': -15}, {'done': True, 'exit_code': -15, 'failed_step': 'Tag Tracks'}. Log tail: '✗ Pipeline stopped — "Tag Tracks" had an error. | Interrupt signal sent — waiting for process to exit…'. No FABLEGEAR_REPORT_PATH for step 2; 'CANCEL ckpt: None'; reopening the wizard shows no banner. Round 2 t4 showed the same (prev_r2/out/t4_cancel.json). The 'Pipeline stopped by user' branch (pipeline.js:1017) is reachable only from the confirm gate, which is hidden (E4).
+- **Fix:** Treat a negative or SIGTERM exit after /api/cancel as stopped=true; emit a pipeline summary event listing per-step exit codes and report paths; have the CLI flush a partial report from its signal handler.
+
+#### [MEDIUM · demonstrated] Re-run merges with the earlier run in the undo journal, and chained moves of one file revert in the wrong order (two reverts needed)
+
+- **ID:** `tool-pipeline-undo-chain-order` · **Area:** undo-revert · **Tool/surface:** Pipeline Wizard (rename step) / routes_undo.py
+- **Expected:** One revert restores the original name, by processing journal rows newest-first. Sessions are grouped by run id, not by a time gap. The quarantine manifest is updated on revert.
+- **Actual:** The first revert only partly works and gives a misleading reason. The user has to revert repeatedly, and the manifest goes stale.
+- **Evidence:** After the resumed run (tool-pipeline-resume-reruns-completed-steps), /api/undo/operations showed ONE rename session {count:2, first_id:3, last_id:5, sample:['kick - 01.wav','kick - 01.wav']}, merging the original run and the resumed run (routes_undo.py:322 _SESSION_GAP_SEC = 15*60). Preview: id 3 {ok:false, reason:'file is no longer at the organized location'}, id 5 {move_back}. Revert #1 gave {reverted:1, blocked:1}: kick back at 'Sample Packs/kick - 01.wav'. Revert #2 gave {reverted:1, blocked:1}: kick_01.wav restored. Revert #3 gave {blocked:2}. 'No-Name tracks for Tagging/_quarantine_manifest.json' still lists the file. /api/undo/operations keeps showing reverted sessions as revertible:true. Cause: plan rows are processed in ascending order (routes_undo.py:337 ORDER BY id).
+- **Fix:** Order revert plans by id DESC and evaluate each item against the state after the newer items are reverted; group sessions by run_id; remove manifest entries on revert; mark sessions as reverted.
+
+#### [MEDIUM · demonstrated] Pipeline keeps only the last step's report in the UI, writes no run report, and the Link step writes no report file
+
+- **ID:** `tool-pipeline-reports-collapsed` · **Area:** chop-shop-tool · **Tool/surface:** Pipeline Wizard
+- **Expected:** One pipeline run report (run id, start and end, config, per-step exit code, counts and report path) saved in Archive/Reports/Pipeline and linked from the summary pill. Every step writes a report.
+- **Actual:** Step reports are scattered across tool folders with nothing linking them, and the UI shows only the final step.
+- **Evidence:** r3_t1 dry run of 9 steps: sessionReports = [['Pipeline — Dry Run (preview only)', 480, 'Novel Track Scan complete…', null]], i.e. only the 9th step. r3_t2 live run: [['Running Pipeline', 115, 'Done organizing…', null]]. Per-step files exist for 8 of 9 step types in Archive/Reports/<Tool>/, but none for Link Playlists in either the dry or live run. Tag Tracks reports go to Reports/Normalize/ when normalize_mode is on. Archive/Logs/{Audit,Duplicates,Import,Normalize,Prune,Relocate,Tag Tracks} exist but contain 0 files. Rename report body: '6 files had errors — check the log above.' (no file list). Code: reportBuffer is reset on every FABLEGEAR_REPORT_BEGIN (pipeline.js:1140); reportPath is hard-coded null (pipeline.js:1028).
+- **Fix:** Accumulate a per-step report array keyed by step index; write Reports/Pipeline/pipeline_<ts>.txt from _stream_pipeline (it already sees every FABLEGEAR_REPORT_PATH); make the Link step emit a report; include failing file names in reports.
+
+#### [MEDIUM · demonstrated] The recommended pipeline cannot be previewed: Dry Run is on by default but relocate is refused, so the whole preview fails
+
+- **ID:** `tool-pipeline-recommended-cannot-preview` · **Area:** chop-shop-tool · **Tool/surface:** Pipeline Wizard
+- **Expected:** The recommended order is previewable, with steps that have no preview shown as 'will be skipped in preview' or previewed read-only.
+- **Actual:** The user must delete a recommended step or run live without any preview.
+- **Evidence:** r3_t1_dry.py part b: 'Load recommended order' gives ['process','rename','duplicates','prune','relocate','import','link','organize'] (runners.js:412). Run with the default Dry Run. Log: 'Pipeline error: Step 'Fix Broken Paths' (relocate) has no preview mode — remove it from this dry run, or run the pipeline live. ✗ Exited with code 1' (screens/tool-pipeline/r3/r3t1b_recommended_dry_01_recommended_dry_refused.png). Code: routes_tools.py:524-529 (relocate) and 507-512 (convert).
+- **Fix:** In dry-run mode, skip non-previewable steps with a clear 'not previewed' line instead of a 400, or add a read-only relocate preview (list the rows that would change).
+
+#### [MEDIUM · demonstrated] Pipeline resume banner has no starting-point reference and lives only in localStorage
+
+- **ID:** `tool-pipeline-resume-banner-no-starting-point` · **Area:** session-resume · **Tool/surface:** Pipeline Wizard
+- **Expected:** 'You were running <steps> on <roots>, started <time>; steps 1-k done (reports…); restore point <savepoint or trash id>; inputs unchanged or changed since.'
+- **Actual:** Only the next step's name and the save age are shown. Clearing WebView storage loses it.
+- **Evidence:** Banner text after relaunch: 'Checkpoint — resume at step 2 of 2: "Tag Tracks" / Saved just now · Live Run' (r3t4_resume_01_resume_banner.png). Checkpoint payload (localStorage sb_pipe_checkpoint): {steps:[{type,_config}], completedIdx, dryRun, ts}. It has no run start time, no roots summary, no completed or remaining file counts, no restore point and no report links. Nothing server-side: /api/checkpoint/check has no 'pipeline' tool (routes_tools.py:851).
+- **Fix:** Back the banner with the server-side run record proposed above, and include a 'Revert to before this run' action next to Resume.
+
+#### [LOW · demonstrated] Import step reports success (exit 0, '0 errors') while its Rekordbox sync rolled back; the pipeline marks it done and continues
+
+- **ID:** `tool-pipeline-import-silent-rb-failure` · **Area:** boundary · **Tool/surface:** Pipeline Wizard (import step)
+- **Expected:** A rolled-back Rekordbox write makes the step fail (or warn), and the pipeline stops or flags it.
+- **Actual:** The step is marked successful and later steps run on the assumption that the tracks are in Rekordbox.
+- **Evidence:** out/r3t2_live.json step 3: 'ERROR key_mapper — Failed to resolve/create key row for 'Bm'', 'IntegrityError: NOT NULL constraint failed: djmdKey.usn', 'ERROR db_connection — Exception during write session — rolling back', 'Synced 0 tracks to Rekordbox', 'Multi-drive import complete: 1 total, 1 new … 0 errors', then step_end exit_code 0. Identical in round 2. The djmdKey.usn failure may be specific to the synthetic fixture DB. The pipeline-relevant point is that a rolled-back DB write still yields exit 0 and a green step.
+- **Fix:** Count sync failures as errors in importer_database and exit non-zero when any DB write session rolls back; surface 'synced N of M' in the step report.
+
+#### [LOW · demonstrated] Pipeline step completion is journalled under display names (never shown on tool cards), and dry runs and failures are recorded as runs
+
+- **ID:** `tool-pipeline-step-state-mislabelled` · **Area:** session-resume · **Tool/surface:** Pipeline Wizard
+- **Expected:** Step state is keyed by tool type, distinguishes dry run, live, failed and interrupted, and is shown in the UI.
+- **Actual:** The state is written but never surfaced, and when it is it is misleading.
+- **Evidence:** After r3_t3, .fablegear_state.json steps_completed = {'audit': {...}, 'Rename Files': {...exit_code 0}}. After the API normalize dry run it gained 'Normalize'. helpers.py:1180 calls mark_step_complete(_pipe_root, step.get('type', name), exit_code), but the built steps carry no 'type' (routes_tools.py:502, 586), so the key is the display name. state_tracker.js:11 STATE_STEP_MAP expects 'process', 'organize' and so on, so pipeline runs never mark the tool cards. Dry runs and failed steps are journalled the same way, and an interrupted step is not journalled at all.
+- **Fix:** Add 'type': stype to each built step; record dry_run and interrupted states; let applyStateToUI show 'previewed' vs 'applied'.
+
+#### [LOW · demonstrated] Files rewritten by normalisation lose group/other read permission (0644 becomes 0600)
+
+- **ID:** `tool-pipeline-normalized-file-perms` · **Area:** chop-shop-tool · **Tool/surface:** Pipeline Wizard (process step)
+- **Expected:** Rewritten tracks keep their original mode.
+- **Actual:** Normalised tracks become owner-only. This can break access on shared or NAS volumes or for other user accounts.
+- **Evidence:** `ls -la Music Library/Techno` after the r3_t5 cancel run: '-rw------- Vera Lux - Pressure.aiff', '-rw------- untitled track 03.mp3' (both normalised), while the un-normalised 'Vera Lux - Pressure.flac' is '-rw-r--r--'. Cause: mkstemp creates the temp file with mode 0600 (audio_processor.py:509), and that temp then replaces the original.
+- **Fix:** Copy the original's mode with shutil.copymode(bak, path) or os.chmod after the move.
+
+#### [INFO · demonstrated] Failing middle step stops the run cleanly (confirmed good), but there is no resume or rollback of the earlier steps
+
+- **ID:** `tool-pipeline-failing-step-good` · **Area:** chop-shop-tool · **Tool/surface:** Pipeline Wizard
+- **Expected:** Same clean stop, plus 'fix and resume from step 2' and 'revert steps 1..k'.
+- **Actual:** Clean stop only.
+- **Evidence:** r3_t5 failing run of process, import(typo path), rename: EV step_end 1 exit 0; step_end 2 exit 1 'PATH is not a directory'; done {exit_code 1, failed_step 'Import Tracks'}; step 3 not started; step classes ['pipe-step done','pipe-step failed','pipe-step']; isRunning False; log '✗ Pipeline stopped — "Import Tracks" had an error.' (r3t5_fail_01_fail_done.png). There is no checkpoint ('FAIL ckpt: None'), no banner on reopen, and step 1's tag writes stay applied with no rollback offer.
+- **Fix:** Covered by the run-record and run-revert fixes above.
+
+#### [INFO · demonstrated] 'normalize' step type is supported by the backend and config UI but cannot be added in the wizard
+
+- **ID:** `tool-pipeline-normalize-step-unreachable` · **Area:** chop-shop-tool · **Tool/surface:** Pipeline Wizard
+- **Expected:** Either expose it or remove the dead path.
+- **Actual:** Dead or hidden step type. Normalisation is reachable only through Tag Tracks' normalize_mode.
+- **Evidence:** The wizard p1 has no pipelineAddStep('normalize') button (template lists audit, convert, duplicates, import, link, novelty, organize, process, prune, relocate, rename; probe 'normalize button present: 0'). routes_tools.py:455-466 and pipeline.js _pipeWizConfigHTML still handle it. An API dry run of a normalize step wrote no audio (r3_s50 to s51: only a report, fg_processing_log and state changed), which is good.
+- **Fix:** Remove the normalize branch or add a button. Either way, keep its dry run non-writing.
 
 ## Lead auditor's own click-through (sandbox port 5090)
 

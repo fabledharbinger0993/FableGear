@@ -14,22 +14,23 @@ Audit of `main` at `1840750`. Run 2026-10-05/06 against the real Flask app in a 
 
 No product code was changed.
 
-> **Status: PARTIAL.**
+> **Status: nearly complete.** 12 of 15 auditors are done; 253 findings, 10 critical.
 >
-> Covered and written up here:
+> Covered:
 >
 > - the code-level z-index review, plus the Record Room and app-wide UI click-through;
-> - four Chop Shop tools: Tag Tracks, Find Duplicates + Prune, Convert, Novelty Scanner;
+> - **both install paths**: the in-app onboarding wizard (live), and the shell first-run, the update path and the unmerged GUI installer (code plus stubbed runs);
+> - **eight Chop Shop tools**: Tag Tracks, Find Duplicates + Prune, Rename, Organize, Normalize, Convert, Novelty Scanner, Pipeline Wizard;
 > - my own click-through.
 >
-> Still running in round 3, after two earlier runs were cut off by account usage limits:
+> Still running, as round 4 (earlier runs were cut off by account usage limits):
 >
-> - the install wizard (live + code, including the unmerged GUI installer);
-> - Rename, Organize, Normalize, the Pipeline Wizard;
-> - undo/resume end to end, the DB tools in the Chop Shop panel, and the Chop Shop UI pass;
-> - independent verification of the critical findings.
+> - the undo endpoints, plus the end-to-end "restart from previous session" test;
+> - the DB tools in the Chop Shop rail (Audit, Fix Paths, Link, Import, Dead Files);
+> - the Chop Shop UI layering pass;
+> - **independent verification of all 10 critical findings**.
 >
-> This file will be updated in place when those land. Until then, critical and high findings carry the original auditor's evidence label but no second-agent verdict. Where two or more auditors found the same defect independently, that is noted as **(×N independent)**.
+> This file will be updated in place. Until then, findings carry the original auditor's evidence label. Where two or more auditors found the same defect independently, that is noted as **(×N independent)**.
 
 ---
 
@@ -54,28 +55,61 @@ No product code was changed.
 Full inventory and a proposed token scale: `FINDINGS_DETAIL.md` → Z-index.
 
 ### Install wizard: checkpoints and exit routes
-**Pending, round 3.** What is established so far:
+**Exit routes exist, but the checkpoints are unsafe.** One resume path permanently traps a first-time user.
 
-- **The in-app Update button installs untagged `main`, not the latest release. [I]**
-  - Its docstring says "latest release", but it runs `git pull origin main --ff-only`.
-  - On the next launch, `launch.sh` sees HEAD *ahead* of the tag and keeps it.
-  - One click moves a release user onto unreviewed `main` (8 commits since Aug 1 were pushed with no PR), and off the release track.
-- **The unmerged standalone installer (`feature/install-wizard`, PR #159) has three problems. [I]**
-  - It has no Cancel, Back or Finish-later; closing the window is the only exit.
-  - Closing the window mid-install leaves brew/pip running orphaned, writing into `venv/`.
-  - `/api/complete` writes `.fablegear_ready` without checking that the install steps succeeded.
-- **The in-app onboarding has a "Finish later" exit and claims to "resume where you left off".** The live step-by-step test of every checkpoint and exit route is in round 3.
+**In-app onboarding wizard** (`templates/onboarding.html`, 8 steps, tested live at every step):
+
+**Checkpoint.** The only checkpoint is the step number plus five text fields, kept in browser `localStorage`. Every consent answer and choice lives in a JS variable that a reload, quit or crash wipes.
+
+**Exit routes:**
+
+| Step | Back | Finish later |
+|---|---|---|
+| 0 | none (first step) | yes |
+| 1 | **none** | yes |
+| 2–6 | yes | yes |
+| 7 | **none** | yes |
+
+Leaving reconfigure without finishing keeps the config byte-identical (good).
+
+**Findings:**
+
+- **CRITICAL: a reload, quit or crash at steps 5–7 traps a first-run user permanently** (`wizard-live-trap7`, also found by the code auditor). On resume the user lands on step 7, which has no Back button. Both room buttons send an empty config and get a 400. Every relaunch resumes on step 7 again, so the app can never be entered unless you hand-clear WebView storage. [D, ×2 independent]
+- **Declined consent turns into full access after a reload.** If you declined Rekordbox read/write, a reload turns that into full read+write, because save-config treats a missing answer as "yes", while the summary still says "Limited mode". [D, ×2 independent]
+- **Reconfigure wipes settings.** It shows none of your current values, and finishing it resets settings the wizard never asked about: AcoustID key, excluded folders, mode, import target, LUFS target and MCP config. [D]
+- **Setup is marked complete too early,** at step 5 ("Enable AI") or step 6 (Import). "Finish later" then misleads you. Leaving mid-import kills the server and leaves a half-imported library, and the stale draft hijacks later reconfigures. [D]
+- **No path is validated.** A `.txt` file is accepted as the Rekordbox DB, a folder as the device DB, and `/proc` as the archive. [D]
+
+**Shell first-run and update path** (`launch.sh`, `setup.sh`, `install.sh`, `/api/update/apply`; code plus stubbed runs):
+
+- **The in-app Update button installs untagged `main`, then the app keeps showing the old release tag.** If a release tag isn't on `main`, `launch.sh` hard-resets the branch, which then breaks the in-app updater. [D, ×2 independent]
+- **A failed update can leave an app that silently never opens.** `/api/update/apply` has no rollback and ignores pip failures. [I]
+- **On a fresh Mac whose only Python is Apple's 3.9,** `setup.sh` builds the venv, aborts with "too old", and never rebuilds it. Following the on-screen advice can't fix it. [D]
+- **A closed Terminal window loses setup's error.** `setup.sh` keeps no log and sets no trap, so `launch.sh` waits silently for up to 40 minutes. The launch lock goes stale at 30 minutes while setup is allowed 40, so a second `setup.sh` can start. [D]
+- **Homebrew can't be installed by the documented one-liner.** `curl | bash` runs it with non-TTY stdin, so Homebrew can't prompt for sudo and aborts on a normal Mac. [I]
+
+**Unmerged standalone GUI installer** (`feature/install-wizard`, PR #159):
+
+- **No Cancel, Back or Finish-later.** Closing the window is the only exit, and it leaves brew/pip running orphaned, writing into `venv/`. [I]
+- **One double-click on Continue skips the Python packages step.** It writes `.fablegear_ready` and launches the app with no packages installed. [D]
+- **A dropped connection counts as a successful install.** [D]
+- **`/api/complete` doesn't check that anything succeeded.** [D]
+- **A best-effort essentia failure blocks the whole install,** offering only "Try Again". On macOS 12–14 with Python 3.13 the user can never finish. [D]
 
 ### Chop Shop tools: reports, "revert back to" markers, safe undo
-**No tool tested so far meets the bar you set.** Summary for the four tested tools (full matrix in §4):
+**No Chop Shop tool meets the bar you set.** Only the *move* tools (Rename, Organize, Novelty) have a working file-level undo. Even those leave Rekordbox broken, and the *rewrite* tools (Tag Tracks, Normalize, Convert) delete originals with no way back. Summary for the 8 tools tested (full matrix in §4):
 
 | Tool | Report written | Restore point before mutating | Undo actually works | Resume after restart |
 |---|---|---|---|---|
 | Tag Tracks | Aggregate only, none on cancel | **None** | **No** (API refuses) | Browser-only banner, no starting point |
 | Find Duplicates (scan) | Yes, plus a good CSV | n/a (read-only for audio) | n/a | Browser-only; Resume switches Deep → Quick |
 | Prune | **None**, though the UI says "check the report" | Savepoint + trash, **not linked to the run** | **No** in the UI; the API restore misplaces files | **None** |
+| Rename | Yes | Savepoint (unlinked) + per-file journal | Files: **yes**, byte-identical and idempotent. **Rekordbox rows are not reverted** (tracks go "missing"). Device DB never relinked. | Browser-only banner; resume works |
+| Organize | Yes | **None** (journal rows only) | Files: yes when sequential. **With 2–4 workers, colliding files are overwritten and undo restores the wrong audio.** Rekordbox paths broken. | Browser-only; server check broken |
+| Normalize | Mislabelled ("Tag Write Failures") | **None; originals deleted** | **No** (API refuses; 0 of 15 originals survive anywhere) | Browser-only; never checkpoints on cancel |
 | Convert | Counts only | **None; originals are deleted** | **No** (API refuses) | Browser-only, no format or progress |
 | Novelty Scanner | Counts only | None tied to a run (journal rows only) | Partial: the copy can be undone, leaving empty folders | Browser-only; stale checkpoint silently skips |
+| Pipeline Wizard | Per step | **None for the run** | Partial: only the rename and organize steps; chained moves revert in the wrong order | **Auto mode saves nothing.** Confirm-mode Resume re-runs every step from step 1 (a re-applied Rename moved a file out of the library). |
 
 Cross-cutting, for every tool:
 
@@ -109,6 +143,11 @@ No surface says "last session started at X, did A→B→C, stopped at step N; re
 | **C3** `tool-convert-c-parallel-stem-race` | **With the default 4 workers, two sources with the same name race** (e.g. `X.flac` and `X.wav` → `X.mp3`). One lossless original is destroyed, and the report says "No errors … nothing lost". Reproduced 3 of 3 times. | [D] |
 | **C4** `tool-process-b-normalize-strips-aiff-wav-id3` | **Tag Tracks' normalize option strips all ID3 tags** from AIFF/WAV during the re-encode, and the report still claims the keys were written. | `audio_processor.py` normalize path [D] |
 | **C5** `dupb-fg-playlists-cascade-lost` | **Prune hard-deletes the pruned files' FableGear DB rows.** The FableGear DB is the Record Room's default library, so their Record Room playlist memberships, cues and beatgrids cascade away. Nothing moves them to the keeper and no backup covers them, despite the card's "Your playlists stay intact". | `pruner.py` / `_journal_prune` [D] |
+| **C6** `tool-normalize-no-restore-no-undo` | **Normalize rewrites audio permanently.** There's no restore point, originals are deleted as soon as each swap succeeds, and the undo API refuses. A search of the whole sandbox found 0 of 15 originals surviving. | `audio_processor.py:543-546` [D] |
+| **C7** `tool-normalize-lossless-tags-stripped` | **Standalone Normalize strips every ID3 tag from WAV and AIFF:** title, artist, BPM, key, cover art and Serato cues. | [D] (same root cause as C4) |
+| **C8** `tool-normalize-wav-bitdepth-downgrade` | **WAV is always re-encoded as 16-bit.** 24-bit and 32-bit float sources lose resolution, contradicting the "same bit depth" claim, and the original is deleted. | [D] |
+| **C9** `tool-organize-workers-race-overwrite` | **Organize with 2 or 4 workers lets colliding files overwrite each other.** 2 of 120 distinct files were permanently lost with "No errors" reported. Undo then put the wrong audio into two original paths. | `library_organizer.py` [D] |
+| **C10** `wizard-live-trap7` | **A reload, quit or crash at onboarding steps 5–7 permanently traps a first-run user on step 7.** It has no Back, save-config returns 400, and every relaunch resumes there. | `onboarding.html` step 7 [D, ×2 independent] |
 
 ### High
 
@@ -139,6 +178,34 @@ No surface says "last session started at X, did A→B→C, stopped at step N; re
 - **Record Room: deleting a playlist leaves no revert marker** (`ui-live-record-playlist-delete-no-undo`). [D]
 - **Record Room: title edits target the wrong database.** In the default view, title edit always 404s because it targets Rekordbox `master.db`, and every failure still writes a `master.db` savepoint. These look like real restore points (`ui-live-record-title-edit-wrong-db`). [D]
 - **Drive unplugged: the app writes onto the boot disk.** Opening the app with the music drive unplugged recreates the drive's folder tree, writes an archive, report and DB there, and toasts "Library audit complete ✓" (`ui-live-record-offline-drive-phantom-writes`). [D]
+
+**Rename, Organize, Normalize, Pipeline (round 3)**
+
+- **Rename: revert leaves Rekordbox broken.** Revert moves files back but never reverts Rekordbox `master.db`, so every relinked track becomes "missing". Later renames can't relink them either (`tool-rename-undo-leaves-rekordbox-broken`). [D]
+- **Rename: device DB not relinked.** Rename relinks only the local `master.db`. The device (USB) DB rows for the same files break and aren't backed up (`tool-rename-device-db-not-relinked`). [D]
+- **Rename: learned rules can move files outside the library.** A learned "exact rename" target isn't validated, so `../..` or an absolute path moves the file outside the library, and the log hides it (`tool-rename-manual-target-path-escape`). [D]
+- **Organize: Rekordbox paths break with no warning.** Organize relinks the FableGear DB but leaves every Rekordbox FolderPath broken (10/10 local, 4/4 device) (`tool-organize-rekordbox-paths-broken`). [D]
+- **Organize: interrupt can strand a file.** An Interrupt can land between a move and its journal row, and undo then strands that file (`tool-organize-cancel-unjournaled-move`). [D]
+- **Organize: undo merges separate runs.** Undo groups runs within 15 minutes into one session, so separate runs can't be reverted individually (`tool-organize-undo-session-merge`). [D]
+- **Normalize: some formats always fail.** Every 24-bit AIFF and every M4A/AAC/ALAC fails (`tool-normalize-aiff24-m4a-always-fail`). [D]
+- **Normalize: failures are mislabelled and "Retry" does the wrong thing.** Failures are labelled "Tag Write Failures", and the offered "Retry with Force" rewrites BPM/key tags (overwriting an existing BPM) instead of retrying the normalize (`…-retry-force-wrong-remedy`). [D]
+- **Normalize: interrupts leave truncated temp files.** Interrupt or window close during an encode leaves truncated `tmpXXXX.mp3` files in the library, which later runs treat as real tracks (`…-cancel-orphan-tmp-tracks`). Interrupted runs leave no report, journal or checkpoint naming the changed files (`…-interrupt-no-record`). [D]
+- **Normalize: MP3 rewrites lose DJ data.** They drop COMM and Serato GEOB (cue) frames, re-encode the cover art and upsize every MP3 to 320k (`…-mp3-tags-reencode`). [D]
+- **Pipeline: Resume re-runs completed steps.** It re-runs every step from step 1, and a re-applied Rename moved a file out of the library (`tool-pipeline-resume-reruns-completed-steps`). [D]
+- **Pipeline: auto mode never checkpoints.** In the default auto mode, a crash or cancel leaves nothing to resume (`…-no-checkpoint-auto-mode`). [D]
+- **Pipeline: "Dry Run" writes.** "Dry Run (preview only)" is on by default, yet it writes tags and a FableGear DB Import row that can't be reverted (`…-dry-run-writes`). [D]
+- **Pipeline: no run-level restore point** (`…-no-run-level-revert`). [D]
+
+**Install and update (round 3)**
+
+- **Declined consent becomes full access after a reload** (`wizard-live-consent-flip`). [D ×2]
+- **Reconfigure wipes unrelated settings** (`wizard-live-reconfigure-wipes`). [D]
+- **Setup is marked complete at step 5 or 6** (`wizard-live-setup-complete-early`). [D]
+- **In-app Update moves users to untagged `main`; an off-`main` release tag breaks the updater** (`wizard-code-update-untagged-main`). [D]
+- **An update has no rollback** (`wizard-code-update-no-rollback-brick`). [I]
+- **Apple Python 3.9 venv trap in `setup.sh`** (`wizard-code-setup-py39-venv-trap`). [D]
+- **Homebrew install aborts non-interactively** (`wizard-code-homebrew-noninteractive`). [I]
+- **Unmerged GUI installer:** double-clicking skips the package step, a dropped connection counts as success, `/api/complete` is unconditional, and a best-effort essentia failure traps the user (`wizard-code-iw-*`). [D]
 
 **UI traps and silent no-ops**
 
@@ -189,10 +256,19 @@ Each cell is a summary; the full evidence per cell is in `FINDINGS_DETAIL.md`.
 | Prune | **None** | Savepoint + trash, unlinked | UI dead; API misplaces | DB phase OK; file phase ignores cancel | **None** | Not in UI | **Deletes Rekordbox + FableGear rows** |
 | Convert | Counts only | **None** | **None** | Partial temp files left in library | `localStorage`, no format | None; pipeline refuses (good) | Relinks FableGear DB only; Rekordbox broken |
 | Novelty Scanner | Counts only | None per run | Partial (empty dirs left) | Truncated file left | `localStorage`; stale checkpoint used silently | Yes, but has side effects | Never touches Rekordbox (good) |
-| Rename / Organize / Normalize / Pipeline / DB tools | *Pending: round 3* | | | | | | |
+| Rename | Yes | Savepoint (unlinked) + per-file journal | Files byte-identical, idempotent; **Rekordbox not reverted** | Cancel and kill -9 left DBs consistent (one commit per file) | `localStorage` banner; resume finishes the job | Yes (dry run); non-dry-run single-folder is a silent no-op (H1) | **Writes Rekordbox local DB; device DB never relinked** |
+| Rename (learned rules) | — | **None** (quarantine move only in manifest) | **None**; rules can't be retracted | — | Rules persist forever | — | Target path not validated (escapes library) |
+| Organize | Yes | **None** before mutating (journal only) | Sequential: byte-identical, pruned folders recreated. **Parallel: data loss, wrong audio restored** | SIGTERM can strand a moved file | `localStorage` only; server check broken | Yes | Relinks FableGear DB only; **Rekordbox broken** |
+| Normalize | Mislabelled | **None; `.bak` unlinked** | **None** | Truncated `tmp*.mp3` left in library; no record | `localStorage` only | Preview (clips) is read-only (good) | File only |
+| Pipeline Wizard | Per step | **None per run** | Partial (rename, organize only); wrong order for chained moves | kill -9 leaves child `cli.py` writing | **Auto: none.** Confirm: re-runs all steps | **"Dry Run" writes tags + DB** | Inherits every step's boundary issues |
+| DB tools (Audit, Fix Paths, Link, Import, Dead Files) | *Pending: round 4* | | | | | | |
 
 **Confirmed good, so keep these:**
 
+- Rename's file moves are byte-identical, collisions are numbered "(2)", and Rekordbox local rows are relinked one commit per file, so cancel and kill -9 left the DBs consistent.
+- Organize with 1 worker: undo restores every file byte-identical and recreates pruned folders.
+- Normalize preview is read-only on sources.
+- The onboarding wizard has "Finish later" on every step, Back keeps values, leaving reconfigure keeps the config byte-identical, and the AI and Import buttons have double-submit guards.
 - Novelty never moves or modifies the source, and its operations revert is idempotent.
 - Prune's DB-phase cancel rolls back cleanly.
 - The prune savepoint API restores Rekordbox rows exactly.
@@ -227,7 +303,10 @@ This is built only from pieces that already exist.
 - **Live coverage so far:**
   - every Record Room surface, at 1440×900, 1280×800 and 1024×700;
   - z-index conflicts confirmed live;
-  - Tag Tracks (about 20 runs), Duplicates + Prune (two DB schemas), Convert (format matrix, races, cancel, kill -9) and Novelty Scanner (15 runs).
+  - Tag Tracks (about 20 runs), Duplicates + Prune (two DB schemas), Convert (format matrix, races, cancel, kill -9) and Novelty Scanner (15 runs);
+  - Rename (dry run, multi-folder live run, 300-file revert, cancel, kill -9, learned rules), Organize (assimilate and integrate, 4-worker stress, Interrupt, kill -9, resume), Normalize (9-format bench including 24-bit and 32-bit float, interrupts, kill -9) and the Pipeline Wizard (all step types, cancel, kill -9, confirm-mode resume);
+  - the onboarding wizard at every step, including reload and restart, Finish later, bad inputs, double-clicks, reconfigure and a corrupt config;
+  - the install and update shell scripts, run with stubs in throwaway directories.
   - Each run was backed by sha256 before/after snapshots and DB dumps.
 - **The sandbox can't reproduce:**
   - WKWebView rendering and macOS fonts;
