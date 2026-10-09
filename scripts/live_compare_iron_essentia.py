@@ -238,9 +238,10 @@ def _load_rekordbox_ground_truth(db_path: Path | None) -> dict[str, tuple[float 
     O(1) lookup per candidate file afterwards. Returns {} on any DB error (missing db,
     pyrekordbox issue) so this stays a bonus column, never a hard dependency."""
     try:
+        from pyrekordbox.db6 import tables
+
         import db_connection
         from iron import key as iron_key
-        from pyrekordbox.db6 import tables
     except Exception as e:
         print(f"  (Rekordbox cross-reference unavailable: {e})", file=sys.stderr)
         return {}
@@ -280,8 +281,8 @@ def _analyze_one(
     idx, path_str, true_bpm, true_camelot, duration, rb_bpm, rb_camelot = args
     path = Path(path_str)
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    import iron
     import audio_processor
+    import iron
 
     row: dict = {
         "idx": idx, "path": path_str, "ext": path.suffix.lower().lstrip("."),
@@ -389,8 +390,8 @@ def _print_engine_table(rows: list[dict], title: str) -> None:
     rb_key_acc = _key_accuracy(rows, "rekordbox_camelot")
     iron_s = _status_counts(rows, "iron_status")
     librosa_s = _status_counts(rows, "librosa_status")
-    iron_mean, iron_n = _mean_elapsed(rows, "iron_elapsed_s")
-    librosa_mean, librosa_n = _mean_elapsed(rows, "librosa_elapsed_s")
+    iron_mean, _iron_n = _mean_elapsed(rows, "iron_elapsed_s")
+    librosa_mean, _librosa_n = _mean_elapsed(rows, "librosa_elapsed_s")
 
     iron_nt = f"{iron_acc['n']}/{iron_acc['total']}"
     librosa_nt = f"{librosa_acc['n']}/{librosa_acc['total']}"

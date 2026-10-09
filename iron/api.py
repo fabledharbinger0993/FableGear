@@ -279,6 +279,7 @@ def analyze(
             outcome = beat_grid_detect.detect_beat_grid(
                 onset_env, sr / _HOP_LENGTH, result.bpm,
                 window_start_s=start, accent_env=accent_env,
+                onset_latency_s=dsp.onset_latency_seconds(sr),
             )
         except Exception as exc:  # a detector bug must not take down a batch run
             result.errors.append(f"beat-grid detection failed: {exc}")

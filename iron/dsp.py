@@ -85,6 +85,25 @@ def onset_envelope(y: np.ndarray, sr: int, *, n_fft: int = 2048, hop_length: int
     return np.concatenate([[0.0], flux])
 
 
+def onset_latency_seconds(sr: int, *, n_fft: int = 2048) -> float:
+    """
+    How far an onset-envelope frame's reported time (frame * hop / sr) runs AHEAD of the
+    onset that produced its peak, for `onset_envelope`/`energy_flux` framing.
+
+    `frame_signal` does not centre frames: frame k spans samples [k*hop, k*hop + n_fft) and
+    is timestamped at its START. A sharp attack enters each successive frame from the
+    trailing edge and is weighted by the Hann window, whose slope is steepest three-quarters
+    of the way along it -- so the frame-to-frame energy increase (the flux) peaks when the
+    attack sits ~0.75 * n_fft into the frame, and the reported frame time is that much early.
+
+    Irrelevant to tempo (a constant shift doesn't change a period); essential anywhere a frame
+    index becomes an absolute time. Measured before this correction (2026-10-09): Iron's beats
+    sat 63 ms early on a synthetic click track and a median 77 ms early against 149 real
+    Rekordbox beat grids; 0.75 * 2048 / 22050 = 69.7 ms.
+    """
+    return 0.75 * n_fft / sr
+
+
 def energy_flux(y: np.ndarray, sr: int, *, n_fft: int = 2048, hop_length: int = 512) -> np.ndarray:
     """
     Broadband RMS-energy novelty: the half-wave-rectified frame-to-frame increase in RAW

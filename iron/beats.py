@@ -78,6 +78,11 @@ _MIN_BEATS_FOR_GRID = 8
 # but rare, and 4/4 is right far more often than a marginal 3-vs-4 signal is wrong.
 _METER_3_MIN_SCORE = 0.2
 
+# Half-beat phase check (see _prefer_kick_phase). The shifted phase must carry this much more
+# kick-band energy than the tracked one before the grid is moved -- a tie keeps the tracker's
+# own answer rather than flipping on noise.
+_PHASE_SWITCH_RATIO = 1.1
+
 
 def _beat_strength(onset_env: np.ndarray, beat_frames: list[int]) -> np.ndarray:
     """Onset-envelope value at each phase-locked beat frame -- how strong an accent, if
@@ -109,6 +114,38 @@ def _accent_strength(
         lo, hi = max(0, b - back), min(n, b + forward_margin + 1)
         out[i] = float(accent_env[lo:hi].max()) if hi > lo else 0.0
     return out
+
+
+def _phase_strength(accent_env: np.ndarray, frames: list[int], half_width: int) -> float:
+    """Mean of the peak accent value within +-half_width frames of each frame. Symmetric and
+    narrow on purpose -- unlike _accent_strength's half-period backward search, it must not
+    reach from one half-beat phase into the other."""
+    n = accent_env.shape[0]
+    peaks = [float(accent_env[max(0, f - half_width):min(n, f + half_width + 1)].max())
+             for f in frames if 0 <= f < n]
+    return float(np.mean(peaks)) if peaks else 0.0
+
+
+def _prefer_kick_phase(
+    accent_env: np.ndarray, beat_frames: list[int], period_frames: float
+) -> list[int]:
+    """
+    Return `beat_frames`, or the same grid shifted by half a beat if the kick band says the
+    beat sits there.
+
+    `dsp.track_beats` phase-locks on broadband spectral flux, which in dance music is often
+    dominated by the off-beat hi-hat rather than the kick (a noise burst has far more
+    broadband flux than an ~80 Hz sine). On 2026-10-09 the tracker sat on the off-beat for
+    100% of beats on the kick+hi-hat fixture at every tempo tested, and for 79 of 149 real
+    tracks against Rekordbox beat grids. This is a PHASE choice at an already-decided
+    period -- not one of the cross-period comparisons docs/IRON_RESEARCH.md section 5 rules out.
+    """
+    half = period_frames / 2.0
+    shifted = [round(f + half) for f in beat_frames]
+    width = max(1, round(period_frames / 8.0))
+    on = _phase_strength(accent_env, beat_frames, width)
+    off = _phase_strength(accent_env, shifted, width)
+    return shifted if off > on * _PHASE_SWITCH_RATIO else list(beat_frames)
 
 
 def _detect_beats_per_bar(strength: np.ndarray) -> tuple[int, float]:
@@ -155,6 +192,7 @@ def detect_beat_grid(
     *,
     window_start_s: float = 0.0,
     accent_env: np.ndarray | None = None,
+    onset_latency_s: float = 0.0,
 ) -> tuple[float, str, float] | None:
     """
     Return (downbeat_offset, time_signature, confidence), or None if too few beats were
@@ -171,6 +209,12 @@ def detect_beat_grid(
     always from 0:00 -- see iron/api.py's _pick_body_window). This assumes constant tempo
     for the whole file, the same scope anvil.TrackFields.downbeat_offset's own comment
     states.
+
+    `onset_latency_s` is how far `onset_env`'s frame timestamps run ahead of the onsets that
+    produced them -- pass `iron.dsp.onset_latency_seconds(sr)` for an envelope from
+    `dsp.onset_envelope`/`dsp.energy_flux` (~70 ms at Iron's defaults; without it every beat
+    lands that much early). The default 0.0 is for envelopes whose frame index IS the onset
+    time, e.g. a synthetic pulse train.
 
     `accent_env` is an optional, more accent-discriminating signal (intended caller:
     iron.dsp.band_energy restricted to a kick drum's band) used for the downbeat/meter
@@ -210,6 +254,7 @@ def detect_beat_grid(
         return None
 
     if accent_env is not None and accent_env.shape[0] > 0:
+        beat_frames = _prefer_kick_phase(accent_env, list(beat_frames), period_frames)
         strength = _accent_strength(accent_env, beat_frames, period_frames)
     else:
         strength = _beat_strength(onset_env, beat_frames)
@@ -219,7 +264,7 @@ def detect_beat_grid(
     class_frames = [f for i, f in enumerate(beat_frames) if i % beats_per_bar == downbeat_class]
     first_downbeat_frame = class_frames[0] if class_frames else beat_frames[0]
 
-    absolute_s = window_start_s + first_downbeat_frame / frame_rate
+    absolute_s = window_start_s + first_downbeat_frame / frame_rate + onset_latency_s
     bar_period_s = (period_frames / frame_rate) * beats_per_bar
     downbeat_offset = float(absolute_s % bar_period_s) if bar_period_s > 0 else float(absolute_s)
 

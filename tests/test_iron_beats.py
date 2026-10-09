@@ -124,6 +124,34 @@ def test_detect_beat_grid_with_accent_env_finds_the_true_downbeat(bpm):
     assert confidence > 0.25  # clearly above the 1/4 "no preference" baseline
 
 
+@pytest.mark.parametrize("bpm", [90, 120, 128, 140, 174])
+def test_detect_beat_grid_downbeat_is_on_time_not_just_near_a_beat(bpm):
+    """
+    Timing, not just beat-class: the fixture's true downbeat is t=0, and with the onset
+    envelope's frame latency compensated the folded offset must land within one analysis
+    frame (hop / sr = 23.2 ms -- the finest resolution the onset envelope has) of it.
+
+    The half-a-beat tolerance above let a real bug through: onset frames are timestamped at
+    their window START, so every beat came out ~70 ms early (2026-10-09: 63 ms on this kind
+    of fixture, 77 ms median against 149 real Rekordbox beat grids -- see
+    iron.dsp.onset_latency_seconds). The uncompensated half of this test pins that the
+    latency is real, so the tolerance can't pass vacuously.
+    """
+    y = _beat_track(bpm, seconds=30.0)
+    onset_env, accent_env = _onset_env(y), _accent_env(y)
+    bar_period = 4 * 60.0 / bpm
+
+    def signed_error(offset: float) -> float:
+        return (offset + bar_period / 2) % bar_period - bar_period / 2
+
+    fixed = beats.detect_beat_grid(onset_env, FRAME_RATE, bpm, accent_env=accent_env,
+                                   onset_latency_s=dsp.onset_latency_seconds(SR))
+    raw = beats.detect_beat_grid(onset_env, FRAME_RATE, bpm, accent_env=accent_env)
+    assert fixed is not None and raw is not None
+    assert abs(signed_error(fixed[0])) < 1.0 / FRAME_RATE, f"downbeat {signed_error(fixed[0]) * 1000:.1f} ms off"
+    assert signed_error(raw[0]) < -0.040, "uncompensated frames should run early"
+
+
 def test_detect_beat_grid_folds_offset_into_first_bar():
     bpm = 128
     y = _beat_track(bpm, seconds=30.0)
