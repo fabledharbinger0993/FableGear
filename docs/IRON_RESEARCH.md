@@ -36,6 +36,14 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 
 ## 1. Current status (as of 2026-08-27)
 
+> **2026-10-09 update -- read §16 first.** On branch `iron-unified` the tempo detector is the
+> `iron-tempo-rebuild` design (multi-onset + tempo prior): **91.3% MIREX / 80.5% exact** on a
+> stratified real set (anvil-line Iron: 72.5% / 55.7% on the same tracks), so the tempo
+> history in §2-§15 below describes the replaced algorithm. Beat-grid output got its first
+> real-music validation and two real fixes (§16.2). Key detection (28-33% exact) is now the
+> weakest output. Iron-as-primary-BPM wiring arrived with the merge and still needs user
+> sign-off (§16.1).
+
 **Anvil**: functionally complete. ID3v2.3/2.4 (MP3/WAV/AIFF), Vorbis comments (FLAC/OGG),
 and MP4/M4A ilst tags all implemented, tested against real files, and cross-validated
 against mutagen for read/write round-trips. Not a currently active area of research —
@@ -434,6 +442,12 @@ findings).
 - `iron/beats.py`'s `time_signature`/`downbeat_offset` output is validated on synthetic
   fixtures only. Don't claim real-music accuracy for it without running
   `scripts/benchmark_iron_beats.py` (or real ANLZ ground truth) first.
+- Beat-grid timing tests must assert *timing* (within an analysis frame), not just "within
+  half a beat" -- that looser tolerance is how a 70 ms latency and a 100% off-beat lock both
+  shipped (§16.2). Don't loosen `test_detect_beat_grid_downbeat_is_on_time_not_just_near_a_beat`.
+- For tempo/beat ground truth, a freshly imported Rekordbox library (current `FolderPath`s)
+  plus its ANLZ `PQTZ` grids beats filename-matching against a stale `master.db` -- read a
+  snapshot copy (db + `-wal` + `-shm`), never the live file while Rekordbox is running (§16).
 - Neither Iron nor Anvil is wired into the live app (`audio_processor.py`,
   `waveform_generator.py`, etc.) — don't wire either in without explicit user sign-off; that
   decision hasn't been made yet and is separate from the accuracy work above.
@@ -1512,6 +1526,124 @@ scope — not production code, not run at validated scale):
 `kick_ioi_experiment.py` (whole-track version) and `kick_ioi_segmented.py` (the 4s/15s
 segmented version both attempts above used, adaptive-threshold version is what's in that
 file currently).
+
+---
+
+## 16. Rebuilt tempo merged, first real-music beat-grid validation, two beat bugs fixed (2026-10-09)
+
+Branch `iron-unified` (local; not pushed at time of writing). Ground truth for everything
+below is **Rekordbox 7's own analysis**, read from a snapshot copy of a fresh local
+`~/Library/Pioneer/rekordbox/master.db` (re-imported 2026-10-09, so `FolderPath`s are current)
+and its `share/PIONEER/USBANLZ` ANLZ files (`pyrekordbox.anlz`, `PQTZ` beat grids) -- the
+CDJ-grade ground truth §4 asked for. Test sets and harnesses live outside the repo in
+`~/FableGearTestbed/` (`harness/iron_real.py`, `harness/build_rb_set.py`, results JSON):
+**rb200** = the first 200 unique tracks Rekordbox analysed (196 are 118-130 BPM house -- an
+easy set for tempo, not a stratified one), **mixed150** = 150 tracks stratified by BPM band
+and genre, ground truth from the older Passport `master.db` matched by filename + size.
+
+### 16.1 `iron-tempo-rebuild` (2026-10-02, a separate session) replaced `iron/tempo.py`
+
+A session nobody here had visibility of rebuilt the detector on a branch cut from `main`
+(not from `anvil`): five onset functions (full/low/mid/high-band log-mel flux + HFC) ->
+8 s windowed autocorrelation -> harmonic-sum -> summed, with a log-normal tempo prior
+(centre 125 BPM, sigma 0.6 octave) instead of genre bands; search range back to 30-300.
+Its claim (91.7% exact / 95.0% 1% / 96.3% MIREX, n=300, Rekordbox ground truth) was **not
+taken on trust -- re-measured independently** here:
+
+| Tempo | exact | within 1% | MIREX |
+|---|---|---|---|
+| rebuild, mixed150 | **80.5%** | 87.9% | **91.3%** |
+| anvil-line Iron (§12-§15 state), same 150 | 55.7% | 65.1% | 72.5% |
+| rebuild, rb200 | 100% | 100% | 100% |
+
+Results are tag-independent (identical with all tags stripped). Weak spots on mixed150:
+160-180 BPM 55% MIREX (n=11), <85 BPM 1/5. Tuning-set overlap with these test sets can't be
+ruled out (the rebuild's 250-track dev split wasn't saved). **The rebuild's tempo is now the
+production detector on `iron-unified`, which makes much of §2-§15 history for the
+algorithm it replaced** -- `_GENRE_BANDS`, Pass 5, `_in_genre_band` no longer exist, and the
+`scripts/experiment_*`/`ablate_*` scripts that poke those internals are stale (kept, not run).
+
+Merge choices: `iron/tempo.py` + `tests/test_iron_tempo.py` from the rebuild; everything else
+(CQT key chroma §8.5, `iron/beats.py`, stability checks, Anvil FLAC/MP4/OGG) from `anvil`.
+Verified after merge: tempo numbers identical to the rebuild, key identical to `anvil`
+(mixed150 33.3%, rb200 28.5% exact Camelot).
+
+The rebuild also **wired Iron in as the primary BPM path** in `audio_processor.process_file`
+(Iron -> essentia -> librosa) and `health.py`. §5 says that needs explicit user sign-off; it
+came through the merge on a local branch only. **Not yet signed off -- decide before this
+reaches `main`.**
+
+`iron/dsp.py`'s `multi_onset_envelopes` (from the rebuild) emits divide-by-zero / overflow /
+invalid `RuntimeWarning`s from `mag @ bank.T` on every track. Checked on 40 real tracks:
+output is always finite. Consistent with numpy 2.2.6 on Apple Accelerate BLAS raising
+spurious FP flags in matmul -- left unsilenced deliberately so a real overflow would still
+show.
+
+### 16.2 Beat-grid output validated against real music for the first time -- two real bugs
+
+Before this section `iron/beats.py` had only synthetic validation (§4). Against rb200's ANLZ
+grids, Iron's beats were **not** usable: 0.7% of tracked beats within 25 ms of a Rekordbox
+beat (worse than chance). Per track the error was a tight constant (IQR 13 ms, drift 6 ms)
+in two clusters half a beat apart (median -77 ms and +163 ms). Two independent causes:
+
+1. **Frame-time latency.** `frame_signal` doesn't centre frames; frame k is timestamped at
+   its window start, and a sharp attack's flux peaks when it sits ~0.75 * n_fft into the
+   Hann window (steepest slope) -- so frame times run 0.75 * 2048 / 22050 = 69.7 ms early.
+   Synthetic click: 63 ms early; real: 77 ms. Fixed by `dsp.onset_latency_seconds()`, added
+   where frame indices become times (`detect_beat_grid(onset_latency_s=...)`, passed by
+   `api.analyze`). Tempo unaffected.
+2. **Off-beat lock.** `dsp.track_beats` follows broadband spectral flux, which a noise-burst
+   hi-hat dominates over an ~80 Hz kick: **100% off-beat on `tests/test_iron_beats.py`'s own
+   kick+hat fixture at every tempo**, 79/149 real tracks. Fixed by `_prefer_kick_phase`:
+   same period, choose between the tracked grid and its half-beat shift by kick-band energy
+   in a narrow (+-1/8 beat) symmetric window. A phase choice, not a cross-period comparison
+   (§5's four failures don't apply).
+
+**Correction to §4 (inferred, not proven):** §4 says broadband flux peaks "~150-200 ms
+*after*" a transient, motivating `_accent_strength`'s half-period backward search. The
+measurements here show frame times run *early*, and the tracker sat on the off-beat hat --
+half a beat (~234 ms at 128 BPM) after the kick, so a backward search from the tracked
+frame found the kick. Most likely §4 was seeing the off-beat lock and the backward search
+compensated for it. Left in place (it still serves downbeat-class scoring), but now that
+beats land on kicks it deserves a fresh look.
+
+Why the existing tests missed both: `test_detect_beat_grid_with_accent_env_finds_the_true_downbeat`
+allows half a beat of error -- loose enough that off-beat + 70 ms early *passed*. New
+`test_detect_beat_grid_downbeat_is_on_time_not_just_near_a_beat` requires one analysis
+frame (23.2 ms) and asserts the uncompensated path runs early, so it can't pass vacuously.
+
+| rb200, inside Iron's analysis window | before | after |
+|---|---|---|
+| Iron beats within 25 ms of a Rekordbox beat | 0.7% | **67.1%** |
+| median beat error | 134 ms | **16 ms** |
+| tracks locked to the off-beat | 79/149 | ~1/25 |
+| downbeat (bar position) within 25 ms | 0% | 27.0% |
+
+### 16.3 Still open (beat grid)
+
+- **Which beat is "1"** is right ~35% of the time (chance 25%). `_detect_downbeat_class` on
+  kick-band accents isn't discriminating on real house.
+- **Back-projection to t=0.** `downbeat_offset` is folded from a window ~1/3 into the track
+  using Iron's own BPM; 0.05 BPM of error is ~40 ms over 100 s. Full-file on-beat accuracy is
+  25.5% vs 67.1% in-window. Anchoring near t=0 (a short second window) is the obvious fix.
+- Residual per-track bias ~-10 ms median (fixture: ~+6 ms over-correction) -- within one
+  frame; not chased.
+
+### 16.4 Key, and Anvil findings from the same pass
+
+- **Key is now the weakest Iron output**: 28.5-33.3% exact vs librosa's measured 62% (§14).
+  Misses cluster rather than scatter: on rb200, 22 whole-tone-up minor->minor and 19
+  same-root wrong-mode (parallel major). Not investigated yet.
+- **Anvil, 200-file write torture on copies** (`harness/anvil_torture.py`; mp3/aiff/aif/wav/
+  flac/m4a, no OGG on the drive): 199/199 clean -- decoded audio bit-identical (ffmpeg md5,
+  or chunk hashes where ffmpeg can't decode), values read back by Anvil and mutagen,
+  unrelated tags/art preserved, idempotent, `force=False` respected, clear and ID3 v2.3/v2.4
+  pinning correct. Mutation-tested (the harness catches a flipped audio byte, a flipped chunk
+  byte and a deleted tag). Open: (a) Anvil rewrites another tool's `TXXX:EnergyLevel` (Mixed
+  In Key) as `TXXX:ENERGYLEVEL` -- reads are case-insensitive, writes rename; (b) FLAC BPM is
+  written as `127.84` while ID3/MP4 get integer + precise companion; (c) a file truncated by
+  811 bytes is refused on read as well as write; (d) writing to a Finder-locked (`uchg`) file
+  fails safely but raises a bare `PermissionError`, not an `AnvilError`.
 
 ---
 
