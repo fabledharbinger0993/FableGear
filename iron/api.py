@@ -32,18 +32,16 @@ from iron.schema import IronResult, TempoCheckpoint
 
 _ANALYSIS_SR = 22050
 _ANALYSIS_DURATION = 90.0
-_BPM_MIN = 60.0  # matches iron.tempo.detect_tempo's own default -- see its docstring for
-_BPM_MAX = 180.0  # the real-benchmark justification and the real, deliberate 180+ BPM cost
-_HOP_LENGTH = 512  # matches iron.tempo.detect_tempo's own default
+_BPM_MIN = 30.0
+_BPM_MAX = 300.0
+_HOP_LENGTH = 512  # iron.beats' own onset/accent envelope hop (tempo picks its own)
 _KICK_BAND_FMIN = 40.0  # Hz -- iron.beats.detect_beat_grid's accent_env, a kick drum's
 _KICK_BAND_FMAX = 120.0  # fundamental + first harmonic; see iron/dsp.py::band_energy
 
 # Primary analysis targets the track's BODY, not the first 90 seconds from 0:00: roughly a
 # third of the way in, through to the last 10% (where a DJ starts prepping the mix-out).
-# This avoids an often-sparse/beatless intro, and -- the actual reason it matters for
-# tempo accuracy, not just "more representative audio" -- it's long enough to actually
-# contain a mid-track breakdown/bridge, which iron.tempo's structural bar-fit pass needs
-# and a fixed 0-90s window from the very start essentially never has. Capped at
+# This avoids an often-sparse/beatless intro and the outro, so tempo is read from the
+# section where the groove is actually established. Capped at
 # _MAX_BODY_SECONDS so a multi-hour DJ mix or live recording doesn't attempt to decode and
 # analyze an hour of audio by default -- the same cost concern _STABILITY_WINDOW_SECONDS's
 # per-checkpoint window and scripts/ real-library testing already had to account for.

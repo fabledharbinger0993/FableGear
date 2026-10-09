@@ -1,6 +1,6 @@
 """
-Tempo detection: onset envelope -> autocorrelation -> harmonic-sum + genre-band octave
-correction.
+Tempo detection: multiple onset functions -> windowed autocorrelation -> harmonic-sum tempo
+curve -> tempo-prior octave resolution.
 
 Fixtures are synthetic kick+hi-hat patterns with light timing humanization and a bar-level
 accent (every 4th beat louder) -- not a bare metronome click. A perfectly regular,
@@ -52,16 +52,9 @@ def _beat_track(bpm: float, seconds: float = 15.0, seed: int = 0) -> np.ndarray:
     return y
 
 
-# Spans the genre bands iron.tempo knows about, plus a couple of in-between values. Capped
-# at 174 (not the old 210): detect_tempo's default bpm_max is now 180 (see its docstring --
-# a real 1000-track benchmark found only 1.6% of tracks above it), so a true 210 BPM signal
-# is now out of range for the DEFAULT search by design, not a detection failure. Coverage of
-# that higher range (still a real _GENRE_BANDS entry, 180-220 hardcore/gabber) moves to
-# test_detect_tempo_above_default_range_needs_wider_bounds below, with bounds passed
-# explicitly.
-@pytest.mark.parametrize(
-    "bpm", [70, 100, 118, 124, 128, 133, 140, 150, 165, 174]
-)
+# The DJ tempo range the detector's prior favours. Real-music accuracy is measured by
+# scripts/benchmark_iron_tempo.py; these only guard against the algorithm being plainly broken.
+@pytest.mark.parametrize("bpm", [90, 100, 118, 124, 128, 133, 140, 150, 165, 174])
 def test_detect_tempo_within_tolerance(bpm):
     y = _beat_track(bpm)
     result = tempo.detect_tempo(y, SR)
@@ -73,68 +66,20 @@ def test_detect_tempo_within_tolerance(bpm):
     assert 0.0 <= confidence <= 1.0
 
 
-def test_detect_tempo_90bpm_known_quantization_outlier():
-    """90 BPM is held to a looser bar than the sweep above (3% vs 2%) -- a single, measured,
-    non-systematic quantization outlier, not a general precision regression.
-
-    Measured across the whole sweep after energy_flux became the primary onset feature
-    (2026-08-28, docs/IRON_RESEARCH.md §12): every other fixture lands within 0.6% (most
-    under 0.4%), and 90 BPM lands at ~2.5%. It is NOT an octave/compound-meter error -- the
-    thing this suite exists to catch loudly -- and it stays inside MIREX's own 4% tolerance.
-    Cause is lag quantization at this specific tempo: at SR=22050/hop=512 (~43.07 fps),
-    90 BPM's true period is 28.71 frames, almost exactly between integer lags 28 and 29, and
-    energy_flux's coarser (non-log-compressed) peak shape makes the sub-frame parabolic fit
-    less able to recover the true value there than log-magnitude spectral flux was.
-
-    Kept as its own explicitly-documented case rather than widening the whole sweep's
-    tolerance, which would silently mask a real regression at any other tempo.
-    """
-    y = _beat_track(90)
+# At the far ends of the range the kick+off-beat-hat fixture is genuinely octave-ambiguous
+# (at 70 BPM it IS a valid 140 BPM pattern), and the tempo prior deliberately resolves such
+# ties toward the DJ range. Requiring the true tempo or its half/double -- not the exact
+# octave -- is the honest assertion here; the 3:2 and other non-octave errors that used to
+# fail on real music are what the real-library benchmark tracks.
+@pytest.mark.parametrize("bpm", [70, 190, 210])
+def test_detect_tempo_extremes_resolve_to_an_octave_of_truth(bpm):
+    y = _beat_track(bpm)
     result = tempo.detect_tempo(y, SR)
     assert result is not None
     detected, _confidence = result
-    assert abs(detected - 90) / 90 < 0.03, f"true=90 detected={detected}"
-
-
-def test_detect_tempo_above_default_range_needs_wider_bounds():
-    """210 BPM (hardcore/gabber) is above the new default bpm_max=180 -- the true tempo can't
-    be returned with defaults by construction (the search never considers a lag that fast),
-    though the search still returns ITS best answer within [60, 180], not None. Still fully
-    supported when a caller opts into wider bounds for a library known to contain that
-    content."""
-    y = _beat_track(210)
-    default_result = tempo.detect_tempo(y, SR)
-    if default_result is not None:
-        default_bpm, _confidence = default_result
-        assert abs(default_bpm - 210) / 210 >= 0.02  # default bounds can't recover the truth
-
-    result = tempo.detect_tempo(y, SR, bpm_min=30.0, bpm_max=300.0)
-    assert result is not None
-    detected, _confidence = result
-    assert abs(detected - 210) / 210 < 0.02
-
-
-@pytest.mark.xfail(
-    reason=(
-        "Known v1 limitation, not silently dropped: at 190 BPM this fixture's raw "
-        "autocorrelation ties nearly exactly between the true period and its 1/5 "
-        "submultiple (~38 BPM), and iron.tempo's octave-correction only checks "
-        "2x/3x/4x relationships, not 5x -- a musically rare relationship, and this "
-        "specific near-tie looks like an artifact of the fixture's idealized, exactly- "
-        "periodic accent pattern rather than something expected in real recordings. "
-        "Flagged for the ground-truth benchmark (see the plan's validate-first gate) "
-        "rather than chased further against a synthetic signal. Explicit wide bounds here "
-        "(bpm_min=30, bpm_max=300) preserve the original scenario independent of "
-        "detect_tempo's default range, which no longer reaches 190 BPM at all."
-    ),
-    strict=True,
-)
-def test_detect_tempo_known_limitation_190bpm_fifth_submultiple():
-    y = _beat_track(190)
-    result = tempo.detect_tempo(y, SR, bpm_min=30.0, bpm_max=300.0)
-    assert result is not None
-    detected, _confidence = result
-    assert abs(detected - 190) / 190 < 0.02
+    assert any(abs(detected - bpm * k) / (bpm * k) < 0.02 for k in (0.5, 1.0, 2.0)), (
+        f"true={bpm} detected={detected}"
+    )
 
 
 def test_detect_tempo_silence_returns_none():

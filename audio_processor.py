@@ -4,8 +4,9 @@ fablegear / audio_processor.py
 Analyses and normalises audio files in-place. No database interaction.
 
 Operations per file (each independently skippable):
-1. BPM detection via essentia RhythmExtractor2013 when available (much more
-   accurate; falls back to librosa beat tracking), written to TBPM tag
+1. BPM detection via Iron (FableGear's own detector, iron/), falling back to
+   essentia RhythmExtractor2013 if present, then librosa beat tracking;
+   written to TBPM tag
 2. Key detection via librosa chroma + Krumhansl-Schmuckler, written to TKEY (Camelot)
 3. Loudness + true-peak check via ffmpeg's loudnorm filter (EBU R128 measurement)
 4. Normalisation via ffmpeg volume filter if outside tolerance, gain capped so
@@ -89,11 +90,12 @@ class ProcessResult:
     path: Path
     bpm_detected: float | None = None
     bpm_written: bool = False
-    # Beat-tracker agreement, 0-~5 (essentia only; None on the librosa path).
-    # Low values flag grids worth eyeballing before a gig — it catches some but
-    # not all errors, notably not half-time reads on genuinely fast tracks.
+    # Detector confidence. NOT one scale: Iron reports 0-1 (margin over the best
+    # unrelated rival tempo; >= 0.3 was right ~99% of the time), essentia 0-~5
+    # (beat-tracker agreement), librosa None. Interpret it together with
+    # bpm_source. Low values flag grids worth eyeballing before a gig.
     bpm_confidence: float | None = None
-    bpm_source: str = ""             # "essentia" | "librosa" | "" (not run)
+    bpm_source: str = ""             # "iron" | "essentia" | "librosa" | "" (not run)
     key_detected: str | None = None
     key_written: bool = False
     loudness_before: float | None = None
@@ -273,6 +275,45 @@ def _essentia_available() -> bool:
             )
             _ESSENTIA_OK = False
     return _ESSENTIA_OK
+
+
+def _iron_available() -> bool:
+    """Whether Iron can run: it imports and an ffmpeg binary exists (it decodes via ffmpeg)."""
+    try:
+        import iron  # noqa: F401
+        from iron import api as _iron_api
+    except Exception:
+        return False
+    ff = _iron_api._FFMPEG
+    return bool(shutil.which(ff) or Path(ff).exists())
+
+
+def _detect_bpm_iron(path: Path) -> "tuple[float, float] | None":
+    """(bpm, confidence 0-1) from Iron, FableGear's own tempo detector (iron/).
+
+    Measured the same way as the essentia numbers below -- random 300-track
+    sample of a real club library against Rekordbox's own BPMs:
+
+        exact (within 0.6 BPM)   91.7%   (essentia 91.4%)
+        within 1%                95.0%   (essentia 94.8%)
+        MIREX (within 4%)        96.3%   (essentia 98.3%)
+
+    Needs only ffmpeg (already required) and numpy -- no essentia wheel, no
+    librosa, no licence exposure. Iron decodes the file itself, so a BPM-only run
+    needs no shared decode. Returns None on decode failure or no usable tempo so
+    the caller falls back to essentia/librosa.
+    """
+    try:
+        import iron
+        got = iron.analyze(path, want=("bpm",), bpm_min=BPM_MIN, bpm_max=BPM_MAX)
+    except Exception as e:
+        log.warning("Iron tempo detection failed for %s (%s) — falling back", path.name, e)
+        return None
+    if got.bpm is None:
+        if got.errors:
+            log.warning("Iron found no tempo for %s: %s", path.name, "; ".join(got.errors))
+        return None
+    return round(got.bpm, 2), round(got.bpm_confidence or 0.0, 2)
 
 
 def _detect_bpm_essentia(path: Path) -> "tuple[float, float] | None":
@@ -1001,19 +1042,25 @@ def process_file(
     _force_key = force or force_key
     needs_bpm = detect_bpm and not (_existing("TBPM", "bpm") and not _force_bpm)
     needs_key = detect_key and not (_existing("TKEY", "initialkey") and not _force_key)
-    # essentia reads the file itself at full rate, so try it before deciding
-    # whether the shared 90 s decode is needed at all. Its result (or failure)
-    # is what determines whether the librosa fallback still has to run.
+    # Detector order: Iron (ours) -> essentia (optional) -> librosa. Iron and
+    # essentia each read the file themselves, so try them before deciding whether
+    # the shared 90 s decode is needed at all. Whichever result (or failure)
+    # comes back determines whether a fallback still has to run.
     _es_bpm: float | None = None
-    if needs_bpm and _essentia_available():
-        got = _detect_bpm_essentia(path)
+    if needs_bpm:
+        got = _detect_bpm_iron(path)
+        if got is not None:
+            result.bpm_source = "iron"
+        elif _essentia_available():
+            got = _detect_bpm_essentia(path)
+            if got is not None:
+                result.bpm_source = "essentia"
         if got is not None:
             _es_bpm, result.bpm_confidence = got
-            result.bpm_source = "essentia"
 
     # Key always needs the decode; BPM needs it only as the librosa fallback,
-    # i.e. when essentia is absent or came back empty. A BPM-only run where
-    # essentia succeeded skips the decode entirely.
+    # i.e. when Iron and essentia are both absent or came back empty. A BPM-only
+    # run where either succeeded skips the decode entirely.
     _audio: tuple[np.ndarray, int] | None = None
     if needs_key or (needs_bpm and _es_bpm is None):
         _audio = _load_audio_ffmpeg(path)
@@ -1025,12 +1072,12 @@ def process_file(
         if not needs_bpm:
             result.skipped_bpm = True
         else:
-            # essentia already ran above (it decides whether _audio was even
-            # loaded); librosa stands in when essentia is absent or came back
-            # empty, so a per-file essentia failure still yields a BPM.
-            # --fix-octaves only reaches the librosa path: essentia resolves
-            # the octave from the signal, so folding its answer would be a
-            # heuristic overriding a better measurement.
+            # Iron/essentia already ran above (they decide whether _audio was
+            # even loaded); librosa stands in when both are absent or came back
+            # empty, so a per-file failure still yields a BPM.
+            # --fix-octaves only reaches the librosa path: Iron and essentia
+            # resolve the octave from the signal, so folding their answer would
+            # be a heuristic overriding a better measurement.
             bpm = _es_bpm
             if bpm is None and _audio is not None:
                 bpm = _detect_bpm(*_audio, path.name, fix_octaves=fix_octaves)

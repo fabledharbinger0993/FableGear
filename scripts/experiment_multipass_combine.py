@@ -28,7 +28,7 @@ POSITION_FRACTIONS = (0.10, 0.35, 0.60)
 AGREEMENT_TOLERANCE = 0.02  # 2% relative
 
 
-def _combine(results: list[tuple[float, float]]) -> tuple[float, str]:
+def _combine(results: list[tuple[float, float]]) -> tuple[float | None, str]:
     """results: list of (bpm, confidence). Returns (combined_bpm, method_used)."""
     if not results:
         return None, "none"

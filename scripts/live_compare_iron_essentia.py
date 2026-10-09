@@ -265,7 +265,7 @@ def _load_rekordbox_ground_truth(db_path: Path | None) -> dict[str, tuple[float 
                     else:
                         note, mode = raw_key, "maj"
                     note = _ENHARMONIC.get(note, note)
-                    camelot = iron_key.CAMELOT.get(note + mode)
+                    camelot = iron_key.CAMELOT.get(f"{note}{mode}")
                 if bpm is not None or camelot is not None:
                     out[fp] = (bpm, camelot)
     except Exception as e:

@@ -219,50 +219,124 @@ def track_beats(
     return beats, float(cumulative[end])
 
 
-def find_breakdown_duration(
-    onset_env: np.ndarray, frame_rate: float, *, exclude_frac: float = 0.15, smooth_seconds: float = 4.0
-) -> float | None:
+def _mel_filterbank(sr: int, n_fft: int, n_mels: int, fmin: float, fmax: float) -> tuple[np.ndarray, np.ndarray]:
+    """Triangular mel filterbank (n_mels, n_fft//2+1) and each band's centre frequency in Hz."""
+
+    def hz_to_mel(f):
+        return 2595.0 * np.log10(1.0 + f / 700.0)
+
+    def mel_to_hz(m):
+        return 700.0 * (10.0 ** (m / 2595.0) - 1.0)
+
+    fmax = min(fmax, sr / 2.0)
+    points = mel_to_hz(np.linspace(hz_to_mel(fmin), hz_to_mel(fmax), n_mels + 2))
+    freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+    bank = np.zeros((n_mels, freqs.shape[0]))
+    for i in range(n_mels):
+        lo, mid, hi = points[i], points[i + 1], points[i + 2]
+        bank[i] = np.maximum(0.0, np.minimum((freqs - lo) / (mid - lo), (hi - freqs) / (hi - mid)))
+    return bank, points[1:-1]
+
+
+# Sub-band edges (Hz) for the per-band onset functions: kick/bass, body, and hats/air.
+_LOW_BAND_HZ = 200.0
+_HIGH_BAND_HZ = 2000.0
+
+
+def multi_onset_envelopes(
+    y: np.ndarray, sr: int, *, n_mels: int = 40, chunk_frames: int = 2048
+) -> tuple[list[np.ndarray], float]:
     """
-    Duration in seconds of the longest sustained low-energy span in the track -- the
-    breakdown/bridge/plateau a DJ mix nearly always has, excluding the first/last
-    `exclude_frac` of the clip (intro and outro are ALSO low-energy, but they aren't the
-    structural section this is looking for).
+    Several independent onset-strength functions from one pass over the signal, plus their
+    shared frame rate (frames/second, ~86 Hz).
 
-    Onset strength is smoothed over `smooth_seconds` first: a bare per-frame onset value
-    dips between every individual hit even in the busiest section, so the raw envelope has
-    no sustained low span to find at all without smoothing over several beats first.
+    A single full-band spectral-flux curve is what the pre-multifeature detector used; one
+    curve routinely hides the beat (a hi-hat-driven loop has almost no flux in the bass, a
+    kick-driven track almost none up top). Here the same log-mel spectrogram yields:
 
-    "Low energy" is anything more than half a standard deviation below the track's own mean
-    -- relative to itself, not an absolute threshold, since a quiet ambient track and a loud
-    club track have no comparable absolute energy scale.
+      0  full-band log-mel spectral flux
+      1  low band (< 200 Hz) flux      -- kick, bass
+      2  mid band (200 Hz - 2 kHz) flux -- snares, claps, stabs
+      3  high band (> 2 kHz) flux      -- hats, shakers
+      4  high-frequency-content flux (power spectrum weighted by bin index) -- broadband
+         transients
 
-    Returns None if the clip is too short to have a meaningful body/edge split, or has no
-    span that dips notably below its own average (a track with no real breakdown).
+    The tempo detector scores a period by how many of these independent views agree on it
+    (the multi-feature idea of Zapata et al. 2014; this is an independent implementation).
     """
-    n = onset_env.shape[0]
-    lo_bound, hi_bound = int(n * exclude_frac), int(n * (1 - exclude_frac))
-    if hi_bound - lo_bound < int(smooth_seconds * frame_rate):
-        return None
+    n_fft = int(2 ** round(np.log2(0.0464 * sr)))
+    hop = max(1, round(sr / 86.13))
+    frame_rate = sr / hop
+    n_frames = 1 + (y.shape[0] - n_fft) // hop
+    if n_frames < 3:
+        return [np.zeros(0) for _ in range(5)], frame_rate
 
-    window = max(1, int(smooth_seconds * frame_rate))
-    kernel = np.ones(window) / window
-    smoothed = np.convolve(onset_env, kernel, mode="same")
+    bank, centres = _mel_filterbank(sr, n_fft, n_mels, 30.0, 10000.0)
+    window = hann_window(n_fft)
+    weights = np.arange(n_fft // 2 + 1, dtype=np.float64)[None, :]
 
-    threshold = smoothed.mean() - 0.5 * smoothed.std()
-    low = smoothed < threshold
+    mel = np.empty((n_frames, n_mels))
+    hfc = np.empty(n_frames)
+    offsets = np.arange(n_fft)[None, :]
+    for start in range(0, n_frames, chunk_frames):
+        stop = min(n_frames, start + chunk_frames)
+        idx = offsets + hop * np.arange(start, stop)[:, None]
+        mag = np.abs(np.fft.rfft(y[idx] * window, axis=1))
+        mel[start:stop] = mag @ bank.T
+        hfc[start:stop] = np.sum(mag * mag * weights, axis=1)
 
-    best_len = 0
-    run_start: int | None = None
-    for i in range(lo_bound, hi_bound):
-        if low[i] and run_start is None:
-            run_start = i
-        elif not low[i] and run_start is not None:
-            best_len = max(best_len, i - run_start)
-            run_start = None
-    if run_start is not None:
-        best_len = max(best_len, hi_bound - run_start)
+    log_mel = np.log1p(1000.0 * mel)
+    flux = np.vstack([np.zeros((1, n_mels)), np.maximum(np.diff(log_mel, axis=0), 0.0)])
+    low = centres < _LOW_BAND_HZ
+    high = centres >= _HIGH_BAND_HZ
+    mid = ~low & ~high
+    hfc_flux = np.concatenate([[0.0], np.maximum(np.diff(hfc), 0.0)])
+    return [
+        flux.sum(axis=1),
+        flux[:, low].sum(axis=1),
+        flux[:, mid].sum(axis=1),
+        flux[:, high].sum(axis=1),
+        hfc_flux,
+    ], frame_rate
 
-    return (best_len / frame_rate) if best_len > 0 else None
+
+def windowed_autocorrelation(
+    env: np.ndarray, frame_rate: float, *, window_s: float = 8.0, hop_s: float = 4.0, max_lag_s: float = 6.0
+) -> np.ndarray:
+    """
+    Mean of per-window normalised autocorrelations of an onset envelope.
+
+    One global autocorrelation over a whole track lets a single loud section (or a tempo
+    drift) dominate; averaging short windows rewards periodicities that are present
+    everywhere. Each window is detrended against a ~0.5 s moving average, half-wave
+    rectified, mean-removed, normalised by its zero-lag energy and un-biased for the
+    shrinking overlap at long lags. A clip shorter than one window is analysed whole.
+    """
+    max_lag = int(max_lag_s * frame_rate)
+    win = int(window_s * frame_rate)
+    hop = max(1, int(hop_s * frame_rate))
+    if env.shape[0] < 4:
+        return np.zeros(max_lag)
+
+    smooth = max(1, int(0.5 * frame_rate))
+    local_mean = np.convolve(env, np.ones(smooth) / smooth, mode="same")
+    env = np.maximum(env - local_mean, 0.0)
+
+    win = min(win, env.shape[0])
+    lags = np.arange(max_lag)
+    acc = np.zeros(max_lag)
+    count = 0
+    for start in range(0, env.shape[0] - win + 1, hop):
+        w = env[start : start + win]
+        w = w - w.mean()
+        if w.std() < 1e-9:
+            continue
+        acf = autocorrelate(w)[:max_lag]
+        if acf.shape[0] < max_lag:
+            acf = np.pad(acf, (0, max_lag - acf.shape[0]))
+        acc += acf / (acf[0] + 1e-12) / np.maximum(1.0 - lags / win, 0.5)
+        count += 1
+    return acc / count if count else acc
 
 
 _DEFAULT_ONSET_BANDS: tuple[tuple[float, float], ...] = (
