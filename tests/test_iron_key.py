@@ -21,7 +21,11 @@ def _tone(freq: float, seconds: float = 3.0, sr: int = SR) -> np.ndarray:
 
 
 def _chord(freqs: list[float], seconds: float = 3.0, sr: int = SR) -> np.ndarray:
-    return sum(_tone(f, seconds, sr) for f in freqs) / len(freqs)
+    # np.stack(...).sum(axis=0) rather than the builtin sum(): builtin sum seeds
+    # the accumulator with int 0, so its inferred type is `NDArray | float` and
+    # pyright rejects the return as not assignable to np.ndarray. Same arithmetic,
+    # honest type.
+    return np.stack([_tone(f, seconds, sr) for f in freqs]).sum(axis=0) / len(freqs)
 
 
 # note -> a representative frequency in the octave dsp.chroma()'s default fmin/fmax band

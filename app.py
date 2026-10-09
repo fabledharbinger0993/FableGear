@@ -25,7 +25,7 @@ import threading
 from pathlib import Path
 
 import psutil
-from werkzeug.exceptions import NotFound
+from werkzeug.exceptions import HTTPException, NotFound
 
 _SYSTEM = platform.system()  # "Darwin" | "Windows" | "Linux"
 
@@ -39,6 +39,7 @@ from helpers import (
     _release_info,
     _sse_response,
     api_error_from_exc,
+    api_error_response,
     get_step_status,
     limiter,
     list_running_managed_subprocesses,
@@ -59,8 +60,39 @@ app = Flask(
 
 @app.errorhandler(Exception)
 def _handle_unexpected_exception(exc):
+    import logging as _logging
+
+    # Werkzeug's own HTTPExceptions (404 on a mistyped URL or a missing static
+    # asset, 405 on a POST-only route, 413, the 400 from a websocket-route
+    # mismatch) already carry the right status, and neither branch below used
+    # to respect that.
+    #
+    # Under /api/ they fell through to api_error_from_exc(), which is hardcoded
+    # to 500: the caller was told the server broke when it had actually used the
+    # wrong method or URL, and each was logged at exception level, burying real
+    # 500s. Probing the read-only API surface turned up 18 of these and 0 genuine
+    # server faults.
+    #
+    # Off /api/ the `raise exc` below was worse. Re-raising from INSIDE an error
+    # handler makes Flask abandon its own error handling and return 500, so every
+    # ordinary 404 — /favicon.ico, a mistyped page, a missing image — answered
+    # 500. Returning the HTTPException instead lets Flask render its normal error
+    # response with the correct status.
+    if isinstance(exc, HTTPException):
+        _logging.getLogger(__name__).info(
+            "%s %s → %s %s", request.method, request.path, exc.code, exc.name
+        )
+        if request.path.startswith("/api/"):
+            return api_error_response(
+                exc.description or exc.name,
+                status=exc.code or 500,
+                code=exc.name.lower().replace(" ", "_"),
+            )
+        return exc
+
+    # A genuine fault. JSON for API callers; off /api/, re-raise so Flask's own
+    # 500 path (and the debugger, when enabled) handles it as before.
     if request.path.startswith("/api/"):
-        import logging as _logging
         _logging.getLogger(__name__).exception(
             "Unhandled exception on %s %s", request.method, request.path
         )
