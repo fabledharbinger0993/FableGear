@@ -1933,9 +1933,9 @@ Rekordbox disagreement, not verified truth.
 
 | group | n | Iron | Rekordbox | what it looks like |
 |---|---|---|---|---|
-| ratio ~0.5 (half-time) | 14 | 82-91 | 164-181 | Breakbeat, jungle, DnB and ragga-soul (xtc, sour, Untz labels). Iron halves; the tag is often ~86-89 too, so the tag repeats Iron's error. |
-| ratio ~0.667 (2:3) | 17 | 110-118 | 165-177 | The same 170s breakbeat/DnB population, one step further off. Tags are split: 117 and 172 are both seen. |
-| ratio ~1.3-2.2 (Iron too fast) | 13 | 120-170 | 75-93 | Acapellas, hip-hop and slow breaks. Iron is at 1.3x-2x Rekordbox. Some Rekordbox values here are themselves doubtful (e.g. 77 and 80 on tracks Iron puts at 150-160). |
+| ratio ~0.5 (half-time) | 19 | 82-91 | 164-181 | Breakbeat, jungle, DnB and ragga-soul (xtc, sour, Untz labels). Iron halves; the tag is often ~86-89 too, so the tag repeats Iron's error. |
+| ratio ~0.667 (2:3) | 21 | 110-118 | 165-177 | The same 170s breakbeat/DnB population, one step further off. Tags are split: 117 and 172 are both seen. |
+| ratio ~1.3-2.2 (Iron too fast) | 12 | 120-170 | 75-93 | Acapellas, hip-hop and slow breaks. Iron is at 1.3x-2x Rekordbox. Some Rekordbox values here are themselves doubtful (e.g. 77 and 80 on tracks Iron puts at 150-160). |
 | ratio 0.94-1.02 (small drift) | 3 | | | Within ~6%. Not octave errors. |
 
 **Key finding:** on this population, Iron's real octave errors cluster at 165-180 BPM, not at the
