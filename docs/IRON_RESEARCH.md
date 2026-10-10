@@ -1925,6 +1925,40 @@ the `master.db` snapshot (the join is not yet in the repo).
 
 Not a re-litigation of §2-§18: it does not revisit any octave method, only the metric.
 
+## 19.8 The 55 Iron-side residuals, hand-grouped against Rekordbox (2026-10-10 follow-up)
+
+All 55 are Rekordbox-analysed tracks where Iron is more than 2% from Rekordbox's BPM (§19.5).
+Grouped by Iron/Rekordbox ratio. Rekordbox's value is the reference, so these are evidence of a
+Rekordbox disagreement, not verified truth.
+
+| group | n | Iron | Rekordbox | what it looks like |
+|---|---|---|---|---|
+| ratio ~0.5 (half-time) | 14 | 82-91 | 164-181 | Breakbeat, jungle, DnB and ragga-soul (xtc, sour, Untz labels). Iron halves; the tag is often ~86-89 too, so the tag repeats Iron's error. |
+| ratio ~0.667 (2:3) | 17 | 110-118 | 165-177 | The same 170s breakbeat/DnB population, one step further off. Tags are split: 117 and 172 are both seen. |
+| ratio ~1.3-2.2 (Iron too fast) | 13 | 120-170 | 75-93 | Acapellas, hip-hop and slow breaks. Iron is at 1.3x-2x Rekordbox. Some Rekordbox values here are themselves doubtful (e.g. 77 and 80 on tracks Iron puts at 150-160). |
+| ratio 0.94-1.02 (small drift) | 3 | | | Within ~6%. Not octave errors. |
+
+**Key finding:** on this population, Iron's real octave errors cluster at 165-180 BPM, not at the
+slow end. That conflicts with §9.3 ("140-180 is the best range"). §9.3 measured a different set
+(its DATABASE sample), so the two are not contradictory, but DnB and jungle are a real weak spot
+for Iron in this library, and §9.3's conclusion should not be carried over without a check.
+
+**Why this is not yet a fix:** the existing tempo prior is centred at 125 BPM with sigma 0.6
+octaves. Both 87 and 175 sit about 0.5 octaves from that centre, so the prior is nearly neutral
+between the true tempo and its half. The half-time choice comes from harmonic-sum scoring, which
+is the mechanism §3 and §8 already studied. Any change here is a detector change, so it needs the
+full 1,210-track Rekordbox check and the synthetic suite before it can be called a win (§5). It has
+not been attempted.
+
+**Next steps, in order:**
+1. Confirm the half-time group by ear or with an independent source on a few tracks, since
+   Rekordbox is the only reference used here.
+2. Decide whether a 160-185 BPM-aware candidate (a kick-band check at the doubled tempo) is worth a
+   validated experiment. Measure it on the 1,210 Rekordbox tracks and rb200, and report exact,
+   within 1%, within 4%, plus the half/double count.
+3. Leave the 1.3-2x slow-acapella group alone until the Rekordbox values for those tracks are checked:
+   the reference itself looks doubtful there.
+
 ## How to add to this doc
 
 Append a new dated section (`## N. <short title>`) rather than editing existing sections'
