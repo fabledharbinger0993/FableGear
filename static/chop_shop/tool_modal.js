@@ -336,7 +336,9 @@ function leSetTrackView(tracks, label) {
   _leBaseTracks = Array.isArray(tracks) ? tracks : [];
   _leStatusLabel = label || 'All Tracks';
   _leSelectedTrackIds.clear();
+  _leSelAnchorId = null;
   leRefreshTrackView();
+  _leSyncSelectionUi();
 }
 
 function leRefreshTrackView() {
@@ -802,15 +804,20 @@ function leRenderPlaylistTree(nodes, parentEl, depth) {
         item.classList.remove('le-tree-drop-hover');
         const trackId = e.dataTransfer?.getData('text/fg-track');
         if (!trackId) return;
+        let dragIds = [trackId];
+        try {
+          const multi = JSON.parse(e.dataTransfer.getData('text/fg-tracks') || '[]');
+          if (Array.isArray(multi) && multi.includes(trackId)) dragIds = multi.map(String);
+        } catch (_) { /* single-track drop */ }
         try {
           const res = await fetch(`/api/library/playlists/${node.id}/tracks?db=${encodeURIComponent(_leDbSource)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ track_id: trackId }),
+            body: JSON.stringify({ track_ids: dragIds }),
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) { showToast(data.error || 'Could not add track to playlist.', 'error'); return; }
-          if (data.added > 0) showToast(`Added to “${node.name}”.`, 'success');
+          if (data.added > 0) showToast(`Added ${data.added} track${data.added === 1 ? '' : 's'} to “${node.name}”.`, 'success');
           else if (data.missing && data.missing.length) showToast('Not in your Rekordbox library yet — import it there first.', 'info');
           else showToast(`Already in “${node.name}”.`, 'info');
         } catch (_) {
@@ -930,8 +937,10 @@ function _leBuildTrackRow(t, absIndex, inPlaylist) {
   const dur = t.duration ? leFormatDur(t.duration) : '—';
   const date = t.date_added ? t.date_added.slice(0, 10) : '—';
   const handle = inPlaylist ? '<div class="le-drag-handle" title="Drag to reorder">⠿</div>' : '';
+  const checked = _leSelectedTrackIds.has(String(t.id)) ? ' checked' : '';
   row.innerHTML = `
       ${handle}
+      <div class="le-col le-col-check"><input type="checkbox" class="le-check" aria-label="Select track"${checked}></div>
       <div class="le-col le-col-play"><button class="le-play-btn${playbackState === 'pause' ? ' is-playing' : ''}" data-track-id="${_leEsc(t.id)}" aria-label="${playbackState === 'pause' ? 'Pause track' : 'Play track'}">${playbackState === 'pause' ? '❚❚' : '▶'}</button></div>
       <div class="le-col le-col-num">${absIndex + 1}</div>
       <div class="le-col le-col-art"><img class="le-art-fallback" src="/static/icon-logo-fablegear.png" alt=""><img class="le-art-img" src="/api/library/tracks/${_leEsc(t.id)}/art?db=${encodeURIComponent(_leDbSource)}" loading="lazy" alt="" onerror="this.style.display='none'"></div>
@@ -946,6 +955,12 @@ function _leBuildTrackRow(t, absIndex, inPlaylist) {
   row.querySelector('.le-title-editable')?.addEventListener('dblclick', evt => leEditTrackTitle(t, evt));
   row.querySelector('.le-title-seek')?.addEventListener('click', evt => leSeekInline(evt));
   row.addEventListener('click', evt => leToggleTrackSelection(String(t.id), evt));
+  const check = row.querySelector('.le-check');
+  check?.addEventListener('click', evt => {
+    // Checkbox toggles this row only, like Cmd/Ctrl-click, without the row handler.
+    evt.stopPropagation();
+    leToggleTrackSelection(String(t.id), { metaKey: true, ctrlKey: false, shiftKey: false });
+  });
   // Restore the inline-preview markers when this row (re)enters a virtualized view.
   if (_lePlayingTrackId != null && String(t.id) === String(_lePlayingTrackId)) {
     const titleCell = row.querySelector('.le-col-title');
@@ -960,7 +975,9 @@ function _leBuildTrackRow(t, absIndex, inPlaylist) {
     // Library view: drag a track onto a deck (load) or a playlist (add).
     row.draggable = true;
     row.addEventListener('dragstart', (e) => {
+      if (!_leSelectedTrackIds.has(String(t.id))) leToggleTrackSelection(String(t.id), { metaKey: false, ctrlKey: false, shiftKey: false });
       e.dataTransfer.setData('text/fg-track', String(t.id));
+      e.dataTransfer.setData('text/fg-tracks', JSON.stringify([..._leSelectedTrackIds]));
       e.dataTransfer.effectAllowed = 'copy';
       row.classList.add('le-row-dragging');
     });
@@ -1145,7 +1162,22 @@ async function leEditTrackTitle(track, event) {
   }
 }
 
+let _leSelAnchorId = null;
+
 function leToggleTrackSelection(trackId, evt) {
+  if (evt.shiftKey && _leSelAnchorId != null && _leRenderRows && _leRenderRows.length) {
+    // Range select: anchor → clicked, across the full (even virtualized) list.
+    const ids = _leRenderRows.map(r => String(r.id));
+    const a = ids.indexOf(String(_leSelAnchorId));
+    const b = ids.indexOf(trackId);
+    if (a !== -1 && b !== -1) {
+      if (!(evt.metaKey || evt.ctrlKey)) _leSelectedTrackIds.clear();
+      const [lo, hi] = a < b ? [a, b] : [b, a];
+      for (let i = lo; i <= hi; i++) _leSelectedTrackIds.add(ids[i]);
+      _leSyncSelectionUi();
+      return;
+    }
+  }
   if (evt.metaKey || evt.ctrlKey) {
     if (_leSelectedTrackIds.has(trackId)) _leSelectedTrackIds.delete(trackId);
     else _leSelectedTrackIds.add(trackId);
@@ -1154,10 +1186,31 @@ function leToggleTrackSelection(trackId, evt) {
     _leSelectedTrackIds.clear();
     if (!alreadySingle) _leSelectedTrackIds.add(trackId);
   }
+  _leSelAnchorId = trackId;
+  _leSyncSelectionUi();
+}
+
+function _leSyncSelectionUi() {
   document.querySelectorAll('.le-track-row').forEach(row => {
-    row.classList.toggle('selected', _leSelectedTrackIds.has(row.dataset.id));
+    const sel = _leSelectedTrackIds.has(row.dataset.id);
+    row.classList.toggle('selected', sel);
+    const cb = row.querySelector('.le-check');
+    if (cb) cb.checked = sel;
   });
+  const all = document.getElementById('le-select-all');
+  if (all) {
+    const n = (_leRenderRows || []).length;
+    all.checked = n > 0 && _leSelectedTrackIds.size >= n;
+    all.indeterminate = _leSelectedTrackIds.size > 0 && !all.checked;
+  }
   leUpdateActionState();
+}
+
+function leToggleSelectAll(on) {
+  _leSelectedTrackIds.clear();
+  if (on) (_leRenderRows || []).forEach(r => _leSelectedTrackIds.add(String(r.id)));
+  _leSelAnchorId = null;
+  _leSyncSelectionUi();
 }
 
 function leSorted(tracks) {
