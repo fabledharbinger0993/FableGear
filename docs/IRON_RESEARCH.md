@@ -48,6 +48,14 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 > Beat 1 is found by counting back from the first real kick: downbeat_offset 54% within
 > 25 ms / 75.5% within 50 ms of Rekordbox (was 13% / 22.5%). See §17.
 >
+> **2026-10-10 (candidate discriminator):** choosing among Iron's own octave/compound-meter candidates
+> from audio evidence gave no held-out gain (n=600 hold, 11 breaks / 0 fixes for the dev-selected rule).
+> Iron's detector is unchanged. See §22 before trying this family again.
+>
+> **2026-10-10 (candidate discriminator):** choosing among Iron's own octave/compound-meter candidates
+> from audio evidence gave no held-out gain (n=600 hold, 11 breaks / 0 fixes for the dev-selected rule).
+> Iron's detector is unchanged. See §22 before trying this family again.
+>
 > **2026-10-10 (BPM mismatch pass):** the 87.8% within-4% BPM figure on the 2,000-track
 > DB run is real but is NOT an accuracy measure of Iron: the 4% window is ~5 BPM at 125,
 > the ground-truth tags cluster on 30 values, and Iron matched none of the 225 disagreements
@@ -480,6 +488,12 @@ findings).
   rules out the peak-picker as the cause. Don't try a third peak-picker variant without
   first validating `dsp.onset_envelope_multiband`'s kick band directly against a real
   continuous-bassline track — the problem is suspected to be upstream of peak-picking.
+- Choosing among Iron's own octave/compound-meter candidates from audio evidence (kick ACF, kick
+  or snare grid strength, backbeat ratio) with a dev-tuned switch rule (§22, 2026-10-10). No rule
+  beat Iron on dev, and the dev-selected rule breaks 11 held-out tracks Iron gets right and fixes
+  none. Single-feature argmax is far worse than Iron (44-48% vs 93.8% within 4%). Don't re-run this
+  family on these features; a new attempt needs a different mechanism, tested on held-out Rekordbox
+  labels and the owner's ear checks.
 
 ---
 
@@ -2238,3 +2252,78 @@ the half-time group) are both scored as errors here. The 2:3 group (~117) is a r
   or the material. Not yet done.
 - Key: 55% exact on the full population against the 65% MIREX-weighted; the adjacent-fifth class (2,909) is the largest
   near-miss group and is worth a targeted look.
+
+## 22. Candidate-tempo discriminator: audio-only evidence for choosing among Iron's own candidates (2026-10-10)
+
+Question (owner, relayed to this thread): can Iron decide when its BPM is an octave or compound-meter
+alias, using only audio evidence, with no Rekordbox or genre/Anvil tag input? Rekordbox BPM is used
+only to label rows, and the owner's ear labels are reported separately.
+
+**What "accuracy" means here, stated plainly.** There is no ground truth in this file except the owner's
+ear labels (`docs/iron/golden/iron_golden_labels.jsonl`, 11 rows, 10 matched in the refresh set). Every other
+number here is agreement with Rekordbox 7's analysed BPM: a reference, not truth, and wrong on some
+tracks the owner has checked (§19.9, §20.7 Papa T). Independent signal checks (ACF peaks, grid
+regularity, backbeat ratio, ratio analysis) are evidence about the audio, not labels.
+
+### 22.1 Method (pre-declared before any result)
+
+- Population: `FableGearTestbed/results/rb_refresh_iron.jsonl` (the §21 run, 20,096 Rekordbox-analysed
+  tracks). Split dev/hold by `sha1(rb_id)` parity, 600 random tracks each (seed 42), disjoint from the
+  golden rows.
+- Candidates: Iron's pick b times {1, 2, 1/2, 3/2, 2/3, 4/3, 3/4}, kept if within 55-200 BPM.
+- Features, from a 45 s window at one third into the track, decoded via `iron.api._decode`:
+  kick-band (40-120 Hz) ACF at the candidate period; kick grid strength (best phase, mean over grid
+  points, over whole-window mean); snare-band (1-5 kHz) grid strength; backbeat ratio on Iron's grid
+  (doubled candidate only).
+- Extraction: `scripts/experiments/bpm_discriminator.py extract` (committed with this section; no rule
+  search in the repo). Rule search: `FableGearTestbed/harness/bpm_disc_eval.py` (outside the repo, so
+  rejected rules are not committed).
+- Rule family: score = weighted sum of dev-standardised features; switch from b only if the best
+  candidate beats b by a margin; optional backbeat gate on doubling. 70 configs. Selected on dev
+  within-4% (tie-break: fewer switches), then reported once on holdout.
+
+### 22.2 Results (n = 600 dev, 600 hold; demonstrated, from `bpm_disc_eval.py`)
+
+| | dev exact / within 1% / within 4% | hold exact / within 1% / within 4% |
+|---|---|---|
+| Iron (current code) | 82.8 / 89.3 / 93.8 | 82.0 / 88.8 / 93.8 |
+| dev-selected rule (grid only, margin 1.5) | 80.8 / - / 91.3 | 80.2 / - / 92.0 (11 switches) |
+
+- **No config in the 70-config grid beat Iron on dev** (best 91.3% vs 93.8%). The dev-selected rule
+  breaks 11 holdout tracks that Iron gets right and fixes 0.
+- Single-feature argmax over candidates (no rule, no margin), within 4%: ACF 48.2% dev / 44.3% hold;
+  kick grid 20.2% / 22.8%; snare grid 20.0% / 23.3%. Each breaks hundreds of Iron-correct tracks, which is
+  the octave bias §3 and §19 describe: the sparser candidate's grid is a strict subset (§11.6, §13.3).
+- Among Iron-wrong tracks whose true tempo is one of the candidates (26 dev, 28 hold), argmax ACF picks the
+  truth 5/26 and 10/28; snare 6/26 and 10/28; grid 7/26 and 4/28. Chance among about five candidates is
+  roughly 20%, so this is weak, not usable.
+- Owner ear labels (not used for tuning, no row switched by the chosen rule): Iron correct on 4 of 10
+  (both Chill Vibes files, the third Chill Vibes row, Papa T). Iron wrong on 6 (vital_elements x2, Wisdom,
+  infiltrata, funky_house at about 86-88 for truth 172-176; Pain at 117 for truth 173-177). The DnB rows
+  do not show the doubled candidate (about 172-175) ranking first on any feature.
+- Not matched: "Gold Digger" (not in the snapshot) and "02-phantasy_and_shodan" (the file is named
+  `02-phantasy_and_shodan-you_are_all_alone-xtc`, so the exact-stem rule misses it). Both are still open.
+
+### 22.3 Verdict and what this does NOT show
+
+- Iron's detector is **unchanged**. The held-out result does not clear the bar (no gain, and breaks on the
+  slow tracks §20.8 protects, e.g. Chill Vibes at 86-91). §5 applies.
+- This is the grid and backbeat family that §11.6, §13.3 and §20.9 already covered. The ACF feature is the
+  one Iron's harmonic sum already uses. So this is a re-test on a larger, held-out sample, not a new
+  mechanism. It confirms that family's failure at n=600 rather than extending it.
+- Sample size is modest: 37 Iron-wrong tracks per half, so the holdout has about 28 candidates in reach. A
+  one-track change moves within-4% by about 0.17 points. At this n the standard error on Iron's ~94%
+  is about 1 point (95% interval about +/-2). Iron and the rule are scored on the same tracks, so the
+  paired break/fix counts (11 breaks, 0 fixes) are a more useful comparison than the two absolute rates.
+- The owner's ear labels are 10 rows, and 6 of them are the same DnB pattern. Nothing here generalises
+  beyond that population.
+- What would change the answer: a feature that actually separates felt tempo from drum pulse (the §19.9
+  convention question, which is a product decision, not a measurement), or a larger ear-labelled set of
+  Iron-wrong tracks, which is the first thing to collect.
+
+### 22.4 Still open
+
+- Decide the convention (felt tempo or drum pulse) for 160-185 BPM DnB before choosing any target (§19.9).
+- Ear-label about 30 Iron-wrong tracks drawn from the holdout set, so any future rule has a labelled
+  target beyond the current 10.
+- Fix the golden matching for "02-phantasy_and_shodan" (suffix) and add "Gold Digger" once it is on disk.
