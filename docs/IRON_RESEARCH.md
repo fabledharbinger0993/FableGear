@@ -48,6 +48,11 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 > Beat 1 is found by counting back from the first real kick: downbeat_offset 54% within
 > 25 ms / 75.5% within 50 ms of Rekordbox (was 13% / 22.5%). See §17.
 >
+> **2026-10-10 (BPM mismatch pass):** the 87.8% within-4% BPM figure on the 2,000-track
+> DB run is real but is NOT an accuracy measure of Iron: the 4% window is ~5 BPM at 125,
+> the ground-truth tags cluster on 30 values, and Iron matched none of the 225 disagreements
+> in a way that points at an Iron octave bug. See §19 before quoting any BPM accuracy.
+>
 > **2026-10-10 (later):** Key detection rebuilt -- whitened 36-bin chroma, tuning
 > correction, harmonic summation, profiles learned from the owner's library: **62.5% / 49.3%
 > exact** on rb200 / mixed150 (was 28.5% / 33.3%; production librosa path on the same sets:
@@ -465,6 +470,9 @@ findings).
   *best*-performing BPM range once the benchmark harness's range bug, §9.2, is corrected).
   Don't re-investigate a DnB-specific fix off a benchmark run's raw numbers without first
   checking that run used `--bpm-min 60 --bpm-max 180` explicitly (§9.2's gotcha).
+- Judging BPM by a ±4% tolerance on the 2,000-track DB run (§19): that window is ~5 BPM at
+  125 and the tags are 30 distinct values. Report ±1% and exact too, and check against
+  Rekordbox's own BPM before calling any change a win or a loss.
 - Kick-isolated inter-onset-interval tempo (§7.2's idea) was tried twice against real
   syncopated-genre tracks — global threshold, then an adaptive local-mean threshold — and
   both underperformed Iron's existing whole-track answer badly (§15: 20% vs Iron's 45%),
@@ -1810,6 +1818,83 @@ confidence is still the plain Pearson correlation.
 - `dsp.chroma_cqt` / `dsp.chroma` stay (tests + scripts use them) but no longer feed key.
 
 ---
+
+## 19. The 2,000-track "BPM octave mismatch" run: what the 225 disagreements are, and why the 4% metric is not a fair test here (2026-10-10)
+
+Task: categorize Iron's remaining BPM disagreements against the DB tag on the 2,000-track
+genre run (`FableGearTestbed/results/iron_db_2000.jsonl`, 1,847 with a tag), fix whatever is
+Iron's fault, report before/after agreement. **Outcome: no Iron change made, because no
+disagreement was shown to be Iron's fault.** Evidence below; every claim is labelled.
+
+### 19.1 Before (reproduced exactly from the run's own log)
+
+`match 1622/1847 = 87.8%` within 4%. Reproduced by `scripts/categorize_iron_bpm_mismatches.py`.
+Iron gave no BPM on 0 tracks and raised no `iron_errors` on any track.
+
+### 19.2 The disagreements, by ratio class (demonstrated, counts from the run)
+
+| class | n | where | ground-truth tag values | Iron values |
+|---|---|---|---|---|
+| 3:2 | 110 | 102 Orphaned, 8 Corduroy Mavericks | **83 (88)**, 86 (12), 81 (8) | ~125-129 |
+| 2x | 62 | 58 Orphaned, 4 Corduroy | **63 (38)**, 62 (11), 66 (4) | ~126 |
+| other | 23 | Orphaned | 99 (12), 103 (5), 96 (2) | ~120-125 |
+| 2:3 / 3:4 / 4:3 / half | 30 | Orphaned | 172 (18), 152, 117, 89, 86, 185, 199 | mixed; 14 of 30 at conf < 0.2 |
+
+The 3:2 cluster is almost entirely tags at 2/3 of Iron's answer (83 ≈ 125 × 2/3) and the 2x
+cluster almost entirely tags at 1/2 of it (63 ≈ 126 / 2). That is what a compound-meter or
+half-time tag error would look like, so these are **inferred to be tag-side**, not proven:
+no independent BPM was available for those files (see 19.3). Half of the 30 rows in the
+2:3 / 3:4 / 4:3 / half group have Iron confidence below 0.2 (14/30), so there the detector
+itself was unsure. Those are the only rows where Iron's own uncertainty points at Iron.
+
+### 19.3 Independent check against Rekordbox beat grids (demonstrated, small n)
+
+`/mnt/project-files/USBANLZ` (412 Rekordbox exports) gave a PQTZ beat grid for 332 parsed
+files via the repo's ANLZ parser. 37 of them share a file name with a track in this run:
+
+- Iron within 4% of Rekordbox on **37/37**.
+- The DB tag within 4% of Rekordbox on **36/37**.
+
+None of the 37 is in the 3:2 or 2x clusters, so this check says nothing about the 83/63
+tags. The Passport drive holding the 2,000 files is not mounted on the device, so Rekordbox's
+own analysed BPM for those tracks could not be read. **That is the decisive missing check.**
+
+### 19.4 Why the 87.8% headline overstates Iron on this sample (demonstrated)
+
+- Constant-BPM baseline: predicting 124.7 for every track scores **74.3%** within 4% on the
+  same tracks; predicting 125 scores 74.2%. Iron's 87.8% is well above that, but the 4%
+  window is about 5 BPM at 125, and 82% of tags sit in 115-132.
+- Tighter bands on the same answers: **within 1% = 39.4%; exact (±0.6 BPM) = 12.3%**.
+- Ground truth has only 30 distinct values: 123.0 (1,012 tracks), 129.0 (358), 117.0 (151),
+  83.0 (89), 63.0 (38). Iron's own outputs cluster the same way (125.05, 126.05, 124.0).
+- The ±0.6 band is 12.3% here, while §16 measured 80.5% exact on Rekordbox's own rb200. The
+  gap is almost entirely ground-truth quality, not a change in Iron between runs.
+
+Confidence does not separate the bad cases from the good: median `bpm_conf` is 0.52 for
+within-4% answers and 0.51 for the rest. So the confidence number cannot be used to flag them.
+
+### 19.5 What was NOT changed, and why
+
+- **No edit to `iron/tempo.py`.** Every octave-oriented change in §2, §3, §5, §8.4 and §13.3
+  was tried against a real ground truth and failed or regressed. With no Rekordbox-verified
+  Iron error in front of us, a tempo change would be a guess that could cost the validated
+  §12/§13 gains. §5's rule applies: do not change the detector without a validated failure.
+- The only Iron-attributable candidates are the ~30 low-confidence 2:3 / half / 3:4 rows.
+  They are too few and too mixed (Sound Effects, a few 170s techno tags) to justify a change.
+- The ratio classifier is now a script (`scripts/categorize_iron_bpm_mismatches.py`), so the
+  split above can be regenerated from any run.
+
+### 19.6 What would settle it (next step, not done)
+
+1. Read Rekordbox's own analysed BPM for the 88 "83" and 63 "62/63" files, from a snapshot
+   of `master.db` (`Analysed != 0`, per §18.2) or their ANLZ PQTZ grids. If Rekordbox says
+   ~125, the tags are wrong and the 87.8% is an underestimate of Iron on this set.
+2. Re-run the benchmark on a Rekordbox-analysed set (rb200-style) and report exact / ±1% /
+   ±4% together. Never headline the ±4% number alone for a population clustered in 115-130.
+3. Possibly retag or exclude the `Orphaned Tracks` tags until 1 is done. That is a library
+   decision for the owner, not a change to Iron.
+
+Not a re-litigation of §2-§18: it does not revisit any octave method, only the metric.
 
 ## How to add to this doc
 
