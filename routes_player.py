@@ -1506,6 +1506,228 @@ def api_library_patch_track(track_id):
         return jsonify({"error": str(exc)}), 500
 
 
+# ── Record Room context-menu actions (FableGear-native library only) ─────────
+# Every route below is an explicit, user-initiated write triggered from the
+# right-click menu. Rekordbox sources are never written here: Rekordbox must be
+# closed for those writes, so they stay on the dedicated Rekordbox routes.
+
+def _fg_only_db():
+    """Return (db, error_response). Context-menu writes target FableGear's own DB."""
+    source = (request.args.get("db") or "").lower()
+    if source in ("local", "device"):
+        return None, (jsonify({"error": "This action only works on the FableGear library."}), 400)
+    fg = _fablegear_db()
+    if fg is None:
+        return None, (jsonify({"error": "Library not built yet"}), 404)
+    return fg, None
+
+
+def _parse_id(value):
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+@bp.route("/api/library/tracks/<track_id>", methods=["DELETE"])
+def api_library_remove_track(track_id):
+    """Remove a track from the FableGear database. The audio file is left on disk."""
+    fg, err = _fg_only_db()
+    if err:
+        return err
+    tid = _parse_id(track_id)
+    if tid is None or fg.get_content_by_id(tid) is None:
+        return jsonify({"error": "Track not found"}), 404
+    fg.remove_content_from_library(tid)
+    return jsonify({"ok": True, "id": str(tid), "status": "removed"})
+
+
+@bp.route("/api/library/tracks/<track_id>/duplicate", methods=["POST"])
+def api_library_duplicate_track(track_id):
+    fg, err = _fg_only_db()
+    if err:
+        return err
+    import shutil
+
+    tid = _parse_id(track_id)
+    rec = fg.get_content_by_id(tid) if tid is not None else None
+    if rec is None:
+        return jsonify({"error": "Track not found"}), 404
+    src = Path(rec.file_path or "")
+    if not src.is_file():
+        return jsonify({"error": "Audio file is missing on disk"}), 409
+    # Copy the audio next to the original; never overwrite an existing file.
+    dest = src.with_name(f"{src.stem} (copy){src.suffix}")
+    n = 2
+    while dest.exists():
+        dest = src.with_name(f"{src.stem} (copy {n}){src.suffix}")
+        n += 1
+    try:
+        shutil.copy2(src, dest)
+        new_id = fg.duplicate_content(tid, str(dest))
+    except OSError as exc:
+        log.warning("duplicate track copy failed: %s", exc)
+        return jsonify({"error": "Could not copy the audio file"}), 500
+    except Exception:
+        dest.unlink(missing_ok=True)
+        raise
+    return jsonify({"ok": True, "id": str(new_id)}), 201
+
+
+@bp.route("/api/library/tracks/<track_id>/duplicates")
+def api_library_find_track_duplicates(track_id):
+    fg, err = _fg_only_db()
+    if err:
+        return err
+    tid = _parse_id(track_id)
+    if tid is None or fg.get_content_by_id(tid) is None:
+        return jsonify({"error": "Track not found"}), 404
+    matches = fg.find_similar_content(tid)
+    return jsonify({"ok": True, "duplicates": [_fablegear_track_payload(r) for r in matches]})
+
+
+@bp.route("/api/library/playlists/<playlist_id>/duplicate", methods=["POST"])
+def api_library_duplicate_playlist(playlist_id):
+    fg, err = _fg_only_db()
+    if err:
+        return err
+    pid = _parse_id(playlist_id)
+    if pid is None or fg.get_playlist(pid) is None:
+        return jsonify({"error": "Playlist not found"}), 404
+    new_id = fg.duplicate_playlist(pid)
+    return jsonify({"ok": True, "id": str(new_id)}), 201
+
+
+@bp.route("/api/library/playlists/<playlist_id>/move", methods=["POST"])
+def api_library_move_playlist(playlist_id):
+    fg, err = _fg_only_db()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    pid = _parse_id(playlist_id)
+    if pid is None or fg.get_playlist(pid) is None:
+        return jsonify({"error": "Playlist not found"}), 404
+    raw_parent = data.get("parent_id")
+    parent = None
+    if raw_parent not in (None, "", "root"):
+        parent = _parse_id(raw_parent)
+        if parent is None:
+            return jsonify({"error": "parent_id must be a folder id"}), 400
+    try:
+        fg.move_playlist(pid, parent)
+    except ValueError:
+        return jsonify({"error": "Target must be a folder that isn't inside this item"}), 400
+    return jsonify({"ok": True, "id": str(pid), "parent_id": parent})
+
+
+def _playlist_xml_node(fg, node_id, tracks_seen):
+    """Build a Rekordbox-XML NODE element for a playlist or folder."""
+    from xml.etree import ElementTree as ET
+
+    info = fg.get_playlist(node_id)
+    if info is None:
+        return None
+    if info["type"] == "folder":
+        node = ET.Element("NODE", Type="0", Name=info["name"])
+        for child_id in fg.get_playlist_child_ids(node_id):
+            child = _playlist_xml_node(fg, child_id, tracks_seen)
+            if child is not None:
+                node.append(child)
+        node.set("Count", str(len(list(node))))
+        return node
+    songs = fg.get_playlist_songs(node_id)
+    node = ET.Element("NODE", Type="1", Name=info["name"], KeyType="0", Entries=str(len(songs)))
+    for rec in songs:
+        tracks_seen.setdefault(rec.id, rec)
+        ET.SubElement(node, "TRACK", Key=str(rec.id))
+    return node
+
+
+@bp.route("/api/library/playlists/<playlist_id>/export.xml")
+def api_library_export_playlist_xml(playlist_id):
+    """Download a playlist (or folder) as a Rekordbox-style XML file."""
+    from urllib.parse import quote
+    from xml.etree import ElementTree as ET
+    from flask import Response
+
+    fg, err = _fg_only_db()
+    if err:
+        return err
+    pid = _parse_id(playlist_id)
+    info = fg.get_playlist(pid) if pid is not None else None
+    if info is None:
+        return jsonify({"error": "Playlist not found"}), 404
+
+    tracks_seen: dict = {}
+    node = _playlist_xml_node(fg, pid, tracks_seen)
+
+    root = ET.Element("DJ_PLAYLISTS", Version="1.0.0")
+    ET.SubElement(root, "PRODUCT", Name="FableGear", Version="1.0", Company="FableGear")
+    coll = ET.SubElement(root, "COLLECTION", Entries=str(len(tracks_seen)))
+    for rec in tracks_seen.values():
+        attrs = {
+            "TrackID": str(rec.id),
+            "Name": rec.title or rec.file_name or "",
+            "Artist": rec.artist or "",
+            "Album": rec.album or "",
+            "Genre": rec.genre or "",
+            "Kind": (rec.format or "").upper(),
+            "TotalTime": str(int(rec.duration or 0)),
+            "AverageBpm": f"{float(rec.bpm):.2f}" if rec.bpm else "0.00",
+            "Tonality": rec.key or "",
+            "Location": "file://localhost" + quote(rec.file_path or ""),
+        }
+        ET.SubElement(coll, "TRACK", attrs)
+    playlists = ET.SubElement(root, "PLAYLISTS")
+    top = ET.SubElement(playlists, "NODE", Type="0", Name="ROOT", Count="1")
+    top.append(node)
+
+    body = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    safe_name = "".join(c if c.isalnum() or c in " -_." else "_" for c in info["name"]).strip() or "playlist"
+    return Response(
+        body,
+        mimetype="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.xml"'},
+    )
+
+
+@bp.route("/api/drives/eject", methods=["POST"])
+def api_drives_eject():
+    """Eject an external drive from the computer. Only currently mounted user volumes qualify."""
+    import subprocess
+
+    data = request.get_json(silent=True) or {}
+    path = str(data.get("path") or "").strip()
+    if not path:
+        return jsonify({"error": "path required"}), 400
+    # Use the mountpoint from our own volume list, never the request string.
+    path = next((v["path"] for v in get_connected_volumes()
+                 if str(Path(v["path"])) == str(Path(path))), None)
+    if path is None:
+        return jsonify({"error": "Not a connected external drive"}), 403
+
+    if _SYSTEM == "Darwin":
+        cmd = ["diskutil", "eject", path]
+    elif _SYSTEM == "Windows":
+        letter = path[:2]
+        if not (len(letter) == 2 and letter[0].isalpha() and letter[1] == ":"):
+            return jsonify({"error": "Invalid drive"}), 400
+        cmd = ["powershell", "-NoProfile", "-Command",
+               "(New-Object -comObject Shell.Application).Namespace(17)"
+               f".ParseName('{letter}').InvokeVerb('Eject')"]
+    else:
+        cmd = ["umount", path]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("eject failed for %s: %s", path, exc)
+        return jsonify({"error": "Eject failed"}), 500
+    if proc.returncode != 0:
+        log.warning("eject refused for %s: %s", path, (proc.stderr or proc.stdout or "").strip())
+        return jsonify({"error": "Eject failed — the drive may be in use"}), 409
+    return jsonify({"ok": True, "path": path})
+
+
 # ── Library USB export ───────────────────────────────────────────────────────
 
 @bp.route("/api/library/export/drives")

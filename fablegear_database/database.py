@@ -770,6 +770,149 @@ class FableGearDatabase:
             self._refresh_playlist_count(cur, playlist_id)
             return removed
 
+    def get_playlist_child_ids(self, parent_id) -> list[int]:
+        with self.connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id FROM fg_playlist WHERE parent_id = ? "
+                "ORDER BY (playlist_type = 'folder') DESC, name COLLATE NOCASE",
+                (int(parent_id),),
+            )
+            return [r[0] for r in cur.fetchall()]
+
+    def move_playlist(self, playlist_id, parent_id) -> bool:
+        """Re-parent a playlist/folder under a folder (None = root).
+
+        Raises ValueError if the target isn't a folder or the move would put a
+        folder inside itself or one of its descendants.
+        """
+        pid = int(playlist_id)
+        with self.transaction() as conn:
+            cur = conn.cursor()
+            if parent_id is not None:
+                cur.execute("SELECT playlist_type FROM fg_playlist WHERE id = ?", (int(parent_id),))
+                row = cur.fetchone()
+                if not row or row[0] != "folder":
+                    raise ValueError("target is not a folder")
+                walk = int(parent_id)
+                while walk is not None:
+                    if walk == pid:
+                        raise ValueError("cannot move a folder into itself")
+                    cur.execute("SELECT parent_id FROM fg_playlist WHERE id = ?", (walk,))
+                    nxt = cur.fetchone()
+                    walk = nxt[0] if nxt else None
+            cur.execute(
+                "UPDATE fg_playlist SET parent_id = ?, updated_at = datetime('now','localtime') "
+                "WHERE id = ?",
+                (int(parent_id) if parent_id is not None else None, pid),
+            )
+            return cur.rowcount > 0
+
+    def duplicate_playlist(self, playlist_id, parent_id=...) -> int:
+        """Copy a playlist (or folder, recursively) with its tracks; returns the new id.
+
+        The copy is named "<name> (copy)" and sits beside the original unless
+        ``parent_id`` is given.
+        """
+        with self.transaction() as conn:
+            cur = conn.cursor()
+
+            def _copy(src_id, dest_parent, name_suffix):
+                cur.execute(
+                    "SELECT name, playlist_type, parent_id FROM fg_playlist WHERE id = ?",
+                    (int(src_id),),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise LookupError(f"playlist {src_id} not found")
+                name, ptype, src_parent = row
+                target_parent = src_parent if dest_parent is ... else dest_parent
+                cur.execute(
+                    "INSERT INTO fg_playlist (name, playlist_type, parent_id) VALUES (?, ?, ?)",
+                    ((name or "") + name_suffix, ptype, target_parent),
+                )
+                new_id = int(cur.lastrowid or 0)
+                if ptype == "folder":
+                    cur.execute("SELECT id FROM fg_playlist WHERE parent_id = ?", (int(src_id),))
+                    for (child_id,) in cur.fetchall():
+                        _copy(child_id, new_id, "")
+                else:
+                    cur.execute(
+                        "INSERT INTO fg_playlist_song (playlist_id, content_id, track_number) "
+                        "SELECT ?, content_id, track_number FROM fg_playlist_song "
+                        "WHERE playlist_id = ?",
+                        (new_id, int(src_id)),
+                    )
+                    self._refresh_playlist_count(cur, new_id)
+                return new_id
+
+            return _copy(playlist_id, parent_id, " (copy)")
+
+    def remove_content_from_library(self, content_id: int) -> bool:
+        """Remove a track record and its playlist rows. The audio file is never touched."""
+        cid = int(content_id)
+        with self.transaction() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT DISTINCT playlist_id FROM fg_playlist_song WHERE content_id = ?", (cid,)
+            )
+            affected = [r[0] for r in cur.fetchall()]
+            cur.execute("DELETE FROM fg_playlist_song WHERE content_id = ?", (cid,))
+            cur.execute("DELETE FROM fg_cue WHERE content_id = ?", (cid,))
+            cur.execute("DELETE FROM fg_beatgrid WHERE content_id = ?", (cid,))
+            cur.execute("DELETE FROM fg_content WHERE id = ?", (cid,))
+            removed = cur.rowcount > 0
+            for pl in affected:
+                self._refresh_playlist_count(cur, pl)
+            return removed
+
+    def duplicate_content(self, content_id: int, new_path: str) -> int | None:
+        """Insert a copy of a track record pointing at ``new_path`` (file_path is unique).
+
+        Returns the new id, or None if the source record doesn't exist. The
+        caller is responsible for creating the file at ``new_path``.
+        """
+        rec = self.get_content_by_id(int(content_id))
+        if rec is None:
+            return None
+        rec.id = None
+        rec.file_path = new_path
+        rec.file_name = Path(new_path).name
+        rec.rekordbox_id = None
+        rec.in_rekordbox = False
+        rec.created_at = None
+        rec.updated_at = None
+        rec.title = f"{rec.title or rec.file_name or 'Untitled'} (copy)"
+        return self.insert_content(rec)
+
+    def find_similar_content(self, content_id: int) -> list[ContentRecord]:
+        """Other records that look like the same track (hash, fingerprint, or title+artist)."""
+        rec = self.get_content_by_id(int(content_id))
+        if rec is None:
+            return []
+        with self.connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT * FROM fg_content WHERE id != ? AND ("
+                " (file_hash IS NOT NULL AND file_hash != '' AND file_hash = ?)"
+                " OR (acoustic_fingerprint IS NOT NULL AND acoustic_fingerprint != ''"
+                "     AND acoustic_fingerprint = ?)"
+                " OR (? != '' AND lower(trim(COALESCE(title, ''))) = ?"
+                "     AND lower(trim(COALESCE(artist, ''))) = ?)"
+                ") ORDER BY id",
+                (
+                    int(content_id),
+                    rec.file_hash or "",
+                    rec.acoustic_fingerprint or "",
+                    (rec.title or "").strip(),
+                    (rec.title or "").strip().lower(),
+                    (rec.artist or "").strip().lower(),
+                ),
+            )
+            rows = cur.fetchall()
+            columns = [d[0] for d in cur.description]
+        return [ContentRecord.from_dict(dict(zip(columns, r))) for r in rows]
+
     def reorder_playlist(self, playlist_id, ordered_content_ids: list) -> int:
         """Set track_number from the given content-id order. Returns rows touched."""
         with self.transaction() as conn:
