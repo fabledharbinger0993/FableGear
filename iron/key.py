@@ -39,6 +39,13 @@ _BAND_FMAX = 3500.0     # above this, hats/air add energy but little pitch infor
 _HARMONICS = 4          # a partial at f also votes for f/2, f/3, f/4 ...
 _HARMONIC_DECAY = 0.6   # ... with weight 0.6 ** (h - 1)
 
+# Added to every minor key's correlation when choosing the winner (not to the reported
+# confidence). DJ libraries lean minor -- 82% of the training tracks -- and the training-CV
+# gain plateaus from +0.08 to +0.15; +0.08 is the smallest value on that plateau and still
+# calls fewer tracks minor (77%) than the library holds. Cost: true-major tracks right
+# 54% -> 42%. Owner's call, 2026-10-10 (docs/IRON_RESEARCH.md SS18.5).
+_MINOR_BIAS = 0.08
+
 # Camelot wheel notation, keyed by "<Note>maj"/"<Note>min".
 CAMELOT: dict[str, str] = {
     "Amin": "8A", "Emin": "9A", "Bmin": "10A", "F#min": "11A", "C#min": "12A",
@@ -91,7 +98,8 @@ def detect_key(y: np.ndarray, sr: int) -> tuple[str, float] | None:
     Return (camelot_key, confidence) for a decoded clip, or None if it carries no usable
     tonal energy (silence, pure noise).
 
-    `confidence` is the winning profile's Pearson correlation against the chroma vector
+    The winner is picked with a small minor-key bias (_MINOR_BIAS); `confidence` is still the
+    winning profile's plain Pearson correlation against the chroma vector
     (-1..1 in principle, effectively 0..1 for real audio). A short or quiet clip can
     correlate strongly by coincidence, so a caller enforcing a quality bar should weight
     this alongside clip length/energy, not trust it alone.
@@ -106,7 +114,7 @@ def detect_key(y: np.ndarray, sr: int) -> tuple[str, float] | None:
         scores[note + "maj"] = _pearson(rolled, PROFILE_MAJOR)
         scores[note + "min"] = _pearson(rolled, PROFILE_MINOR)
 
-    best = max(scores, key=lambda note: scores[note])
+    best = max(scores, key=lambda note: scores[note] + (_MINOR_BIAS if note.endswith("min") else 0.0))
     camelot = CAMELOT.get(best)
     if camelot is None:
         return None

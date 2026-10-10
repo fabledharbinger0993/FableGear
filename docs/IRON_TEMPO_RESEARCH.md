@@ -40,6 +40,7 @@ full reasoning. Every entry below was evaluated with that same constraint in min
 | [beat_this](#beat_this) | Python | MIT (code + weights) | **In use** — offline ground-truth oracle only, never a runtime dependency |
 | [madmom](#madmom) | Python | Code permissive; **models CC-BY-NC-SA** | Blocked — same class of problem as essentia's AGPL |
 | [edmkey](#edmkey) (key, not tempo) | Python 2 | **None** (all rights reserved); depends on an AGPL Essentia fork | Blocked as code; ideas only — `iron/key.py` uses the general method family with its own code and its own learned profiles |
+| [VisualSynth](#visualsynth) | TypeScript | `package.json` says MIT; **no LICENSE file**; bundles third-party code/presets | Not pursued — realtime VJ visuals; its tempo is live spectral flux + octave fold, which Iron already surpasses; no key |
 
 ---
 
@@ -183,6 +184,24 @@ full reasoning. Every entry below was evaluated with that same constraint in min
   status would make "ship it as a real optional dependency for downbeat/meter specifically"
   a legitimate option, distinct from Iron's own tempo/key detection. Worth remembering
   if Iron's own downbeat/meter accuracy turns out not to be fixable to a usable bar.
+
+### VisualSynth
+- **Repo**: github.com/redsand/VisualSynth -- "Realtime audio + MIDI reactive visual
+  synthesizer" (Electron/TypeScript VJ app, author "Note Sniffer"), created 2026-01, 0 stars.
+- **License**: ambiguous. The GitHub API reports `license: null` and the repo has no LICENSE
+  file; only `package.json` declares `"license": "MIT"`, which is a declaration without the
+  MIT text or a copyright line to keep. It also vendors `third_party/whats-now-playing` and
+  hundreds of MilkDrop/Milkwave preset files, which carry their own (mixed) authorship.
+  Before copying anything, we'd need the author to add a LICENSE file. Checked 2026-10-10.
+- **Algorithm**: browser Web Audio `AnalyserNode` (2048 FFT): smoothed bass/mid/high bands
+  through a one-pole "inertia" filter for visuals; a separate unsmoothed analyser for
+  spectral-flux onsets -> inter-onset tempo; `fitBpmToRange` folds by octaves (x2, /2...)
+  then by triplet ratios into a range; a spectral-signature distance "song change" detector.
+  No key detection, no beat-grid / downbeat output.
+- **Verdict**: not pursued. Realtime visual reactivity is a different problem; its tempo
+  method is the simple flux + range-fold family that Iron's rebuilt tempo (multi-onset +
+  tempo prior, §16) already surpasses, and §14.3 already documents why a blind range fold
+  misleads. Only conceivable reuse is the song-change idea for splitting recorded DJ sets.
 
 ### edmkey
 - **Repo**: github.com/angelfaraldo/edmkey (mirror: github.com/EQ4/edmkey). Key estimation

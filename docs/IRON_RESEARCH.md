@@ -51,7 +51,8 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 > **2026-10-10 (later):** Key detection rebuilt -- whitened 36-bin chroma, tuning
 > correction, harmonic summation, profiles learned from the owner's library: **62.5% / 49.3%
 > exact** on rb200 / mixed150 (was 28.5% / 33.3%; production librosa path on the same sets:
-> 45.5% / 32.7%). Iron key now beats the librosa fallback. See §18.
+> 45.5% / 32.7%); with the owner-approved minor bias, 65.0% / 56.7%. Iron key now beats the
+> librosa fallback. See §18.
 
 **Anvil**: functionally complete. ID3v2.3/2.4 (MP3/WAV/AIFF), Vorbis comments (FLAC/OGG),
 and MP4/M4A ilst tags all implemented, tested against real files, and cross-validated
@@ -1789,6 +1790,13 @@ Parallel-mode errors on rb200 fell from 20 to 1.
 Adding a constant to the minor scores raises every number (rb200 65.5%, mixed150 59.3% at
 +0.12) but by betting on the library's minor share -- at +0.12 it calls 96% of rb200 minor.
 That would hurt a major-heavy library. Left at 0; a decision for the owner if wanted.
+
+**Update, same day -- owner chose to ship it.** Picked by training CV like everything else:
+the CV gain plateaus at +0.08..+0.15 (54.1-54.6% vs 51.0% at 0), so `_MINOR_BIAS = 0.08`,
+the smallest value on the plateau. It predicts 77% minor against the training library's
+82%, so it isn't over-betting; cost is true-major tracks right 54% -> 42%. Held-out: rb200
+65.0%, mixed150 56.7% (offline). Applied only to choosing the winner; the reported
+confidence is still the plain Pearson correlation.
 
 ### 18.6 Still open
 
