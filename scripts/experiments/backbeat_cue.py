@@ -29,18 +29,28 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
-from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from candidate160_185 import grid_strength
-
 SR = 22050
 FPS = 200
+
+
+def grid_strength(E: np.ndarray, period_s: float, phase_steps: int = 150):
+    """Max over phase of mean E on a grid of the given period. Returns (strength, best phase in s)."""
+    t_end = len(E) / FPS
+    best, best_phi = -1.0, 0.0
+    for phi in np.linspace(0.0, period_s, phase_steps, endpoint=False):
+        idx = np.round((phi + np.arange(0, t_end - period_s, period_s)) * FPS).astype(int)
+        idx = idx[idx < len(E)]
+        if len(idx) == 0:
+            continue
+        s = float(E[idx].mean())
+        if s > best:
+            best, best_phi = s, phi
+    return best, best_phi
 
 
 def _envelope(y: np.ndarray, lo: float, hi: float) -> np.ndarray:
