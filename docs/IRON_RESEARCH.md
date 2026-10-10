@@ -1959,6 +1959,40 @@ not been attempted.
 3. Leave the 1.3-2x slow-acapella group alone until the Rekordbox values for those tracks are checked:
    the reference itself looks doubtful there.
 
+## 19.9 Ear check of the 165-180 BPM residuals: the "error" is partly a convention (2026-10-10)
+
+Marshall (the owner) ear-checked six half-time and six 2:3 tracks from §19.8, all drum-and-bass or
+jungle. Result (ear, not measurement):
+
+- **Half-time, 5 of 6** (e.g. vital_elements-sound_clash, Wisdom_PN): the drum pattern is correct at
+  Rekordbox's ~175 BPM. Iron's ~87 is the felt dance tempo, not the pulse. Dancers hear it at half
+  time; the rhythm is still ~175.
+- **Half-time, Papa T Good and Bad (Master)_PN**: Iron's 89.9 is correct; Rekordbox's 180 is wrong.
+  So the Rekordbox reference has a labelled error in this group too.
+- **2:3, all 6** (e.g. the 02-phantasy_and_shodan track, Pain_PN): Rekordbox's ~175 is correct, and
+  Iron's ~116-117 is wrong. 117 is neither the drum pulse nor the felt tempo.
+
+**What this means**
+
+1. Two different questions are being scored as one. "Felt tempo" (~87) and "drum pulse" (~175) are
+   both real for DnB. For beatmatching, the drum pulse is what a DJ needs. Rekordbox uses it here.
+2. The 2:3 group (~117) is a real Iron error by either convention.
+3. The §19.8 "Iron-side residuals" are therefore a mix of a convention choice (half-time) and a
+   detector error (2:3), with one Rekordbox error (Papa T) in the reference.
+4. The 16-bar kick check (§20.3) did not separate the groups, which fits this: both are drum-and-bass
+   patterns with similar kick spacing. A kick cue cannot tell the felt tempo from the drum pulse.
+
+**Open decisions (product, not measurement)**
+
+- Which convention should FableGear report for 160-185 BPM drum-and-bass: the drum pulse (Rekordbox,
+  beatmatch-safe) or the felt tempo? Recommended: the drum pulse, since a DJ reads it against other
+  tracks.
+- If the drum pulse is the target, the fix is a 160-185 BPM octave choice that picks the faster
+  pulse. §20.4's kick-strength cue does not separate the two, so it would need a different cue (for
+  example the hi-hat/snare pattern at the faster period). Not tested.
+
+Not verified beyond the six ear checks per group. Do not treat this section as a new accuracy number.
+
 ## How to add to this doc
 
 Append a new dated section (`## N. <short title>`) rather than editing existing sections'
