@@ -1949,6 +1949,11 @@ Iron has more fifth errors on mixed150 (18.0% vs 13.3%).
 Still open: a paired test (McNemar) and a second library before "beats Essentia" is claimed.
 The 2,000-track run still lacks Rekordbox-analysed truth (§19.1).
 
+**Harness fix applied (same day).** `iron_db.py` on the testbed now maps DB keys to Camelot
+before comparing (`to_camelot`, 0 unmapped). Re-scored on the existing 2,000 rows: exact
+407 / 1,847 = **22.0%** (was 19.2%). Iron was not re-run. Still file-tag truth, so this is
+not a detector accuracy number.
+
 ---
 
 ## How to add to this doc
