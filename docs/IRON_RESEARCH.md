@@ -53,6 +53,12 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 > exact** on rb200 / mixed150 (was 28.5% / 33.3%; production librosa path on the same sets:
 > 45.5% / 32.7%); with the owner-approved minor bias, 65.0% / 56.7%. Iron key now beats the
 > librosa fallback. See §18.
+>
+> **2026-10-10 (key audit):** no key change shipped. The 2,000-track run's 19% "agreement" is
+> against file-tag keys (none Rekordbox-analysed) and partly a harness normalisation bug; the
+> shipped detector reproduces exactly on rb200 (65.0%) and mixed150 (56.7%). Four candidate
+> fixes (discriminative profiles, tonal-frame selection, per-frame normalisation, segment
+> voting) did not beat it on held-out sets. See §19.
 
 **Anvil**: functionally complete. ID3v2.3/2.4 (MP3/WAV/AIFF), Vorbis comments (FLAC/OGG),
 and MP4/M4A ilst tags all implemented, tested against real files, and cross-validated
@@ -472,6 +478,17 @@ findings).
   rules out the peak-picker as the cause. Don't try a third peak-picker variant without
   first validating `dsp.onset_envelope_multiband`'s kick band directly against a real
   continuous-bassline track — the problem is suspected to be upstream of peak-picking.
+- **Key: a discriminatively trained profile model (24-candidate conditional logit over the
+  §18 chroma) — §19.2.** Train-CV rose (55.9% vs 54.1%), held-out did not (rb200 64.0% vs
+  65.0%, mixed150 50.7% vs 56.7%): it over-predicts minor (97-99%). Don't retry without a
+  prior that matches the test library.
+- **Key: frame-level tweaks to the §18 chroma — §19.3.** Dropping the quieter half of frames
+  adds fifth errors (rb200 56.5%, mixed150 48.7%). Unit-normalising per-frame chroma and a
+  4-segment majority vote are within noise or worse on both sets. Don't re-attempt these as
+  stated.
+- **Key: judging the 2,000-track run's "19% exact" as a detector accuracy — §19.1.** It is
+  measured against file-tag keys, none Rekordbox-analysed, with a Camelot/letter-name
+  comparison bug. Re-measure before drawing any conclusion.
 
 ---
 
@@ -1808,6 +1825,134 @@ confidence is still the plain Pearson correlation.
 - `scripts/benchmark_iron_key.py` A/B now compares against the pre-§18 detector (it used
   to patch `dsp.chroma_cqt`, which `key.py` no longer calls).
 - `dsp.chroma_cqt` / `dsp.chroma` stay (tests + scripts use them) but no longer feed key.
+
+---
+
+## 19. Key failure-pattern audit, the 2,000-track run, and held-out tests of four fixes (2026-10-10)
+
+Scope: the task "fix Iron key-detection mismatches". Everything below is measured; nothing is
+shipped. Evidence labels: **demonstrated** = measured on the named set; **inferred** = a
+reading of the numbers, not checked by ear.
+
+### 19.1 The 2,000-track run is not a detector accuracy number
+
+`FableGearTestbed/results/iron_db_2000.jsonl` (first 2,000 rows of the FableGear DB; 0
+crashes). Reported by the harness as "KEY vs DB tag: exact 355 (19.2%)" of 1,847.
+
+- **Bug in the harness, demonstrated.** `iron_db.py` compares Iron's Camelot output to the DB
+  `key` string as raw text. The DB mixes Camelot (`8A`, 1,748 rows) with note names (`Am`,
+  75 rows in this set), so those 75 can never match. Normalised to Camelot: **396 / 1,823 =
+  21.7%**. Patch the comparison in `iron_db.py`; this was not edited here (testbed file).
+- **The reference is not Rekordbox, demonstrated.** `fg_content.in_rekordbox` is 0 for all
+  2,000 rows, so these are file-tag keys — the population §18.2 says is not reliable.
+- **Error mix against those tags, demonstrated (n=1,823):** random 52.1%, fifth 16.5%,
+  parallel 6.6%, relative 3.1%, exact 21.7%. Iron predicts minor 85% of the time; the tags
+  are 76% minor.
+- **Unknown, not verified:** which detector revision produced this run. The harness reads
+  `~/Documents/FableGear`, which was not connected. The connected Mac checkout is at
+  `1840750`, before the §18 key code. Confirm the revision before using this run as a
+  "before" number.
+
+Conclusion (inferred): this run cannot say whether Iron or the file tags are wrong on the
+52% "random" rows. Next step is a Rekordbox-analysed subset (`Analysed != 0`) or ear-checks.
+
+### 19.2 Discriminative key profiles: rejected
+
+Model: 24 candidates (tonic x mode), score = W_mode · roll(chroma, −tonic) + bias, trained
+with softmax cross-entropy on the §18 chroma (`train.json`, n = 798). Chroma is centred and
+unit-normalised first, as Pearson does; without that the minor template won every track.
+Regularisation and bias-learning were chosen by 5-fold CV on train only.
+
+| | train-CV exact | rb200 | mixed150 | rb200 minor predicted |
+|---|---|---|---|---|
+| shipped (§18, minor bias 0.08) | 54.1% | **65.0%** | **56.7%** | 91% |
+| discriminative, λ=1e-4, no bias learned | **55.9%** | 64.0% | 50.7% | 99% |
+
+Held-out is worse on both sets. Mixed150's 76% minor is over-predicted at 97%. Demonstrated;
+the mechanism (a free prior learned from an 82%-minor train set) is inferred.
+
+### 19.3 Frame-level variants on the shipped chroma: rejected
+
+Per-frame whitened 270-bin spectra were decoded once from the testbed audio, using Iron's
+own body window and production `key.detect_key`. Rebuilding the whole-clip chroma from those
+frames reproduces the shipped output exactly (65.0% / 56.7%), so the comparison is like for
+like. Candidates were written down before results were checked.
+
+| variant | rb200 exact | mixed150 exact | fifth (rb200 / mixed) |
+|---|---|---|---|
+| shipped | **65.0%** | **56.7%** | 10.0% / 15.3% |
+| F1: top 50% of frames by energy | 56.5% | 48.7% | 21.0% / 21.3% |
+| F1: top 75% of frames by energy | 66.5% | 55.3% | 10.5% / 16.7% |
+| F2: 4-segment majority vote (ties → whole) | 65.0% | 54.7% | 8.0% / 16.7% |
+| F3: per-frame unit-norm chroma, summed | 63.5% | 57.3% | 13.0% / 16.0% |
+
+No variant wins both sets; the top-75% row is +1.5 / −1.4, inside the noise (SE about 3.4
+and 4 points). The top-50% result is informative: discarding the quieter half of frames
+roughly doubles fifth errors, so the fifths depend on how the full track's energy is weighted
+(inferred from a single cut). Not wired anywhere.
+
+### 19.4 Where the errors are, on the shipped detector
+
+On rb200 (65.0% exact), the 35% of misses split as: random 22.0%, fifth 10.0%
+(almost all "ref tonic → detected a fifth above", 15 of 20), relative 2.0%, parallel 1.0%.
+On mixed150 (56.7%): random 16.7%, fifth 15.3%, parallel 6.0%, relative 5.3%.
+
+Confidence carries signal (demonstrated): rb200 tracks with confidence ≥ 0.8 are 85% exact
+and make up 60% of the set; ≥ 0.6 is 73% on 84%. On mixed150 the same thresholds give 65%
+and 61%. A display flag at low confidence looks worthwhile; it does not change the answer.
+
+### 19.5 Essentia comparison: not run in §19 (superseded by §20)
+
+Essentia was not available when §19 was written. §20 runs it on the same audio.
+
+### 19.6 What would settle the open questions
+
+1. Confirm which detector revision produced `iron_db_2000.jsonl`, then re-run it with the
+   Camelot-normalised comparison, restricted to Rekordbox-analysed rows.
+2. Ear-check ~20 random-miss tracks from rb200 to split Iron errors from reference errors.
+3. Only then try a new mechanism. The untested levers are per-track bass/tonic-triad
+   features (needs a new decode pass) and a confidence gate. Frame-energy weighting,
+   segment voting and learned priors have now failed on held-out data.
+
+---
+
+## 20. Essentia vs Iron key on identical audio (follow-up to §19, 2026-10-10)
+
+Essentia 2.1b6 installed in the working container from PyPI and run as a **development
+oracle only**. Essentia is AGPL-3.0 / commercial; it must not become a runtime dependency
+(CLAUDE.md, §0). The testbed sandbox is aarch64 with no Essentia wheel, so the comparison
+ran in the container.
+
+Method: a 60 s mono 22.05 kHz excerpt from one-third into each track (the same body start
+Iron uses), cut on the owner's machine with ffmpeg. Iron = `iron.key.detect_key` on the
+excerpt (current code, so not the same 240 s window as §18's 65.0%). Essentia =
+`KeyExtractor` with each built-in profile. Truth = Rekordbox KeyName (rb200) or the older
+mixed150 keys. No tuning on these sets.
+
+| detector | rb200 exact (n=200) | mixed150 exact (n=150) |
+|---|---|---|
+| **Iron (60 s excerpt)** | **63.0%** | 49.3% |
+| Essentia edma | 55.0% | 48.7% |
+| Essentia bgate | 48.5% | **52.0%** |
+| Essentia shaath | 51.5% | 48.7% |
+| Essentia krumhansl | 43.5% | 45.3% |
+| Essentia temperley | 20.5% | 32.7% |
+
+Reading (demonstrated on these sets, not significance-tested): Iron is ahead of every
+Essentia profile on rb200, by 8 points over edma. On mixed150, Essentia bgate is ahead by
+2.7 points, inside the SE (about 4 points), so no clear winner there. Picking the best
+Essentia profile per set would be selecting on the test set, so the table shows all of them.
+
+Failure pattern: Essentia edma has more parallel errors on mixed150 (14.7% vs Iron's 5.3%).
+Iron has more fifth errors on mixed150 (18.0% vs 13.3%).
+
+Still open: a paired test (McNemar) and a second library before "beats Essentia" is claimed.
+The 2,000-track run still lacks Rekordbox-analysed truth (§19.1).
+
+**Harness fix applied (same day).** `iron_db.py` on the testbed now maps DB keys to Camelot
+before comparing (`to_camelot`, 0 unmapped). Re-scored on the existing 2,000 rows: exact
+407 / 1,847 = **22.0%** (was 19.2%). Iron was not re-run. Still file-tag truth, so this is
+not a detector accuracy number.
 
 ---
 
