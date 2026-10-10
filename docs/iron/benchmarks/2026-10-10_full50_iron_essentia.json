@@ -1,0 +1,65 @@
+{
+  "manifest": "/root/bench_full50/manifest.json",
+  "tracks_common": 50,
+  "missing_audio": [],
+  "engines": {
+    "iron": {
+      "tracks": 50,
+      "crashes": 0,
+      "bpm": {
+        "n": 50,
+        "exact_0.6": 1.0,
+        "within_1pct": 1.0,
+        "mirex_4pct": 1.0,
+        "classes": {
+          "exact": 50
+        }
+      },
+      "key": {
+        "n": 50,
+        "detected": 50,
+        "exact_of_total": 0.64,
+        "exact_of_detected": 0.64,
+        "mirex_weighted": 0.716,
+        "classes": {
+          "exact": 32,
+          "other": 9,
+          "fifth": 6,
+          "relative": 2,
+          "parallel": 1
+        }
+      },
+      "mean_s_per_track": 2.36
+    },
+    "essentia": {
+      "tracks": 50,
+      "crashes": 0,
+      "bpm": {
+        "n": 50,
+        "exact_0.6": 0.96,
+        "within_1pct": 0.98,
+        "mirex_4pct": 1.0,
+        "classes": {
+          "exact": 48,
+          "mirex": 1,
+          "within1": 1
+        }
+      },
+      "key": {
+        "n": 50,
+        "detected": 50,
+        "exact_of_total": 0.54,
+        "exact_of_detected": 0.54,
+        "mirex_weighted": 0.642,
+        "classes": {
+          "exact": 27,
+          "relative": 4,
+          "other": 10,
+          "fifth": 7,
+          "parallel": 2
+        }
+      },
+      "mean_s_per_track": 7.4
+    }
+  }
+}
