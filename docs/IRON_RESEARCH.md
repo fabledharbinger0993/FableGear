@@ -43,6 +43,10 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 > real-music validation and two real fixes (§16.2). Key detection (28-33% exact) is now the
 > weakest output. Iron-as-primary-BPM wiring arrived with the merge and still needs user
 > sign-off (§16.1).
+>
+> **2026-10-10:** FableGear now runs on Iron (BPM + key) and Anvil (tags) -- signed off.
+> Beat 1 is found by counting back from the first real kick: downbeat_offset 54% within
+> 25 ms / 75.5% within 50 ms of Rekordbox (was 13% / 22.5%). See §17.
 
 **Anvil**: functionally complete. ID3v2.3/2.4 (MP3/WAV/AIFF), Vorbis comments (FLAC/OGG),
 and MP4/M4A ilst tags all implemented, tested against real files, and cross-validated
@@ -448,9 +452,9 @@ findings).
 - For tempo/beat ground truth, a freshly imported Rekordbox library (current `FolderPath`s)
   plus its ANLZ `PQTZ` grids beats filename-matching against a stale `master.db` -- read a
   snapshot copy (db + `-wal` + `-shm`), never the live file while Rekordbox is running (§16).
-- Neither Iron nor Anvil is wired into the live app (`audio_processor.py`,
-  `waveform_generator.py`, etc.) — don't wire either in without explicit user sign-off; that
-  decision hasn't been made yet and is separate from the accuracy work above.
+- ~~Neither Iron nor Anvil is wired into the live app~~ -- superseded 2026-10-10: the user
+  signed off and `audio_processor.process_file` now runs on Iron + Anvil (§17.3).
+  `waveform_generator.py` still uses librosa.
 - DnB/dubstep (140-180 BPM) is not a real weak spot — §9.3 showed the opposite (140-180 is the
   *best*-performing BPM range once the benchmark harness's range bug, §9.2, is corrected).
   Don't re-investigate a DnB-specific fix off a benchmark run's raw numbers without first
@@ -1644,6 +1648,71 @@ frame (23.2 ms) and asserts the uncompensated path runs early, so it can't pass 
   written as `127.84` while ID3/MP4 get integer + precise companion; (c) a file truncated by
   811 bytes is refused on read as well as write; (d) writing to a Finder-locked (`uchg`) file
   fails safely but raises a bare `PermissionError`, not an `AnvilError`.
+
+---
+
+## 17. Beat 1 by counting back from the top; meter drift fix; FableGear wired to Iron + Anvil (2026-10-10)
+
+### 17.1 Which beat is "1": count back to 0:00, take the first real kick
+
+User's idea: club tracks run in 16-32 beat loops -- lock onto the first couple of loops and
+count back in 4/4. Tested on rb200 (Rekordbox ANLZ downbeats), first 60 s, beats on the kick
+(§16.2), judged only on tracks whose beats were on-grid:
+
+| rule for beat 1 | correct within 25 ms |
+|---|---|
+| loudest kick class (shipping rule) | 35.0% |
+| 4/8/16-beat phrase contrast (6-band beat features) | 37.4% |
+| beat 0 of the grid counted back to 0:00 | 61.8% |
+| **first beat with a real kick, grid counted back to 0:00** | **64.2%** |
+
+The finding that made it work: `dsp.track_beats` does not place the first beat or two of a
+window (first tracked beat ~0.5 s on tracks whose first kick -- Rekordbox's beat 1 -- is at
+~0.06 s), so the grid must be extended back by whole periods before choosing. Phrase contrast
+lost because four-on-the-floor intros barely change bar to bar. Shipped as
+`beats._extend_to_start` + `_first_kick_class` behind `detect_beat_grid(window_is_track_start=
+True)`; `api.analyze` now finds the beat grid in a 60 s window from 0:00
+(`_BEAT_GRID_SECONDS`) instead of the mid-track body window, which also removes most of the
+back-projection drift §16.3 flagged.
+
+Production `iron.analyze` on rb200, `downbeat_offset` vs Rekordbox: **13.0% -> 54.0% within
+25 ms, 22.5% -> 75.5% within 50 ms**; full-file on-beat 25.5% -> 62.5%. Caveat: Rekordbox may
+itself use a "first beat is 1" convention, so part of this is agreement with its convention;
+for DJ-ready tracks that convention is usually musically right.
+
+### 17.2 Meter: a kickless intro and slow drift both read as 3/4
+
+Counting back to 0:00 put kickless intros into the accent signal, and a step's
+autocorrelation falls off with lag, so lag 3 beat lag 4 (synthetic: 3/4 at 0.82 confidence).
+Separately, 43/200 real house tracks read as 3/4 even before that: a slow build lifts every
+small lag (median r3 0.75, r3 - r4 only 0.11). Fixes: meter is judged from the first real
+kick onward (`_music_start`), and each candidate is scored by how far its lag stands out from
+its neighbours (`r[k] - (r[k-1] + r[k+1]) / 2`), which cancels drift. Real: 43 -> 12 false
+3/4 calls. Downbeat accuracy did not move with it (54.0% / 75.5% vs 54.0% / 76.5%). A first
+version of the drift test passed on the old code -- its fixture carried a bar accent real
+house doesn't have; rewritten with equal kicks so it fails old / passes new.
+
+### 17.3 FableGear runs on Iron + Anvil (user sign-off 2026-10-09/10)
+
+`audio_processor.process_file`: one Iron pass for BPM AND key (`_analyze_iron`; fallbacks
+only for the empty half: BPM essentia -> librosa, key librosa); tag reads/writes via Anvil,
+mutagen only as a logged fallback for containers Anvil refuses; if Anvil refuses to READ a
+file, mutagen is tried before anything is reported unreadable (those strings can quarantine a
+file). New `ProcessResult.key_source` / `tag_backend`. Real run on 400 copies: Anvil 399 /
+mutagen 1, Iron BPM+key on all 390 decodable files, 389/390 values read back, BPM 96.3%
+MIREX vs Rekordbox (n=350), 0.97 s/file. Accepted trade-off: Iron key 28-33% exact vs
+librosa 62%. Anvil fixes from §16.4 landed first: other tools' TXXX/freeform spellings kept;
+OS refusals raise `anvil.WriteFailed` (an `AnvilError` and an `OSError`).
+
+### 17.4 Still open
+
+- Key detection (now live): next step is EDM-specific key profiles (Faraldo et al. 2016,
+  "Key Estimation in Electronic Dance Music") -- check `edmkey`'s licence before reading its
+  code; the profiles themselves are published in the paper.
+- 12/200 house tracks still read as 3/4.
+- ~20 points between the 25 ms and 50 ms downbeat numbers is beat-timing precision in the
+  first 60 s (61.5% of tracks have >=80% of early beats on-grid vs 67% mid-track).
+- Anvil: FLAC BPM decimal vs integer convention; MP4 cover art not read (art stays on mutagen).
 
 ---
 

@@ -247,3 +247,47 @@ def test_accent_strength_does_not_search_past_half_a_period():
     env[50 - 15] = 1.0  # 15 frames back, outside the period/2=10 search radius
     searched = beats._accent_strength(env, [50], period_frames)
     assert searched[0] == 0.0
+
+
+def test_track_start_grid_takes_beat_one_from_where_the_kick_enters():
+    """Counting back from the top of the track (window_is_track_start=True): the grid is
+    extended to 0:00 and the first beat with a real kick is beat 1. Here a hats-only intro
+    runs 18 beats and the kick enters 2 beats past a bar line, so neither "beat 0 is the 1"
+    nor a loudest-class vote (every kick is equally loud) can find it -- only the entry can.
+    At 120 BPM the entry is 9.0 s, i.e. a folded downbeat_offset of 1.0 s in a 2.0 s bar."""
+    bpm, seconds, entry_beat = 120.0, 40.0, 18
+    period = 60.0 / bpm
+    n = int(SR * seconds)
+    y = np.zeros(n)
+    kt = np.arange(int(SR * 0.15)) / SR
+    kick = np.sin(2 * np.pi * 80 * kt) * np.exp(-kt * 25)
+    ht = np.arange(int(SR * 0.05)) / SR
+    hat = np.random.default_rng(0).standard_normal(ht.size) * np.exp(-ht * 60) * 0.4
+    for i, t in enumerate(np.arange(0, seconds, period)):
+        for start, sound in ((t, kick if i >= entry_beat else None), (t + period / 2, hat)):
+            idx = int(start * SR)
+            if sound is not None and 0 <= idx < n:
+                end = min(idx + sound.size, n)
+                y[idx:end] += sound[: end - idx]
+
+    result = beats.detect_beat_grid(
+        _onset_env(y), FRAME_RATE, bpm, accent_env=_accent_env(y),
+        onset_latency_s=dsp.onset_latency_seconds(SR), window_is_track_start=True,
+    )
+    assert result is not None
+    bar = 4 * period
+    expected = (entry_beat * period) % bar
+    error = (result[0] - expected + bar / 2) % bar - bar / 2
+    assert abs(error) < 1.0 / FRAME_RATE, f"downbeat {result[0]:.3f}s, expected {expected:.3f}s"
+
+
+def test_detect_beats_per_bar_ignores_slow_drift_in_4_4():
+    """A slow build in accent strength lifts every small autocorrelation lag together. Raw
+    lag-3 vs lag-4 called such 4/4 house 3/4 (43 of 200 real tracks, 2026-10-10); scoring
+    each lag by how far it stands out from its neighbours must keep it 4/4."""
+    n = 96
+    rng = np.random.default_rng(1)
+    # A build with equal kicks -- four-on-the-floor has no louder "1" to give lag 4 an edge,
+    # which is exactly the real-music case: raw lags 3 and 4 both ride the drift, 3 wins.
+    strength = np.linspace(0.3, 1.0, n) + rng.normal(0, 0.03, n)
+    assert beats._detect_beats_per_bar(strength)[0] == 4

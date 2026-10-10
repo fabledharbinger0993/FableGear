@@ -148,6 +148,43 @@ def _prefer_kick_phase(
     return shifted if off > on * _PHASE_SWITCH_RATIO else list(beat_frames)
 
 
+def _extend_to_start(beat_frames: list[int], period_frames: float, earliest: float) -> list[int]:
+    """Prepend whole beat periods until the grid reaches `earliest` (a frame index, may be
+    slightly negative to allow for onset latency). dsp.track_beats does not place the first
+    beat or two of a window -- on 2026-10-10 its first beat sat ~0.5 s in on real tracks
+    whose first kick (Rekordbox's beat 1) was at ~0.06 s."""
+    frames = list(beat_frames)
+    while frames and frames[0] - period_frames >= earliest:
+        frames.insert(0, max(0, round(frames[0] - period_frames)))
+    return frames
+
+
+def _music_start(strength: np.ndarray) -> int:
+    """Index of the first beat with a real kick: accent at least half the median beat accent."""
+    median = float(np.median(strength)) if strength.size else 0.0
+    loud = np.nonzero(strength >= 0.5 * median)[0] if median > 0 else np.array([], dtype=int)
+    return int(loud[0]) if loud.size else 0
+
+
+def _first_kick_class(strength: np.ndarray, beats_per_bar: int) -> tuple[int, float]:
+    """
+    Downbeat class for a grid that starts at the TOP of the track: the first beat with a
+    real kick (accent at least half the track's median beat accent) is beat 1. Club tracks
+    start on a 1 -- or bring the kick in on a phrase boundary after a 16/32-beat intro, which
+    is still a 1.
+
+    Measured 2026-10-10 against Rekordbox beat grids (rb200, first 60 s, grid counted back
+    to 0:00): 54% of downbeat_offsets within 25 ms and 75.5% within 50 ms, vs 13% / -- for
+    the loudest-class rule on a mid-track window. Loudest-class and 4/8/16-beat phrase-
+    contrast scoring were both worse on the same windows (35% / 37%): in four-on-the-floor
+    music every kick is equally loud, and phrase contrast near the intro is weak.
+    """
+    chosen = _music_start(strength) % beats_per_bar
+    class_means = np.array([strength[c::beats_per_bar].mean() for c in range(beats_per_bar)])
+    total = float(class_means.sum())
+    return chosen, (float(class_means[chosen] / total) if total > 0 else 0.0)
+
+
 def _detect_beats_per_bar(strength: np.ndarray) -> tuple[int, float]:
     """
     Return (beats_per_bar, confidence). See this module's docstring for why the only two
@@ -158,16 +195,21 @@ def _detect_beats_per_bar(strength: np.ndarray) -> tuple[int, float]:
         return 4, 0.0
 
     acf = dsp.autocorrelate(strength - strength.mean())
-    if acf.shape[0] <= 4 or acf[0] <= 0:
+    if acf.shape[0] <= 5 or acf[0] <= 0:
         return 4, 0.0
 
-    zero_lag = float(acf[0])
-    score_3 = float(acf[3])
-    score_4 = float(acf[4])
+    r = acf / float(acf[0])
+    # Score each bar length by how far its lag STANDS OUT from the neighbouring lags, not
+    # by its raw value: a slow drift in accent strength (a build, a filter sweep) lifts every
+    # small lag together, and raw lag-3 vs lag-4 then picks 3/4 on plain 4/4 house -- 43 of
+    # 200 real tracks on 2026-10-10 (median r3 0.75, r3 - r4 only 0.11). A real triple
+    # meter peaks at lag 3 with dips at 2 and 4; drift cancels out of the contrast.
+    peak_3 = float(r[3] - (r[2] + r[4]) / 2.0)
+    peak_4 = float(r[4] - (r[3] + r[5]) / 2.0)
 
-    if score_3 > score_4 and (score_3 / zero_lag) > _METER_3_MIN_SCORE:
-        return 3, float(np.clip(score_3 / zero_lag, 0.0, 1.0))
-    return 4, float(np.clip(max(score_4, 0.0) / zero_lag, 0.0, 1.0))
+    if peak_3 > peak_4 and peak_3 > _METER_3_MIN_SCORE:
+        return 3, float(np.clip(peak_3, 0.0, 1.0))
+    return 4, float(np.clip(max(peak_4, 0.0), 0.0, 1.0))
 
 
 def _detect_downbeat_class(strength: np.ndarray, beats_per_bar: int) -> tuple[int, float]:
@@ -193,6 +235,7 @@ def detect_beat_grid(
     window_start_s: float = 0.0,
     accent_env: np.ndarray | None = None,
     onset_latency_s: float = 0.0,
+    window_is_track_start: bool = False,
 ) -> tuple[float, str, float] | None:
     """
     Return (downbeat_offset, time_signature, confidence), or None if too few beats were
@@ -255,11 +298,20 @@ def detect_beat_grid(
 
     if accent_env is not None and accent_env.shape[0] > 0:
         beat_frames = _prefer_kick_phase(accent_env, list(beat_frames), period_frames)
+    if window_is_track_start:
+        beat_frames = _extend_to_start(list(beat_frames), period_frames, -onset_latency_s * frame_rate)
+    if accent_env is not None and accent_env.shape[0] > 0:
         strength = _accent_strength(accent_env, beat_frames, period_frames)
     else:
         strength = _beat_strength(onset_env, beat_frames)
-    beats_per_bar, _meter_confidence = _detect_beats_per_bar(strength)
-    downbeat_class, downbeat_confidence = _detect_downbeat_class(strength, beats_per_bar)
+    # Meter is judged from where the music starts: a kickless intro in front of the kicks
+    # is a step in `strength`, and a step's autocorrelation falls off with lag, so lag 3
+    # outscores lag 4 -- an intro alone made a 4/4 track read as 3/4 at 0.82 confidence.
+    beats_per_bar, _meter_confidence = _detect_beats_per_bar(strength[_music_start(strength):])
+    if window_is_track_start:
+        downbeat_class, downbeat_confidence = _first_kick_class(strength, beats_per_bar)
+    else:
+        downbeat_class, downbeat_confidence = _detect_downbeat_class(strength, beats_per_bar)
 
     class_frames = [f for i, f in enumerate(beat_frames) if i % beats_per_bar == downbeat_class]
     first_downbeat_frame = class_frames[0] if class_frames else beat_frames[0]
