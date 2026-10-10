@@ -1,0 +1,67 @@
+{
+  "manifest": "excerpt set (60 s mid-track clips of the full50 tracks)",
+  "tracks_common": 50,
+  "missing_audio": [],
+  "engines": {
+    "iron": {
+      "tracks": 50,
+      "crashes": 0,
+      "bpm": {
+        "n": 50,
+        "exact_0.6": 0.96,
+        "within_1pct": 0.96,
+        "mirex_4pct": 0.96,
+        "classes": {
+          "exact": 48,
+          "2:3": 1,
+          "miss": 1
+        }
+      },
+      "key": {
+        "n": 50,
+        "detected": 50,
+        "exact_of_total": 0.64,
+        "exact_of_detected": 0.64,
+        "mirex_weighted": 0.722,
+        "classes": {
+          "exact": 32,
+          "other": 8,
+          "fifth": 6,
+          "relative": 3,
+          "parallel": 1
+        }
+      },
+      "mean_s_per_track": 0.46
+    },
+    "essentia": {
+      "tracks": 50,
+      "crashes": 0,
+      "bpm": {
+        "n": 50,
+        "exact_0.6": 0.88,
+        "within_1pct": 0.94,
+        "mirex_4pct": 1.0,
+        "classes": {
+          "exact": 44,
+          "within1": 3,
+          "mirex": 3
+        }
+      },
+      "key": {
+        "n": 50,
+        "detected": 50,
+        "exact_of_total": 0.54,
+        "exact_of_detected": 0.54,
+        "mirex_weighted": 0.622,
+        "classes": {
+          "exact": 27,
+          "relative": 4,
+          "other": 12,
+          "fifth": 5,
+          "parallel": 2
+        }
+      },
+      "mean_s_per_track": 1.4
+    }
+  }
+}

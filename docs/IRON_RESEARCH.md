@@ -59,6 +59,11 @@ and MP4/M4A ilst tags all implemented, tested against real files, and cross-vali
 against mutagen for read/write round-trips. Not a currently active area of research —
 `docs/ANVIL_IRON_STATUS.md` has the implementation detail if you need it.
 
+> **2026-10-10 (benchmark):** a repeatable Iron / Essentia / Rekordbox harness is in
+> `scripts/benchmark_key_bpm_vs_rekordbox.py`. First baseline on the same 50 full tracks: BPM
+> Iron 100% exact vs Essentia 96%, both 100% MIREX; key Iron 64% vs Essentia 54%. Small n, and
+> Rekordbox is the reference, so it is not an independent truth. See §19 before quoting these.
+
 **Iron tempo**: three independent accuracy problems have been found across sessions, on
 different real-music samples. Read all three — they are not the same bug, and a fix for one
 is not guaranteed to fix another:
@@ -485,6 +490,8 @@ findings).
 - `scripts/ablate_genre_bands.py --sample N --seed S` — genre-band on/off ablation with
   per-track ratio-bucket diagnostics (`~0.5x`, `~2x`, etc.) and a HELPED/HURT/neutral
   breakdown. Reusable for testing any future Pass 1/2 change, not just genre bands.
+- `scripts/benchmark_key_bpm_vs_rekordbox.py --manifest ... --engines iron,essentia` — §19: the
+  repeatable Iron / Essentia / Rekordbox BPM + key harness (manifest format in its docstring).
 - `scripts/benchmark_iron_tempo.py` — the original, simpler Iron-only benchmark against
   Rekordbox ground truth.
 - `scripts/benchmark_iron_beats.py` — beat-grid/downbeat validation against `beat_this` as
@@ -1808,6 +1815,132 @@ confidence is still the plain Pearson correlation.
 - `scripts/benchmark_iron_key.py` A/B now compares against the pre-§18 detector (it used
   to patch `dsp.chroma_cqt`, which `key.py` no longer calls).
 - `dsp.chroma_cqt` / `dsp.chroma` stay (tests + scripts use them) but no longer feed key.
+
+---
+
+## 19. Repeatable Iron vs Essentia vs Rekordbox benchmark, and the first baseline (2026-10-10)
+
+Goal from the project brief: a repeatable harness that scores Iron, Essentia and Rekordbox on
+key and BPM against the same ground truth, so each tuning change can be measured. Rekordbox is
+the reference here, not a third engine: its values are the truth, so "match Rekordbox" means
+agreement with them. Labels: **demonstrated** = measured in this session; **inferred** = read from
+the numbers, not separately tested.
+
+### 19.1 What was built
+
+- `scripts/benchmark_key_bpm_vs_rekordbox.py`: one harness, one manifest, every engine on the same
+  audio. Engines: `iron` (`iron.analyze`, production defaults) and `essentia` (BPM:
+  `RhythmExtractor2013(method="multifeature")`, the call `audio_processor._detect_bpm_essentia`
+  makes; key: `KeyExtractor(profileType="edma")`). **The Essentia key path is not in production**
+  (`audio_processor._detect_key` is librosa), so it is a new comparator, not the app's current one.
+- Scoring: BPM exact (±0.6), within 1%, MIREX 4%, and misses classed as double / half / 3:2 / 2:3 /
+  other so octave and compound-meter errors show up. Key: Camelot exact plus the §18.1 MIREX weights
+  (exact 1, fifth 0.5, relative 0.3, parallel 0.2). Declined tracks count as misses in
+  `exact_of_total`.
+- `tests/test_benchmark_key_bpm_vs_rekordbox.py`: 22 tests of the scoring rules (no audio needed).
+  The harness was smoke-tested end to end on synthetic audio. Essentia is imported only by this
+  dev script, never by the app; it is not added to any requirements file.
+- Resumable JSONL output, `--summary-out` JSON, and a `--limit` for quick runs. The summary is
+  computed over tracks where every requested engine produced a row, so engines compare on the same
+  tracks.
+
+**`iron_db.py` was not reused as the benchmark.** It lives in the owner's testbed
+(`~/FableGearTestbed/harness/`), not in the repo. It is Iron-only, and its own docstring says the
+DB's BPM and key are old tag values, not ground truth. Its last run (`results/iron_db_2000.log`,
+87.8% BPM and 19.2% key agreement with those tags) should not be cited as accuracy. The new harness
+borrows its resumable-JSONL and process-pool pattern.
+
+### 19.2 Ground truth used
+
+- **rb200**: 200 tracks Rekordbox 7 analysed (BPM and `KeyName` from its own analysis). Mostly
+  118-130 BPM house, so BPM is saturated on it (see 19.4). Audio lives on the owner's device
+  (`FableGearTestbed/rb200/pristine`), not in the repo.
+- **mixed150**: 150 `source=rekordbox` rows from the testbed `manifest.json`. BPM and keys come from
+  the older Passport `master.db` (§16, §18.2), so this is a weaker reference than rb200.
+- **full50**: the first 50 rb200 tracks in every 4th position (by manifest index). This is the set
+  both engines ran on at full length. It's the fair comparison.
+- **excerpt50**: 60-second mono clips from the middle of the same 50 tracks. Built first, to get
+  Essentia's output on the same audio when Essentia couldn't run on full files. It turned out to
+  mislead (19.3).
+
+### 19.3 Results (demonstrated)
+
+Summaries are committed under `docs/iron/benchmarks/` (aggregate only; no per-track titles or paths).
+
+**full50, same 50 full tracks, both engines (fair comparison):**
+
+| metric | Iron | Essentia |
+|---|---|---|
+| BPM exact (±0.6) | **100%** (50/50) | 96% (48/50) |
+| BPM MIREX (4%) | **100%** | **100%** |
+| BPM octave / compound misses | 0 | 0 |
+| Key exact (Camelot) | **64%** (32/50) | 54% (27/50) |
+| Key MIREX-weighted | **0.716** | 0.642 |
+| mean s/track (4 workers, Linux) | 2.36 | 7.4 |
+
+Essentia's key errors: 10 "other", 7 fifths, 4 relatives, 2 parallels. Earlier runs (excerpts)
+also showed it calling C minor on 11 of 50 tracks, 6 wrong; not investigated further.
+
+**rb200, Iron only, full tracks (n=200):** BPM exact 100% (200/200); key exact 65.0% (130/200),
+MIREX-weighted 0.708. Matches the §18 headline (65.0%), so the number is reproduced, not new evidence.
+
+**mixed150, Iron only, full tracks (n=150):** BPM exact 80.0%, within 1% 87.3%, MIREX 90.7%
+(4 double, 4 half, 1 2:3, 4 misses, 5 MIREX-only, 1 no output). Key exact 56.7%, MIREX-weighted
+0.671. Close to §16.1 (80.5% / 91.3% MIREX, a slightly different count) and equal to §18.5 (56.7%).
+
+**excerpt50 (60 s clips), both engines:** Iron BPM exact 96% / MIREX 96%; Essentia BPM exact 88% /
+MIREX 100%. The two Iron misses are gross: track 144 at 82.3 BPM vs 123.5 (a 2:3 error) and track
+196 at 166.7 vs 123.0. **On the full tracks, Iron gets both right** (123.05 and 123.05). So the
+clip protocol causes those misses; they are not a fault of Iron on full tracks. Essentia's
+excerpt result is also on clips, so the excerpt table cannot be used to rank the two engines.
+
+### 19.4 Caveats
+
+- **Rekordbox is not checked against an independent truth.** No human-annotated set exists here.
+  "Matches Rekordbox" is agreement with Rekordbox's values; whether Rekordbox itself is right is
+  unknown.
+- **rb200 can't separate the engines on BPM** (100% exact for Iron; mostly 118-130 BPM house, §16.1).
+  Only mixed150 and full50 show tempo differences, and full50 is 50 tracks.
+- **n=50 is small.** A 95% interval on 64% key accuracy is roughly ±13 points. The key gap on full50
+  (10 points, 5 tracks) and Essentia's two BPM misses are suggestive, not conclusive.
+- **Essentia is only measured on 50 tracks.** The sandbox that could install Essentia had no audio;
+  the device's Linux VM had no Essentia wheel (its pip index blocked it). So there is no full-library
+  Essentia number, and mixed150 has no Essentia run at all.
+- **Essentia's key output is not the app's comparator.** The app uses librosa for key (§18: 45.5% /
+  32.7% on rb200 / mixed150, versus Iron's 62.5% / 49.3% on the same sets). The Essentia key here is a
+  new reference, chosen because it is the one the owner named.
+
+### 19.5 Where this leaves the goal (inferred from the numbers above)
+
+- **BPM:** on full50, Iron matches Essentia at MIREX (100% each) and beats it on exact (100% vs 96%).
+  That supports "Iron ≥ Essentia on BPM" on this sample. It does not support "beats Essentia" on a
+  larger, stratified set until mixed150 or a larger full-track set is run for both. The weakest
+  real tempo population is mixed150 (MIREX 90.7%: 4 halves, 4 doubles, 4 misses).
+- **Key:** Iron beats the Essentia key path on full50 (64% vs 54%). The app's real key comparator
+  (librosa, §18) is far below both. This is the strongest result in this section, with the n=50 caveat.
+- **Rekordbox:** the goal "match or beat Rekordbox" cannot be checked with this ground truth, because
+  Rekordbox is the ground truth.
+
+### 19.6 Reproduce
+
+```
+python3 scripts/benchmark_key_bpm_vs_rekordbox.py --manifest <set>/manifest.json \
+  --audio-dir <set>/pristine --engines iron,essentia --workers 4 \
+  --out results/bench.jsonl --summary-out results/bench_summary.json
+```
+
+The `--audio-dir` override is needed when the manifest's `path` points at a machine that doesn't
+hold the audio. Essentia needs `pip install essentia` (dev-only; check the license before any runtime
+use, §0 and the tool catalog). Results are resumable: rerun the same command to fill in missing rows.
+
+### 19.7 Next steps (not done here)
+
+1. Run both engines on the 150-track mixed set, full-length, on a machine that has Essentia and the audio.
+   This is the test that actually bears on "beats Essentia on tempo".
+2. Diagnose Iron's full-track 2:3 and half-tempo misses on mixed150 (§2, §8.1 applied to this set).
+3. Replace the Essentia key comparator with the app's real key path (librosa) so the table reflects
+   what ships, or add librosa as a third engine.
+
 
 ---
 
