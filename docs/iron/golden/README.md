@@ -12,7 +12,8 @@ values), `convention` (`drum_pulse` or `felt_tempo`, see §19.9), `iron_verdict`
 
 ## Known gaps
 
-- Only 12 tracks; the 2:3 group has 2 of 6 named in the research log and the half-time group 5 of 6.
+- The former `Circulation` row was removed: the owner confirmed it was a different track with a similar name, and the label named no file.
+- Only 11 tracks; the 2:3 group has 2 of 6 named in the research log and the half-time group 5 of 6.
   The remaining sampled tracks need their names added from the owner's notes.
 - Key, downbeat and meter labels are not yet present. Those need ear verification too.
 - `Chill Vibes` rows use the real file names (`Chill Vibes TV_PN.mp3` and `.aiff`, both in the 1,993 set);

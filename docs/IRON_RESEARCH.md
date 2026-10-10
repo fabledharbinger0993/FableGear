@@ -2229,8 +2229,9 @@ the half-time group) are both scored as errors here. The 2:3 group (~117) is a r
 
 ### 21.6 Still open
 
-- Circulation: the golden label says Iron is correct at 86-91, but the detector reads 127.6 on the same file. Needs a
-  check of the label or the file.
+- Circulation: resolved. The owner confirmed the 86-91 golden label was for a different track with a similar name, not
+  "Circulation Controlled Mayhem" (127.6 by Iron, 127.37 by Rekordbox; the file's pulse is 127-132 by autocorrelation).
+  The row was removed from `docs/iron/golden/iron_golden_labels.jsonl`.
 - The 17,808 newly analysed tracks: a stratified sample with labels would say whether the 79.6% reflects the detector
   or the material. Not yet done.
 - Key: 55% exact on the full population against the 65% MIREX-weighted; the adjacent-fifth class (2,909) is the largest
