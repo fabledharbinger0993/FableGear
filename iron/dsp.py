@@ -718,3 +718,51 @@ def chroma(
     vec = np.zeros(12, dtype=np.float64)
     np.add.at(vec, pitch_class, energy)
     return vec
+
+
+def whitened_log_spectrum(
+    y: np.ndarray,
+    sr: int,
+    *,
+    n_fft: int = 16384,
+    hop_length: int = 4096,
+    fmin: float = 27.5,
+    bins_per_octave: int = 36,
+    n_octaves: float = 7.5,
+) -> np.ndarray:
+    """
+    Whole-clip, spectrally whitened log-frequency spectrum: one value per log-frequency bin
+    (bin b centred on fmin * 2**(b / bins_per_octave)), summed over frames.
+
+    Each frame's magnitude is mapped onto log-frequency bins (triangular interpolation, as in
+    `chroma_cqt()`), then divided by its own local spectral envelope -- a one-octave moving
+    average -- and only the part standing above that envelope is kept. That is spectral
+    whitening: a loud kick/bass region or a bright mix can no longer outvote quieter tonal
+    peaks just by carrying more energy, which on real music was the single largest key-accuracy
+    gain measured (docs/IRON_RESEARCH.md SS18). Original numpy implementation of the general
+    technique, not a port of any library's code.
+
+    At the defaults (27.5 Hz = A0, 36 bins/octave) semitone centres fall on every third bin,
+    so key.py can estimate tuning from which sub-semitone phase carries the energy.
+    """
+    n_log = int(bins_per_octave * n_octaves)
+    mag = magnitude_spectrogram(y, n_fft=n_fft, hop_length=hop_length)
+    if mag.shape[0] == 0:
+        return np.zeros(n_log, dtype=np.float64)
+
+    freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+    rows = np.nonzero(freqs >= fmin)[0]
+    pos = bins_per_octave * np.log2(freqs[rows] / fmin)
+    lower = np.floor(pos).astype(np.int64)
+    frac = pos - lower
+    weights = np.zeros((freqs.size, n_log), dtype=np.float64)
+    for b, w in ((lower, 1.0 - frac), (lower + 1, frac)):
+        keep = b < n_log
+        np.add.at(weights, (rows[keep], b[keep]), w[keep])
+
+    with np.errstate(all="ignore"):  # Accelerate BLAS can raise spurious matmul flags
+        logmag = mag @ weights
+    logmag = np.nan_to_num(logmag)
+    kernel = np.ones(bins_per_octave) / bins_per_octave
+    envelope = np.stack([np.convolve(row, kernel, mode="same") for row in logmag]) + 1e-9
+    return np.maximum(logmag / envelope - 1.0, 0.0).sum(axis=0)

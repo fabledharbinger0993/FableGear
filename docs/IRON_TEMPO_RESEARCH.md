@@ -39,6 +39,7 @@ full reasoning. Every entry below was evaluated with that same constraint in min
 | [BeatNet](#beatnet) | Python | CC-BY-4.0 | Usable license-wise but CC on code is a real headache; beat_this is strictly better |
 | [beat_this](#beat_this) | Python | MIT (code + weights) | **In use** — offline ground-truth oracle only, never a runtime dependency |
 | [madmom](#madmom) | Python | Code permissive; **models CC-BY-NC-SA** | Blocked — same class of problem as essentia's AGPL |
+| [edmkey](#edmkey) (key, not tempo) | Python 2 | **None** (all rights reserved); depends on an AGPL Essentia fork | Blocked as code; ideas only — `iron/key.py` uses the general method family with its own code and its own learned profiles |
 
 ---
 
@@ -182,6 +183,25 @@ full reasoning. Every entry below was evaluated with that same constraint in min
   status would make "ship it as a real optional dependency for downbeat/meter specifically"
   a legitimate option, distinct from Iron's own tempo/key detection. Worth remembering
   if Iron's own downbeat/meter accuracy turns out not to be fixable to a usable bar.
+
+### edmkey
+- **Repo**: github.com/angelfaraldo/edmkey (mirror: github.com/EQ4/edmkey). Key estimation
+  for EDM from Ángel Faraldo's research (Faraldo et al., "Key Estimation in Electronic Dance
+  Music", ECIR 2016). Last pushed 2017.
+- **License**: **none.** The GitHub API reports `license: null` for both repos, and the README has
+  no licence text, so default copyright applies (all rights reserved). Its README says the
+  scripts are "based on a fork of ... Essentia" (`angelfaraldo/essentia`, branch
+  `angel_key_detection`), and Essentia is AGPL-3.0, so anything running on that fork inherits
+  AGPL. Checked 2026-10-10.
+- **Algorithm**: HPCP chroma (36 bins/octave, spectral peaks with spectral whitening, 4
+  harmonics, 25-3500 Hz), track-average tuning shift, and correlation against EDM-derived
+  key profiles (`edmm`/`edma`/`bgate`). The legacy script pasted into a session
+  (`legacy/edmkey_essentia_legacy.py`, Python 2) was SEEN in session on 2026-10-10 before
+  the licence check -- recorded here for honesty; nothing was copied from it.
+- **Verdict**: blocked as code and profile values. The *method family* (whitening,
+  sub-semitone tuning correction, harmonic summation, corpus-learned profiles) is published
+  technique, and `iron/key.py` implements it independently, with profiles learned from the
+  owner's own library (IRON_RESEARCH.md §18).
 
 ### madmom
 - **Repo**: github.com/CPJKU/madmom (same lab as beat_this), Python audio/music signal

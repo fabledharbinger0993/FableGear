@@ -47,6 +47,11 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 > **2026-10-10:** FableGear now runs on Iron (BPM + key) and Anvil (tags) -- signed off.
 > Beat 1 is found by counting back from the first real kick: downbeat_offset 54% within
 > 25 ms / 75.5% within 50 ms of Rekordbox (was 13% / 22.5%). See §17.
+>
+> **2026-10-10 (later):** Key detection rebuilt -- whitened 36-bin chroma, tuning
+> correction, harmonic summation, profiles learned from the owner's library: **62.5% / 49.3%
+> exact** on rb200 / mixed150 (was 28.5% / 33.3%; production librosa path on the same sets:
+> 45.5% / 32.7%). Iron key now beats the librosa fallback. See §18.
 
 **Anvil**: functionally complete. ID3v2.3/2.4 (MP3/WAV/AIFF), Vorbis comments (FLAC/OGG),
 and MP4/M4A ilst tags all implemented, tested against real files, and cross-validated
@@ -1713,6 +1718,88 @@ OS refusals raise `anvil.WriteFailed` (an `AnvilError` and an `OSError`).
 - ~20 points between the 25 ms and 50 ms downbeat numbers is beat-timing precision in the
   first 60 s (61.5% of tracks have >=80% of early beats on-grid vs 67% mid-track).
 - Anvil: FLAC BPM decimal vs integer convention; MP4 cover art not read (art stays on mutagen).
+
+## 18. Key detection rebuilt: whitening, tuning, harmonics, learned profiles (2026-10-10)
+
+### 18.1 Scoring fix first
+
+`scripts/benchmark_iron_genre_diverse.py::_key_accuracy`'s `exact` divided by *detected*
+tracks only, which would flatter a detector that declines hard tracks. It now also
+reports `exact_of_total` and `mirex_weighted` (exact 1.0, fifth 0.5, relative 0.3, parallel
+0.2; fifths counted both directions) over every track with truth. `_classify_key_error`
+gained a `parallel` class. Every earlier saved run had 0 undetected and 0 crashes, so the old
+28.5% / 33.3% figures were already over the full sets.
+
+### 18.2 What the reference keys actually are
+
+- **rb200**: all 200 are Rekordbox 7 analyses (`Analysed = 105`).
+- **mixed150**: keys from the old Passport master.db -- 179/200 have `Analysed = 0` in the
+  current Rekordbox DB, and 131/189 disagree with what Rekordbox 7 now says. A second
+  reference from a different source, not a Rekordbox one.
+- **Library-wide**: 51,148 tracks carry a key with `Analysed = 0` (read from a file tag,
+  written by some other tool); only ~13.9k are Rekordbox-analysed. Anything trained or scored
+  on "Rekordbox keys" must filter `Analysed != 0`.
+
+So "accuracy" here means agreement with Rekordbox (rb200) or with older tag keys (mixed150),
+not with human annotation. A small ear-checked set would be the next step up.
+
+### 18.3 Method and selection discipline
+
+Training set: 800 seeded-random Rekordbox-analysed tracks from Passport (798 usable; 1 empty
+file), disjoint from rb200 and mixed150, deduped by (size, length); 82% minor; genre mix is
+the owner's real library (jazz, house, soul, untagged...), not EDM only. Each track decoded
+once in Iron's own body window; several whole-track 36-bin/octave log spectra cached
+(`~/FableGearTestbed/harness/key_features.py`), then a 540-config x 2-profile grid scored
+offline (`key_eval.py`). **Every choice made by 5-fold cross-validation on the training
+set only**; rb200/mixed150 never tuned on. Sanity check: the offline replica of the old
+detector scored 28.5% on rb200 -- identical to the live number.
+
+Faraldo et al. 2016 (ECIR) was the starting point, but only its abstract was readable
+(the open-access copy sits behind a bot wall); `edmkey` code has no licence and its Essentia
+fork is AGPL (see IRON_TEMPO_RESEARCH.md). So the profiles are **learned from our own data**
+-- the abstract's own "profiles from corpus analysis" idea, applied to this library.
+
+### 18.4 Ablation (exact Camelot match; each row adds one step)
+
+| step | train-cv | rb200 | mixed150 |
+|---|---|---|---|
+| old: power CQT chroma, KS profiles | 32.8% | 28.5% | 34.0% |
+| + learned profiles | 36.3% | 35.5% | 38.7% |
+| + spectral whitening (per-frame, 1-octave envelope) | 45.9% | 43.5% | 46.7% |
+| + band 55-3500 Hz (was 55-5000) | 49.9% | 63.0% | 48.7% |
+| + tuning correction (+-1/3 semitone) | 50.5% | 59.0% | 48.7% |
+| + harmonic summation (4, decay 0.6) | **51.0%** | **62.5%** | **49.3%** |
+
+Whitening and learned profiles carry most of the gain. Tuning and harmonics are within noise
+(train-cv SE ~1.8 pts; rb200 ~3.4 pts) but cheap and principled (vinyl rips run off A440);
+kept as the cross-validated winner. The KS profile with whitening alone: 38.8% train-cv --
+the profile matters.
+
+Live end-to-end (`iron_real.py`, full `iron.analyze`): rb200 62.5% exact / 68.5% MIREX,
+mixed150 49.3% / 59.7% -- identical to offline. Tempo, downbeat and Anvil hand-off unchanged
+(0 crashes, 350/350 hand-offs verified), 0.9 s/track. Production librosa key path
+(`audio_processor._detect_key`) on the same sets: 45.5% / 32.7%. (The "librosa 62%" quoted
+in §14/§17 was a different n=1000 tag-key sample, not comparable.)
+
+Mode: Rekordbox calls 84-91% of these tracks minor; the old detector called 35-45% major.
+Parallel-mode errors on rb200 fell from 20 to 1.
+
+### 18.5 Considered and NOT shipped: a minor prior
+
+Adding a constant to the minor scores raises every number (rb200 65.5%, mixed150 59.3% at
++0.12) but by betting on the library's minor share -- at +0.12 it calls 96% of rb200 minor.
+That would hurt a major-heavy library. Left at 0; a decision for the owner if wanted.
+
+### 18.6 Still open
+
+- Random (unrelated-key) misses remain the largest class: 46/200 rb200, 33/150 mixed150.
+  Candidates: whitening envelope width/threshold (only one setting cached), per-segment
+  key (modulation/breakdowns -- §7.4), a stricter tonal-frame selection (drop drum-only frames).
+- Profiles are fitted to Rekordbox 7's labels on this one library; retrain recipe is in
+  the testbed harness. Major profile rests on 141 tracks.
+- `scripts/benchmark_iron_key.py` A/B now compares against the pre-§18 detector (it used
+  to patch `dsp.chroma_cqt`, which `key.py` no longer calls).
+- `dsp.chroma_cqt` / `dsp.chroma` stay (tests + scripts use them) but no longer feed key.
 
 ---
 
