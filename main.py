@@ -214,6 +214,10 @@ if __name__ == '__main__':
             min_size=(900, 600),
             resizable=True,
             frameless=True,
+            # Only the titlebar (.pywebview-drag-region) moves the window. The
+            # default easy_drag=True lets a press anywhere start a window drag,
+            # which made the window jiggle before a track row could be dragged.
+            easy_drag=False,
             background_color='#07070f',
             js_api=_api,
         )

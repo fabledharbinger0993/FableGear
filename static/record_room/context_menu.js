@@ -89,8 +89,7 @@ function _fgCtxTrackTargets(row) {
   if (!_leSelectedTrackIds.has(id)) {
     _leSelectedTrackIds.clear();
     _leSelectedTrackIds.add(id);
-    document.querySelectorAll('.le-track-row').forEach(r => r.classList.toggle('selected', _leSelectedTrackIds.has(r.dataset.id)));
-    if (typeof leUpdateActionState === 'function') leUpdateActionState();
+    if (typeof _leSyncSelectionUi === 'function') _leSyncSelectionUi();
   }
   return [..._leSelectedTrackIds];
 }
