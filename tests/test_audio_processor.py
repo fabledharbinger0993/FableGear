@@ -196,7 +196,7 @@ def _tagless_mp3(tmp_path: Path) -> Path:
 
 def test_iron_is_preferred_over_essentia(tmp_path, monkeypatch):
     f = _tagless_mp3(tmp_path)
-    monkeypatch.setattr(ap, "_detect_bpm_iron", lambda p: (126.0, 0.8))
+    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: ((126.0, 0.8), None))
     monkeypatch.setattr(ap, "_essentia_available", lambda: pytest.fail(
         "essentia must not be consulted when Iron succeeded"))
     monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: pytest.fail(
@@ -212,7 +212,7 @@ def test_iron_is_preferred_over_essentia(tmp_path, monkeypatch):
 
 def test_essentia_is_used_when_iron_finds_nothing(tmp_path, monkeypatch):
     f = _tagless_mp3(tmp_path)
-    monkeypatch.setattr(ap, "_detect_bpm_iron", lambda p: None)
+    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: (None, None))
     monkeypatch.setattr(ap, "_essentia_available", lambda: True)
     monkeypatch.setattr(ap, "_detect_bpm_essentia", lambda p: (123.45, 3.2))
     monkeypatch.setattr(ap, "_detect_bpm", lambda *a, **k: pytest.fail(
@@ -233,7 +233,7 @@ def test_iron_detector_returns_none_for_unusable_file(tmp_path):
 
 def test_essentia_is_preferred_when_available(tmp_path, monkeypatch):
     f = _tagless_mp3(tmp_path)
-    monkeypatch.setattr(ap, "_detect_bpm_iron", lambda p: None)
+    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: (None, None))
     monkeypatch.setattr(ap, "_essentia_available", lambda: True)
     monkeypatch.setattr(ap, "_detect_bpm_essentia", lambda p: (123.45, 3.2))
     monkeypatch.setattr(ap, "_detect_bpm", lambda *a, **k: pytest.fail(
@@ -249,7 +249,7 @@ def test_essentia_is_preferred_when_available(tmp_path, monkeypatch):
 
 def test_falls_back_to_librosa_when_essentia_missing(tmp_path, monkeypatch):
     f = _tagless_mp3(tmp_path)
-    monkeypatch.setattr(ap, "_detect_bpm_iron", lambda p: None)
+    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: (None, None))
     monkeypatch.setattr(ap, "_essentia_available", lambda: False)
     monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: ("AUDIO", 44100))
     monkeypatch.setattr(ap, "_detect_bpm", lambda *a, **k: 128.0)
@@ -268,7 +268,7 @@ def test_falls_back_to_librosa_when_essentia_fails_on_this_file(tmp_path, monkey
     Skipping the shared decode because 'essentia is available' silently kills
     this path."""
     f = _tagless_mp3(tmp_path)
-    monkeypatch.setattr(ap, "_detect_bpm_iron", lambda p: None)
+    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: (None, None))
     monkeypatch.setattr(ap, "_essentia_available", lambda: True)
     monkeypatch.setattr(ap, "_detect_bpm_essentia", lambda p: None)   # per-file failure
     monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: ("AUDIO", 44100))
@@ -285,7 +285,7 @@ def test_bpm_only_run_skips_the_shared_decode_when_essentia_succeeds(tmp_path, m
     """essentia loads the file itself, so a BPM-only run must not also pay for
     the 90 s ffmpeg decode that nothing would read."""
     f = _tagless_mp3(tmp_path)
-    monkeypatch.setattr(ap, "_detect_bpm_iron", lambda p: None)
+    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: (None, None))
     monkeypatch.setattr(ap, "_essentia_available", lambda: True)
     monkeypatch.setattr(ap, "_detect_bpm_essentia", lambda p: (120.0, 3.0))
     monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: pytest.fail(
@@ -298,7 +298,7 @@ def test_bpm_only_run_skips_the_shared_decode_when_essentia_succeeds(tmp_path, m
 
 def test_key_still_gets_its_decode_even_when_essentia_handles_bpm(tmp_path, monkeypatch):
     f = _tagless_mp3(tmp_path)
-    monkeypatch.setattr(ap, "_detect_bpm_iron", lambda p: None)
+    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: (None, None))
     monkeypatch.setattr(ap, "_essentia_available", lambda: True)
     monkeypatch.setattr(ap, "_detect_bpm_essentia", lambda p: (120.0, 3.0))
     monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: ("AUDIO", 44100))
@@ -353,3 +353,49 @@ def test_beat_tracker_check_is_registered():
     import health
     src = inspect.getsource(health.run_health_checks)
     assert "_check_beat_tracker" in src
+
+
+# ── FableGear on its own tools: Iron key + Anvil tag I/O ───────────────────
+
+def test_iron_key_is_used_and_written_through_anvil(tmp_path, monkeypatch):
+    """One Iron pass supplies BPM and key; both land in the file via Anvil and read back."""
+    import anvil
+    f = _tagless_mp3(tmp_path)
+    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: ((124.37, 0.6), "8A"))
+    monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: pytest.fail(
+        "no shared decode when Iron answered both BPM and key"))
+    monkeypatch.setattr(ap, "_detect_key", lambda *a, **k: pytest.fail("librosa key must not run"))
+
+    r = ap.process_file(f, detect_bpm=True, detect_key=True, normalise=False)
+
+    assert (r.bpm_source, r.key_source, r.tag_backend) == ("iron", "iron", "anvil")
+    assert r.bpm_written and r.key_written and r.errors == []
+    fields = anvil.read_fields(f)
+    assert fields.bpm == pytest.approx(124.37) and fields.initial_key == "8A"
+
+
+def test_librosa_key_fallback_when_iron_finds_none(tmp_path, monkeypatch):
+    f = _tagless_mp3(tmp_path)
+    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: (None, None))
+    monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: ("AUDIO", 44100))
+    monkeypatch.setattr(ap, "_detect_key", lambda *a, **k: "5A")
+
+    r = ap.process_file(f, detect_bpm=False, detect_key=True, normalise=False)
+
+    assert (r.key_detected, r.key_source) == ("5A", "librosa")
+
+
+def test_anvil_read_refusal_falls_back_to_mutagen_not_corrupt(tmp_path, monkeypatch):
+    """Anvil is stricter than mutagen. A file only Anvil rejects must not be classified
+    corrupt -- those error strings can quarantine (move) the file."""
+    import anvil
+    f = _tagless_mp3(tmp_path)
+
+    def refuse(path):
+        raise anvil.CorruptHeader("synthetic: Anvil judges this header damaged")
+
+    monkeypatch.setattr(ap.anvil, "read_fields", refuse)
+    r = ap.process_file(f, detect_bpm=False, detect_key=False, normalise=False)
+
+    assert r.tag_backend == "mutagen"
+    assert not ap.is_corrupt(r)
