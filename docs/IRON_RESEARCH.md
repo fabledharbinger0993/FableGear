@@ -1886,7 +1886,9 @@ as Rekordbox ground truth. Result on the **1,210 run tracks Rekordbox analysed**
 | tag 83/63/86 class (3:2 and 2x) | 121 | 120 (99%) | 0 |
 | tag "other" (99/103/96) | 15 | 12 | 0 |
 
-So the 83 and 63 tags are **wrong, confirmed by Rekordbox**: for example "Video Games" (tag 83,
+**Withdrawn pending re-check (see §20.1).** This table came from the 1,210-track filename join, which is not reproducible. The 83/63 tag-error conclusion below is not confirmed until the exact-path 1,993-track reference is compared the same way.
+
+Claimed in the original analysis, now unverified: the 83 and 63 tags are wrong: for example "Video Games" (tag 83,
 Rekordbox 125, Iron 125.05) and "Only Gurl (1)" (tag 63, Rekordbox 126, Iron 126.05). §19.2's
 inference was correct. The 211 "match" tracks where Iron agrees with Rekordbox but the tag does
 not are also tag errors that the 4% metric had been hiding.
