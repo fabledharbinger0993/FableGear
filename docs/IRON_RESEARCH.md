@@ -1873,7 +1873,37 @@ own analysed BPM for those tracks could not be read. **That is the decisive miss
 Confidence does not separate the bad cases from the good: median `bpm_conf` is 0.52 for
 within-4% answers and 0.51 for the rest. So the confidence number cannot be used to flag them.
 
-### 19.5 What was NOT changed, and why
+### 19.5 Rekordbox's own BPM for the same files (demonstrated, 2026-10-10 follow-up)
+
+The owner mounted `/Volumes/Passport/PIONEER`. `master.db` (a 245 MB snapshot, staged read-only)
+was opened with `pyrekordbox`'s `Rekordbox6Database`. Joined to the run by file name (`FileNameL`,
+which is more reliable than the stale `FolderPath`, §8.1). Only rows with `Analysed != 0` count
+as Rekordbox ground truth. Result on the **1,210 run tracks Rekordbox analysed**:
+
+| | n | Iron within 2% of Rekordbox | DB tag within 2% of Rekordbox |
+|---|---|---|---|
+| all analysed | 1,210 | **1,155 (95.5%)** | 805 (66.5%) |
+| tag 83/63/86 class (3:2 and 2x) | 121 | 120 (99%) | 0 |
+| tag "other" (99/103/96) | 15 | 12 | 0 |
+
+So the 83 and 63 tags are **wrong, confirmed by Rekordbox**: for example "Video Games" (tag 83,
+Rekordbox 125, Iron 125.05) and "Only Gurl (1)" (tag 63, Rekordbox 126, Iron 126.05). §19.2's
+inference was correct. The 211 "match" tracks where Iron agrees with Rekordbox but the tag does
+not are also tag errors that the 4% metric had been hiding.
+
+The 55 analysed tracks where **Iron** misses Rekordbox by more than 2% are the real Iron-side
+residual: 2:3 (10), half (6), 4:3 (3), 3:4 (2), and 34 "match" cases that fall within 4% of the
+tag but not of Rekordbox. These are 4.5% of analysed tracks, mostly low-confidence, and are the
+candidate set for any future detector work. Not yet examined by hand.
+
+Caveats: Rekordbox's analysed BPM is the reference here, not ear-checked truth, and it may share
+Rekordbox's own convention (§17.1). Matching by file name can pick the wrong row when names repeat;
+only the first matching row was used. Rows with `Analysed = 0` (no Rekordbox BPM) are excluded.
+
+Reproduce: `scripts/categorize_iron_bpm_mismatches.py` for the classes, plus a `pyrekordbox` join on
+the `master.db` snapshot (the join is not yet in the repo).
+
+### 19.6 What was NOT changed, and why
 
 - **No edit to `iron/tempo.py`.** Every octave-oriented change in §2, §3, §5, §8.4 and §13.3
   was tried against a real ground truth and failed or regressed. With no Rekordbox-verified
@@ -1884,14 +1914,13 @@ within-4% answers and 0.51 for the rest. So the confidence number cannot be used
 - The ratio classifier is now a script (`scripts/categorize_iron_bpm_mismatches.py`), so the
   split above can be regenerated from any run.
 
-### 19.6 What would settle it (next step, not done)
+### 19.7 What would settle it (next steps)
 
-1. Read Rekordbox's own analysed BPM for the 88 "83" and 63 "62/63" files, from a snapshot
-   of `master.db` (`Analysed != 0`, per §18.2) or their ANLZ PQTZ grids. If Rekordbox says
-   ~125, the tags are wrong and the 87.8% is an underestimate of Iron on this set.
-2. Re-run the benchmark on a Rekordbox-analysed set (rb200-style) and report exact / ±1% /
+1. DONE in §19.5: Rekordbox confirms the 83/63 tags are wrong. Remaining: hand-check the 55
+   Iron-vs-Rekordbox residuals, mostly 2:3 and half-time, for a real Iron octave pattern.
+2. Re-run the benchmark on a Rekordbox-analysed set (rb200-style, or the 1,210 above) and report exact / ±1% /
    ±4% together. Never headline the ±4% number alone for a population clustered in 115-130.
-3. Possibly retag or exclude the `Orphaned Tracks` tags until 1 is done. That is a library
+3. Retag or exclude the `Orphaned Tracks` tags, since Rekordbox disagrees with them on the 83/63 files. That is a library
    decision for the owner, not a change to Iron.
 
 Not a re-litigation of §2-§18: it does not revisit any octave method, only the metric.
