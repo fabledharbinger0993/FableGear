@@ -2151,3 +2151,87 @@ Verdict: the backbeat ratio is the only cue here with an in-range signal. It is 
 were the diagnostic set and no held-out check was run. The threshold is not validated, and the cue still
 fires on correct 85-91 BPM tracks. Snare distance and density need a real snare or hi-hat detector before
 they can be tested. Not a candidate for `iron/` on this evidence.
+
+## 21. Full refresh: current Iron on all 20,096 Rekordbox-analysed tracks (2026-10-10)
+
+Reference is the Rekordbox 7 row matched by exact path (snapshot copy of `master.db` + wal + shm; the live file was not
+opened). Script: `scripts/testbed/refresh_rb_bench.py` (`snap`, `run`, `score`). Results:
+`FableGearTestbed/results/rb_refresh_iron.jsonl` and `rb_refresh_iron_summary.txt`. Iron is the current branch code,
+run in place on the Passport files (no copies, no writes), `iron.analyze(want=bpm, initial_key)`.
+
+### 21.1 Population
+
+- 70,227 DB rows; 49,549 not qualifying (no BPM, key, or Analysed flag); 1 qualifying file missing; 581 duplicate
+  byte-and-length copies skipped (same rule as `live_collect.py`).
+- **20,096 tracks**, all on Passport. Note: this is far more than the "several hundred" the refresh was expected to add.
+  Rekordbox has been analysing the whole library, not just the sets we had. The list is still growing.
+- Overlap with earlier sets: rb200 200/200, live 300 set 296/300, the 1,993 set 1,965/1,993.
+
+### 21.2 Results (demonstrated, n = 20,096, 0 crashes, 25 undetected for BPM and 15 for key)
+
+| Metric | Value |
+|---|---|
+| BPM exact (within 0.6 BPM) | 81.3% |
+| BPM within 1% | 87.3% |
+| BPM within 4% (MIREX-style) | 92.9% |
+| Key exact (of detected) | 55.2% |
+| Key MIREX-weighted (of all with truth) | 65.0% |
+
+Key errors by class: random 4,077; adjacent fifth 2,909; relative major/minor 1,180; parallel 833.
+
+By population:
+
+| Set | n | BPM exact |
+|---|---|---|
+| rb200 | 200 | 100.0% |
+| live 300 | 296 | 94.3% |
+| the 1,993 set | 1,965 | 94.7% |
+| all other analysed tracks | 17,808 | 79.6% |
+
+So the earlier ~95% figure holds on the sets Iron was already measured on. The 17,808 newly analysed tracks are harder,
+and most are unlabelled "Other" genre. Accuracy in 2,000-track blocks in file order runs from 42.8% to 95%, so the
+mix of the library matters more than any single run.
+
+### 21.3 BPM misses (>4%), n = 1,423, grouped by detected/true ratio
+
+| Class | Count |
+|---|---|
+| no clean ratio (other) | 362 |
+| double (2x) | 290 |
+| 2:3 | 268 |
+| half (1/2) | 243 |
+| 4:3 | 197 |
+| 3:2 | 52 |
+| 3:4 | 11 |
+
+The "other" group is not a single failure. Examples: 77 -> 169 (2.2x), 86 -> 158 (1.8x), 156 -> 125 (0.8x),
+118 -> 146 (1.24x). They look like genuinely wrong tempos on hard material, not octave folds. Only the named ratio
+classes are octave or compound-meter errors.
+
+### 21.4 Owner-ear golden labels against both detectors (11 of 12 labels are in the snapshot)
+
+- Rekordbox: 9 of 11 match (5 drum-and-bass at 172-176, Phantasy and Pain at 173-177, both Chill Vibes at 91).
+  Misses: Papa T (Rekordbox 180, owner 89.9) and Circulation (Rekordbox 127, owner 86-91).
+- Iron: 3 of 11 match (both Chill Vibes files and Papa T). It reads the drum-and-bass tracks at ~86-88 (half-time),
+  Phantasy and Pain at ~117 (two-thirds), and Circulation at 127.6, which contradicts the owner's Circulation label.
+- Gold Digger is not in the snapshot.
+
+This is the same disagreement as §19.9: the drum-pulse convention (Rekordbox) and the felt-tempo convention (Iron on
+the half-time group) are both scored as errors here. The 2:3 group (~117) is a real Iron error under either convention.
+
+### 21.5 What this does NOT show
+
+- Rekordbox's percentage cannot be measured against itself: its BPM and key are the reference here. The golden set
+  is the only independent check, and it is 11 tracks.
+- Ground truth is Rekordbox's own tags, not a human label, so the 20,096-track numbers measure agreement with
+  Rekordbox. The §21.4 check is the only place the owner's ears are involved.
+- The §20.4 tolerant 160-185 rule is not applied to this run; it stays rejected (§20.9).
+
+### 21.6 Still open
+
+- Circulation: the golden label says Iron is correct at 86-91, but the detector reads 127.6 on the same file. Needs a
+  check of the label or the file.
+- The 17,808 newly analysed tracks: a stratified sample with labels would say whether the 79.6% reflects the detector
+  or the material. Not yet done.
+- Key: 55% exact on the full population against the 65% MIREX-weighted; the adjacent-fifth class (2,909) is the largest
+  near-miss group and is worth a targeted look.
