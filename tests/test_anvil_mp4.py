@@ -147,3 +147,19 @@ def test_existing_udta_siblings_survive(m4a_file):
     udta_after = _find(_split_boxes(moov_after), b"udta")
     sibling_types_after = {t for t, _p in _split_boxes(udta_after)}
     assert sibling_types_before <= sibling_types_after
+
+
+def test_update_keeps_another_tools_freeform_spelling(m4a_file):
+    """MP4 counterpart of the TXXX spelling rule: an existing ----:com.apple.iTunes:EnergyLevel
+    atom is updated under its own spelling, not renamed to ENERGYLEVEL."""
+    mp4 = pytest.importorskip("mutagen.mp4", reason="mutagen not installed")
+    f = mp4.MP4(str(m4a_file))
+    f["----:com.apple.iTunes:EnergyLevel"] = [mp4.MP4FreeForm(b"6")]
+    f.save()
+    assert anvil.read_fields(m4a_file).energy_level == 6
+
+    anvil.write_fields(m4a_file, TrackFields(energy_level=8), force=True)
+
+    keys = [k for k in mp4.MP4(str(m4a_file)).tags if k.upper().endswith(":ENERGYLEVEL")]
+    assert keys == ["----:com.apple.iTunes:EnergyLevel"]
+    assert anvil.read_fields(m4a_file).energy_level == 8

@@ -33,6 +33,7 @@ from anvil.errors import (
     CorruptHeader,
     NoTagBlock,
     UnsupportedFormat,
+    WriteFailed,
     WriteVerificationFailed,
 )
 from anvil.schema import (
@@ -56,6 +57,7 @@ __all__ = [
     "NoTagBlock",
     "TrackFields",
     "UnsupportedFormat",
+    "WriteFailed",
     "WriteResult",
     "WriteVerificationFailed",
     "api",

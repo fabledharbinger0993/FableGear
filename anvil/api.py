@@ -286,8 +286,14 @@ def _set_txxx(tag: id3.ID3Tag, description: str, value: str) -> None:
     TXXX frames are only unique per description, not per frame id, so a blanket
     remove("TXXX") would delete every user-defined field in the file --
     including ones written by other tools that have nothing to do with us.
+
+    Matching is case-insensitive (reads are), but an existing frame keeps the
+    spelling it was written with: Mixed In Key writes "EnergyLevel", and a
+    tool that looks that description up exactly must still find it after we
+    update the value.
     """
     kept = []
+    spelling = description
     for frame in tag.frames:
         if frame.id != "TXXX":
             kept.append(frame)
@@ -295,8 +301,10 @@ def _set_txxx(tag: id3.ID3Tag, description: str, value: str) -> None:
         existing, _value = id3.decode_txxx(frame.data)
         if existing.upper() != description.upper():
             kept.append(frame)
+        elif spelling == description:
+            spelling = existing
     kept.append(
-        id3.Frame("TXXX", id3.encode_txxx(description, value, tag.version))
+        id3.Frame("TXXX", id3.encode_txxx(spelling, value, tag.version))
     )
     tag.frames = kept
 

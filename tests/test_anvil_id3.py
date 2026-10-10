@@ -9,6 +9,7 @@ it means to and nothing else. Audio payloads and unrelated chunks are compared
 byte-for-byte before and after every write.
 """
 
+import os
 import struct
 from pathlib import Path
 
@@ -581,3 +582,21 @@ def test_orphan_cleanup(tmp_path):
 
     assert cleanup_orphans(tmp_path) == 1
     assert (tmp_path / "keep.mp3").exists()
+
+
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs a non-root POSIX user")
+def test_os_refusal_raises_write_failed_and_leaves_file_untouched(tmp_path):
+    """A write the OS refuses (here: a read-only directory, standing in for a Finder-locked
+    file or read-only volume) raises WriteFailed -- an AnvilError AND an OSError -- instead
+    of a bare PermissionError a caller catching AnvilError would miss."""
+    path = make_mp3(tmp_path)
+    before = path.read_bytes()
+    tmp_path.chmod(0o500)
+    try:
+        with pytest.raises(anvil.WriteFailed) as info:
+            anvil.write_fields(path, TrackFields(bpm=120.0))
+        assert isinstance(info.value, anvil.AnvilError)
+        assert isinstance(info.value, OSError)
+    finally:
+        tmp_path.chmod(0o700)
+    assert path.read_bytes() == before

@@ -31,7 +31,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from anvil.errors import WriteVerificationFailed
+from anvil.errors import AnvilError, WriteFailed, WriteVerificationFailed
 
 log = logging.getLogger(__name__)
 
@@ -83,9 +83,12 @@ def atomic_write(
     directory = path.parent
     existed = path.exists()
 
-    fd, tmp_name = tempfile.mkstemp(
-        dir=directory, prefix=TEMP_PREFIX, suffix=TEMP_SUFFIX
-    )
+    try:
+        fd, tmp_name = tempfile.mkstemp(
+            dir=directory, prefix=TEMP_PREFIX, suffix=TEMP_SUFFIX
+        )
+    except OSError as exc:
+        raise WriteFailed(exc.errno, f"cannot write next to {path}: {exc.strerror}", str(path)) from exc
     tmp_path = Path(tmp_name)
 
     try:
@@ -120,6 +123,17 @@ def atomic_write(
         except OSError:
             log.debug("could not fsync directory %s", directory)
 
+    except OSError as exc:
+        # The OS refused the write (locked file, read-only volume, permissions).
+        # The original is untouched; surface it as an AnvilError as well.
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
+        if isinstance(exc, AnvilError):
+            raise
+        raise WriteFailed(exc.errno, f"cannot replace {path}: {exc.strerror}", str(path)) from exc
     except BaseException:
         # Any failure before the rename leaves the original untouched; clear
         # the temp file so it does not accumulate.

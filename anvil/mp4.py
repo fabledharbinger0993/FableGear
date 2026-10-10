@@ -412,6 +412,14 @@ def _remove_freeform(items: list[tuple[bytes, bytes]], name: str) -> list[tuple[
 
 
 def _set_freeform(items: list[tuple[bytes, bytes]], name: str, value: str) -> list[tuple[bytes, bytes]]:
+    # Same rule as anvil.api._set_txxx: match case-insensitively, keep an existing
+    # atom's own spelling so a tool that looks its name up exactly still finds it.
+    for t, p in items:
+        if t == _FREEFORM:
+            decoded = _decode_freeform(p)
+            if decoded is not None and decoded[0] == _MEAN_NS and decoded[1].upper() == name.upper():
+                name = decoded[1]
+                break
     kept = _remove_freeform(items, name)
     kept.append((_FREEFORM, _encode_freeform(_MEAN_NS, name, value)))
     return kept
