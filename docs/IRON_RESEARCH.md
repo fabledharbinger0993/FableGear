@@ -1901,11 +1901,9 @@ Confidence carries signal (demonstrated): rb200 tracks with confidence ≥ 0.8 a
 and make up 60% of the set; ≥ 0.6 is 73% on 84%. On mixed150 the same thresholds give 65%
 and 61%. A display flag at low confidence looks worthwhile; it does not change the answer.
 
-### 19.5 Essentia comparison: not run
+### 19.5 Essentia comparison: not run in §19 (superseded by §20)
 
-Essentia is not installed in this container or on the testbed sandbox, and §14.1 records it
-as not runnable live on this machine. Any Essentia number here would be a guess. Not
-measured.
+Essentia was not available when §19 was written. §20 runs it on the same audio.
 
 ### 19.6 What would settle the open questions
 
@@ -1915,6 +1913,41 @@ measured.
 3. Only then try a new mechanism. The untested levers are per-track bass/tonic-triad
    features (needs a new decode pass) and a confidence gate. Frame-energy weighting,
    segment voting and learned priors have now failed on held-out data.
+
+---
+
+## 20. Essentia vs Iron key on identical audio (follow-up to §19, 2026-10-10)
+
+Essentia 2.1b6 installed in the working container from PyPI and run as a **development
+oracle only**. Essentia is AGPL-3.0 / commercial; it must not become a runtime dependency
+(CLAUDE.md, §0). The testbed sandbox is aarch64 with no Essentia wheel, so the comparison
+ran in the container.
+
+Method: a 60 s mono 22.05 kHz excerpt from one-third into each track (the same body start
+Iron uses), cut on the owner's machine with ffmpeg. Iron = `iron.key.detect_key` on the
+excerpt (current code, so not the same 240 s window as §18's 65.0%). Essentia =
+`KeyExtractor` with each built-in profile. Truth = Rekordbox KeyName (rb200) or the older
+mixed150 keys. No tuning on these sets.
+
+| detector | rb200 exact (n=200) | mixed150 exact (n=150) |
+|---|---|---|
+| **Iron (60 s excerpt)** | **63.0%** | 49.3% |
+| Essentia edma | 55.0% | 48.7% |
+| Essentia bgate | 48.5% | **52.0%** |
+| Essentia shaath | 51.5% | 48.7% |
+| Essentia krumhansl | 43.5% | 45.3% |
+| Essentia temperley | 20.5% | 32.7% |
+
+Reading (demonstrated on these sets, not significance-tested): Iron is ahead of every
+Essentia profile on rb200, by 8 points over edma. On mixed150, Essentia bgate is ahead by
+2.7 points, inside the SE (about 4 points), so no clear winner there. Picking the best
+Essentia profile per set would be selecting on the test set, so the table shows all of them.
+
+Failure pattern: Essentia edma has more parallel errors on mixed150 (14.7% vs Iron's 5.3%).
+Iron has more fifth errors on mixed150 (18.0% vs 13.3%).
+
+Still open: a paired test (McNemar) and a second library before "beats Essentia" is claimed.
+The 2,000-track run still lacks Rekordbox-analysed truth (§19.1).
 
 ---
 
