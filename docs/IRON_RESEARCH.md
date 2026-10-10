@@ -2000,3 +2000,154 @@ conclusions — if you disprove something above, add a note pointing at it rathe
 silently rewriting history, the same discipline this file's own §2.2/§3 already follow. Keep
 the "Current status" (§1) and "Things NOT to re-litigate" (§5) sections up to date as the
 two sections most likely to be read and not the rest.
+
+## 20. The 55-residual follow-up, half-time kick check, and a 160-185 BPM candidate (2026-10-10)
+
+Task (from the coordinator, branch `claude/project-thread-1uoi65`): (1) run the branch's `iron.analyze`
+on the Iron-vs-Rekordbox residuals; (2) check whether the half-time readings are a real kick pulse;
+(3) test a doubling candidate for 160-185 BPM as a standalone script, without changing `iron/`.
+All numbers below are demonstrated by the files named; interpretation is labelled.
+
+### 20.1 Correction to §19.5: the Rekordbox population is not reproducible from the Passport `master.db`
+
+§19.5 says the 1,210 run tracks Rekordbox analysed came from `/Volumes/Passport/PIONEER/Master/master.db`.
+I could not reproduce that. Matching the 2,000-track run by exact path (then file name) and `Analysed != 0`:
+
+| Rekordbox source (snapshot copied to scratch, read-only) | run tracks matched and analysed |
+|---|---|
+| `/Volumes/Passport/PIONEER/Master/master.db` (Oct 2) | **73** (all within 2% of Iron's old run) |
+| `master.backup.20261002.db` (same content) | 73 |
+| local Rekordbox 7 `~/Library/Pioneer/rekordbox/master.db` (12:53, Oct 10) | **1,993** (paths match `/Volumes/Passport/DATABASE/...`) |
+
+The local Rekordbox 7 database is the one used for everything below. It is the only source that
+analysed these files at their current paths. §19.5's 1,210 and 55 are therefore **superseded** by
+1,993 and 64 on that reference. The class mix is similar (§19.8 had 19/21/12/3; this gives 20/21/19/4).
+Rekordbox 7 analysis is still in progress, so the count will keep rising.
+
+### 20.2 Step 1: current `iron.analyze` on the residuals
+
+- Current branch code over all 1,993 Rekordbox-analysed tracks: 0 crashes, 0 without a BPM.
+  Within 2% of Rekordbox: **1,929 / 1,993 (96.8%)**. The old run gave identical BPM values for every track.
+- Residuals (Iron more than 2% from Rekordbox): **64**, the same set as the old run.
+  Per-track rows: `FableGearTestbed/results/residuals55.jsonl` (64 rows; the name is kept from the request).
+  Groups: ratio ~0.5 (half-time) 20; ratio ~0.67 (2:3) 21; Iron 1.2-2.3x Rekordbox 19; small drift 4.
+- Full run: `FableGearTestbed/results/iron_current_rb_analysed.jsonl`.
+
+### 20.3 Step 2: kick-onset spacing over a 16-bar section, in Rekordbox beats (numbers only)
+
+Method: Rekordbox PQTZ grid from the ANLZ file, a 64-beat window starting on a bar-1 downbeat near 40%
+into the track, 40-120 Hz band-pass, rectified positive-difference onsets, refractory 0.6 beat.
+Script kept outside the repo (scratch). Output: `FableGearTestbed/results/halftime_kicks16bar.jsonl`.
+
+| group | n | kick onsets per 64 beats (median, range) | median interval (beats) | modal interval | intervals at 2 beats | on the RB grid as-is (±0.1 beat) |
+|---|---|---|---|---|---|---|
+| half-time (Iron 0.45-0.55 x RB) | 20 | 66 (23-82) | 0.83 | 0.75 beat in 18 of 20 | 0 in 10 of 20 tracks, else 0.02-0.16 | 0.31 |
+| control (Iron within 2%, RB 160-185) | 9 | 58 (47-79) | 0.93 | 1.0 in 5, 0.75 in 4 | 0 in 5 of 9 tracks, else 0.02-0.12 | 0.31 |
+
+Reading: the kick-band onsets show no sustained 2-beat pulse in the half-time group (the 2-beat share is
+similar to the controls), and the density is the same as in the controls. The detector is not discriminating tempo class: the 0.75-beat mode
+probably comes from 16th-note percussion in the band rather than kicks alone (inferred, not checked by ear or by stem). So this measurement does **not**
+settle whether the half-time readings are real. It is a weak test, and I have not tuned it.
+
+### 20.4 Step 3: candidate, double when 2b is 160-185 and the doubled period is kick-strong
+
+Script: `scripts/experiments/candidate160_185.py` (new, not committed; `iron/` untouched).
+Rule, per track with Iron candidate b:
+- Only when 160 <= 2b <= 185 (b = 80-92.5). Kick-band envelope (40-120 Hz, 200 frames/s).
+- U = max over phase of mean envelope on Iron's beat grid. O = mean envelope at the between-beat
+  positions of the doubled grid (the new positions doubling adds).
+- Literal rule: double when O > U. Tolerant sensitivity: double when O >= 0.8 U.
+- Note: the doubled grid's own phase-max mean is always <= U (it averages the two sub-grids), so the
+  literal "doubled period beats undoubled" can only be read as the between-beat test above.
+
+Population 1,993 (the Rekordbox-analysed run tracks, §20.1). Exact = within 0.6 BPM.
+
+| | exact | within 1% | within 4% | doubled | half |
+|---|---|---|---|---|---|
+| before (current code) | 94.63% (1,886) | 96.29% | 96.89% (1,931) | 3 | 20 |
+| after, literal O > U | 94.58% (1,885) | 96.24% | 96.84% (1,930) | 4 | 20 |
+| after, tolerant O >= 0.8 U | 94.83% (1,890) | 96.49% | 97.09% (1,935) | 7 | 12 |
+
+Per track (`FableGearTestbed/results/candidate160_185.json`):
+- Literal: 1 track doubled, and it is correct already (Gold Digger, Iron 88.35 vs Rekordbox 88.3, O/U 1.05). Net -1.
+- Tolerant: 12 doubled. 8 half-time errors are fixed (e.g. Lady Saw "One Night", Iron 87.55 -> 175.1 vs Rekordbox 175.0).
+  4 correct tracks are broken (Chill Vibes x2 at 91 -> 182; Circulation 86 -> 172; Gold Digger 88 -> 177). Net +4.
+
+Verdict: the literal rule does not help. The tolerant form gains +4 net on 1,993 tracks, from 29
+in-range candidates, and the 0.8 threshold was not tuned on held-out data. The rule cannot separate
+a correct 86-91 BPM track from a half-time track of 172-182 BPM with this cue. Not a candidate for
+`iron/` on this evidence.
+
+### 20.5 What would settle it
+
+1. A second kick detector that is not sensitive to 16th-note percussion (e.g. a transient-onset
+   detector gated on the kick's pitch-drop or a drum-separated kick stem). Re-run 20.3 with it.
+2. Hand-checking two or three half-time tracks by ear, which §19.8 step 1 still lists and this pass did not do.
+3. Re-running 20.1 once the Rekordbox 7 analysis finishes, to bring the population toward the full library.
+
+### 20.6 Decision: canonical reference
+
+Owner confirmed (2026-10-10) that the local Rekordbox 7 reference (1,993 analysed run tracks, §20.1) is
+the canonical population for future Iron-vs-Rekordbox checks, rather than the Passport `master.db`
+(73 matches). Re-run 20.1 when the Rekordbox 7 analysis finishes, and record the new count as a dated note.
+
+### 20.7 Ear check by the owner (2026-10-10): Rekordbox is right on the sampled residuals, except Papa T
+
+Owner listened to six half-time and six 2:3 residuals (§20.2 list). These are drum and bass, which people
+dance to at half time, so the faster reading is the rhythm.
+- Half-time sample, 5 of 6 (Rekordbox about 172-176): Rekordbox correct, Iron (about 0.5x) is a tempo-class error.
+  Sampled: vital_elements-sound_clash, vital_elements-sound_boy, 02-infiltrata-voodoo_skull-xtc,
+  02-unknown_artist-funky_house-xtc, Wisdom_PN.
+- Papa T Good and Bad (Master)_PN: Iron 89.9 is correct; Rekordbox 180.0 is wrong. Neither candidate rule
+  doubles this track (O/U 0.49, §20.4), which fits.
+- 2:3 sample, 6 of 6: Rekordbox correct (about 173-177); Iron (about 0.667x, 115-117) is wrong.
+
+What this changes:
+- The "half-time" and "2:3" groups in §20.2 are real Iron octave errors on this sample, not Rekordbox errors.
+  This matches §19.8's "Key finding" that Iron's real errors cluster at 165-180 BPM.
+- The owner's ear is stronger evidence than the kick-band check in §20.3, which could not discriminate
+  tempo class.
+- The tolerant candidate's 8 fixes are plausible on this sample. Its 4 breaks (Chill Vibes x2, Circulation,
+  Gold Digger, all at 86-91 BPM in Iron's favour) have not been ear-checked, and they are the open question
+  for §20.4.
+- Papa T is a case where Rekordbox is wrong. Any future Iron-vs-Rekordbox metric should list it as an
+  Iron-correct exception, not as an Iron error.
+
+### 20.8 Owner check of the four tolerant breaks, and a genre check (2026-10-10)
+
+- Owner ear-checked Chill Vibes (two files), Circulation and Gold Digger: all slow tracks, correct at about
+  86-91 BPM. The tolerant rule (§20.4) therefore breaks four correct readings, so it is rejected as it stands.
+- Of the owner's six sampled half-time tracks (§20.7), none was doubled by either rule: O/U was 0.49-0.67
+  for all six, below the 0.8 tolerance. The rule's 8 fixes are different tracks and have not been ear-checked.
+- Genre labels in the Rekordbox 7 DB do not carry the signal. Residuals are "Other" (half 15, 2:3 18,
+  fast 11) or unlabelled (5, 3, 5, plus the drift 4). None of the 64 residuals is labelled Drum & Bass. A
+  genre prior therefore needs tagging first. Tagging the library correctly (through Anvil or Rekordbox) is a
+  prerequisite, not a free fix.
+- A sound-structure path is the other option: fast hi-hat (16th/8th) density plus a tom pattern, as a
+  feature to separate DnB from other genres at the same BPM. Not yet built or measured.
+
+### 20.9 Backbeat cue on the 1,993 (2026-10-10): the backbeat ratio carries a signal; snare distance and density do not
+
+Script: `scripts/experiments/backbeat_cue.py` (new, uncommitted; `iron/` untouched). Output:
+`FableGearTestbed/results/backbeat_cue1993.json`. Five files failed to open (libsndfile), and are excluded:
+12 Could This Be Magic_PN, TG017 Mista Spliff Twista (2 files), Unknown Michael R Jr. Smack That Jazz (2 files).
+
+- Backbeat ratio: mean snare-band (1-5 kHz) onset strength on the between-beat positions of Iron's grid,
+  divided by strength on Iron's beat positions. Snare on 2 and 4 at the doubled tempo gives a ratio above 1.
+- Whole-library medians by Rekordbox class: half 1.035, 2:3 1.001, fast 0.941, ok 0.995. No separation.
+- Snare distance and density as implemented do not measure snares. In 1-5 kHz the detected hits are at
+  0.5 Iron beats and about 8 per bar, which is eighth-note hi-hat. Changing the band to 150-300 Hz or 2-4 kHz
+  does not help. With a 0.8-beat refractory period, hits sit at about 1.0 beat and about 3.3 per bar across
+  every genre tested, including a 124 BPM track. So neither feature separates the half-time class.
+- In-range candidates (29 tracks, 2b in 160-185), backbeat ratio >= 1.0 doubles 13: 10 correct
+  (of 19 half-time truths, counting owner ear labels from §20.7-§20.8), 3 false (Papa T, which the owner's
+  ear says is Iron-correct; Circulation; identity-throttle). Population 1,988 (five unreadable files
+  excluded): exact 1,882 -> 1,891, within 4% 1,927 -> 1,936. The tolerant candidate (§20.4) gave +4 on the
+  1,993; this gives +9 on 1,988, against the same reference.
+- Sensitivity: ratio >= 1.2 doubles 4 (exact +2); ratio >= 1.5 doubles 3 (exact +1). The 1.0 cut sits at
+  both classes' medians, so the result is fragile.
+
+Verdict: the backbeat ratio is the only cue here with an in-range signal. It is in-sample: the 29 tracks
+were the diagnostic set and no held-out check was run. The threshold is not validated, and the cue still
+fires on correct 85-91 BPM tracks. Snare distance and density need a real snare or hi-hat detector before
+they can be tested. Not a candidate for `iron/` on this evidence.
