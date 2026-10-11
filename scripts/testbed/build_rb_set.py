@@ -29,7 +29,8 @@ def main() -> None:
     out = BED / a.name
     (out / "pristine").mkdir(parents=True, exist_ok=True)
     db = Rekordbox6Database(a.db, unlock=True)
-    rows = sorted((r for r in db.get_content().all() if r.BPM and r.FolderPath
+    rows = sorted((r for r in db.get_content().all() if r.BPM and r.Analysed
+                   and getattr(r.Key, "ScaleName", None) and r.FolderPath
                    and r.FolderPath.startswith("/Volumes/Passport") and os.path.exists(r.FolderPath)),
                   key=lambda r: r.updated_at or r.created_at)
     seen, manifest, skipped = set(), [], {"duplicate": 0, "no_grid": 0}
