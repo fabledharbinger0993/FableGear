@@ -1,7 +1,7 @@
 # Iron golden set (BPM labels)
 
 `iron_golden_labels.jsonl` holds ear-verified tempo labels, one JSON object per line.
-Labels only, no audio. Match rows to files by `track` (file name stem).
+Labels only, no audio. Match rows to files by `track`; most keys are file-name stems, but include the extension when multiple files share a stem.
 
 Every row comes from an owner ear check already recorded in `docs/IRON_RESEARCH.md`
 (§19.9, §20.7, §20.8). Nothing here was measured by a detector or taken from Rekordbox.
