@@ -169,7 +169,7 @@ if [[ "$DO_RELEASE" == true ]]; then
 3. Move it to your Desktop or Applications folder
 4. Double-click to launch
 
-> **First launch** opens a Terminal window and clones FableGear, then automatically installs everything needed — Homebrew, \`ffmpeg\`, \`chromaprint\`, and all Python packages. This runs once and takes a few minutes. FableGear opens in your browser when it's done.
+> **First launch** opens a Terminal window and clones FableGear. Before launching, install Python 3.11–3.13, \`ffmpeg\`, and \`fpcalc\` (Chromaprint) yourself and make sure they are on your \`PATH\`. FableGear does not install or update Homebrew or system tools; it creates a local virtual environment and installs its Python packages there.
 
 > **Future launches** update FableGear automatically — no manual downloads needed.
 
