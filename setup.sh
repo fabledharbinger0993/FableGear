@@ -73,8 +73,8 @@ step "Python 3"
 PYTHON3=""
 for candidate in python3.13 python3.12 python3.11 python3; do
   if command -v "$candidate" &>/dev/null; then
-    major=$("$candidate" -c 'import sys; print(sys.version_info[1])' 2>/dev/null)
-    if [ "${major:-99}" -le 13 ]; then
+    version=$("$candidate" -c 'import sys; print("%s.%s" % sys.version_info[:2])' 2>/dev/null)
+    if [[ "$version" =~ ^3\.(11|12|13)$ ]]; then
       PYTHON3="$candidate"
       break
     fi
