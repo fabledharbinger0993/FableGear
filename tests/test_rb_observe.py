@@ -169,25 +169,122 @@ def test_long_values_are_clipped():
     assert rb_observe._clip(None) == "NULL"
 
 
-def test_table_without_primary_key_still_diffs(tmp_path):
-    """Join tables in master.db don't all declare a PK; rows must still key stably."""
-    engine_b = create_engine(f"sqlite:///{tmp_path / 'nb.db'}")
-    engine_a = create_engine(f"sqlite:///{tmp_path / 'na.db'}")
-    for eng, rows in ((engine_b, [("1", "10")]), (engine_a, [("1", "10"), ("1", "11")])):
+def _pkless_pair(tmp_path, name, before_rows, after_rows, *, after_sql=None):
+    """Two single-table PK-less databases, dumped and diffed.
+
+    Returns the TableDiff for DjmdSongPlaylist, which every caller expects to
+    have moved.
+    """
+    engines = []
+    for suffix, rows in (("b", before_rows), ("a", after_rows)):
+        eng = create_engine(f"sqlite:///{tmp_path / f'{name}{suffix}.db'}")
         with Session(eng) as s:
             s.execute(text("CREATE TABLE DjmdSongPlaylist (PlaylistID TEXT, ContentID TEXT)"))
             for a, b in rows:
-                s.execute(
-                    text("INSERT INTO DjmdSongPlaylist VALUES (:a, :b)"), {"a": a, "b": b}
-                )
+                s.execute(text("INSERT INTO DjmdSongPlaylist VALUES (:a, :b)"), {"a": a, "b": b})
+            if suffix == "a" and after_sql:
+                s.execute(text(after_sql))
             s.commit()
+        engines.append(eng)
 
     report = rb_observe.diff_dumps(
-        rb_observe.dump_from_session(Session(engine_b)),
-        rb_observe.dump_from_session(Session(engine_a)),
+        rb_observe.dump_from_session(Session(engines[0])),
+        rb_observe.dump_from_session(Session(engines[1])),
     )
-    td = next(t for t in report.touched_tables if t.table == "DjmdSongPlaylist")
+    td = next((t for t in report.touched_tables if t.table == "DjmdSongPlaylist"), None)
+    assert td is not None, "DjmdSongPlaylist came back untouched"
+    return td
+
+
+def test_table_without_primary_key_still_diffs(tmp_path):
+    """Join tables in master.db don't all declare a PK; rows must still key stably."""
+    td = _pkless_pair(tmp_path, "n", [("1", "10")], [("1", "10"), ("1", "11")])
     assert td.added == 1
+
+
+def test_modified_pkless_row_reports_the_written_column(tmp_path):
+    """The regression this harness exists to avoid.
+
+    Keying a PK-less row by a hash of its own values makes an UPDATE look like a
+    delete plus an insert: 1 added, 1 removed, and no column named — which is
+    precisely the fact the observation is being made to establish. Identity has
+    to come from rowid, which an UPDATE does not move.
+    """
+    td = _pkless_pair(
+        tmp_path, "mod", [("1", "10")], [("1", "10")],
+        after_sql="UPDATE DjmdSongPlaylist SET ContentID = '99'",
+    )
+    assert td.modified == 1
+    assert td.added == 0 and td.removed == 0
+    assert set(td.columns_changed) == {"ContentID"}
+
+
+def test_duplicate_pkless_rows_are_counted_separately(tmp_path):
+    """Two identical rows are legal in a PK-less join table; value-keying
+    collapsed them into one and under-counted the table."""
+    td = _pkless_pair(tmp_path, "dup", [("1", "10")], [("1", "10"), ("1", "10")])
+    assert td.added == 1
+
+
+def test_hash_fallback_key_is_stable_across_processes(tmp_path):
+    """The no-rowid fallback key must not depend on PYTHONHASHSEED.
+
+    Hard to reach through SQL — WITHOUT ROWID requires a PRIMARY KEY, so such a
+    table takes the PK path — so the fallback is exercised directly. It exists
+    for table-like objects that reject `rowid` (virtual-table modules), and the
+    built-in hash() it replaces gave the same row a different key per process.
+    """
+    assert rb_observe._row_hash(("a", None)) == rb_observe._row_hash(("a", None))
+    # A real NULL and the literal string "NULL" are different rows.
+    assert rb_observe._row_hash(("a", None)) != rb_observe._row_hash(("a", "NULL"))
+    # Field boundaries matter: ("ab", "c") is not ("a", "bc").
+    assert rb_observe._row_hash(("ab", "c")) != rb_observe._row_hash(("a", "bc"))
+
+
+class _UnreadableTableSession:
+    """Wraps a real session and makes one table fail on SELECT, the way a
+    corrupt page or a tableless virtual-table module would."""
+
+    def __init__(self, inner, bad_table):
+        self._inner = inner
+        self._bad = bad_table
+
+    def execute(self, clause, *args, **kwargs):
+        sql = str(clause)
+        if f'"{self._bad}"' in sql and sql.lstrip().upper().startswith("SELECT"):
+            raise RuntimeError("database disk image is malformed")
+        return self._inner.execute(clause, *args, **kwargs)
+
+    def rollback(self):
+        self._inner.rollback()
+
+
+def test_unreadable_table_aborts_the_dump(tmp_path):
+    """A partial dump is indistinguishable from a complete one once rendered."""
+    session = _UnreadableTableSession(_session(tmp_path, "bad.db", BASE), "DjmdContent")
+    with pytest.raises(rb_observe.ObserveError, match="partial dump"):
+        rb_observe.dump_from_session(session)
+
+
+def test_unreadable_table_can_be_skipped_but_is_recorded(tmp_path):
+    session = _UnreadableTableSession(
+        _session(tmp_path, "bad2.db", BASE, extra_table=True), "DjmdContent"
+    )
+    skipped = []
+    dump = rb_observe.dump_from_session(session, skip_unreadable=True, skipped=skipped)
+    assert skipped == ["DjmdContent"]
+    assert "DjmdContent" not in dump
+    assert "DjmdBrandNew" in dump  # the run continues past the failure
+
+
+def test_taint_reasons_accumulate():
+    """Two independent reasons to distrust a diff must both survive to render."""
+    report = rb_observe.DiffReport(before="b", after="a")
+    assert not report.tainted
+    report.taint_reasons += ["rekordbox was running", "DjmdCue was skipped"]
+    assert report.tainted
+    out = rb_observe.render_markdown(report, "Some action")
+    assert out.count("**Unreliable.**") == 2
 
 
 def test_doc_has_the_append_marker():
@@ -213,3 +310,40 @@ def test_append_inserts_at_marker(tmp_path, monkeypatch):
     assert "### New entry" in body
     assert body.index("<!-- rb_observe:append-below -->") < body.index("### New entry")
     assert "old" in body  # existing content preserved
+
+
+def test_first_append_removes_the_empty_state_placeholder(tmp_path, monkeypatch):
+    """Otherwise the doc claims an observation and "none recorded yet" at once."""
+    fake = tmp_path / "doc.md"
+    fake.write_text(
+        "# doc\n\n<!-- rb_observe:append-below -->\n\n"
+        "<!-- rb_observe:placeholder -->\n*No observations yet.*\n"
+        "<!-- /rb_observe:placeholder -->\n"
+    )
+    monkeypatch.setattr(rb_observe, "DOC_PATH", fake)
+    rb_observe.append_to_doc("### First entry\n")
+    body = fake.read_text()
+    assert "### First entry" in body
+    assert "No observations yet" not in body
+    assert "rb_observe:placeholder" not in body
+
+
+def test_append_keeps_real_entries_when_stripping_the_placeholder(tmp_path, monkeypatch):
+    fake = tmp_path / "doc.md"
+    fake.write_text(
+        "# doc\n\n<!-- rb_observe:append-below -->\n\n### Earlier entry\n\n"
+        "<!-- rb_observe:placeholder -->\n*No observations yet.*\n"
+        "<!-- /rb_observe:placeholder -->\n"
+    )
+    monkeypatch.setattr(rb_observe, "DOC_PATH", fake)
+    rb_observe.append_to_doc("### Newer entry\n")
+    body = fake.read_text()
+    assert "### Earlier entry" in body
+    assert "No observations yet" not in body
+
+
+def test_shipped_doc_carries_a_removable_placeholder():
+    """The real doc's empty state must be the fenced kind the stripper removes."""
+    doc = (REPO_ROOT / "docs" / "rekordbox_behavior.md").read_text()
+    assert rb_observe.PLACEHOLDER_OPEN in doc
+    assert rb_observe.PLACEHOLDER_CLOSE in doc

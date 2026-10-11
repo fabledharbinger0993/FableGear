@@ -50,6 +50,7 @@ PRIVACY
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import sys
@@ -101,7 +102,7 @@ def snapshot(label: str, *, force: bool = False) -> Path:
     Path
         The snapshot directory.
     """
-    from db_connection import copy_db_with_sidecars
+    from db_connection import backup_timestamp, copy_db_with_sidecars
     from rekordbox_safe_write import LIVE_DB, rekordbox_running
 
     if not LIVE_DB.is_file():
@@ -117,8 +118,20 @@ def snapshot(label: str, *, force: bool = False) -> Path:
             "Use --force only for a deliberate WAL experiment."
         )
 
-    sdir = SNAPSHOT_ROOT / f"{datetime.now():%Y%m%d_%H%M%S}_{label}"
-    sdir.mkdir(parents=True, exist_ok=True)
+    # Microsecond precision, borrowed from this repo's own backup_timestamp():
+    # two snapshots sharing a label inside the same second resolved to ONE
+    # directory, and copy_db_with_sidecars' copy2 then overwrote the first
+    # capture with no error of any kind — the identical data loss that gave
+    # backup_timestamp() its microseconds (see db_connection.py). Creating the
+    # directory without exist_ok keeps any remaining collision loud.
+    sdir = SNAPSHOT_ROOT / f"{backup_timestamp()}_{label}"
+    try:
+        sdir.mkdir(parents=True)
+    except FileExistsError as exc:
+        raise ObserveError(
+            f"Snapshot directory {sdir} already exists — refusing to overwrite a "
+            "capture that may be the only copy of a before-state."
+        ) from exc
     copy_db_with_sidecars(LIVE_DB, sdir / LIVE_DB.name)
 
     meta = {
@@ -164,7 +177,63 @@ def list_snapshots() -> list[tuple[Path, dict]]:
 
 # ─── Dumping ──────────────────────────────────────────────────────────────────
 
-def dump_from_session(session: Any) -> dict[str, dict[str, dict[str, Any]]]:
+def _row_hash(raw: Any) -> str:
+    """Last-resort key for a row with no usable identity.
+
+    hashlib, not the built-in ``hash()``: PYTHONHASHSEED randomises string
+    hashing per process, so ``hash()`` hands the same row a different key in
+    every run. Harmless while both dumps are taken in one process; a silent
+    trap the first time a dump is cached, written out, or compared across runs.
+    """
+    joined = "\x1f".join("\x00NULL" if v is None else str(v) for v in raw)
+    return "#" + hashlib.blake2b(joined.encode("utf-8", "replace"), digest_size=8).hexdigest()
+
+
+def _rows_of_pkless_table(
+    session: Any, tbl: str, columns: list[str]
+) -> Any:
+    """Yield ``(key, record)`` for a table that declares no primary key.
+
+    Identity comes from SQLite's implicit ``rowid`` wherever the table has one.
+    Keying such a row by a hash of its own values instead makes an UPDATE
+    indistinguishable from a delete-plus-insert: the diff reports one row added
+    and one removed, and never names the column that was written — which is the
+    single thing this harness exists to find. Value-keying also collapses two
+    genuinely identical rows (legal in a PK-less join table) into one key, so
+    the row counts come out wrong too. ``rowid`` survives an UPDATE and is
+    unique per row, which fixes both.
+
+    Two honest limits, worth stating in an entry if they ever bite:
+    ``rowid`` does not survive a VACUUM, and Rekordbox is free to
+    delete-and-reinsert where we would expect an update. Either reads as
+    removed+added rows — which is what the storage layer actually did.
+
+    A table-like object that rejects ``rowid`` falls back to the value hash and
+    carries the misclassification described above. Plain tables rarely land
+    there — SQLite's WITHOUT ROWID requires a PRIMARY KEY, so those take the PK
+    path — but virtual-table modules can, and master.db's schema is not fully
+    known to us, which is the whole reason this harness reads sqlite_master.
+    """
+    try:
+        fetched = list(session.execute(text(f'SELECT rowid, * FROM "{tbl}"')))
+    except Exception:
+        # No rowid (WITHOUT ROWID table) — or the table is genuinely unreadable,
+        # in which case the plain SELECT below raises too and the caller decides.
+        session.rollback()
+        for raw in session.execute(text(f'SELECT * FROM "{tbl}"')):
+            yield _row_hash(raw), dict(zip(columns, raw))
+        return
+
+    for raw in fetched:
+        yield f"rowid:{raw[0]}", dict(zip(columns, raw[1:]))
+
+
+def dump_from_session(
+    session: Any,
+    *,
+    skip_unreadable: bool = False,
+    skipped: list[str] | None = None,
+) -> dict[str, dict[str, dict[str, Any]]]:
     """Dump every user table to ``{table: {row_key: {column: value}}}``.
 
     Table discovery goes through ``sqlite_master`` rather than pyrekordbox's
@@ -172,8 +241,23 @@ def dump_from_session(session: Any) -> dict[str, dict[str, dict[str, Any]]]:
     model, and those are exactly the interesting ones for this exercise. A
     hardcoded list would make the harness blind precisely where it needs to see.
 
-    Rows are keyed by primary key where the table declares one, else by a stable
-    hash of the row, so a diff can tell "this row changed" from "this row is new".
+    Rows are keyed by primary key where the table declares one, else by
+    ``rowid`` — see :func:`_rows_of_pkless_table` for why that distinction
+    decides whether a PK-less edit is reported at all.
+
+    Parameters
+    ----------
+    skip_unreadable : bool
+        By default an unreadable table aborts the dump. A partial dump renders
+        and appends exactly like a complete one: a table missing from *both*
+        dumps leaves no trace in the finished record, and one missing from a
+        single dump is reported as a table created or dropped. Neither is
+        distinguishable afterwards from a real finding. Setting this proceeds
+        anyway and is expected to be paired with ``skipped``, which taints the
+        rendered entry the way ``--force`` does.
+    skipped : list[str] | None
+        Collects the names of tables that were skipped, for the caller to
+        surface. Required for a skip to be visible in the record at all.
     """
     tables = [
         r[0] for r in session.execute(
@@ -191,24 +275,43 @@ def dump_from_session(session: Any) -> dict[str, dict[str, dict[str, Any]]]:
 
         rows: dict[str, dict[str, Any]] = {}
         try:
-            result = session.execute(text(f'SELECT * FROM "{tbl}"'))
-        except Exception as exc:  # a table we cannot read must not kill the run
-            log.warning("Skipping table %s — %s", tbl, exc)
+            if pk_cols:
+                for raw in session.execute(text(f'SELECT * FROM "{tbl}"')):
+                    record = dict(zip(columns, raw))
+                    rows["|".join(str(record.get(c)) for c in pk_cols)] = record
+            else:
+                for key, record in _rows_of_pkless_table(session, tbl, columns):
+                    rows[key] = record
+        except Exception as exc:
+            if not skip_unreadable:
+                raise ObserveError(
+                    f"Cannot read table {tbl!r}: {exc}\n"
+                    "Refusing to produce a partial dump — it renders and appends "
+                    "identically to a complete one, so an omitted table either "
+                    "vanishes from the record entirely or is reported as created "
+                    "or dropped, and nobody reading the entry later can tell.\n"
+                    "Re-run the diff with --skip-unreadable to proceed anyway: "
+                    "the entry is then marked unreliable and names what was left out."
+                ) from exc
+            log.warning("Skipping unreadable table %s — %s", tbl, exc)
+            if skipped is not None:
+                skipped.append(tbl)
+            # One failed statement must not leave the session unusable for the
+            # tables after it.
+            session.rollback()
             continue
 
-        for raw in result:
-            record = dict(zip(columns, raw))
-            if pk_cols:
-                key = "|".join(str(record.get(c)) for c in pk_cols)
-            else:
-                key = f"#{hash(tuple(str(v) for v in raw)) & 0xFFFFFFFF:08x}"
-            rows[key] = record
         dump[tbl] = rows
 
     return dump
 
 
-def dump_snapshot(sdir: Path) -> dict[str, dict[str, dict[str, Any]]]:
+def dump_snapshot(
+    sdir: Path,
+    *,
+    skip_unreadable: bool = False,
+    skipped: list[str] | None = None,
+) -> dict[str, dict[str, dict[str, Any]]]:
     """Open a snapshot's ``master.db`` read-only and dump it."""
     from db_connection import read_db
 
@@ -216,7 +319,9 @@ def dump_snapshot(sdir: Path) -> dict[str, dict[str, dict[str, Any]]]:
     if not db_file.is_file():
         raise ObserveError(f"Snapshot {sdir.name} has no master.db")
     with read_db(db_file) as db:
-        return dump_from_session(db.session)
+        return dump_from_session(
+            db.session, skip_unreadable=skip_unreadable, skipped=skipped
+        )
 
 
 # ─── Diffing ──────────────────────────────────────────────────────────────────
@@ -249,8 +354,14 @@ class DiffReport:
     tables: list[TableDiff] = field(default_factory=list)
     tables_added: list[str] = field(default_factory=list)
     tables_removed: list[str] = field(default_factory=list)
-    tainted: bool = False
-    taint_reason: str = ""
+    #: Every reason this comparison cannot be trusted. A list, not one string:
+    #: two forced snapshots, or a forced snapshot plus a skipped table, each
+    #: taint the record independently and the second must not erase the first.
+    taint_reasons: list[str] = field(default_factory=list)
+
+    @property
+    def tainted(self) -> bool:
+        return bool(self.taint_reasons)
 
     @property
     def touched_tables(self) -> list[TableDiff]:
@@ -298,10 +409,21 @@ def diff_dumps(
     return report
 
 
-def diff_snapshots(before_dir: Path, after_dir: Path, *, show_values: bool = False) -> DiffReport:
-    """Dump both snapshots and diff them, carrying forward any WAL taint."""
+def diff_snapshots(
+    before_dir: Path,
+    after_dir: Path,
+    *,
+    show_values: bool = False,
+    skip_unreadable: bool = False,
+) -> DiffReport:
+    """Dump both snapshots and diff them, carrying forward any taint."""
+    skipped: dict[str, list[str]] = {before_dir.name: [], after_dir.name: []}
     report = diff_dumps(
-        dump_snapshot(before_dir), dump_snapshot(after_dir), show_values=show_values
+        dump_snapshot(before_dir, skip_unreadable=skip_unreadable,
+                      skipped=skipped[before_dir.name]),
+        dump_snapshot(after_dir, skip_unreadable=skip_unreadable,
+                      skipped=skipped[after_dir.name]),
+        show_values=show_values,
     )
     report.before, report.after = before_dir.name, after_dir.name
 
@@ -311,11 +433,20 @@ def diff_snapshots(before_dir: Path, after_dir: Path, *, show_values: bool = Fal
             continue
         meta = json.loads(meta_file.read_text())
         if meta.get("rekordbox_running"):
-            report.tainted = True
-            report.taint_reason = (
+            report.taint_reasons.append(
                 f"{d.name} was captured while Rekordbox was running (--force). "
                 "Committed changes may still have been in the WAL, so an empty or "
                 "partial result here is not evidence of anything."
+            )
+
+    for name, names in skipped.items():
+        if names:
+            report.taint_reasons.append(
+                f"{len(names)} table(s) could not be read in {name} and were left "
+                f"out of the comparison (--skip-unreadable): "
+                + ", ".join(f"`{t}`" for t in sorted(names))
+                + ". Anything this entry says about those tables — including "
+                "saying nothing — is not evidence."
             )
     return report
 
@@ -332,8 +463,8 @@ def render_markdown(report: DiffReport, action: str, note: str = "") -> str:
     if note:
         lines.append(note)
         lines.append("")
-    if report.tainted:
-        lines.append(f"> **Unreliable.** {report.taint_reason}")
+    for reason in report.taint_reasons:
+        lines.append(f"> **Unreliable.** {reason}")
         lines.append("")
 
     if report.tables_added:
@@ -382,15 +513,40 @@ def render_markdown(report: DiffReport, action: str, note: str = "") -> str:
     return "\n".join(lines) + "\n"
 
 
+APPEND_MARKER = "<!-- rb_observe:append-below -->"
+#: The "nothing recorded yet" blurb, fenced so it can be removed exactly rather
+#: than matched by its prose, which would rot the moment someone rewords it.
+PLACEHOLDER_OPEN = "<!-- rb_observe:placeholder -->"
+PLACEHOLDER_CLOSE = "<!-- /rb_observe:placeholder -->"
+
+
+def _strip_placeholder(body: str) -> str:
+    """Remove the empty-state blurb, leaving every real entry untouched.
+
+    Without this the first append leaves the document asserting both a recorded
+    observation and "no observations recorded yet" a few lines below it.
+    """
+    start = body.find(PLACEHOLDER_OPEN)
+    if start == -1:
+        return body
+    end = body.find(PLACEHOLDER_CLOSE, start)
+    if end == -1:
+        return body
+    head = body[:start].rstrip("\n")
+    tail = body[end + len(PLACEHOLDER_CLOSE):].lstrip("\n")
+    return f"{head}\n\n{tail}" if tail else f"{head}\n"
+
+
 def append_to_doc(entry: str) -> None:
     """Append a rendered entry to the observations section of the document."""
-    marker = "<!-- rb_observe:append-below -->"
     if not DOC_PATH.is_file():
         raise ObserveError(f"{DOC_PATH} not found — create it before appending.")
     body = DOC_PATH.read_text()
-    if marker not in body:
-        raise ObserveError(f"Append marker {marker!r} missing from {DOC_PATH.name}")
-    DOC_PATH.write_text(body.replace(marker, f"{marker}\n\n{entry}", 1))
+    if APPEND_MARKER not in body:
+        raise ObserveError(f"Append marker {APPEND_MARKER!r} missing from {DOC_PATH.name}")
+    body = _strip_placeholder(body)
+    body = body.replace(APPEND_MARKER, f"{APPEND_MARKER}\n\n{entry}", 1)
+    DOC_PATH.write_text(body.rstrip("\n") + "\n")
     log.info("Appended entry to %s", DOC_PATH)
 
 
@@ -416,6 +572,8 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--note", default="", help="extra prose for the entry")
     d.add_argument("--show-values", action="store_true",
                    help="include truncated before/after values (personal data)")
+    d.add_argument("--skip-unreadable", action="store_true",
+                   help="continue past tables that cannot be read (taints the record)")
     d.add_argument("--append", action="store_true",
                    help="append the entry to docs/rekordbox_behavior.md")
 
@@ -450,6 +608,7 @@ def main(argv: list[str] | None = None) -> int:
                 find_snapshot(args.before),
                 find_snapshot(args.after),
                 show_values=args.show_values,
+                skip_unreadable=args.skip_unreadable,
             )
             entry = render_markdown(report, args.action, args.note)
             if args.append:

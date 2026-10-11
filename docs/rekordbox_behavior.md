@@ -44,6 +44,13 @@ snapshot` refuses to run while Rekordbox is open for exactly this reason;
 always means the method slipped (Rekordbox still running, wrong snapshot pair,
 action didn't commit) rather than that Rekordbox genuinely wrote nothing.
 
+**An incomplete dump is not allowed to look complete.** A table that cannot be
+read aborts the diff, because a partial dump renders and appends exactly like a
+whole one — a table missing from both snapshots simply vanishes from the entry,
+and one missing from a single snapshot is reported as a table created or
+dropped. `--skip-unreadable` proceeds anyway and marks the entry unreliable
+*by name*, listing the tables it left out.
+
 ### Privacy
 
 The harness diffs a real personal library, so values are **redacted by default** —
@@ -129,4 +136,6 @@ once someone runs the pair.
 
 <!-- rb_observe:append-below -->
 
+<!-- rb_observe:placeholder -->
 *No observations recorded yet. Run the harness — the first entry lands here.*
+<!-- /rb_observe:placeholder -->
