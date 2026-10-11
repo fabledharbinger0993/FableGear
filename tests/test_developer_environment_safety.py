@@ -12,7 +12,7 @@ def test_repository_does_not_ship_vscode_workspace_configuration():
 
 def test_setup_and_launcher_do_not_mutate_homebrew_automatically():
     brew_mutation = re.compile(
-        r'(?m)^\s*(?:_brew|"\$BREW")\s+(?:update|upgrade|install)\b'
+        r'(?m)^\s*(?:brew|_brew|"\$BREW")\s+(?:update|upgrade|install)\b'
     )
     for script in ("setup.sh", "launch.sh"):
         assert not brew_mutation.search((ROOT / script).read_text())
