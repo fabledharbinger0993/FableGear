@@ -33,6 +33,8 @@ def bench():
         ("A", "minor", "8A"),  # essentia: note + scale
         ("C", "major", "8B"),
         ("8A", None, "8A"),  # already Camelot
+        ("0A", None, None),  # outside the 1-12 wheel: would KeyError in _pitch_mode
+        ("13B", None, None),
         ("nonsense", None, None),
         (None, None, None),
     ],

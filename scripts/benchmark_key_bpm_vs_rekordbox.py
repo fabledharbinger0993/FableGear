@@ -89,7 +89,7 @@ def key_to_camelot(raw: str | None, scale: str | None = None) -> str | None:
     if not raw:
         return None
     raw = raw.strip()
-    if re.fullmatch(r"\d{1,2}[AB]", raw):
+    if raw in _CAMELOT_TO_NAME:
         return raw
     m = re.fullmatch(r"([A-Ga-g][#b]?)\s*(min|minor|m|maj|major)?", raw)
     if not m:
