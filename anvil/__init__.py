@@ -41,6 +41,8 @@ from anvil.schema import (
     SYNC_DIVERGENT,
     SYNC_FILE_ONLY,
     TrackFields,
+    bpm_from_db,
+    bpm_to_db,
     db_companion,
 )
 
@@ -61,6 +63,8 @@ __all__ = [
     "api",
     "clear_fields",
     "containers",
+    "bpm_from_db",
+    "bpm_to_db",
     "db_companion",
     "errors",
     "id3",

@@ -581,3 +581,14 @@ def test_orphan_cleanup(tmp_path):
 
     assert cleanup_orphans(tmp_path) == 1
     assert (tmp_path / "keep.mp3").exists()
+
+
+def test_bpm_db_helpers():
+    import math
+
+    from anvil.schema import bpm_from_db, bpm_to_db
+    assert bpm_to_db(128.5) == 12850
+    assert bpm_to_db(0) is None and bpm_to_db(None) is None
+    assert bpm_to_db(math.nan) is None and bpm_to_db(math.inf) is None
+    assert bpm_from_db(bpm_to_db(128.5)) == 128.5
+    assert bpm_from_db(None) == 0.0

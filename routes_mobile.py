@@ -26,6 +26,8 @@ def _is_user_mount(mountpoint: str) -> bool:
 
 from flask import Blueprint, current_app, jsonify, request
 
+from anvil.schema import bpm_from_db, bpm_to_db
+
 from helpers import (
     _EXPORT_JOBS,
     _EXPORT_LOCK,
@@ -455,7 +457,7 @@ def mobile_rekordbox_tracks():
             if search and search not in title.lower() and search not in artist.lower():
                 continue
 
-            bpm = round(t.BPM / 100, 1) if t.BPM else None
+            bpm = round(bpm_from_db(t.BPM), 1) if t.BPM else None
             key = t.Key.Name if t.Key else None
 
             date_added = None
@@ -618,7 +620,7 @@ def _run_analysis(job_id: str, track_ids: list) -> None:
                     row = db.get_content(ID=track_id)
                     if row:
                         if bpm is not None:
-                            row.BPM = round(bpm * 100)
+                            row.BPM = bpm_to_db(bpm)
                         if key is not None:
                             kid = resolve_key_id(key, db)
                             if kid:
@@ -780,7 +782,7 @@ def mobile_rekordbox_playlist(playlist_id: str):
                     "id":          str(t.ID),
                     "title":       t.Title or "",
                     "artist":      t.Artist.Name if t.Artist else "",
-                    "bpm":         round(t.BPM / 100, 1) if t.BPM else None,
+                    "bpm":         round(bpm_from_db(t.BPM), 1) if t.BPM else None,
                     "key":         t.Key.Name if t.Key else None,
                     "duration_ms": (t.Length * 1000) if t.Length else None,
                     "file_path":   t.FolderPath or "",

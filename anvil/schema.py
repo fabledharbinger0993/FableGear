@@ -27,6 +27,7 @@ the same Rekordbox-must-be-closed gate as everything else.
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from dataclasses import fields as dataclass_fields
 from typing import Any
@@ -101,6 +102,24 @@ class TrackFields:
 
 # ─── Database companion ───────────────────────────────────────────────────────
 
+def bpm_to_db(bpm: float | None) -> int | None:
+    """BPM as Rekordbox stores it (centi-BPM int); None for None/0/non-finite."""
+    if bpm is None:
+        return None
+    try:
+        value = float(bpm)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value) or value == 0:
+        return None
+    return round(value * 100)
+
+
+def bpm_from_db(centi_bpm: int | None) -> float:
+    """Inverse of bpm_to_db: Rekordbox centi-BPM -> BPM. None/0 -> 0.0."""
+    return centi_bpm / 100.0 if centi_bpm else 0.0
+
+
 def db_companion(fields: TrackFields) -> dict[str, Any]:
     """
     Translate the file-shaped facts in `fields` into master.db-shaped values.
@@ -115,16 +134,16 @@ def db_companion(fields: TrackFields) -> dict[str, Any]:
                              against per-library mutable state. Anvil does not
                              own that; key_mapper.py does.
 
-    This function is the single home of `round(bpm * 100)`. That expression
-    currently lives inline at routes_mobile.py:621 and would otherwise be
-    reimplemented at every future site that writes a tempo to both surfaces.
+    The BPM conversion itself lives in bpm_to_db(), the single home of
+    `round(bpm * 100)`; call that directly where no TrackFields is at hand.
     """
     out: dict[str, Any] = {}
 
-    if fields.bpm is not None:
+    db_bpm = bpm_to_db(fields.bpm)
+    if db_bpm is not None:
         # Rekordbox stores centi-BPM as an integer. Rounding at the last
         # possible moment keeps 128.5 -> 12850 rather than 12800.
-        out["BPM"] = round(fields.bpm * 100)
+        out["BPM"] = db_bpm
 
     if fields.initial_key is not None:
         out["key_notation"] = fields.initial_key
