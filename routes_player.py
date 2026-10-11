@@ -1514,7 +1514,7 @@ def api_library_patch_track(track_id):
 def _fg_only_db():
     """Return (db, error_response). Context-menu writes target FableGear's own DB."""
     source = (request.args.get("db") or "").lower()
-    if source in ("local", "device"):
+    if source not in ("", "fablegear"):
         return None, (jsonify({"error": "This action only works on the FableGear library."}), 400)
     fg = _fablegear_db()
     if fg is None:
