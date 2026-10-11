@@ -25,6 +25,10 @@ def main() -> int:
             errors.append(f"line {n}: bad iron_verdict")
         if r.get("convention") not in CONVENTIONS:
             errors.append(f"line {n}: bad convention")
+        if r.get("label_source") != "owner_ear":
+            errors.append(f"line {n}: bad label_source")
+        if not isinstance(r.get("evidence"), str) or not r["evidence"].strip():
+            errors.append(f"line {n}: missing evidence")
     for e in errors:
         print(e)
     print(f"{len(seen)} labels, {len(errors)} errors")
