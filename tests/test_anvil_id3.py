@@ -600,3 +600,14 @@ def test_os_refusal_raises_write_failed_and_leaves_file_untouched(tmp_path):
     finally:
         tmp_path.chmod(0o700)
     assert path.read_bytes() == before
+
+
+def test_bpm_db_helpers():
+    import math
+
+    from anvil.schema import bpm_from_db, bpm_to_db
+    assert bpm_to_db(128.5) == 12850
+    assert bpm_to_db(0) is None and bpm_to_db(None) is None
+    assert bpm_to_db(math.nan) is None and bpm_to_db(math.inf) is None
+    assert bpm_from_db(bpm_to_db(128.5)) == 128.5
+    assert bpm_from_db(None) == 0.0

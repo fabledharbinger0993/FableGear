@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from anvil.schema import bpm_to_db
 from construct import Container
 from pyrekordbox import AnlzFile
 from pyrekordbox.anlz import structs
@@ -302,7 +303,7 @@ class PioneerExporter:
                 for b in sorted(track.beatgrid, key=lambda x: x.time_msec):
                     entries.append({
                         'beat': b.beat_number,
-                        'tempo': round(b.bpm * 100),
+                        'tempo': bpm_to_db(b.bpm) or 0,
                         'time': int(b.time_msec)
                     })
             elif track.bpm and track.duration:
@@ -325,7 +326,7 @@ class PioneerExporter:
                         offset_ms = _wg.estimate_first_beat_ms(track.file_path, track.bpm)
                 except Exception:
                     offset_ms = 0.0
-                tempo_i = round(float(track.bpm) * 100)
+                tempo_i = bpm_to_db(float(track.bpm)) or 0
                 total_beats = int((float(track.duration) * 1000.0 - offset_ms) / beat_ms)
                 for i in range(total_beats):
                     entries.append({

@@ -6,6 +6,7 @@ from typing import Any
 from pyrekordbox import Rekordbox6Database
 from pyrekordbox.db6.tables import DjmdCue
 
+from anvil.schema import bpm_from_db, bpm_to_db
 from key_mapper import resolve_key_id
 
 from .database import ContentRecord, CueRecord, FableGearDatabase
@@ -171,9 +172,9 @@ class RekordboxSyncAdapter:
                         stats["details"].append(f"Merge Album to FableGear for {path}")
 
                     # BPM
-                    rdb_bpm = rdb_row.BPM / 100.0 if rdb_row.BPM else 0.0
+                    rdb_bpm = bpm_from_db(rdb_row.BPM)
                     if fg_rec.bpm and abs(fg_rec.bpm - rdb_bpm) > 0.01:
-                        rdb_row.BPM = round(fg_rec.bpm * 100)
+                        rdb_row.BPM = bpm_to_db(fg_rec.bpm)
                         rdb_updated = True
                         stats["details"].append(f"Update BPM in Rekordbox for {path}")
                     elif not fg_rec.bpm and rdb_bpm > 0:
@@ -290,7 +291,7 @@ class RekordboxSyncAdapter:
                             "GenreID": _get_or_create_genre(fg_rec.genre, rdb) if fg_rec.genre else None,
                             "LabelID": _get_or_create_label(fg_rec.label, rdb) if fg_rec.label else None,
                             "KeyID": resolve_key_id(fg_rec.key, rdb) if fg_rec.key else None,
-                            "BPM": round(fg_rec.bpm * 100) if fg_rec.bpm else None,
+                            "BPM": bpm_to_db(fg_rec.bpm),
                             "Length": int(fg_rec.duration) if fg_rec.duration else None,
                             "Rating": fg_rec.rating or 0,
                             "Commnt": fg_rec.comment or "",
@@ -325,7 +326,7 @@ class RekordboxSyncAdapter:
                             title=rdb_row.Title,
                             artist=rdb_row.Artist.Name if rdb_row.Artist else "",
                             album=rdb_row.Album.Name if rdb_row.Album else "",
-                            bpm=rdb_row.BPM / 100.0 if rdb_row.BPM else 0.0,
+                            bpm=bpm_from_db(rdb_row.BPM),
                             key=rdb_row.Key.ScaleName if rdb_row.Key else "",
                             rating=rdb_row.Rating or 0,
                             comment=rdb_row.Commnt or "",
