@@ -152,6 +152,12 @@ def bpm_relation(det: float | None, ref: float | None) -> str | None:
 _BPM_CREDIT = {"exact": 1.0, "within1": 1.0, "mirex": 1.0}
 
 
+def _within_1pct(r: dict) -> bool:
+    """Relative error <= 1%, checked directly: the 'exact' class uses an absolute 0.6 BPM, which
+    is wider than 1% for references under 60 BPM."""
+    return r.get("bpm") is not None and abs(r["bpm"] - r["ref_bpm"]) / r["ref_bpm"] <= 0.01
+
+
 # --------------------------------------------------------------------------- engines
 
 
@@ -251,7 +257,7 @@ def summarize(rows: list[dict], engines: list[str]) -> dict:
             "bpm": {
                 "n": nb,
                 "exact_0.6": round(bpm_cls["exact"] / nb, 4) if nb else None,
-                "within_1pct": round((bpm_cls["exact"] + bpm_cls["within1"]) / nb, 4) if nb else None,
+                "within_1pct": round(sum(1 for r in bpm_rows if _within_1pct(r)) / nb, 4) if nb else None,
                 "mirex_4pct": round(sum(bpm_cls[c] for c in _BPM_CREDIT) / nb, 4) if nb else None,
                 "classes": dict(bpm_cls),
             },
@@ -271,12 +277,20 @@ def summarize(rows: list[dict], engines: list[str]) -> dict:
 
 
 def _load_done(path: Path) -> dict[tuple[str, str], dict]:
+    """Rows already on disk that a resumed run may reuse. Crashed attempts are retried, and a
+    truncated trailing line from an interrupted write is skipped (that track simply re-runs)."""
     done: dict[tuple[str, str], dict] = {}
     if path.exists():
         for line in path.read_text().splitlines():
-            if line.strip():
+            if not line.strip():
+                continue
+            try:
                 r = json.loads(line)
-                done[(str(r["id"]), r["engine"])] = r
+            except json.JSONDecodeError:
+                continue
+            if "crash" in r:
+                continue
+            done[(str(r["id"]), r["engine"])] = r
     return done
 
 
@@ -325,6 +339,7 @@ def main(argv: list[str] | None = None) -> int:
 
     a.out.parent.mkdir(parents=True, exist_ok=True)
     done = _load_done(a.out)
+    current = {(str(t["id"]), t["engine"]) for t in tasks}
     pending = [t for t in tasks if (str(t["id"]), t["engine"]) not in done]
     print(
         f"manifest tracks {len(entries)}  audio missing {len(missing)}  "
@@ -337,7 +352,8 @@ def main(argv: list[str] | None = None) -> int:
         print("Essentia: RhythmExtractor2013 defaults; KeyExtractor(edma)", flush=True)
 
     t0 = time.time()
-    rows = list(done.values())
+    # Only rows for this run's tracks and engines: a reused output file may hold older runs.
+    rows = [r for r in done.values() if (str(r["id"]), r["engine"]) in current]
     with a.out.open("a") as fh, ProcessPoolExecutor(max_workers=a.workers) as ex:
         futs = [ex.submit(run_one, t) for t in pending]
         for i, f in enumerate(as_completed(futs), 1):

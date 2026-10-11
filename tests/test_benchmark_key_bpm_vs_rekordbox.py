@@ -114,3 +114,25 @@ def test_summarize_counts_declines_and_weights(bench):
     assert s["key"]["exact_of_detected"] == pytest.approx(1 / 2, abs=1e-4)
     assert s["key"]["mirex_weighted"] == pytest.approx((1.0 + 0.5) / 3, abs=1e-4)
     assert s["mean_s_per_track"] == 2.0
+
+
+def test_within_1pct_uses_relative_error_not_the_absolute_exact_band(bench):
+    # 50.6 vs 50.0 is 1.2%: 'exact' by the absolute 0.6 BPM band, but outside 1% relative.
+    rows = [
+        {"engine": "iron", "ref_bpm": 50.0, "bpm": 50.6, "bpm_class": "exact", "elapsed_s": 1.0},
+        {"engine": "iron", "ref_bpm": 50.0, "bpm": 50.4, "bpm_class": "exact", "elapsed_s": 1.0},
+    ]
+    s = bench.summarize(rows, ["iron"])["iron"]["bpm"]
+    assert s["exact_0.6"] == 1.0
+    assert s["within_1pct"] == 0.5
+
+
+def test_load_done_skips_truncated_lines_and_retries_crashes(bench, tmp_path):
+    out = tmp_path / "bench.jsonl"
+    out.write_text(
+        '{"id": "a.mp3", "engine": "iron", "bpm": 120.0}\n'
+        '{"id": "b.mp3", "engine": "iron", "crash": "KeyError: 0A"}\n'
+        '{"id": "c.mp3", "engine": "ir'  # interrupted write, no closing brace or newline
+    )
+    done = bench._load_done(out)
+    assert set(done) == {("a.mp3", "iron")}
