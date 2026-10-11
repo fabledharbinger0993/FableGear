@@ -134,6 +134,10 @@ once someone runs the pair.
 
 ## Observed
 
+Newest first. Each entry is self-dated and names the snapshot pair it came
+from, so nothing about the order of the actions is lost by putting the most
+recent finding where it will actually be read.
+
 <!-- rb_observe:append-below -->
 
 <!-- rb_observe:placeholder -->

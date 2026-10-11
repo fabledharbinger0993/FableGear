@@ -83,6 +83,30 @@ class ObserveError(RuntimeError):
     """Raised when a snapshot or diff cannot be performed safely."""
 
 
+def live_db_path() -> Path:
+    """The ``master.db`` this harness observes.
+
+    ``config.LOCAL_DB`` is the database every other tool in the toolkit reads
+    and writes, and it is user-set by ``cli.py setup`` — on Windows the wizard
+    defaults it under ``AppData/Roaming``, which the hardcoded macOS
+    ``LIVE_DB`` in ``rekordbox_safe_write`` can never find. Snapshotting
+    ``LIVE_DB`` regardless meant either refusing a perfectly good library or
+    observing a different one than the tools whose behaviour these
+    observations are meant to inform.
+
+    ``LIVE_DB`` remains the fallback for one case only: the toolkit has no
+    config yet (``config`` raises on import until ``setup`` has run). The
+    harness is worth running before anyone has configured anything.
+    """
+    from rekordbox_safe_write import LIVE_DB
+
+    try:
+        from config import LOCAL_DB
+    except Exception:  # config raises RuntimeError, not ImportError, when unset
+        return LIVE_DB
+    return LOCAL_DB
+
+
 # ─── Snapshotting ─────────────────────────────────────────────────────────────
 
 def snapshot(label: str, *, force: bool = False) -> Path:
@@ -103,10 +127,11 @@ def snapshot(label: str, *, force: bool = False) -> Path:
         The snapshot directory.
     """
     from db_connection import backup_timestamp, copy_db_with_sidecars
-    from rekordbox_safe_write import LIVE_DB, rekordbox_running
+    from rekordbox_safe_write import rekordbox_running
 
-    if not LIVE_DB.is_file():
-        raise ObserveError(f"No master.db at {LIVE_DB}")
+    live_db = live_db_path()
+    if not live_db.is_file():
+        raise ObserveError(f"No master.db at {live_db}")
 
     running = rekordbox_running()
     if running and not force:
@@ -132,12 +157,12 @@ def snapshot(label: str, *, force: bool = False) -> Path:
             f"Snapshot directory {sdir} already exists — refusing to overwrite a "
             "capture that may be the only copy of a before-state."
         ) from exc
-    copy_db_with_sidecars(LIVE_DB, sdir / LIVE_DB.name)
+    copy_db_with_sidecars(live_db, sdir / live_db.name)
 
     meta = {
         "label": label,
         "captured_at": datetime.now().isoformat(),
-        "source": str(LIVE_DB),
+        "source": str(live_db),
         "rekordbox_running": running,
         "forced": bool(force and running),
     }
@@ -538,7 +563,14 @@ def _strip_placeholder(body: str) -> str:
 
 
 def append_to_doc(entry: str) -> None:
-    """Append a rendered entry to the observations section of the document."""
+    """Insert a rendered entry at the top of the observations section.
+
+    Newest first, deliberately: every entry is self-dated and names its own
+    snapshot pair, so chronology is never lost, and the observation someone
+    just made is the one they are about to read. The alternative — appending
+    below the existing entries — buries each new finding further down a file
+    that only grows.
+    """
     if not DOC_PATH.is_file():
         raise ObserveError(f"{DOC_PATH} not found — create it before appending.")
     body = DOC_PATH.read_text()

@@ -15,6 +15,7 @@ mocks rather than the behaviour.
 
 import importlib.util
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -287,6 +288,42 @@ def test_taint_reasons_accumulate():
     assert out.count("**Unreliable.**") == 2
 
 
+def _stub_db_modules(monkeypatch, *, configured=None, live):
+    """Stand in for config/rekordbox_safe_write, neither importable in CI."""
+    # SimpleNamespace, not ModuleType: `from X import Y` only needs an object in
+    # sys.modules carrying the attribute, and this way the stub's attributes are
+    # declared rather than bolted on.
+    monkeypatch.setitem(
+        sys.modules, "rekordbox_safe_write", types.SimpleNamespace(LIVE_DB=Path(live))
+    )
+    cfg = (
+        types.SimpleNamespace(LOCAL_DB=Path(configured))
+        if configured is not None
+        else types.SimpleNamespace()  # unconfigured: the import raises
+    )
+    monkeypatch.setitem(sys.modules, "config", cfg)
+
+
+def test_snapshot_target_follows_the_configured_database(monkeypatch):
+    """The toolkit's configured local_db, not the hardcoded macOS path.
+
+    Every other tool here reads config.LOCAL_DB, and the setup wizard puts it
+    under AppData on Windows — where rekordbox_safe_write's LIVE_DB could never
+    find it. Observing LIVE_DB regardless meant refusing a good library, or
+    recording the behaviour of a different one.
+    """
+    _stub_db_modules(
+        monkeypatch, configured="/configured/master.db", live="/hardcoded/master.db"
+    )
+    assert rb_observe.live_db_path() == Path("/configured/master.db")
+
+
+def test_snapshot_target_falls_back_when_toolkit_is_unconfigured(monkeypatch):
+    """config raises until `cli.py setup` has run; the harness still works."""
+    _stub_db_modules(monkeypatch, configured=None, live="/hardcoded/master.db")
+    assert rb_observe.live_db_path() == Path("/hardcoded/master.db")
+
+
 def test_doc_has_the_append_marker():
     """render/append contract: the doc must carry the marker the CLI writes into."""
     doc = (REPO_ROOT / "docs" / "rekordbox_behavior.md").read_text()
@@ -309,7 +346,10 @@ def test_append_inserts_at_marker(tmp_path, monkeypatch):
     body = fake.read_text()
     assert "### New entry" in body
     assert body.index("<!-- rb_observe:append-below -->") < body.index("### New entry")
+    # Also assert the entry lands ABOVE the existing content: "after the marker"
+    # alone is satisfied by appending at EOF, which is not insertion at all.
     assert "old" in body  # existing content preserved
+    assert body.index("### New entry") < body.index("old")
 
 
 def test_first_append_removes_the_empty_state_placeholder(tmp_path, monkeypatch):
