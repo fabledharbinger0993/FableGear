@@ -42,8 +42,8 @@ def log(msg: str) -> None:
 
 def snapshot() -> Path:
     """Take a coherent online snapshot without writing to the live database."""
-    from sqlalchemy import create_engine
     from pyrekordbox import Rekordbox6Database
+    from sqlalchemy import create_engine
 
     SNAP.mkdir(parents=True, exist_ok=True)
     snapshot_path = SNAP / "master.db"
