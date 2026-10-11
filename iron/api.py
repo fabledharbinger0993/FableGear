@@ -82,6 +82,22 @@ def _find_ffmpeg() -> str:
 _FFMPEG = _find_ffmpeg()
 
 
+def _find_ffprobe() -> str:
+    found = shutil.which("ffprobe")
+    if found:
+        return found
+    sibling = Path(_FFMPEG).with_name("ffprobe")
+    if sibling.exists():
+        return str(sibling)
+    for candidate in ("/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe"):
+        if Path(candidate).exists():
+            return candidate
+    return "ffprobe"
+
+
+_FFPROBE = _find_ffprobe()
+
+
 def _decode(
     path: Path, duration: float = _ANALYSIS_DURATION, *, start: float = 0.0
 ) -> tuple[np.ndarray, int]:
@@ -134,8 +150,7 @@ def _pick_body_window(duration: float | None) -> tuple[float, float]:
 
 def _probe_duration(path: Path) -> float | None:
     """Total duration in seconds via ffprobe, or None if it can't be determined."""
-    ffprobe = _FFMPEG.replace("ffmpeg", "ffprobe") if "ffmpeg" in _FFMPEG else "ffprobe"
-    cmd = [ffprobe, "-v", "error", "-show_entries", "format=duration",
+    cmd = [_FFPROBE, "-v", "error", "-show_entries", "format=duration",
            "-of", "default=noprint_wrappers=1:nokey=1", str(path)]
     try:
         result = subprocess.run(cmd, capture_output=True, timeout=30, text=True)
@@ -249,9 +264,26 @@ def analyze(
     result = IronResult()
 
     duration = _probe_duration(path)
-    start, window_duration = _pick_body_window(duration)
     try:
-        y, sr = _decode(path, window_duration, start=start)
+        if duration is None or duration <= 0:
+            # Duration unknown (e.g. ffprobe missing): analysing (0, 90) would hit the
+            # often beatless intro, so decode up to 2x the body cap once, measure the
+            # real length from the samples, and slice the body window out of them.
+            y_all, sr = _decode(path, _MAX_BODY_SECONDS * 2)
+            measured = len(y_all) / sr
+            if measured >= _MAX_BODY_SECONDS * 2 - 1.0:
+                # Decode hit the cap, so the file is at least that long; use its body
+                # span as if that were the whole duration (a lower bound on the body).
+                measured = _MAX_BODY_SECONDS * 2
+            start, window_duration = _pick_body_window(measured)
+            if start <= 0.0:
+                # Too short for a body split: last resort, analyse from the start.
+                y = y_all[: int(window_duration * sr)]
+            else:
+                y = y_all[int(start * sr): int((start + window_duration) * sr)]
+        else:
+            start, window_duration = _pick_body_window(duration)
+            y, sr = _decode(path, window_duration, start=start)
     except DecodeFailed as exc:
         result.errors.append(str(exc))
         return result
