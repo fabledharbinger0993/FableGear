@@ -1,8 +1,8 @@
 """
 Watch the live Rekordbox 7 library for tracks it newly analyses, and collect them as a benchmark set.
 
-Reads ONLY from snapshot copies of master.db (+ -wal + -shm) taken into live/snap/; never opens the
-live file. Copies audio from the source into live/pristine/ (read-only on the source). Writes
+Reads ONLY from coherent online snapshots of master.db taken into live/snap/; never writes to the
+live database. Copies audio from the source into live/pristine/ (read-only on the source). Writes
 live/manifest.json (list of {file, path, bpm, key, rb_id}) after every cycle, so progress survives a crash.
 
 A track counts when, between two snapshots, it goes from not-qualifying to qualifying, where qualifying
@@ -41,13 +41,31 @@ def log(msg: str) -> None:
 
 
 def snapshot() -> Path:
-    """Copy the DB, WAL and SHM. Never touches the live file beyond reading it."""
+    """Take a coherent online snapshot without writing to the live database."""
+    from sqlalchemy import create_engine
+    from pyrekordbox import Rekordbox6Database
+
     SNAP.mkdir(parents=True, exist_ok=True)
-    for name in ("master.db", "master.db-wal", "master.db-shm"):
-        src = REKORDBOX / name
-        if src.exists():
-            shutil.copy2(src, SNAP / name)
-    return SNAP / "master.db"
+    snapshot_path = SNAP / "master.db"
+    db = Rekordbox6Database(str(REKORDBOX / "master.db"), unlock=True)
+    destination_engine = source = destination = None
+    try:
+        destination_engine = create_engine(
+            db.engine.url.set(database=str(snapshot_path)),
+            module=db.engine.dialect.dbapi,
+        )
+        source = db.engine.raw_connection()
+        destination = destination_engine.raw_connection()
+        source.driver_connection.backup(destination.driver_connection)
+    finally:
+        if source is not None:
+            source.close()
+        if destination is not None:
+            destination.close()
+        if destination_engine is not None:
+            destination_engine.dispose()
+        db.close()
+    return snapshot_path
 
 
 def qualifying(db_path: Path) -> dict[str, dict]:
