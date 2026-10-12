@@ -87,7 +87,7 @@ def _build_track_page(
       0x00-0x20  common page header
       0x20-0x28  data-page-specific fields (unused by the parser, zeroed)
       0x28..     the track row itself (ofs[0] = 0, so it starts right here)
-      end-36..end  row-group 0 index: ofs[0](2) ... ofs[15](2) tranrf0(2) rowpf0(2)
+      end-36..end  row-group 0 index (VERIFIED LAYOUT): ofs[15](2) ... ofs[0](2), rowpf(2), unknown(2)
     """
     buf = bytearray(PAGE_SIZE)
 
@@ -129,10 +129,11 @@ def _build_track_page(
     # Row-group 0 index, at the very end of the page.
     group_end = PAGE_SIZE
     group_start = group_end - 36
-    buf[group_start:group_start + 2] = (0).to_bytes(2, "little")  # ofs[0] == 0 (row starts at 0x28)
+    # The offsets are stored in REVERSE order: row 0's offset is the LAST of the 16 (at group_start + 30).
+    buf[group_start + 30:group_start + 32] = (0).to_bytes(2, "little")  # ofs[0] == 0 (row starts at 0x28)
     # ofs[1..15] left as zero — never read, since num_row_offsets == 1.
-    buf[group_end - 4:group_end - 2] = (0).to_bytes(2, "little")  # tranrf0 (unused by parser)
-    buf[group_end - 2:group_end] = (0b1).to_bytes(2, "little")    # rowpf0: bit0 set -> row 0 present
+    buf[group_start + 32:group_start + 34] = (0b1).to_bytes(2, "little")  # rowpf: bit0 set -> row 0 present
+    buf[group_start + 34:group_start + 36] = (0x0004).to_bytes(2, "little")  # the non-zero 'unknown' word seen in real files
 
     return bytes(buf)
 
@@ -222,8 +223,8 @@ def test_read_pdb_skips_row_when_presence_bit_clear(tmp_path):
     ))
     # Clear the presence bit for row 0 — the row must NOT be returned even
     # though its bytes are otherwise perfectly well-formed.
-    group_end = PAGE_SIZE
-    page[group_end - 2:group_end] = (0).to_bytes(2, "little")
+    group_start = PAGE_SIZE - 36
+    page[group_start + 32:group_start + 34] = (0).to_bytes(2, "little")  # rowpf
     pdb_path = tmp_path / "export.pdb"
     pdb_path.write_bytes(_build_pdb_file(bytes(page)))
 
