@@ -65,6 +65,40 @@ def test_duplicate_track_and_find_duplicates(client, fg):
     assert len(ids) == 1 and str(new_id) not in ids
 
 
+def test_duplicate_track_keeps_cues_and_beatgrid(client, fg):
+    t = _track(fg, "one")
+    with fg.transaction() as conn:
+        conn.execute(
+            "INSERT INTO fg_cue (content_id, kind, slot, in_msec, out_msec, color, comment) "
+            "VALUES (?, 1, 0, 1500, NULL, '#ff0000', 'drop')", (t,))
+        conn.execute(
+            "INSERT INTO fg_beatgrid (content_id, beat_number, time_msec, bpm) "
+            "VALUES (?, 1, 120, 128.0)", (t,))
+    r = client.post(f"/api/library/tracks/{t}/duplicate")
+    assert r.status_code == 201
+    new_id = int(r.get_json()["id"])
+    cues = fg.get_cues_for_content(new_id)
+    assert [(c.kind, c.slot, c.in_msec, c.color, c.comment) for c in cues] == [(1, 0, 1500, "#ff0000", "drop")]
+    grid = fg.get_beatgrid_for_content(new_id)
+    assert [(b.beat_number, b.time_msec, b.bpm) for b in grid] == [(1, 120, 128.0)]
+    # the original keeps its own rows
+    assert len(fg.get_cues_for_content(t)) == 1 and len(fg.get_beatgrid_for_content(t)) == 1
+
+
+def test_duplicate_track_failed_copy_leaves_no_partial_file(client, fg, monkeypatch):
+    t = _track(fg, "one")
+    folder = fg.config.db_path.parent
+
+    def half_copy(src, dst, *a, **k):
+        Path(dst).write_bytes(b"au")  # a truncated copy, then the disk "fills up"
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr("shutil.copy2", half_copy)
+    r = client.post(f"/api/library/tracks/{t}/duplicate")
+    assert r.status_code == 500
+    assert not list(folder.glob("*(copy)*"))
+    assert [d["id"] for d in fg.find_similar_content(t)] == []
+
 def test_duplicate_playlist_copies_tracks(client, fg):
     t = _track(fg, "one")
     pl = fg.create_playlist("Mix")

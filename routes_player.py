@@ -1566,6 +1566,7 @@ def api_library_duplicate_track(track_id):
         shutil.copy2(src, dest)
         new_id = fg.duplicate_content(tid, str(dest))
     except OSError as exc:
+        dest.unlink(missing_ok=True)  # don't leave a half-written copy behind
         log.warning("duplicate track copy failed: %s", exc)
         return jsonify({"error": "Could not copy the audio file"}), 500
     except Exception:
