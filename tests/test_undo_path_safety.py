@@ -45,12 +45,11 @@ def client(tmp_path_factory):
         "device_db": str(device_db),
         "music_root": str(music),
         "backup_dir": str(backups),
-        "mobile_token": "test-token",
     }))
 
     os.environ["HOME"] = str(home)
     for mod in list(sys.modules):
-        if mod in ("app", "user_config", "config", "helpers", "routes_mobile",
+        if mod in ("app", "user_config", "config", "helpers",
                    "routes_tools", "routes_player", "routes_rekordbox", "routes_undo"):
             del sys.modules[mod]
     sys.path.insert(0, str(REPO_ROOT))

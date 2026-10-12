@@ -1,17 +1,20 @@
 """
 Tests for devicesql_reader.py's tracks-table row walker.
 
-No export.pdb binary is committed to this repo (see module docstring
-HONESTY LIMIT) so — same convention as tests/test_devicesql_reader.py and
+These tests build synthetic pages (the real committed export, tests/fixtures/rekordbox_21track_export/,
+is exercised in tests/test_devicesql_real_export.py) so — same convention as tests/test_devicesql_reader.py and
 tests/test_anlz_reader.py — these tests build a SYNTHETIC PDB file
 byte-for-byte from Deep Symmetry's published DeviceSQL format
 specification (https://djl-analysis.deepsymmetry.org/rekordbox-export-analysis/exports.html),
 not a captured hardware file. They verify the parser round-trips the
-documented format correctly; they do not (and cannot, without a real
-sample) verify fidelity to actual CDJ-3000 hardware output.
+documented format correctly; they do not by themselves verify fidelity to actual CDJ-3000 hardware
+output. That is what tests/test_devicesql_real_export.py is for: it reads a real Rekordbox export that a
+CDJ-3000 loaded and checks all 21 tracks against the same stick's OneLibrary database. (An earlier version of
+this file's row-group builder used the same misreading as the reader, which is how a decoder that found 3 of
+21 tracks passed every test here.)
 
 One real data point exists: a genuinely Rekordbox-written export.pdb was
-found and read (not committed to the repo — see docs/format_samples/) whose
+found and read (that file is not committed to the repo) whose
 every table root page was an EMPTY index page (num_entries=0, page_flags
 0x64, matching the documented "typical value" exactly). That confirmed the
 file header, table pointer array, page header, and index-page-detection
@@ -20,7 +23,8 @@ suite had missed: the walker was skipping index pages entirely instead of
 following their entries to the actual data pages. Fixed in
 _walk_table_pages / _parse_index_entries. The populated-index-page case
 (a non-empty index page's entries actually resolving to data) is still
-synthetic-only below — no real sample with populated tables was available.
+synthetic-only in this file; the committed 21-track fixture has populated tables and
+tests/test_devicesql_real_export.py covers the full-scan path against it.
 """
 
 import sys
@@ -83,7 +87,7 @@ def _build_track_page(
       0x00-0x20  common page header
       0x20-0x28  data-page-specific fields (unused by the parser, zeroed)
       0x28..     the track row itself (ofs[0] = 0, so it starts right here)
-      end-36..end  row-group 0 index: ofs[0](2) ... ofs[15](2) tranrf0(2) rowpf0(2)
+      end-36..end  row-group 0 index (VERIFIED LAYOUT): ofs[15](2) ... ofs[0](2), rowpf(2), unknown(2)
     """
     buf = bytearray(PAGE_SIZE)
 
@@ -125,10 +129,11 @@ def _build_track_page(
     # Row-group 0 index, at the very end of the page.
     group_end = PAGE_SIZE
     group_start = group_end - 36
-    buf[group_start:group_start + 2] = (0).to_bytes(2, "little")  # ofs[0] == 0 (row starts at 0x28)
+    # The offsets are stored in REVERSE order: row 0's offset is the LAST of the 16 (at group_start + 30).
+    buf[group_start + 30:group_start + 32] = (0).to_bytes(2, "little")  # ofs[0] == 0 (row starts at 0x28)
     # ofs[1..15] left as zero — never read, since num_row_offsets == 1.
-    buf[group_end - 4:group_end - 2] = (0).to_bytes(2, "little")  # tranrf0 (unused by parser)
-    buf[group_end - 2:group_end] = (0b1).to_bytes(2, "little")    # rowpf0: bit0 set -> row 0 present
+    buf[group_start + 32:group_start + 34] = (0b1).to_bytes(2, "little")  # rowpf: bit0 set -> row 0 present
+    buf[group_start + 34:group_start + 36] = (0x0004).to_bytes(2, "little")  # the non-zero 'unknown' word seen in real files
 
     return bytes(buf)
 
@@ -206,7 +211,7 @@ def test_read_pdb_recovers_synthetic_track_row(tmp_path):
     assert track.title == "Test Track"
     assert track.drive_relative_path == "/Contents/Music/Artist/Test Track.mp3"
     assert track.anlz_folder_path == "/PIONEER/USBANLZ/P000/00000001"
-    # Deliberately unresolved this phase — see module docstring.
+    # This synthetic file has no artists/keys tables, so the foreign keys cannot resolve to names.
     assert track.artist is None
     assert track.key is None
 
@@ -218,8 +223,8 @@ def test_read_pdb_skips_row_when_presence_bit_clear(tmp_path):
     ))
     # Clear the presence bit for row 0 — the row must NOT be returned even
     # though its bytes are otherwise perfectly well-formed.
-    group_end = PAGE_SIZE
-    page[group_end - 2:group_end] = (0).to_bytes(2, "little")
+    group_start = PAGE_SIZE - 36
+    page[group_start + 32:group_start + 34] = (0).to_bytes(2, "little")  # rowpf
     pdb_path = tmp_path / "export.pdb"
     pdb_path.write_bytes(_build_pdb_file(bytes(page)))
 

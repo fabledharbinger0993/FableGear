@@ -1,8 +1,7 @@
 #!/bin/bash
 # FableGear — first-run dependency installer
-# Opened automatically by launch.sh when Homebrew formulas or the Python
-# venv are missing. Runs in a visible Terminal window so the user can see
-# progress and respond to any password prompts.
+# Opened automatically by launch.sh when system tools or the Python venv
+# are missing. Runs in a visible Terminal window so the user can see progress.
 #
 # When complete it touches .fablegear_ready so launch.sh knows to proceed.
 
@@ -36,70 +35,46 @@ step() { echo ""; echo "  ── $1"; }
 ok()   { echo "  ✓  $1"; }
 info() { echo "     $1"; }
 
-# ── Homebrew ──────────────────────────────────────────────────────────────
-step "Homebrew"
+# ── Optional Homebrew environment ─────────────────────────────────────────
+step "System tools"
 
 BREW=""
 for p in /opt/homebrew/bin/brew /usr/local/bin/brew; do
   [ -f "$p" ] && BREW="$p" && break
 done
 
-if [ -z "$BREW" ]; then
-  info "Not found — installing Homebrew."
-  info "You may be prompted for your Mac password."
-  echo ""
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  # Re-locate brew after install
-  for p in /opt/homebrew/bin/brew /usr/local/bin/brew; do
-    [ -f "$p" ] && BREW="$p" && break
-  done
-  if [ -z "$BREW" ]; then
-    echo ""
-    echo "  ✗  Homebrew installation failed. Check the output above."
-    echo "     Fix the issue, then double-click FableGear again."
-    fail
-  fi
-  ok "Homebrew installed"
+if [ -n "$BREW" ]; then
+  info "Found Homebrew at $BREW (FableGear will not update or modify it)."
+  eval "$("$BREW" shellenv)"
 else
-  info "Found at $BREW — updating..."
-  "$BREW" update --quiet
-  ok "Homebrew up to date"
+  info "Homebrew not found; FableGear will not install it."
 fi
 
-# Ensure brew is on PATH for the rest of this session
-eval "$("$BREW" shellenv)"
-
-# ── Required Homebrew formulas ────────────────────────────────────────────
-step "Homebrew formulas  (ffmpeg, chromaprint)"
-
-FORMULAS=(ffmpeg chromaprint)
-for formula in "${FORMULAS[@]}"; do
-  if "$BREW" list --formula "$formula" &>/dev/null; then
-    info "Upgrading $formula..."
-    # shellcheck disable=SC2015
-    "$BREW" upgrade "$formula" 2>/dev/null \
-      && ok "$formula upgraded" \
-      || ok "$formula already at latest"
-  else
-    info "Installing $formula..."
-    "$BREW" install "$formula"
-    ok "$formula installed"
-  fi
+MISSING_TOOLS=()
+for tool in ffmpeg fpcalc; do
+  command -v "$tool" >/dev/null 2>&1 || MISSING_TOOLS+=("$tool")
 done
+
+if [ "${#MISSING_TOOLS[@]}" -gt 0 ]; then
+  echo ""
+  echo "  ✗  Missing system tools: ${MISSING_TOOLS[*]}"
+  echo "     Install ffmpeg and Chromaprint (fpcalc) yourself, then run FableGear again."
+  if [ -n "$BREW" ]; then
+    echo "     With Homebrew, for example: brew install ffmpeg chromaprint"
+  fi
+  fail
+fi
+ok "ffmpeg and fpcalc are available"
 
 # ── Python 3 ─────────────────────────────────────────────────────────────
 step "Python 3"
 
-# Prefer Python 3.13 — 3.14 ships without ensurepip on some macOS setups,
-# which produces a broken venv (no pip, no activate). Fall back through
-# known-good versions before using whatever python3 resolves to.
+# Prefer supported versions before using whatever python3 resolves to.
 PYTHON3=""
 for candidate in python3.13 python3.12 python3.11 python3; do
   if command -v "$candidate" &>/dev/null; then
-    ver=$("$candidate" -c 'import sys; print(sys.version_info[:2])' 2>/dev/null)
-    # Skip 3.14+ (ensurepip issues on macOS)
-    major=$("$candidate" -c 'import sys; print(sys.version_info[1])' 2>/dev/null)
-    if [ "${major:-99}" -le 13 ]; then
+    version=$("$candidate" -c 'import sys; print("%s.%s" % sys.version_info[:2])' 2>/dev/null)
+    if [[ "$version" =~ ^3\.(11|12|13)$ ]]; then
       PYTHON3="$candidate"
       break
     fi
@@ -107,9 +82,13 @@ for candidate in python3.13 python3.12 python3.11 python3; do
 done
 
 if [ -z "$PYTHON3" ]; then
-  info "No suitable Python found — installing python@3.13 via Homebrew..."
-  "$BREW" install python@3.13
-  PYTHON3="python3.13"
+  echo ""
+  echo "  ✗  FableGear requires Python 3.11–3.13, but none was found."
+  echo "     Install a supported Python version yourself, then run FableGear again."
+  if [ -n "$BREW" ]; then
+    echo "     With Homebrew, for example: brew install python@3.13"
+  fi
+  fail
 fi
 ok "Python $("$PYTHON3" --version 2>&1 | awk '{print $2}')"
 
@@ -131,7 +110,7 @@ fi
 if [ ! -f "$VENV/bin/activate" ]; then
   echo ""
   echo "  ✗  Could not create a working Python venv with $PYTHON3."
-  echo "     Try: brew install python@3.13 then double-click FableGear again."
+  echo "     Install a supported Python 3.11–3.13 version with venv support."
   fail
 fi
 ok "Virtual environment ready"
@@ -142,7 +121,7 @@ VENV_VER=$("$VENV/bin/python" --version 2>&1 | awk '{print $2}')
 if [ "${VENV_MINOR:-0}" -lt 11 ]; then
   echo ""
   echo "  ✗  Python $VENV_VER in this venv is too old — FableGear requires 3.11 or later."
-  echo "     Run: brew install python@3.12  then double-click FableGear again."
+  echo "     Install Python 3.11–3.13 and run FableGear again."
   fail
 fi
 ok "Python version check passed ($VENV_VER)"
@@ -152,6 +131,13 @@ source "$VENV/bin/activate"
 
 # ── Python packages ───────────────────────────────────────────────────────
 step "Python packages"
+
+info "FableGear will install its Python packages into $VENV only."
+read -rp "     Install the Python packages now? [y/N] " REPLY
+case "$REPLY" in
+  [Yy]*) ;;
+  *) echo "  ✗  Python package install declined — nothing was installed."; fail ;;
+esac
 
 info "Upgrading pip..."
 pip install --upgrade pip --quiet
@@ -186,63 +172,7 @@ ok "All Python packages installed"
 
 # ── Create launcher .app ─────────────────────────────────────────────────
 step "Creating FableGear.app launcher"
-
-APP_DEST="$HOME/Applications/FableGear.app"
-
-# Locate the packaged launcher app — name casing differs across checkouts,
-# and case-sensitive filesystems won't match "FableGear.app" to "FABLEGEAR.app".
-PACKAGED_APP=""
-for candidate in "$SCRIPT_DIR/packaging/FableGear.app" "$SCRIPT_DIR/packaging/FABLEGEAR.app"; do
-  [ -d "$candidate" ] && PACKAGED_APP="$candidate" && break
-done
-
-mkdir -p "$HOME/Applications"
-
-# Prefer the bundled shell-script launcher because Finder surfaces generic
-# "/bin/bash" alerts when the AppleScript do-shell-script wrapper fails.
-# The packaged .app already knows how to hand off to ~/FableGear.
-rm -rf "$APP_DEST"
-if [ -n "$PACKAGED_APP" ] && [ -d "$PACKAGED_APP" ]; then
-  cp -R "$PACKAGED_APP" "$APP_DEST"
-  chmod +x "$APP_DEST/Contents/MacOS/FableGear" 2>/dev/null || true
-else
-  LAUNCH_PATH="$SCRIPT_DIR/launch.sh"
-  osacompile -o "$APP_DEST" - 2>/dev/null <<APPLESCRIPT
-do shell script "bash '$LAUNCH_PATH'"
-APPLESCRIPT
-fi
-
-if [ -d "$APP_DEST" ]; then
-  ok "FableGear.app created at ~/Applications/FableGear.app"
-
-  # ── Apply icon (sips + iconutil) ────────────────────────────────────────
-  ICON_SRC="$SCRIPT_DIR/static/icon-app-dock.png"
-  if [ -f "$ICON_SRC" ]; then
-    ICONSET="$(mktemp -d)/fg.iconset"
-    mkdir -p "$ICONSET"
-    for size in 16 32 64 128 256 512; do
-      sips -z "$size" "$size" "$ICON_SRC" \
-        --out "$ICONSET/icon_${size}x${size}.png" >/dev/null 2>&1
-      double=$((size * 2))
-      sips -z "$double" "$double" "$ICON_SRC" \
-        --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null 2>&1
-    done
-    iconutil -c icns "$ICONSET" \
-      -o "$APP_DEST/Contents/Resources/applet.icns" 2>/dev/null && \
-      ok "Icon applied" || info "Icon apply skipped (iconutil unavailable)"
-    rm -rf "$(dirname "$ICONSET")"
-    # Applet bundles ship an Assets.car whose compiled AppIcon outranks
-    # applet.icns in Finder/Dock — remove it so the custom icon wins, then
-    # touch the bundle so LaunchServices notices the change.
-    rm -f "$APP_DEST/Contents/Resources/Assets.car"
-    touch "$APP_DEST"
-  fi
-
-  info "Drag it to your Dock for one-click access."
-  info "Or double-click it from ~/Applications."
-else
-  info "Could not create FableGear.app — run launch.sh directly from Terminal."
-fi
+bash "$SCRIPT_DIR/packaging/create_launcher_app.sh" "$SCRIPT_DIR"
 
 # ── Done ──────────────────────────────────────────────────────────────────
 touch "$SENTINEL"

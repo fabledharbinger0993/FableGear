@@ -12,10 +12,8 @@ via the test client. This pins the security contract added after the
 June 2026 audit:
 
     loopback           -> full access
-    /api/mobile/*      -> Bearer auth (FableGo)
     GET /static/*      -> public
-    everything else    -> 403 off-box unless Bearer token or
-                          allow_lan_ui opt-in
+    everything else    -> 403 off-box unless allow_lan_ui opt-in
 """
 
 import json
@@ -27,7 +25,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-TEST_TOKEN = "test-token-fablegear"
+BEARER_TOKEN = "any-token"  # an Authorization header must never open the boundary
 LOOPBACK = "127.0.0.1"
 LAN = "192.168.1.50"
 
@@ -50,13 +48,12 @@ def flask_app(tmp_path_factory):
         "device_db": str(device_db),
         "music_root": str(music),
         "backup_dir": str(backups),
-        "mobile_token": TEST_TOKEN,
     }))
 
     # HOME must be redirected BEFORE user_config computes CONFIG_FILE.
     os.environ["HOME"] = str(home)
     for mod in list(sys.modules):
-        if mod in ("app", "user_config", "config", "helpers", "routes_mobile",
+        if mod in ("app", "user_config", "config", "helpers",
                    "routes_tools", "routes_player", "routes_rekordbox"):
             del sys.modules[mod]
     sys.path.insert(0, str(REPO_ROOT))
@@ -124,24 +121,50 @@ def test_lan_blocked_with_wrong_token(client):
 
 # ── LAN: deliberate access paths still work ──────────────────────────────────
 
-def test_lan_mobile_ping_open(client):
-    assert _hit(client, "/api/mobile/ping", LAN).status_code == 200
+@pytest.mark.parametrize("path", ["/api/mobile/ping", "/api/mobile/folders", "/api/connectivity"])
+def test_lan_cannot_reach_removed_phone_routes(client, path):
+    # The phone-companion surface is gone; the boundary no longer carves out an
+    # exception for it, so off-box requests are refused outright.
+    assert _hit(client, path, LAN).status_code == 403
 
 
-def test_lan_mobile_requires_bearer(client):
-    assert _hit(client, "/api/mobile/folders", LAN).status_code == 401
+@pytest.mark.parametrize("path", ["/api/mobile/ping", "/api/connectivity"])
+def test_loopback_phone_routes_no_longer_exist(client, path):
+    assert _hit(client, path, LOOPBACK).status_code == 404
 
 
-def test_lan_mobile_with_token(client):
-    assert _hit(client, "/api/mobile/jobs", LAN, token=TEST_TOKEN).status_code == 200
+def _set_lan_flag(value):
+    cfg_path = Path(os.environ["HOME"]) / ".fablegear" / "config.json"
+    cfg = json.loads(cfg_path.read_text())
+    cfg["allow_lan_ui"] = value
+    cfg_path.write_text(json.dumps(cfg))
+    return cfg_path
+
+
+@pytest.mark.parametrize("flag,expected_blocked", [
+    (True, False),       # the documented opt-in: an off-box request reaches the app
+    ("true", True),      # a string is not consent
+    ("false", True),
+    (1, True),
+    (False, True),
+])
+def test_lan_ui_opt_in_is_strict(client, flag, expected_blocked):
+    cfg_path = _set_lan_flag(flag)
+    try:
+        status = _hit(client, "/api/cancel", LAN, method="POST").status_code
+    finally:
+        cfg = json.loads(cfg_path.read_text())
+        cfg.pop("allow_lan_ui", None)
+        cfg_path.write_text(json.dumps(cfg))
+    assert (status == 403) is expected_blocked
 
 
 def test_lan_static_assets_public(client):
     assert _hit(client, "/static/fablegear.css", LAN).status_code == 200
 
 
-def test_lan_bearer_does_not_bypass_non_mobile_boundary(client):
-    r = _hit(client, "/api/cancel", LAN, method="POST", token=TEST_TOKEN)
+def test_lan_bearer_does_not_bypass_boundary(client):
+    r = _hit(client, "/api/cancel", LAN, method="POST", token=BEARER_TOKEN)
     assert r.status_code == 403
 
 
@@ -647,3 +670,60 @@ def test_update_apply_not_blocked_by_untracked_only(client, monkeypatch):
     assert resp.status_code != 409
     assert data["ok"] is False
     assert "uncommitted changes" not in data["error"]
+
+
+# ── HTTP error passthrough ────────────────────────────────────────────────────
+#
+# app.py's catch-all @app.errorhandler(Exception) used to hand every exception
+# raised under /api/ to api_error_from_exc(), which is hardcoded to status 500.
+# Werkzeug's routing raises HTTPException subclasses for ordinary client
+# mistakes, so a GET against a POST-only route answered 500 "Something went
+# wrong." instead of 405, and each one was logged at exception level — burying
+# real server faults. Probing the read-only API surface produced 18 such
+# responses and zero genuine 500s.
+
+def test_wrong_method_returns_405_not_500(client):
+    """A GET against a POST-only API route is a client error, not a server fault."""
+    resp = _hit(client, "/api/update/apply", LOOPBACK, method="GET")
+
+    assert resp.status_code == 405, (
+        "a method mismatch must surface as 405; 500 tells the caller the server "
+        "broke and hides the real cause"
+    )
+
+
+def test_unknown_api_path_returns_404_not_500(client):
+    resp = _hit(client, "/api/definitely-not-a-real-endpoint", LOOPBACK)
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.parametrize("path", ["/favicon.ico", "/nonexistent-page", "/static/nope.png"])
+def test_non_api_404_is_404_not_500(client, path):
+    """Off /api/, the handler used to `raise exc`.
+
+    Re-raising from inside an error handler makes Flask abandon its own error
+    handling and return 500, so every ordinary 404 — a browser probing
+    /favicon.ico, a mistyped page, a missing image — answered 500.
+    """
+    resp = _hit(client, path, LOOPBACK)
+
+    assert resp.status_code == 404, (
+        f"{path} must 404; a 500 here tells the browser the server broke over a "
+        "missing file"
+    )
+
+
+def test_genuine_server_error_still_returns_500(client, monkeypatch):
+    """The passthrough must not swallow real faults — only HTTPExceptions."""
+    import app as _app
+
+    def _boom():
+        raise RuntimeError("simulated internal fault")
+
+    # /api/status is a plain GET route; make one of its collaborators raise.
+    monkeypatch.setattr(_app, "_rb_is_running", _boom)
+    resp = _hit(client, "/api/status", LOOPBACK)
+
+    assert resp.status_code == 500
+    assert resp.get_json()["ok"] is False

@@ -61,9 +61,12 @@ if sys.platform == 'darwin':
     os.environ['PATH'] = os.pathsep.join(_path_parts)
 
 # ── Server config ─────────────────────────────────────────────────────────────
-# Bind to all interfaces so Tailscale (and LAN) can reach the mobile API.
-# The desktop UI still opens via localhost; the mobile API uses the Tailscale IP.
-_HOST = '0.0.0.0'
+# Loopback only: the desktop UI is the sole client. An owner who deliberately wants
+# the UI reachable on their network can set {"allow_lan_ui": true} in
+# ~/.fablegear/config.json (app.py's network guard honours the same flag).
+from lan_policy import lan_ui_enabled as _lan_ui_enabled
+
+_HOST = '0.0.0.0' if _lan_ui_enabled() else '127.0.0.1'
 _PORT = 5001
 _LOCAL_URL = f'http://127.0.0.1:{_PORT}/'   # used for health-check and browser
 
@@ -214,6 +217,10 @@ if __name__ == '__main__':
             min_size=(900, 600),
             resizable=True,
             frameless=True,
+            # Only the titlebar (.pywebview-drag-region) moves the window. The
+            # default easy_drag=True lets a press anywhere start a window drag,
+            # which made the window jiggle before a track row could be dragged.
+            easy_drag=False,
             background_color='#07070f',
             js_api=_api,
         )

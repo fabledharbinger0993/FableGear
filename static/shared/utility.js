@@ -24,7 +24,6 @@ function extractProducerAliasToken(text) {
     .replace(/\s+(remix|dub|edit|mix|rework|version|remaster|bootleg|re-edit|radio\s+edit|extended\s+mix)\s*$/i, '')
     .trim();
 }
-function _escPath(s) { return (s || '').replace(/'/g,'\\'  ); }
 function _fmtDur(s)  {
   const m = Math.floor(s / 60), sec = Math.floor(s % 60);
   return `${m}:${String(sec).padStart(2, '0')}`;

@@ -27,9 +27,17 @@ field name below is taken directly from that page, not guessed from memory.
 
 HONESTY LIMIT (updated against two real files): this module was tested,
 read-only, against two genuine Rekordbox-written export.pdb files found on
-physically connected drives (neither committed to this repo — no fixture
-binary lives under docs/format_samples/, so this was a one-time manual
-check, not something CI re-verifies).
+physically connected drives. Those two files are not committed, so that was a
+one-time manual check. UPDATE 2026-10-12: a third real file pair (a 21-track
+Rekordbox export that a CDJ-3000 loaded correctly) IS committed under
+tests/fixtures/rekordbox_21track_export/ and is checked on every CI run
+(tests/test_devicesql_real_export.py). Testing against it exposed that the
+row-index decoder had been reading the row groups backwards (it recovered 3 of
+the 21 tracks while its synthetic tests passed); it is fixed, and all 21 tracks
+and every lookup-table row now match the same stick's OneLibrary database. What
+is still NOT verified: files with more than one page of index entries, the
+tables that are counted but not decoded, and any firmware's output other than
+the one that wrote that file.
 
 File 1 (41 pages, ~167KB — an essentially empty placeholder library):
 every table's root page was an index page with num_entries=0
@@ -75,10 +83,12 @@ keys) is hardware-verified against File 2's real, populated data. The
 populated-index-page ENTRY-DECODE path (_parse_index_entries itself,
 useful for a future targeted-lookup feature) remains spec-verified-only —
 no real usage of it was needed once the full-scan bug above was fixed.
-artist/key NAME resolution is deliberately left unresolved (None) — the
-tracks table row only carries artist_id/key_id foreign keys, and this
-module does not (yet) walk the artists/keys tables, whose row layouts are
-not documented on the same reference page consulted here.
+Artist, album, genre, label and key names are resolved from their tables
+(row layouts demonstrated on the real export; see _read_name_table), and each
+TrackRow carries the artist and key NAME as well as the ids. Every other table
+is counted (PdbReport.table_row_counts) but not decoded. exportExt.pdb is a
+different table set: it is only counted, never decoded with export.pdb's
+schemas.
 
 Public interface:
     read_pdb(path) -> PdbReport
@@ -109,10 +119,15 @@ TABLE_TYPE_KEYS = 5
 TABLE_TYPE_COLORS = 6
 TABLE_TYPE_PLAYLIST_TREE = 7
 TABLE_TYPE_PLAYLIST_ENTRIES = 8
+TABLE_TYPE_HISTORY_PLAYLISTS = 0x0B
+TABLE_TYPE_HISTORY_ENTRIES = 0x0C
 TABLE_TYPE_ARTWORK = 0x0D
 TABLE_TYPE_COLUMNS = 0x10
-TABLE_TYPE_HISTORY_PLAYLISTS = 0x11
-TABLE_TYPE_HISTORY_ENTRIES = 0x12
+# 0x11 and 0x12 hold small fixed-size records of unknown purpose (22 and 17 rows in a real Rekordbox export);
+# an earlier version of this module called them the history tables. The real history table is 0x13: its one
+# row in that export contains the export date as text. DEMONSTRATED on tests/fixtures/rekordbox_21track_export/.
+TABLE_TYPE_UNKNOWN_17 = 0x11
+TABLE_TYPE_UNKNOWN_18 = 0x12
 TABLE_TYPE_HISTORY = 0x13
 
 # ─── File header / table pointer array ─────────────────────────────────────
@@ -136,11 +151,9 @@ _MAX_TABLE_PAGES_WALKED = 100_000  # sanity guard against a corrupt next_page cy
 class TrackRow:
     """One recovered track row from the DeviceSQL tracks table.
 
-    artist / key are left None — resolving them to human-readable names
-    requires walking the artists/keys tables, which is out of scope for
-    this pass (see module docstring HONESTY LIMIT). artist_id/key_id are
-    kept as raw foreign keys so a future pass can resolve them without
-    re-walking the tracks table.
+    artist / key are the resolved names (filled in by read_pdb from the artists and
+    keys tables), or None when the id has no row in those tables. artist_id /
+    album_id / key_id are the raw foreign keys.
     """
     anlz_folder_path: str | None = None
     title: str | None = None
@@ -167,6 +180,14 @@ class PdbReport:
     num_tables: int | None = None
     next_unused_page: int | None = None
     tracks: list[TrackRow] = field(default_factory=list)
+    # id -> name for the lookup tables (DEMONSTRATED against a real Rekordbox export)
+    keys: dict[int, str] = field(default_factory=dict)
+    artists: dict[int, str] = field(default_factory=dict)
+    albums: dict[int, str] = field(default_factory=dict)
+    genres: dict[int, str] = field(default_factory=dict)
+    labels: dict[int, str] = field(default_factory=dict)
+    # rows actually present in each table, by table name (index pages and free pages excluded)
+    table_row_counts: dict[str, int] = field(default_factory=dict)
     partial: bool = True
     detail: str = ""
     notes: list[str] = field(default_factory=list)
@@ -326,14 +347,21 @@ def _row_slots(buf: bytes, page_size: int, num_row_offsets: int) -> list[tuple]:
     Return (offset_from_data_header_end, present) for every allocated row
     slot in a data page, in row-index order.
 
-    The row index is built backward from the end of the page in groups of
-    16: group 0 (rows 0-15) sits at the very end of the page; group 1
-    (rows 16-31) immediately before it, and so on. Within a group, ofs[0]
-    (lowest row index in the group) is at the group's lowest address;
-    tranrf then rowpf follow at the group's two highest addresses. A row's
-    presence bit lives in rowpf: bit N set means row N (within the group)
-    is really present. Source: Deep Symmetry DJL Ecosystem Analysis,
-    "Row Index Organization".
+    VERIFIED LAYOUT (demonstrated against a real Rekordbox-written export that a
+    CDJ-3000 loaded; tests/fixtures/rekordbox_21track_export/). The row index is
+    built backward from the end of the page in 36-byte groups of 16 rows: group 0
+    (rows 0-15) is the last 36 bytes of the page, group 1 (rows 16-31) the 36
+    bytes before it, and so on. Within one group, from its lowest address:
+
+        ofs[15] ofs[14] ... ofs[1] ofs[0]   16 x u16le, rows in REVERSE order
+        rowpf                                u16le, presence flags: bit N set = row N present
+        unknown                              u16le (observed non-zero; not used)
+
+    So row N (within its group) has its offset at ``group_start + 2 * (15 - N)``
+    and its presence bit N in the u16 at ``group_start + 32``. An earlier version
+    of this function read the offsets forward and took the LAST u16 as the flags;
+    that matched its own synthetic tests but recovered only some of a real page's
+    rows. Offsets are relative to the end of the 0x28-byte data-page header.
     """
     if num_row_offsets <= 0:
         return []
@@ -341,16 +369,15 @@ def _row_slots(buf: bytes, page_size: int, num_row_offsets: int) -> list[tuple]:
     slots: list[tuple | None] = [None] * num_row_offsets
 
     for g in range(num_groups):
-        group_end = page_size - g * _ROW_GROUP_BYTES
-        group_start = group_end - _ROW_GROUP_BYTES
-        if group_start < 0:
+        group_start = page_size - (g + 1) * _ROW_GROUP_BYTES
+        if group_start < _DATA_PAGE_HEADER_SIZE:
             break
-        rowpf = int.from_bytes(buf[group_end - 2:group_end], "little")
+        rowpf = int.from_bytes(buf[group_start + 2 * _ROW_GROUP_SIZE:group_start + 2 * _ROW_GROUP_SIZE + 2], "little")
         for local_i in range(_ROW_GROUP_SIZE):
             row_i = g * _ROW_GROUP_SIZE + local_i
             if row_i >= num_row_offsets:
                 break
-            off_pos = group_start + local_i * 2
+            off_pos = group_start + 2 * (_ROW_GROUP_SIZE - 1 - local_i)
             ofs = int.from_bytes(buf[off_pos:off_pos + 2], "little")
             present = bool((rowpf >> local_i) & 1)
             slots[row_i] = (ofs, present)
@@ -464,10 +491,10 @@ def _parse_track_row(page_buf: bytes, row_start_in_page: int) -> TrackRow | None
     return TrackRow(
         anlz_folder_path=resolve_string(_TRACK_STRING_IDX_ANALYZE_PATH),
         title=resolve_string(_TRACK_STRING_IDX_TITLE),
-        artist=None,   # requires walking the artists table — see HONESTY LIMIT
+        artist=None,   # filled in by read_pdb from the artists table
         drive_relative_path=resolve_string(_TRACK_STRING_IDX_FILE_PATH),
         bpm=(tempo / 100.0) if tempo else None,
-        key=None,      # requires walking the keys table — see HONESTY LIMIT
+        key=None,      # filled in by read_pdb from the keys table
         track_id=track_id,
         artist_id=artist_id,
         album_id=album_id,
@@ -487,16 +514,88 @@ def _read_tracks_table(fh: BinaryIO, page_size: int, pointers: list[_TablePointe
         return []
 
     rows: list[TrackRow] = []
-    for page_buf in _walk_table_pages(fh, page_size, tracks_ptr.first_page, tracks_ptr.last_page):
+    for page_buf, row_start in _iter_table_rows(fh, page_size, tracks_ptr):
+        track = _parse_track_row(page_buf, row_start)
+        if track is not None:
+            rows.append(track)
+    return rows
+
+
+TABLE_NAMES = {
+    TABLE_TYPE_TRACKS: "tracks", TABLE_TYPE_GENRES: "genres", TABLE_TYPE_ARTISTS: "artists",
+    TABLE_TYPE_ALBUMS: "albums", TABLE_TYPE_LABELS: "labels", TABLE_TYPE_KEYS: "keys",
+    TABLE_TYPE_COLORS: "colors", TABLE_TYPE_PLAYLIST_TREE: "playlist_tree",
+    TABLE_TYPE_PLAYLIST_ENTRIES: "playlist_entries", TABLE_TYPE_ARTWORK: "artwork",
+    TABLE_TYPE_COLUMNS: "columns", TABLE_TYPE_HISTORY_PLAYLISTS: "history_playlists",
+    TABLE_TYPE_HISTORY_ENTRIES: "history_entries", TABLE_TYPE_UNKNOWN_17: "unknown_17",
+    TABLE_TYPE_UNKNOWN_18: "unknown_18", TABLE_TYPE_HISTORY: "history",
+}
+
+
+def _iter_table_rows(fh: BinaryIO, page_size: int, pointer: "_TablePointer") -> Iterator[tuple[bytes, int]]:
+    """Yield ``(page_buf, row_start_in_page)`` for every PRESENT row of one table, across its page chain."""
+    for page_buf in _walk_table_pages(fh, page_size, pointer.first_page, pointer.last_page):
         header = _parse_page_header(page_buf)
         for ofs, present in _row_slots(page_buf, page_size, header.num_row_offsets):
-            if not present:
-                continue
-            row_start = _DATA_PAGE_HEADER_SIZE + ofs
-            track = _parse_track_row(page_buf, row_start)
-            if track is not None:
-                rows.append(track)
-    return rows
+            if present:
+                yield page_buf, _DATA_PAGE_HEADER_SIZE + ofs
+
+
+def _u32_at(buf: bytes, pos: int) -> int | None:
+    return int.from_bytes(buf[pos:pos + 4], "little") if pos + 4 <= len(buf) else None
+
+
+def _name_after_u8_offset(buf: bytes, row_start: int, ofs_pos: int, subtype: int) -> str | None:
+    """Name of an artist/album row: a 1-byte near offset, or (subtype bit 0x04) a 2-byte far offset after it."""
+    if row_start + ofs_pos + 3 > len(buf):
+        return None
+    if subtype & 0x04:
+        ofs = int.from_bytes(buf[row_start + ofs_pos + 1:row_start + ofs_pos + 3], "little")
+    else:
+        ofs = buf[row_start + ofs_pos]
+    return _decode_pdb_string(buf, row_start + ofs) if ofs else None
+
+
+def _read_name_table(fh: BinaryIO, page_size: int, pointers: list[_TablePointer], table_type: int) -> dict[int, str]:
+    """id -> name for one lookup table. Row layouts DEMONSTRATED on a real Rekordbox export:
+
+    genres, labels : id:u32 | name
+    keys           : id:u32 | id2:u32 (equal to id) | name
+    artists        : subtype:u16 (0x60 near / 0x64 far) | index_shift:u16 | id:u32 | 0x03 | name offset
+    albums         : subtype:u16 (0x80 near / 0x84 far) | index_shift:u16 | u32 | artist_id:u32 | id:u32 | u32 | 0x03 | name offset
+    """
+    ptr = next((p for p in pointers if p.table_type == table_type), None)
+    names: dict[int, str] = {}
+    if ptr is None:
+        return names
+    for buf, st in _iter_table_rows(fh, page_size, ptr):
+        if table_type in (TABLE_TYPE_GENRES, TABLE_TYPE_LABELS):
+            rid, name = _u32_at(buf, st), _decode_pdb_string(buf, st + 4)
+        elif table_type == TABLE_TYPE_KEYS:
+            rid, name = _u32_at(buf, st), _decode_pdb_string(buf, st + 8)
+        elif table_type == TABLE_TYPE_ARTISTS:
+            subtype = int.from_bytes(buf[st:st + 2], "little")
+            rid, name = _u32_at(buf, st + 4), _name_after_u8_offset(buf, st, 9, subtype)
+        elif table_type == TABLE_TYPE_ALBUMS:
+            subtype = int.from_bytes(buf[st:st + 2], "little")
+            rid, name = _u32_at(buf, st + 12), _name_after_u8_offset(buf, st, 21, subtype)
+        else:
+            continue
+        if rid is not None and name is not None:
+            names[rid] = name
+    return names
+
+
+def _count_table_rows(
+    fh: BinaryIO, page_size: int, pointers: list[_TablePointer], *, named: bool = True
+) -> dict[str, int]:
+    """Present-row count per table. ``named=False`` (exportExt.pdb, whose tables are a different set from
+    export.pdb's) labels them ``table_<type>`` instead of borrowing export.pdb's names."""
+    return {
+        (TABLE_NAMES.get(p.table_type, f"table_{p.table_type}") if named else f"table_{p.table_type}"):
+            sum(1 for _ in _iter_table_rows(fh, page_size, p))
+        for p in pointers
+    }
 
 
 # ─── Playlist recovery (tables 7 + 8) ──────────────────────────────────────
@@ -750,14 +849,28 @@ def read_pdb(path: PathLike) -> PdbReport:
     try:
         with open(p, "rb") as fh:
             pointers = _read_table_pointers(fh, num_tables)
-            tracks = _read_tracks_table(fh, page_size, pointers)
+            # export.pdb has 20 tables; exportExt.pdb has 9 and a DIFFERENT set under the same type numbers, so
+            # only the main schema's decoders may run on it. An extension file is counted generically, never decoded.
+            main_schema = not p.name.lower().startswith("exportext")
+            tracks = _read_tracks_table(fh, page_size, pointers) if main_schema else []
+            if main_schema:
+                report.keys = _read_name_table(fh, page_size, pointers, TABLE_TYPE_KEYS)
+                report.artists = _read_name_table(fh, page_size, pointers, TABLE_TYPE_ARTISTS)
+                report.albums = _read_name_table(fh, page_size, pointers, TABLE_TYPE_ALBUMS)
+                report.genres = _read_name_table(fh, page_size, pointers, TABLE_TYPE_GENRES)
+                report.labels = _read_name_table(fh, page_size, pointers, TABLE_TYPE_LABELS)
+            report.table_row_counts = _count_table_rows(fh, page_size, pointers, named=main_schema)
+        for track in tracks:
+            track.artist = report.artists.get(track.artist_id) if track.artist_id is not None else None
+            track.key = report.keys.get(track.key_id) if track.key_id is not None else None
         report.tracks = tracks
         report.partial = False
         report.notes.append(
-            f"Extracted {len(tracks)} track row(s) via the documented (not "
-            "hardware-verified) page/row walker — see module docstring "
-            "HONESTY LIMIT. artist/key names are unresolved (raw "
-            "artist_id/key_id are populated on each TrackRow instead)."
+            f"Extracted {len(tracks)} track row(s). The row index layout and the track, key, artist, "
+            "album, genre and label tables are verified against one real Rekordbox export "
+            "(tests/fixtures/rekordbox_21track_export/); other tables are counted but not decoded."
+            if main_schema else
+            "Extension file (a different table set): rows are counted per table but not decoded."
         )
         logger.info(
             "Parsed PDB tracks table %s: %d row(s) recovered",

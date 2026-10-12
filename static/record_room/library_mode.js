@@ -187,7 +187,7 @@ async function leFsBrowse(path) {
     if (!res.ok) throw new Error(await res.text());
     data = await res.json();
   } catch (e) {
-    trackList.innerHTML = `<div class="le-empty-state"><div>⚠ Could not load: ${e.message}</div></div>`;
+    trackList.innerHTML = `<div class="le-empty-state"><div>⚠ Could not load: ${_esc(e.message)}</div></div>`;
     return;
   }
 
@@ -196,7 +196,11 @@ async function leFsBrowse(path) {
   // ── Platform volume root — render drive picker cards ───────────────────
   if (data.is_volumes_root) {
     if (folderList) folderList.innerHTML = '';
-    const vols = data.volumes || [];
+    const allVols = data.volumes || [];
+    const hiddenDrives = typeof fgPruneHiddenDrives === 'function'
+      ? fgPruneHiddenDrives(allVols.map(v => v.path))
+      : new Set();
+    const vols = allVols.filter(v => !hiddenDrives.has(v.path));
     if (!vols.length) {
       trackList.innerHTML = '<div class="le-empty-state"><div class="le-empty-music-icon">💿</div><div>No external drives found</div></div>';
       return;
@@ -207,14 +211,14 @@ async function leFsBrowse(path) {
       const totalStr = v.total_gb != null ? `/ ${v.total_gb} GB` : '';
       const rec = v.recommended_home ? '<span class="le-vol-badge" title="Largest detected library">Recommended</span>' : '';
       const countStr = v.audio_estimate > 0 ? `${v.audio_estimate.toLocaleString()} audio files` : 'No music files found';
-      return `<div class="le-vol-card" onclick="leFsBrowse('${_escPath(v.path)}')" title="Browse ${_esc(v.name)}">
+      return `<div class="le-vol-card" data-path="${_escAttr(v.path)}" data-name="${_escAttr(v.name)}" onclick="leFsBrowse(this.dataset.path)" title="Browse ${_esc(v.name)}">
         <div class="le-vol-icon">💿</div>
         <div class="le-vol-name">${_esc(v.name)}</div>
         <div class="le-vol-meta">${countStr}</div>
         <div class="le-vol-disk">${freeStr}${freeStr && totalStr ? ' ' : ''}${totalStr}</div>
         ${pioneer}
         ${rec}
-        <button type="button" class="le-vol-stage-btn" onclick="event.stopPropagation(); stagingAddPath('${_escAttr(v.path)}')" title="Stage entire drive for Chop Shop">+ Queue</button>
+        <button type="button" class="le-vol-stage-btn" data-path="${_escAttr(v.path)}" onclick="event.stopPropagation(); stagingAddPath(this.dataset.path)" title="Stage entire drive for Chop Shop">+ Queue</button>
       </div>`;
     }).join('') + '</div>';
     const recommended = vols.find(v => v.recommended_home) || vols[0];
@@ -231,9 +235,9 @@ async function leFsBrowse(path) {
   if (folderList) {
     let crumbHtml = '';
     if (data.parent) {
-      crumbHtml += `<div class="le-fs-up" onclick="leFsBrowse('${_escPath(data.parent)}')">↑ Up</div>`;
+      crumbHtml += `<div class="le-fs-up" data-path="${_escAttr(data.parent)}" onclick="leFsBrowse(this.dataset.path)">↑ Up</div>`;
     }
-    crumbHtml += `<div class="le-fs-crumb-path" title="${data.path}">${data.path.replace(data.music_root, '⌂')}</div>`;
+    crumbHtml += `<div class="le-fs-crumb-path" title="${_escAttr(data.path)}">${_esc(data.path.replace(data.music_root, '⌂'))}</div>`;
 
     // Fetch immediate subdirs separately so sidebar stays navigable.
     let dirsHtml = '';
@@ -242,11 +246,11 @@ async function leFsBrowse(path) {
       if (dirRes.ok) {
         const dirData = await dirRes.json();
         dirsHtml = (dirData.subdirs || []).map(d => `
-          <div class="le-tree-item le-fs-dir" onclick="leFsBrowse('${_escPath(d.path)}')">
+          <div class="le-tree-item le-fs-dir" data-path="${_escAttr(d.path)}" onclick="leFsBrowse(this.dataset.path)">
             <span class="le-tree-icon">📁</span>
             <span class="le-tree-label">${_esc(d.name)}</span>
             <span class="le-tree-count">${d.audio_count || ''}</span>
-            <button type="button" class="le-stage-folder-btn" onclick="event.stopPropagation(); stagingAddPath('${_escAttr(d.path)}')" title="Stage folder for Chop Shop">+Q</button>
+            <button type="button" class="le-stage-folder-btn" data-path="${_escAttr(d.path)}" onclick="event.stopPropagation(); stagingAddPath(this.dataset.path)" title="Stage folder for Chop Shop">+Q</button>
           </div>
         `).join('');
       }
@@ -285,7 +289,7 @@ function _leFsTrackRow(t, idx) {
         <button type="button" class="le-play-btn fs-play-btn" data-path="${safePath}" title="Play">▶</button>
       </div>
       <div class="le-col le-col-stage">
-        <button type="button" class="le-stage-btn" onclick="stagingAddPath('${safePath}')" title="Stage for Chop Shop">+Q</button>
+        <button type="button" class="le-stage-btn" data-path="${safePath}" onclick="stagingAddPath(this.dataset.path)" title="Stage for Chop Shop">+Q</button>
       </div>
       <div class="le-col le-col-num">${idx + 1}</div>
       <div class="le-col le-col-art"><img class="le-art-fallback" src="/static/icon-logo-fablegear.png" alt=""></div>

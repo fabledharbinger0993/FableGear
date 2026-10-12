@@ -34,8 +34,8 @@ from typing import Any
 
 # ─── Sync state ───────────────────────────────────────────────────────────────
 #
-# The structured replacement for routes_mobile.py's hand-built db_note string
-# and `status = "complete_partial" if db_note else "complete"`.
+# The structured replacement for a hand-built db_note string and
+# `status = "complete_partial" if db_note else "complete"`.
 #
 # Anvil itself only ever returns FILE_ONLY: it wrote the file and computed the
 # companion, and that is the whole of its job. A caller that goes on to apply
@@ -102,18 +102,27 @@ class TrackFields:
 
 # ─── Database companion ───────────────────────────────────────────────────────
 
+# Rekordbox shows tempos up to 999.99; anything outside (0, 999.99] is not a tempo.
+MAX_DB_BPM = 999.99
+
+
 def bpm_to_db(bpm: float | None) -> int | None:
-    """BPM as Rekordbox stores it (centi-BPM int); None for None/0/non-finite."""
+    """BPM as Rekordbox stores it (centi-BPM int).
+
+    None for None, zero, negative, non-finite or implausibly large values (> 999.99), so a bad number
+    can never reach a database, and never raises (the bound is checked before the multiply, so a huge
+    finite value cannot overflow).
+    """
     if bpm is None:
         return None
     try:
         value = float(bpm)
     except (TypeError, ValueError):
         return None
-    scaled = value * 100
-    if not math.isfinite(scaled) or scaled < 0.5:
+    if not math.isfinite(value) or value <= 0 or value > MAX_DB_BPM:
         return None
-    return round(scaled)
+    res = round(value * 100)
+    return res if res > 0 else None
 
 
 def bpm_from_db(centi_bpm: int | None) -> float:

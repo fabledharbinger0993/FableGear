@@ -61,6 +61,7 @@ import sqlcipher3
 from anvil.schema import bpm_to_db
 
 from .database import FableGearDatabase
+from .tag_fallback import fill_missing_from_tags as _fill_missing_from_tags
 
 log = logging.getLogger(__name__)
 
@@ -355,6 +356,8 @@ class OneLibraryWriter:
 
                     content_id = next_content_id
                     next_content_id += 1
+
+                    _fill_missing_from_tags(track)
 
                     genre_id = genres.get(track.genre)
                     artist_id = artists.get(track.artist)

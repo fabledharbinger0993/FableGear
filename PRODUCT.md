@@ -25,7 +25,6 @@ Everything runs on the user's Mac: no cloud service, no account/login, no teleme
 - Two workspaces: **Record Room** (database-layer tools — browse, audit, import, fix paths, link/manage playlists, consolidate duplicate DB records, Pioneer USB export) and **Chop Shop** (file-layer tools — tag, dedupe by acoustic fingerprint, rename, organize, normalize loudness, convert format, scan for novel tracks on other drives).
 - **Pipeline Wizard** chains Chop Shop tools into one run (auto mode or confirm-between-steps).
 - **Health Monitor** runs at startup/on demand checking for risky conditions (Rekordbox running, iCloud/Dropbox syncing the library, disk space, symlinked DB, etc.).
-- **FableGo** is a mobile companion web UI reachable over local Wi-Fi (or Tailscale remotely) for browsing/playlist management/triggering jobs from a phone; requires the desktop app running.
 - Rekordbox itself must be closed before any write operation; this is enforced, not just advised.
 
 ## Capabilities and Constraints
@@ -38,7 +37,7 @@ Everything runs on the user's Mac: no cloud service, no account/login, no teleme
 ## Brand Commitments
 
 - Product name: FableGear. Built by Guthrie Entertainment LLC.
-- Existing internal code nicknames for subsystems (seen in source comments, not necessarily user-facing): "The Media Pit" (player/library routes), "The Butcher Shop" (Chop Shop tool routes), "The Zombie Machine" (Rekordbox audit/import/link routes), "The Overlord" (mobile/FableGo routes). Treat these as backend-only flavor unless the user confirms they should surface in UI.
+- Existing internal code nicknames for subsystems (seen in source comments, not necessarily user-facing): "The Media Pit" (player/library routes), "The Butcher Shop" (Chop Shop tool routes), "The Zombie Machine" (Rekordbox audit/import/link routes). Treat these as backend-only flavor unless the user confirms they should surface in UI.
 - Existing visual assets under `static/`: app icon, dock icon, per-tool icons (organizer, renamer, deduper, normalizer, converter, novelty, track-tagger, studio, drives, queue, settings, record-room, chop-shop), splash video. A per-tool icon system is already an established pattern to preserve/extend, not invent fresh.
 
 ## Evidence on Hand

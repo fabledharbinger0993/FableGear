@@ -338,7 +338,6 @@ def test_integration_real_scanner_imports_wav(tmp_path, monkeypatch):
         "device_db": str(home / "device.db"),
         "music_root": str(music),
         "backup_dir": str(backups),
-        "mobile_token": "test-token",
     }))
 
     monkeypatch.setenv("HOME", str(home))

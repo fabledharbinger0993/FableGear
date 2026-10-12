@@ -21,7 +21,10 @@ from pyrekordbox import AnlzFile
 from pyrekordbox.anlz import structs
 from pyrekordbox.anlz.tags import PCO2AnlzTag, PCOBAnlzTag, PPTHAnlzTag, PQTZAnlzTag
 
+from anvil.schema import bpm_to_db
+
 from .database import ContentRecord, FableGearDatabase
+from .tag_fallback import fill_missing_from_tags
 
 log = logging.getLogger(__name__)
 
@@ -257,6 +260,9 @@ class PioneerExporter:
                 log.error("Track with ID %d not found in database", content_id)
                 return False
             track = tracks[0]
+            # A track that was only tagged has no BPM in the library; use the file's tag so it
+            # still gets a beat grid (the library value, when present, always wins).
+            fill_missing_from_tags(track)
 
             # 2. Derive export paths
             # Subdirectory path: PIONEER/USBANLZ/P{prefix}/{hex_id}/

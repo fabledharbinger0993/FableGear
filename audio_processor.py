@@ -4,8 +4,9 @@ fablegear / audio_processor.py
 Analyses and normalises audio files in-place. No database interaction.
 
 Operations per file (each independently skippable):
-1. BPM detection via essentia RhythmExtractor2013 when available (much more
-   accurate; falls back to librosa beat tracking), written to TBPM tag
+1. BPM detection via Iron (FableGear's own detector, iron/), falling back to
+   essentia RhythmExtractor2013 if present, then librosa beat tracking;
+   written to TBPM tag
 2. Key detection via librosa chroma + Krumhansl-Schmuckler, written to TKEY (Camelot)
 3. Loudness + true-peak check via ffmpeg's loudnorm filter (EBU R128 measurement)
 4. Normalisation via ffmpeg volume filter if outside tolerance, gain capped so
@@ -42,6 +43,7 @@ import soundfile as sf
 from mutagen import File as MutagenFile
 from mutagen.id3 import TBPM, TKEY
 
+import anvil
 from config import (
     AUDIO_EXTENSIONS,
     BPM_MAX,
@@ -89,13 +91,16 @@ class ProcessResult:
     path: Path
     bpm_detected: float | None = None
     bpm_written: bool = False
-    # Beat-tracker agreement, 0-~5 (essentia only; None on the librosa path).
-    # Low values flag grids worth eyeballing before a gig — it catches some but
-    # not all errors, notably not half-time reads on genuinely fast tracks.
+    # Detector confidence. NOT one scale: Iron reports 0-1 (margin over the best
+    # unrelated rival tempo; >= 0.3 was right ~99% of the time), essentia 0-~5
+    # (beat-tracker agreement), librosa None. Interpret it together with
+    # bpm_source. Low values flag grids worth eyeballing before a gig.
     bpm_confidence: float | None = None
-    bpm_source: str = ""             # "essentia" | "librosa" | "" (not run)
+    bpm_source: str = ""             # "iron" | "essentia" | "librosa" | "" (not run)
     key_detected: str | None = None
     key_written: bool = False
+    key_source: str = ""             # "iron" | "librosa" | "" (not run)
+    tag_backend: str = ""            # "anvil" | "mutagen" (fallback for containers Anvil refuses)
     loudness_before: float | None = None
     loudness_after: float | None = None
     normalised: bool = False
@@ -273,6 +278,51 @@ def _essentia_available() -> bool:
             )
             _ESSENTIA_OK = False
     return _ESSENTIA_OK
+
+
+def _iron_available() -> bool:
+    """Whether Iron can run: it imports and an ffmpeg binary exists (it decodes via ffmpeg)."""
+    try:
+        import iron  # noqa: F401
+        from iron import api as _iron_api
+    except Exception:
+        return False
+    ff = _iron_api._FFMPEG
+    return bool(shutil.which(ff) or Path(ff).exists())
+
+
+def _analyze_iron(path: Path, *, bpm: bool, key: bool) -> "tuple[tuple[float, float] | None, str | None]":
+    """((bpm, confidence 0-1) or None, Camelot key or None) from ONE Iron pass.
+
+    Iron is FableGear's own analysis package (iron/); asking for BPM and key
+    together decodes the file once. Either half comes back None on decode
+    failure or no usable answer, and the caller falls back for that half only
+    (BPM: essentia, then librosa; key: librosa).
+
+    Measured on real tracks against Rekordbox's own analysis (docs/IRON_RESEARCH.md
+    §16): tempo 91.3% MIREX / 80.5% exact on a BPM- and genre-stratified set, 100%
+    exact on a 200-track house-heavy set; key 28-33% exact Camelot -- below
+    librosa's measured 62%, accepted deliberately so FableGear runs on its own
+    tools while key detection is improved.
+    """
+    want = tuple(name for name, on in (("bpm", bpm), ("initial_key", key)) if on)
+    if not want or not _iron_available():
+        return None, None
+    try:
+        import iron
+        got = iron.analyze(path, want=want, bpm_min=BPM_MIN, bpm_max=BPM_MAX)
+    except Exception as e:
+        log.warning("Iron analysis failed for %s (%s) — falling back", path.name, e)
+        return None, None
+    if got.errors:
+        log.warning("Iron reported for %s: %s", path.name, "; ".join(got.errors))
+    tempo = (round(got.bpm, 2), round(got.bpm_confidence or 0.0, 2)) if bpm and got.bpm is not None else None
+    return tempo, (got.initial_key if key else None)
+
+
+def _detect_bpm_iron(path: Path) -> "tuple[float, float] | None":
+    """(bpm, confidence 0-1) from Iron alone -- see _analyze_iron."""
+    return _analyze_iron(path, bpm=True, key=False)[0]
 
 
 def _detect_bpm_essentia(path: Path) -> "tuple[float, float] | None":
@@ -896,8 +946,54 @@ def extract_embedded_art(path: Path) -> tuple[bytes, str] | None:
 
 # ─── Tag writing ──────────────────────────────────────────────────────────────
 
-def _write_tags(path: Path, bpm: float | None, key: str | None) -> None:
-    """Write BPM and/or key to file tags via mutagen. Raises on failure."""
+def _fields_via_mutagen(audio) -> anvil.TrackFields:
+    """BPM/key from a mutagen-opened file, for containers Anvil refuses."""
+    tags = audio.tags
+    if tags is None:
+        return anvil.TrackFields()
+
+    def first(*keys: str) -> str | None:
+        for k in keys:
+            try:
+                v = tags.get(k)
+            except (KeyError, ValueError):
+                continue
+            if v:
+                v = v[0] if isinstance(v, list) else v
+                text = str(v.text[0] if hasattr(v, "text") else v).strip()
+                if text:
+                    return text
+        return None
+
+    bpm = first("TBPM", "bpm", "tmpo")
+    try:
+        bpm_value = float(bpm) if bpm else None
+    except ValueError:
+        bpm_value = None
+    return anvil.TrackFields(bpm=bpm_value, initial_key=first("TKEY", "initialkey", "----:com.apple.iTunes:initialkey"))
+
+
+def _write_tags(path: Path, bpm: float | None, key: str | None) -> str:
+    """Write BPM and/or key via Anvil (FableGear's own tag I/O, anvil/). Raises on failure.
+
+    Returns the backend used. Anvil verifies every write by reading it back,
+    keeps other tools' fields (and their spellings) intact, and stores BPM as the
+    spec's integer TBPM plus a full-precision companion. Containers Anvil does
+    not support fall back to mutagen, logged so the fallback rate is visible.
+    """
+    fields = anvil.TrackFields(bpm=bpm, initial_key=key)
+    force = {name for name, value in (("bpm", bpm), ("initial_key", key)) if value is not None}
+    try:
+        anvil.write_fields(path, fields, force=force)
+        return "anvil"
+    except anvil.UnsupportedFormat as e:
+        log.info("Anvil can't write %s (%s) — using mutagen", path.name, e)
+        _write_tags_mutagen(path, bpm=bpm, key=key)
+        return "mutagen"
+
+
+def _write_tags_mutagen(path: Path, bpm: float | None, key: str | None) -> None:
+    """Fallback for containers Anvil refuses (e.g. FLAC-in-Ogg). Raises on failure."""
     audio = MutagenFile(str(path), easy=False)
     if audio is None:
         raise RuntimeError(f"mutagen could not open {path.name}") from None
@@ -964,58 +1060,69 @@ def process_file(
         result.errors.append(f"unsupported extension: {path.suffix}")
         return result
 
+    # Existing tags decide what still needs detecting. Anvil reads them; a
+    # tagless file is fine (Anvil creates the tag block on first write).
+    #
+    # If Anvil refuses a file (unsupported container, or a header it judges
+    # damaged) mutagen gets a turn before anything is called unreadable: these
+    # error strings feed _CORRUPT_ERRORS, which can QUARANTINE (move) the file,
+    # and Anvil is stricter than mutagen -- e.g. an m4a truncated by 811 bytes
+    # that ffmpeg plays fine. Writes stay strict: Anvil won't write into a
+    # container it judges damaged.
+    existing: anvil.TrackFields | None = None
     try:
-        audio = MutagenFile(str(path), easy=False)
+        existing = anvil.read_fields(path)
+        result.tag_backend = "anvil"
+    except anvil.AnvilError as anvil_err:
+        try:
+            audio = MutagenFile(str(path), easy=False)
+        except Exception as e:
+            result.errors.append(f"could not read tags: {e}")
+            audio = False
         if audio is None:
-            result.errors.append("mutagen could not open file (unsupported format)")
+            result.errors.append("unrecognized format: neither Anvil nor mutagen could open file")
             return result
-        # If the file has no tag block yet, create one now so we can write to it.
-        if audio.tags is None:
-            try:
-                audio.add_tags()
-                log.info("Created new tag block for tagless file: %s", path.name)
-            except Exception as e:
-                # Some formats (e.g. WAV) may need special handling — log and continue
-                log.warning("Could not add tags to %s (%s: %s) — will attempt write anyway", path.name, type(e).__name__, e)
-        tags = audio.tags
+        if audio:
+            log.info("Anvil can't read %s (%s) — read via mutagen", path.name, anvil_err)
+            result.tag_backend = "mutagen"
+            existing = _fields_via_mutagen(audio)
     except Exception as e:
         result.errors.append(f"could not read tags: {e}")
-        tags = None
 
-    tag_type = type(tags).__name__ if tags else ""
-    is_vorbis = "VCFLACDict" in tag_type or "VComment" in tag_type
-
-    def _existing(id3_key: str, vorbis_key: str) -> bool:
-        if tags is None:
-            return False
-        if is_vorbis:
-            val = tags.get(vorbis_key.lower())
-            # Treat empty string or "0" as absent so force=False still writes
-            return bool(val) and str(val[0] if isinstance(val, list) else val).strip() not in ("", "0")
-        frame = tags.get(id3_key)
-        return frame is not None and str(frame).strip() not in ("", "0")
+    def _existing(name: str) -> bool:
+        # Treat empty, whitespace, or zero as absent so force=False still writes.
+        value = getattr(existing, name, None) if existing is not None else None
+        return value is not None and str(value).strip() not in ("", "0", "0.0")
 
     # ── Load audio once for BPM + key (shared decode) ──
     # Per-effect force: the global `force` still forces both (back-compat).
     _force_bpm = force or force_bpm
     _force_key = force or force_key
-    needs_bpm = detect_bpm and not (_existing("TBPM", "bpm") and not _force_bpm)
-    needs_key = detect_key and not (_existing("TKEY", "initialkey") and not _force_key)
-    # essentia reads the file itself at full rate, so try it before deciding
-    # whether the shared 90 s decode is needed at all. Its result (or failure)
-    # is what determines whether the librosa fallback still has to run.
+    needs_bpm = detect_bpm and not (_existing("bpm") and not _force_bpm)
+    needs_key = detect_key and not (_existing("initial_key") and not _force_key)
+    # Detector order: Iron (ours) -> essentia (optional) -> librosa. Iron and
+    # essentia each read the file themselves, so try them before deciding whether
+    # the shared 90 s decode is needed at all. Whichever result (or failure)
+    # comes back determines whether a fallback still has to run.
+    # One Iron pass covers BPM and key together (a single decode).
+    iron_tempo, iron_key = _analyze_iron(path, bpm=needs_bpm, key=needs_key)
     _es_bpm: float | None = None
-    if needs_bpm and _essentia_available():
-        got = _detect_bpm_essentia(path)
+    if needs_bpm:
+        got = iron_tempo
+        if got is not None:
+            result.bpm_source = "iron"
+        elif _essentia_available():
+            got = _detect_bpm_essentia(path)
+            if got is not None:
+                result.bpm_source = "essentia"
         if got is not None:
             _es_bpm, result.bpm_confidence = got
-            result.bpm_source = "essentia"
 
-    # Key always needs the decode; BPM needs it only as the librosa fallback,
-    # i.e. when essentia is absent or came back empty. A BPM-only run where
-    # essentia succeeded skips the decode entirely.
+    # The shared decode feeds only the librosa fallbacks: key when Iron found
+    # none, BPM when Iron and essentia both came back empty. When Iron answered
+    # everything that was asked, nothing decodes twice.
     _audio: tuple[np.ndarray, int] | None = None
-    if needs_key or (needs_bpm and _es_bpm is None):
+    if (needs_key and iron_key is None) or (needs_bpm and _es_bpm is None):
         _audio = _load_audio_ffmpeg(path)
         if _audio is None:
             result.errors.append("audio decode failed — BPM/key analysis skipped")
@@ -1025,12 +1132,12 @@ def process_file(
         if not needs_bpm:
             result.skipped_bpm = True
         else:
-            # essentia already ran above (it decides whether _audio was even
-            # loaded); librosa stands in when essentia is absent or came back
-            # empty, so a per-file essentia failure still yields a BPM.
-            # --fix-octaves only reaches the librosa path: essentia resolves
-            # the octave from the signal, so folding its answer would be a
-            # heuristic overriding a better measurement.
+            # Iron/essentia already ran above (they decide whether _audio was
+            # even loaded); librosa stands in when both are absent or came back
+            # empty, so a per-file failure still yields a BPM.
+            # --fix-octaves only reaches the librosa path: Iron and essentia
+            # resolve the octave from the signal, so folding their answer would
+            # be a heuristic overriding a better measurement.
             bpm = _es_bpm
             if bpm is None and _audio is not None:
                 bpm = _detect_bpm(*_audio, path.name, fix_octaves=fix_octaves)
@@ -1040,7 +1147,7 @@ def process_file(
             result.bpm_detected = bpm
             if bpm is not None:
                 try:
-                    _write_tags(path, bpm=bpm, key=None)
+                    result.tag_backend = _write_tags(path, bpm=bpm, key=None) or result.tag_backend
                     result.bpm_written = True
                     log.info("BPM written: %.1f → %s  (%s%s)", bpm, path.name,
                              result.bpm_source,
@@ -1053,12 +1160,18 @@ def process_file(
     if detect_key:
         if not needs_key:
             result.skipped_key = True
-        elif _audio is not None:
-            key = _detect_key(*_audio, path.name)
+        else:
+            key = iron_key
+            if key is not None:
+                result.key_source = "iron"
+            elif _audio is not None:
+                key = _detect_key(*_audio, path.name)
+                if key is not None:
+                    result.key_source = "librosa"
             result.key_detected = key
             if key is not None:
                 try:
-                    _write_tags(path, bpm=None, key=key)
+                    result.tag_backend = _write_tags(path, bpm=None, key=key) or result.tag_backend
                     result.key_written = True
                     log.info("KEY written: %s → %s", key, path.name)
                 except Exception as e:

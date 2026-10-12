@@ -6,14 +6,10 @@ via yt-dlp. Each download runs as a background daemon thread.
 
 Job lifecycle:  queued → downloading → converting → importing → done / failed
 
-Progress events are broadcast to all connected WebSocket clients via ws_bus so
-the FableGo mobile web app gets live updates without polling.
-
 After a successful download the file is auto-imported into the Rekordbox DB.
 Import failure is non-fatal — the file is on disk and can be imported manually.
 """
 
-import json
 import logging
 import shutil
 import subprocess
@@ -161,32 +157,17 @@ def cancel_job(job_id: str) -> bool:
                 # it so a lingering process isn't a total mystery later.
                 log.warning("cancel_job: could not kill yt-dlp process for job %s: %s", job_id, exc)
 
-    try:
-        from ws_bus import broadcast
-        with _LOCK:
-            snapshot = dict(_JOBS.get(job_id, {}))
-        if snapshot:
-            broadcast(json.dumps({"type": "download_update", "job": snapshot}))
-    except Exception as exc:
-        log.debug("cancel_job broadcast failed: %s", exc)
-
     return True
 
 
 # ─── Internal helpers ─────────────────────────────────────────────────────────
 
 def _update(job_id: str, **kwargs) -> None:
-    """Mutate job fields and broadcast the update to all WebSocket clients."""
-    try:
-        from ws_bus import broadcast
-        with _LOCK:
-            if job_id not in _JOBS:
-                return
-            _JOBS[job_id].update(kwargs)
-            snapshot = dict(_JOBS[job_id])
-        broadcast(json.dumps({"type": "download_update", "job": snapshot}))
-    except Exception as exc:
-        log.debug("_update broadcast failed: %s", exc)
+    """Mutate job fields."""
+    with _LOCK:
+        if job_id not in _JOBS:
+            return
+        _JOBS[job_id].update(kwargs)
 
 
 def _find_ytdlp() -> str:

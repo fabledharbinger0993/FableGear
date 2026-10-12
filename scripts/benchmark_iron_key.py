@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Benchmark Iron's key detector against real Rekordbox ground truth (DjmdContent.KeyName),
-and A/B it against the pre-CQT linear-chroma path in the same run -- an ablation, same
+and A/B it against the previous (pre-§18: CQT chroma + Krumhansl-Kessler) detector in the same run -- an ablation, same
 pattern as scripts/ablate_genre_bands.py, so drift in library composition between two
 separate runs can't confound the before/after comparison.
 
@@ -21,10 +21,17 @@ import sys
 from pathlib import Path
 from unittest import mock
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import iron
 from iron import key
+
+# Krumhansl & Kessler (1982) profiles, used by iron/key.py before §18 -- kept here only so
+# this script can A/B against the previous detector.
+_KS_MAJOR = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
+_KS_MINOR = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
 
 _ENHARMONIC = {"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#"}
 
@@ -92,45 +99,47 @@ def main(argv: list[str] | None = None) -> int:
     if args.limit:
         truth = truth[: args.limit]
 
-    print(f"Comparing {len(truth)} tracks (CQT chroma vs. pre-CQT linear chroma)...\n",
+    print(f"Comparing {len(truth)} tracks (current detector vs. pre-SS18 CQT+KS detector)...\n",
           flush=True)
 
-    cqt_pairs: list[tuple[str, str]] = []
-    linear_pairs: list[tuple[str, str]] = []
+    new_pairs: list[tuple[str, str]] = []
+    old_pairs: list[tuple[str, str]] = []
     undetected = 0
 
     for i, (path, true_camelot) in enumerate(truth, 1):
         try:
-            cqt_result = iron.analyze(path, want=("initial_key",))
-            cqt_key = cqt_result.initial_key
+            new_result = iron.analyze(path, want=("initial_key",))
+            new_key = new_result.initial_key
         except Exception as e:
-            cqt_key = None
+            new_key = None
             print(f"  error on {path.name}: {e}", file=sys.stderr)
 
-        with mock.patch.object(key.dsp, "chroma_cqt", key.dsp.chroma):
+        # The pre-§18 detector: power CQT chroma + Krumhansl-Kessler profiles.
+        with mock.patch.multiple(key, _chroma=key.dsp.chroma_cqt,
+                                 PROFILE_MAJOR=_KS_MAJOR, PROFILE_MINOR=_KS_MINOR):
             try:
-                linear_result = iron.analyze(path, want=("initial_key",))
-                linear_key = linear_result.initial_key
+                old_result = iron.analyze(path, want=("initial_key",))
+                old_key = old_result.initial_key
             except Exception:
-                linear_key = None
+                old_key = None
 
-        if cqt_key is None and linear_key is None:
+        if new_key is None and old_key is None:
             undetected += 1
             continue
-        if cqt_key is not None:
-            cqt_pairs.append((cqt_key, true_camelot))
-        if linear_key is not None:
-            linear_pairs.append((linear_key, true_camelot))
+        if new_key is not None:
+            new_pairs.append((new_key, true_camelot))
+        if old_key is not None:
+            old_pairs.append((old_key, true_camelot))
 
         if i % 10 == 0 or i == len(truth):
             print(f"  [{i}/{len(truth)}]", flush=True)
 
     print("\n" + "=" * 60)
-    print("IRON KEY BENCHMARK -- CQT chroma vs. pre-CQT linear chroma")
+    print("IRON KEY BENCHMARK -- current vs. pre-SS18 (CQT chroma + KS profiles)")
     print("=" * 60)
     print(f"Compared: {len(truth)}   no result from either path: {undetected}")
-    print(f"exact Camelot match -- CQT chroma:    {_accuracy(cqt_pairs):.1%}  (n={len(cqt_pairs)})")
-    print(f"exact Camelot match -- linear chroma: {_accuracy(linear_pairs):.1%}  (n={len(linear_pairs)})")
+    print(f"exact Camelot match -- current:        {_accuracy(new_pairs):.1%}  (n={len(new_pairs)})")
+    print(f"exact Camelot match -- pre-SS18 CQT+KS: {_accuracy(old_pairs):.1%}  (n={len(old_pairs)})")
     print()
     print("Historical reference (docs/IRON_RESEARCH.md \xa72.1, 130-track sample):")
     print("  Iron (pre-CQT, linear chroma): 18.5% exact match vs Rekordbox")

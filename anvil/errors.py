@@ -49,3 +49,14 @@ class WriteVerificationFailed(AnvilError):
     after the atomic rename, so the failure means the new file is wrong, not
     that the old one was damaged.
     """
+
+
+class WriteFailed(AnvilError, OSError):
+    """
+    The operating system refused the write -- a Finder-locked (uchg) file, a
+    read-only volume, missing permissions. The original file is untouched.
+
+    Also an OSError so code that already catches OSError keeps working; the
+    point is that a caller catching AnvilError no longer misses it.
+    """
+

@@ -334,6 +334,11 @@ def _classify_key_error(detected: str, true_camelot: str) -> str:
         return "relative major/minor (same number, other letter)"
     if dl == tl and (dn - tn) % 12 in (1, 11):
         return "adjacent (perfect-fifth neighbor, same letter +-1)"
+    # Parallel = same tonic, other mode (A minor 8A <-> A major 11B): the major's Camelot
+    # number is always the minor's + 3.
+    major_n, minor_n = (dn, tn) if dl == "B" else (tn, dn)
+    if dl != tl and (major_n - minor_n) % 12 == 3:
+        return "parallel (same tonic, other mode)"
     return "random (no near-miss relationship)"
 
 
@@ -421,14 +426,28 @@ def _key_accuracy(rows: list[dict]) -> dict[str, float]:
     # as _tempo_accuracy: total-vs-n distinguishes "Iron returned no key" from "wrong key".
     has_truth = [r for r in rows if r["true_camelot"] is not None]
     total = len(has_truth)
-    pairs = [(r["detected_camelot"], r["true_camelot"]) for r in has_truth if r["detected_camelot"] is not None]
+    pairs: list[tuple[str, str]] = [
+        (r["detected_camelot"], r["true_camelot"]) for r in has_truth if r["detected_camelot"] is not None
+    ]
     undetected = total - len(pairs)
     undetected_rate = (undetected / total) if total else 0.0
+    #
+    # `exact` divides by detected tracks only, so on its own it would flatter a detector that
+    # declines hard tracks; `exact_of_total` and `mirex_weighted` divide by every track with
+    # truth (an undetected track scores 0). MIREX weights: exact 1.0, fifth 0.5, relative 0.3,
+    # parallel 0.2 -- fifths counted in both directions (Camelot +-1), which some
+    # implementations (e.g. mir_eval) don't.
     if not pairs:
-        return {"n": 0, "exact": 0.0, "total": total, "undetected": undetected, "undetected_rate": undetected_rate}
+        return {"n": 0, "exact": 0.0, "exact_of_total": 0.0, "mirex_weighted": 0.0,
+                "total": total, "undetected": undetected, "undetected_rate": undetected_rate}
     exact = sum(1 for d, t in pairs if d == t)
+    weights = {"relative": 0.3, "adjacent": 0.5, "parallel": 0.2}
+    weighted = sum(
+        1.0 if d == t else weights.get(_classify_key_error(d, t).split(" ")[0], 0.0) for d, t in pairs
+    )
     return {
-        "n": len(pairs), "exact": exact / len(pairs),
+        "n": len(pairs), "exact": exact / len(pairs), "exact_of_total": exact / total,
+        "mirex_weighted": weighted / total,
         "total": total, "undetected": undetected, "undetected_rate": undetected_rate,
     }
 

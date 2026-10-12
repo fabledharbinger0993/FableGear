@@ -29,5 +29,6 @@ def test_unknown_duration_skips_intro(monkeypatch):
 
     monkeypatch.setattr(api.tempo_detect, "detect_tempo", fake_tempo)
     api.analyze(Path("x.wav"), want=("bpm",))
+    # body window of a 240 s track is 1/3..0.9 = 136 s, not the 90 s intro
     assert abs(seen["n"] / sr - 136.0) < 1.0
     assert seen["first"] == 80 * sr

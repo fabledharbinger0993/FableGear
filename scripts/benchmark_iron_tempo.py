@@ -41,6 +41,7 @@ def _ground_truth_from_rekordbox(db_path: Path | None) -> dict[Path, float]:
     import db_connection
 
     truth: dict[Path, float] = {}
+    skipped = 0
     with db_connection.read_db(db_path) as db:
         rows = db.query(tables.DjmdContent).with_entities(
             tables.DjmdContent.FolderPath, tables.DjmdContent.BPM
@@ -51,6 +52,11 @@ def _ground_truth_from_rekordbox(db_path: Path | None) -> dict[Path, float]:
             path = Path(folder_path)
             if path.exists():
                 truth[path] = bpm / 100.0  # DjmdContent.BPM is centi-BPM
+            else:
+                skipped += 1
+    if skipped:
+        print(f"note: {skipped} database tracks skipped -- file not found at its stored path "
+              f"(moved library? use --csv with re-matched paths)", file=sys.stderr)
     return truth
 
 

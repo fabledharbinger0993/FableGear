@@ -9,6 +9,7 @@ it means to and nothing else. Audio payloads and unrelated chunks are compared
 byte-for-byte before and after every write.
 """
 
+import os
 import struct
 from pathlib import Path
 
@@ -583,6 +584,24 @@ def test_orphan_cleanup(tmp_path):
     assert (tmp_path / "keep.mp3").exists()
 
 
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs a non-root POSIX user")
+def test_os_refusal_raises_write_failed_and_leaves_file_untouched(tmp_path):
+    """A write the OS refuses (here: a read-only directory, standing in for a Finder-locked
+    file or read-only volume) raises WriteFailed -- an AnvilError AND an OSError -- instead
+    of a bare PermissionError a caller catching AnvilError would miss."""
+    path = make_mp3(tmp_path)
+    before = path.read_bytes()
+    tmp_path.chmod(0o500)
+    try:
+        with pytest.raises(anvil.WriteFailed) as info:
+            anvil.write_fields(path, TrackFields(bpm=120.0))
+        assert isinstance(info.value, anvil.AnvilError)
+        assert isinstance(info.value, OSError)
+    finally:
+        tmp_path.chmod(0o700)
+    assert path.read_bytes() == before
+
+
 def test_bpm_db_helpers():
     import math
 
@@ -592,3 +611,14 @@ def test_bpm_db_helpers():
     assert bpm_to_db(math.nan) is None and bpm_to_db(math.inf) is None
     assert bpm_from_db(bpm_to_db(128.5)) == 128.5
     assert bpm_from_db(None) == 0.0
+
+
+@pytest.mark.parametrize("bad", [-120, -0.01, 0, 0.001, 1000, 1e308, float("inf"), float("-inf"), float("nan"), "fast", None])
+def test_bpm_to_db_rejects_anything_that_is_not_a_plausible_tempo(bad):
+    from anvil.schema import bpm_to_db
+    assert bpm_to_db(bad) is None  # never raises, never returns a negative or overflowed number
+
+
+def test_bpm_to_db_keeps_the_valid_range_exactly():
+    from anvil.schema import MAX_DB_BPM, bpm_to_db
+    assert bpm_to_db(0.01) == 1 and bpm_to_db(MAX_DB_BPM) == 99999 and bpm_to_db("128.5") == 12850

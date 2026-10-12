@@ -87,10 +87,10 @@ def main() -> int:
     print(f"decoded {len(decoded)}/{len(slow) + len(control)} tracks once, reusing for all ablations\n")
 
     print(f"{'ablation':16s} {'slow MIREX':>18s} {'control MIREX':>18s}")
-    results: dict[str, tuple] = {}
+    results: dict[str, dict[str, tuple[int, int]]] = {}
     for mode in MODES:
         _apply(mode)
-        counts = {}
+        counts: dict[str, tuple[int, int]] = {}
         for label, group in (("slow", slow), ("control", control)):
             ok = n = 0
             for r in group:

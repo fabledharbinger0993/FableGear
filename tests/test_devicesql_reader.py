@@ -1,8 +1,8 @@
 """
 Unit tests for chop_shop/devicesql_reader.py's file-header parsing.
 
-No export.pdb binary is committed to this repo (see module docstring
-HONESTY LIMIT), so these tests build a SYNTHETIC 16-byte header using the
+Most of these tests build a SYNTHETIC 16-byte header (a real Rekordbox export is now committed under
+tests/fixtures/rekordbox_21track_export/ and is checked by the last test in this file) using the
 real numbers documented in docs/format_samples/usb_format_inspection.md (page
 size 4096, 20 tables) — not a captured hardware file. Row-level parsing
 (tracks table page/row walk, string decoding) is covered separately in
@@ -116,3 +116,22 @@ def test_read_pdb_unreadable_file(tmp_path, monkeypatch):
     assert report.exists
     assert not report.readable
     assert "unreadable" in report.detail
+
+
+def test_real_rekordbox_export_fixture_header_parses():
+    """A genuine Rekordbox-written export that a CDJ-3000 (firmware 3.2x) loaded correctly.
+
+    Header-level facts only: row-level recovery of this file is not yet complete (see
+    docs/devicesql_export_writer.md, milestone 1), so no track count is asserted here.
+    """
+    from pathlib import Path
+
+    from chop_shop.devicesql_reader import read_pdb
+
+    root = Path(__file__).resolve().parent / "fixtures" / "rekordbox_21track_export" / "PIONEER" / "rekordbox"
+    main = read_pdb(root / "export.pdb")
+    assert main.valid_header is True
+    assert (main.page_size, main.num_tables, main.next_unused_page, main.file_size) == (4096, 20, 60, 241664)
+    ext = read_pdb(root / "exportExt.pdb")
+    assert ext.valid_header is True
+    assert (ext.page_size, ext.num_tables, ext.next_unused_page, ext.file_size) == (4096, 9, 21, 73728)

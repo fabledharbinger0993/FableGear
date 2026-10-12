@@ -19,6 +19,40 @@
 
 ---
 
+## First launch on a Mac: two things macOS will ask you for
+
+macOS protects you in two ways that you'll run into the first time you use FableGear. Both are normal, and neither means anything is wrong. Here's exactly where to click.
+
+### 1. Open the app the first time ("FableGear can't be opened")
+
+FableGear isn't signed with an Apple Developer certificate, so macOS blocks a freshly downloaded copy until you approve it once.
+
+1. **Double-click FableGear.app.** macOS shows a message that it can't verify the app. Click **Done** (or **OK**). Don't move it to the Trash.
+2. Click the **Apple menu** (the apple logo in the top-left corner of your screen), choose **System Settings**, then click **Privacy & Security** in the left sidebar. You may need to scroll the sidebar down to find it.
+3. Scroll down to the **Security** section. You'll see a message that FableGear was blocked. Click **Open Anyway**.
+4. Enter your Mac's **login password** (or use Touch ID) and click **OK**. FableGear opens, and you won't be asked again.
+
+> **Don't see Open Anyway?** The button only stays for about an hour after you try to open the app. If it's gone, double-click FableGear.app again, then go straight back to step 2.
+>
+> **On macOS 14 (Sonoma) or earlier,** you can also Control-click the app, choose **Open**, then click **Open** again. Newer macOS versions removed that shortcut, so use the steps above.
+
+The first time you open it, a **Terminal window** appears while FableGear sets itself up. That's expected; leave it open until it finishes. (Before your first launch, install the prerequisites listed under [Install](#install).)
+
+### 2. Let FableGear see your music and your Rekordbox library
+
+macOS keeps some folders, external drives and Library files private until you allow an app to use them. FableGear needs access to wherever your music and Rekordbox database live.
+
+- **When a pop-up asks**, such as *"FableGear would like to access files on a removable volume"* or *"...your Documents folder"*, click **Allow**. That's the easiest way.
+- **If you clicked Don't Allow, or FableGear says it can't read a folder or drive**, fix it in System Settings:
+  1. Open **System Settings → Privacy & Security**.
+  2. Click **Files & Folders**. Find **FableGear** in the list and turn on the locations it needs, such as **Removable Volumes** for external drives like a USB stick or a portable hard drive.
+- **If FableGear can't read your Rekordbox database**, its setup screen shows a *"Full Disk Access may be required"* notice with an **Open Settings** button. That takes you to **Privacy & Security → Full Disk Access**. Switch on **FableGear**. If **Terminal** is also in that list (FableGear's first-run setup runs there), switch it on too.
+- **Quit and reopen FableGear** after changing any of these. macOS only applies the new permission to an app the next time it starts.
+
+You can change any of this later in the same place. Turning access off simply stops FableGear from seeing that location.
+
+---
+
 ## What is FableGear?
 
 FableGear is a desktop app for DJs who use Rekordbox. It gives you tools to clean up, repair, and manage your music library that go beyond what Rekordbox offers on its own.
@@ -38,13 +72,11 @@ flowchart TD
     CS["Chop Shop"]
     PW["Pipeline Wizard"]
     HM["Health Monitor"]
-    GO["FableGo Mobile"]
 
     FG --> RR
     FG --> CS
     FG --> PW
     FG --> HM
-    FG --> GO
 
     RR1["Library Browser + Player"]
     RR2["Library Audit"]
@@ -106,13 +138,15 @@ These tools work on your physical audio files, not the Rekordbox database.
 
 | Tool | What it does |
 |---|---|
-| **Tag Tracks** | Analyzes your audio and writes BPM and musical key into the file's metadata tags. This means the info survives even if you rebuild your Rekordbox database or use the files outside Rekordbox. |
+| **Tag Tracks** | Analyzes your audio with FableGear's own detectors (Iron finds BPM, key and beat positions; Anvil reads and writes the tags) and saves BPM and musical key into the file's metadata. This means the info survives even if you rebuild your Rekordbox database or use the files outside Rekordbox. |
 | **Find and Prune Duplicates** | Uses acoustic fingerprinting to detect the same recording even when the filenames, formats, or bitrates are different. Not just a filename check -- it listens to the audio. |
 | **Rename Files** | Batch rename files using patterns or learned rules from example pairs. Shows you a preview before anything changes. |
 | **Organize Library** | Rebuilds your folder structure based on embedded metadata (artist, album, etc.). Handles album artist intelligently so featured artists don't create extra folders. |
 | **Normalize Loudness** | Measures loudness (EBU R128) and re-encodes tracks that fall outside your target level. Preview and backup included. |
 | **Convert Format** | Re-encodes a folder of audio files into a target format (e.g., FLAC to AIFF, WAV to MP3). |
 | **Novelty Scanner** | Scans another drive for tracks that are not already in your main library, based on acoustic fingerprints. Useful for finding new music across external drives or a friend's collection. |
+
+> **A note on accuracy.** BPM detection is the strongest part of the analysis. Key detection is a best guess and is wrong noticeably more often, so spot-check keys before you rely on them for harmonic mixing.
 
 ---
 
@@ -151,6 +185,7 @@ FableGear is built to be cautious. Writing to a Rekordbox database incorrectly c
 - **Dry-run and preview modes** are available wherever practical, so you can see what will happen before it happens.
 - **Automatic backups** are created before destructive database operations.
 - **Health Monitor** runs at startup and on demand, checking for risky conditions before you proceed.
+- **FableGear only listens on your own Mac** (127.0.0.1). Nothing is exposed to your network unless you deliberately turn that on.
 
 The Health Monitor looks for things like:
 
@@ -166,23 +201,6 @@ Findings are shown with severity levels. Safe auto-fixes are applied where appro
 
 ---
 
-## FableGo -- mobile companion
-
-FableGo is a mobile web interface that connects to FableGear over your local Wi-Fi network. If you use Tailscale, it also works remotely.
-
-From your phone or tablet you can:
-
-- Browse your music folders
-- Trigger downloads with live progress
-- Browse, create, edit, and delete Rekordbox playlists
-- Add and remove tracks from playlists
-- Trigger BPM and key analysis jobs
-- Browse connected drives and export playlists to Pioneer USB
-
-FableGo uses token-based authentication from your local config. The FableGear desktop app must be running for FableGo to connect.
-
----
-
 ## AI agent integration (MCP)
 
 FableGear also runs as an [MCP](https://modelcontextprotocol.io) server, exposing its library-management tools directly to AI agents -- Claude Desktop, Cursor, Windsurf, VS Code Copilot, and anything else that speaks the open MCP standard. This lets an agent audit, tag, dedupe, or reorganize your library through natural-language requests without opening the FableGear window.
@@ -193,12 +211,15 @@ The same safety contract applies as everywhere else: write tools check that Reko
 
 ## Install
 
-1. Click **Download FableGear for macOS** at the top of this page
-2. Unzip the archive
-3. Open **FableGear.app**
-4. If macOS blocks the first launch, right-click the app and choose **Open**
+1. Install the prerequisites first (see [Requirements](#requirements)): Python 3.11–3.13, `ffmpeg`, and `fpcalc` (from Chromaprint). FableGear never installs or changes system software like these for you.
+2. Click **Download FableGear for macOS** at the top of this page and unzip the archive.
+3. Move **FableGear.app** to your Applications folder (or anywhere you like).
+4. Double-click it. macOS will block it the first time: follow [First launch on a Mac](#first-launch-on-a-mac-two-things-macos-will-ask-you-for) above.
+5. A Terminal window opens and sets FableGear up: it checks the prerequisites, builds a private Python environment inside the FableGear folder, and installs FableGear's packages there. It also puts a launcher in your Applications folder. When it finishes, FableGear opens.
 
-On first launch, FableGear opens a Terminal window, installs dependencies, and sets itself up. It can also create a native Dock launcher on your Mac. Every later launch updates itself automatically.
+Later launches check for a newer release and update FableGear automatically.
+
+**Prefer a window to a Terminal, or installing from source?** After cloning the repository, run `python3 installer_wizard.py` in the FableGear folder. It does the same checks and installs with a step-by-step window, and it opens in your browser if the native window isn't available. It needs nothing installed beforehand.
 
 ---
 
@@ -206,24 +227,28 @@ On first launch, FableGear opens a Terminal window, installs dependencies, and s
 
 - macOS Monterey 12.0 or later
 - Apple Silicon or Intel Mac
-- Internet connection for first-time setup (to install dependencies)
+- Internet connection for first-time setup (to install FableGear's Python packages)
 - Rekordbox must be closed for any write operation
 
-### System dependencies (installed via Homebrew)
+### Prerequisites (you install these yourself)
 
-- `ffmpeg` -- audio processing and format conversion
-- `chromaprint` / `fpcalc` -- acoustic fingerprinting for duplicate detection
+- **Python 3.11–3.13** (3.14 and newer aren't supported yet)
+- **`ffmpeg`**: audio processing and format conversion
+- **`fpcalc`** (part of **Chromaprint**): acoustic fingerprinting for duplicate detection
+
+FableGear checks for all three and tells you what's missing; it never installs or updates them, and it never touches Homebrew. If you use Homebrew, one way to get them is `brew install ffmpeg chromaprint python@3.13`. Otherwise get Python from [python.org](https://www.python.org/downloads/), ffmpeg from [ffmpeg.org](https://ffmpeg.org), and Chromaprint from [acoustid.org](https://acoustid.org/chromaprint).
 
 ---
 
 ## Quick start
 
-1. Install and launch FableGear
-2. Let the first-run setup complete
-3. Point it at your Rekordbox database and music root folder
-4. Run **Library Audit** first -- always audit before changing anything
-5. Review any health warnings before running write operations
-6. Use dry-run and preview modes whenever they are available
+1. Install the [prerequisites](#prerequisites-you-install-these-yourself)
+2. Download, then [approve and open FableGear](#first-launch-on-a-mac-two-things-macos-will-ask-you-for) the first time
+3. Let the first-run setup finish in its Terminal window
+4. Point it at your Rekordbox database and music root folder
+5. Run **Library Audit** first -- always audit before changing anything
+6. Review any health warnings before running write operations
+7. Use dry-run and preview modes whenever they are available
 
 For large or older libraries, a safe order of operations is:
 
@@ -235,18 +260,19 @@ Audit --> Fix paths --> Detect duplicates --> Tag / Normalize --> Organize --> I
 
 ## Under the hood
 
-FableGear is a Flask app that runs a local server on port 5001 and opens in a native macOS window via pywebview. The UI is vanilla HTML/CSS/JS -- no frontend framework.
+FableGear is a Flask app that runs a local server on port 5001 (on your own Mac only) and opens in a native macOS window via pywebview. The UI is vanilla HTML/CSS/JS -- no frontend framework.
+
+Audio analysis and tag handling are built in-house: **Iron** (`iron/`) detects BPM, key and beat positions, and **Anvil** (`anvil/`) reads and writes tags. The libraries below are used for everything else, and as logged fallbacks if Iron or Anvil can't handle a file.
 
 | Library | Purpose |
 |---|---|
 | [pyrekordbox](https://github.com/dylanljones/pyrekordbox) | Read/write access to the Rekordbox SQLite database |
-| [librosa](https://librosa.org) | BPM detection, beat tracking, key detection, chroma analysis |
 | [Chromaprint / fpcalc](https://acoustid.org/chromaprint) | Acoustic fingerprinting for duplicate detection |
-| [mutagen](https://mutagen.readthedocs.io) | Audio metadata (tag) reading and writing |
-| [ffmpeg](https://ffmpeg.org) (`loudnorm` filter) | EBU R128 integrated loudness measurement and normalization |
+| [ffmpeg](https://ffmpeg.org) (`loudnorm` filter) | Audio decoding, EBU R128 loudness measurement and normalization |
+| [mutagen](https://mutagen.readthedocs.io) | Audio metadata (tag) fallback |
+| [librosa](https://librosa.org) | Fallback BPM/key/beat analysis and waveform generation |
 | [Flask](https://flask.palletsprojects.com) + [Waitress](https://docs.pylonsproject.org/projects/waitress) | Local application server |
 | [pywebview](https://pywebview.flowrl.com) | Native desktop window wrapper |
-| [flask-sock](https://flask-sock.readthedocs.io) | WebSocket support for live progress and companion-device events |
 
 ---
 

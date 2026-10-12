@@ -132,7 +132,6 @@ def dispatch(
 
     _db_upsert_job(record)
     _db_insert_event(record.job_id, "dispatched", record.state, {"tool": tool, "scope": normalized_scope})
-    _broadcast(record)
     _write_live_jobs()
 
     future = _executor.submit(_run_job, job_id, timeout)
@@ -172,7 +171,6 @@ def _run_job(job_id: str, timeout: int) -> None:
 
     _db_upsert_job(record)
     _db_insert_event(record.job_id, "state_change", record.state, {"timeout": timeout})
-    _broadcast(record)
     _write_live_jobs()
 
     cmd = [sys.executable, str(_repo_dir / "cli.py"), *record.cli_args]
@@ -254,7 +252,6 @@ def _run_job(job_id: str, timeout: int) -> None:
             "result_blob_path": record.result_blob_path,
         },
     )
-    _broadcast(record)
     _write_live_jobs()
 
 
@@ -275,7 +272,6 @@ def _finish_as_cancelled(job_id: str) -> None:
 
     _db_upsert_job(record)
     _db_insert_event(record.job_id, "state_change", record.state, {"reason": "cancelled_before_start"})
-    _broadcast(record)
     _write_live_jobs()
 
 
@@ -412,31 +408,6 @@ def _write_live_jobs() -> None:
             except OSError:
                 continue
     except OSError:
-        pass
-
-
-def _broadcast(record: JobRecord) -> None:
-    """
-    Broadcast tool state to any registered WebSocket clients.
-    No-op if ws_bus has no registered clients or import fails.
-    Designed to be a stub here; Stage 2 wires the actual clients.
-    """
-    try:
-        import ws_bus
-
-        payload = json.dumps(
-            {
-                "event": "tool_state",
-                "job_id": record.job_id,
-                "tool": record.tool,
-                "state": record.state,
-                "scope": record.scope,
-                "duration_seconds": record.duration_seconds,
-                "timestamp": _now(),
-            }
-        )
-        ws_bus.broadcast(payload)
-    except Exception:
         pass
 
 

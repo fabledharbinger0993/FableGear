@@ -308,3 +308,23 @@ def test_anvil_reads_mutagen_mp4_tags(m4a_audio):
     assert fields.title == "Written By Mutagen"
     assert fields.bpm == pytest.approx(174.0)
     assert fields.initial_key == "Gm"
+
+
+# ─── Another tool's spelling survives an update ───────────────────────────────
+
+@pytest.mark.parametrize("version", [3, 4])
+def test_update_keeps_another_tools_txxx_spelling(mp3, version):
+    """Mixed In Key writes TXXX:EnergyLevel. Anvil reads it case-insensitively and must
+    update it in place under that same spelling -- found 2026-10-09 renaming it to
+    ENERGYLEVEL on real files, which a tool looking the description up exactly would lose."""
+    tag = mutagen_id3.ID3()
+    tag.add(mutagen_id3.TXXX(encoding=3, desc="EnergyLevel", text=["6"]))
+    tag.save(str(mp3), v2_version=version)
+    assert anvil.read_fields(mp3).energy_level == 6
+
+    anvil.write_fields(mp3, TrackFields(energy_level=8), force=True)
+
+    frames = [(f.desc, list(f.text)) for f in mutagen_id3.ID3(str(mp3)).getall("TXXX")
+              if f.desc.upper() == "ENERGYLEVEL"]
+    assert frames == [("EnergyLevel", ["8"])]
+    assert anvil.read_fields(mp3).energy_level == 8

@@ -29,7 +29,12 @@ for arg in "$@"; do
 done
 
 # ── Version from latest git tag ───────────────────────────────────────────────
-VERSION="$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")"
+# Only vX.Y.Z tags count: the repo also carries non-release tags (an archival marker tag) that
+# `git describe` would otherwise pick, stamping the wrong version and naming the release after it.
+# git's --match is a glob (v[0-9]* would still accept v1-beta), so filter with an anchored regex.
+VERSION="$(git -C "$SCRIPT_DIR" tag --merged HEAD --sort=-v:refname 2>/dev/null \
+  | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
+VERSION="${VERSION:-v0.0.0}"
 echo "Building $APP_NAME  version $VERSION"
 
 # ── Create .app bundle structure ──────────────────────────────────────────────
@@ -169,19 +174,20 @@ if [[ "$DO_RELEASE" == true ]]; then
 3. Move it to your Desktop or Applications folder
 4. Double-click to launch
 
-> **First launch** opens a Terminal window and clones FableGear, then automatically installs everything needed — Homebrew, \`ffmpeg\`, \`chromaprint\`, and all Python packages. This runs once and takes a few minutes. FableGear opens in your browser when it's done.
+> **First launch** opens a Terminal window and clones FableGear. Before launching, install Python 3.11–3.13, \`ffmpeg\`, and \`fpcalc\` (Chromaprint) yourself and make sure they are on your \`PATH\`. FableGear does not install or update Homebrew or system tools; it creates a local virtual environment and installs its Python packages there.
 
 > **Future launches** update FableGear automatically — no manual downloads needed.
 
 ## \"FableGear can't be opened\"?
 
-This is macOS Gatekeeper — it blocks apps that aren't signed with an Apple Developer certificate. To allow it:
+This is macOS Gatekeeper — it blocks apps that aren't signed with an Apple Developer certificate. To allow it, once:
 
-1. Go to **System Settings → Privacy & Security**
-2. Scroll down — you'll see *\"FableGear was blocked from use\"*
-3. Click **Open Anyway**
+1. Double-click FableGear.app, then click **Done** on the warning
+2. Apple menu → **System Settings → Privacy & Security** (scroll the sidebar if needed)
+3. In the **Security** section, click **Open Anyway** next to the FableGear message
+4. Enter your Mac's login password
 
-Alternatively, right-click the app → **Open** → **Open Anyway**."
+The button stays for about an hour after your attempt; if it's gone, double-click the app again. FableGear may also ask for access to your music folders and external drives (**Privacy & Security → Files & Folders**) and, for your Rekordbox library, **Full Disk Access**. Full walkthrough: https://github.com/fabledharbinger0993/FableGear#first-launch-on-a-mac-two-things-macos-will-ask-you-for"
 
   /opt/homebrew/bin/gh release create "$VERSION" "$ZIP_PATH" \
     --title "FableGear $VERSION" \
