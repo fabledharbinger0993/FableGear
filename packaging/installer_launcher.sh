@@ -52,6 +52,9 @@ CANDIDATES="${FABLEGEAR_PYTHON_CANDIDATES:-/Library/Frameworks/Python.framework/
 for cand in $CANDIDATES; do
   exe="$(command -v "$cand" 2>/dev/null)"
   [ -n "$exe" ] || continue
+  if [ "$exe" = "/usr/bin/python3" ] && ! /usr/bin/xcode-select -p >/dev/null 2>&1; then
+    continue
+  fi
   v="$(_minor "$exe")"
   if [ -n "$v" ] && [ "$v" -ge 311 ] && [ "$v" -le 313 ]; then PY="$exe"; break; fi
 done
