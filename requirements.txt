@@ -11,7 +11,6 @@
 # any pyrekordbox upgrade before distributing a new release.
 
 flask>=3.0
-flask-sock>=0.7
 flask-limiter>=3.5
 werkzeug>=3.0
 # Web framework — routes, SSE streaming, JSON responses, rate limiting.
@@ -64,10 +63,6 @@ yt-dlp>=2026.7.4
 # Floor bumped 2026-08-01 (pip-audit: prior floor resolved to a version with
 # 8 known CVEs). yt-dlp is calendar-versioned with no stable API surface
 # FableGear depends on, so no ceiling is pinned here.
-
-qrcode>=7.4
-# QR code generation for the FableGo pairing panel (SVG output is built in;
-# the old [svg] extra was removed in qrcode 8.x). No Pillow needed.
 
 mcp>=1.28.1,<2.0.0
 # Anthropic Model Context Protocol SDK — used by mcp_server.py to expose

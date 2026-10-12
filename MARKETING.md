@@ -228,9 +228,11 @@ Two things must be verified before money changes hands:
    exist. If a distributed `.app` bundles essentia or mutagen, selling that bundle pulls the
    combined work into AGPL-3.0 and GPL-2.0 territory, with source obligations attached. Check
    the built bundle's contents, not the intent.
-2. **FableGo's network exposure.** AGPL §13 is triggered by users interacting with the program
-   over a network. FableGear serves a UI to a phone over LAN or Tailscale. Public MIT source
-   likely satisfies it today; a closed paid build would not.
+2. **Network exposure.** AGPL §13 is triggered by users interacting with the program over a
+   network. FableGo (the phone companion) was the only part of FableGear that served users over a
+   network; it has been removed from this repository and now binds loopback only (127.0.0.1)
+   unless the owner opts in. If FableGo returns in its own repository, this item needs a fresh
+   review there. *Owner/counsel to confirm the conclusion; this note only records the code change.*
 
 Note also that essentia *is* the 91.4% number. The headline benchmark depends on the AGPL
 component, so it can't be quietly dropped to simplify licensing.
@@ -543,7 +545,7 @@ real evidence the product is being used rather than starred.
 | Risk | Mitigation |
 |---|---|
 | **Charging after "should not be priced up later"** | §5's three conditions, stated together with the price, permanently. This is the reputational risk, and it's larger than the revenue at stake. |
-| **AGPL-3.0 / GPL-2.0 deps in a sold binary** | Audit what the PyInstaller specs actually bundle; confirm FableGo's AGPL §13 position. Before the first sale (4.3). |
+| **AGPL-3.0 / GPL-2.0 deps in a sold binary** | Audit what the PyInstaller specs actually bundle; confirm the AGPL §13 position (FableGo now lives outside this repo). Before the first sale (4.3). |
 | **yt-dlp closing the press channel** | Off every feature list and out of the paid build (4.4). |
 | **Trademark / ToS with AlphaTheta** | Never "rekordbox" in the product name, logo, domain, or store title. Always "for rekordbox," always with a no-affiliation disclaimer. Sharpens considerably once the export work aims at replacing their pipeline. |
 | **A rekordbox update breaks DB writes** | Disclose the pyrekordbox dependency before purchase, not after. Free build always available as a fallback. Generous refunds — one refunded sale is cheaper than one angry roundup mention. |

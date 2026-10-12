@@ -33,8 +33,8 @@ from typing import Any
 
 # ─── Sync state ───────────────────────────────────────────────────────────────
 #
-# The structured replacement for routes_mobile.py's hand-built db_note string
-# and `status = "complete_partial" if db_note else "complete"`.
+# The structured replacement for a hand-built db_note string and
+# `status = "complete_partial" if db_note else "complete"`.
 #
 # Anvil itself only ever returns FILE_ONLY: it wrote the file and computed the
 # companion, and that is the whole of its job. A caller that goes on to apply
@@ -115,9 +115,8 @@ def db_companion(fields: TrackFields) -> dict[str, Any]:
                              against per-library mutable state. Anvil does not
                              own that; key_mapper.py does.
 
-    This function is the single home of `round(bpm * 100)`. That expression
-    currently lives inline at routes_mobile.py:621 and would otherwise be
-    reimplemented at every future site that writes a tempo to both surfaces.
+    This function is the single home of `round(bpm * 100)`, so that expression
+    is not reimplemented at every site that writes a tempo to both surfaces.
     """
     out: dict[str, Any] = {}
 
