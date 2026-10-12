@@ -258,19 +258,22 @@ class FableGearDatabase:
             ID of the inserted record
         """
         with self.transaction() as conn:
-            cursor = conn.cursor()
+            return self._insert_content_row(conn.cursor(), record)
 
-            data = record.to_dict()
-            columns = ", ".join(data.keys())
-            placeholders = ", ".join(["?"] * len(data))
+    @staticmethod
+    def _insert_content_row(cursor, record: ContentRecord) -> int:
+        """INSERT one fg_content row on an open cursor (the caller owns the transaction)."""
+        data = record.to_dict()
+        columns = ", ".join(data.keys())
+        placeholders = ", ".join(["?"] * len(data))
 
-            cursor.execute(
-                f"INSERT INTO fg_content ({columns}) VALUES ({placeholders})",
-                list(data.values())
-            )
+        cursor.execute(
+            f"INSERT INTO fg_content ({columns}) VALUES ({placeholders})",
+            list(data.values())
+        )
 
-            # lastrowid is Optional in the stubs; an INSERT always sets it.
-            return int(cursor.lastrowid or 0)
+        # lastrowid is Optional in the stubs; an INSERT always sets it.
+        return int(cursor.lastrowid or 0)
 
     def update_content(self, record_id: int, updates: dict[str, Any]) -> bool:
         """
@@ -867,7 +870,8 @@ class FableGearDatabase:
             return removed
 
     def duplicate_content(self, content_id: int, new_path: str) -> int | None:
-        """Insert a copy of a track record pointing at ``new_path`` (file_path is unique).
+        """Insert a copy of a track record (with its cues and beat grid) pointing at ``new_path``
+        (file_path is unique).
 
         Returns the new id, or None if the source record doesn't exist. The
         caller is responsible for creating the file at ``new_path``.
@@ -883,7 +887,25 @@ class FableGearDatabase:
         rec.created_at = None
         rec.updated_at = None
         rec.title = f"{rec.title or rec.file_name or 'Untitled'} (copy)"
-        return self.insert_content(rec)
+        # One transaction for the row AND its cues/beat grid: if any part fails, nothing is committed,
+        # so there is never a half-built duplicate to clean up.
+        with self.transaction() as conn:
+            cur = conn.cursor()
+            new_id = self._insert_content_row(cur, rec)
+            cur.execute(
+                "INSERT INTO fg_cue (content_id, kind, slot, in_msec, out_msec, color, comment) "
+                "SELECT ?, kind, slot, in_msec, out_msec, color, comment "
+                "FROM fg_cue WHERE content_id = ? ORDER BY id",
+                (new_id, int(content_id)),
+            )
+            cur.execute(
+                "INSERT INTO fg_beatgrid (content_id, beat_number, time_msec, bpm, "
+                "meter_numerator, meter_denominator) "
+                "SELECT ?, beat_number, time_msec, bpm, meter_numerator, meter_denominator "
+                "FROM fg_beatgrid WHERE content_id = ? ORDER BY id",
+                (new_id, int(content_id)),
+            )
+        return new_id
 
     def find_similar_content(self, content_id: int) -> list[ContentRecord]:
         """Other records that look like the same track (hash, fingerprint, or title+artist)."""
