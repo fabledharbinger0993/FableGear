@@ -341,3 +341,28 @@ def test_missing_or_unreadable_file_does_not_break_the_export(fg_db, tmp_path):
     target = tmp_path / "second.db"
     result = OneLibraryWriter(fg_db).write(target, include_playlists=False)
     assert result.tracks_written == 2 and not result.errors
+
+
+def _id3v22_mp3(tmp_path, key, bpm):
+    """A file with an ID3v2.2 tag (three-character frame ids), which Anvil refuses."""
+    def frame(fid, value):
+        data = b"\x00" + value.encode()
+        return fid + len(data).to_bytes(3, "big") + data
+
+    body = frame(b"TKE", key) + frame(b"TBP", bpm)
+    size = len(body)
+    syncsafe = bytes([(size >> 21) & 0x7F, (size >> 14) & 0x7F, (size >> 7) & 0x7F, size & 0x7F])
+    path = tmp_path / "v22.mp3"
+    path.write_bytes(b"ID3\x02\x00\x00" + syncsafe + body + _FAKE_MPEG)
+    return path
+
+
+def test_id3v22_tags_that_anvil_refuses_still_supply_key_and_bpm(fg_db, tmp_path):
+    from anvil import read_fields
+    from anvil.errors import UnsupportedFormat
+
+    path = _id3v22_mp3(tmp_path, "8A", "126")
+    with pytest.raises(UnsupportedFormat):
+        read_fields(path)  # the premise: Anvil does refuse this file
+    fg_db.insert_content(_make_track(file_path=str(path), file_name=path.name, key=None, bpm=None))
+    assert _exported_key_and_bpm(fg_db, tmp_path) == ("Am", 12600)
