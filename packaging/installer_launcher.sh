@@ -33,9 +33,9 @@ if [ ! -f "$PAYLOAD/installer_wizard.py" ]; then
   exit 1
 fi
 
-# Finder-launched apps don't inherit the usual PATH.
+# Finder-launched apps don't inherit the usual PATH. Append, so a PATH the caller set still wins.
 for p in /opt/homebrew/bin /usr/local/bin /opt/local/bin; do
-  case ":$PATH:" in *":$p:"*) ;; *) [ -d "$p" ] && PATH="$p:$PATH" ;; esac
+  case ":$PATH:" in *":$p:"*) ;; *) [ -d "$p" ] && PATH="$PATH:$p" ;; esac
 done
 export PATH
 

@@ -23,20 +23,20 @@
 
 macOS protects you in two ways that you'll run into the first time you use FableGear. Both are normal, and neither means anything is wrong. Here's exactly where to click.
 
-### 1. Open the app the first time ("FableGear can't be opened")
+### 1. Open the installer the first time ("Install FableGear can't be opened")
 
 FableGear isn't signed with an Apple Developer certificate, so macOS blocks a freshly downloaded copy until you approve it once.
 
-1. **Double-click FableGear.app.** macOS shows a message that it can't verify the app. Click **Done** (or **OK**). Don't move it to the Trash.
+1. **Double-click Install FableGear.app.** macOS shows a message that it can't verify the app. Click **Done** (or **OK**). Don't move it to the Trash.
 2. Click the **Apple menu** (the apple logo in the top-left corner of your screen), choose **System Settings**, then click **Privacy & Security** in the left sidebar. You may need to scroll the sidebar down to find it.
 3. Scroll down to the **Security** section. You'll see a message that FableGear was blocked. Click **Open Anyway**.
-4. Enter your Mac's **login password** (or use Touch ID) and click **OK**. FableGear opens, and you won't be asked again.
+4. Enter your Mac's **login password** (or use Touch ID) and click **OK**. The installer opens, and you won't be asked again. (If macOS asks the same about FableGear itself the first time you open it from Applications, repeat these steps for it.)
 
-> **Don't see Open Anyway?** The button only stays for about an hour after you try to open the app. If it's gone, double-click FableGear.app again, then go straight back to step 2.
+> **Don't see Open Anyway?** The button only stays for about an hour after you try to open the app. If it's gone, double-click the app again, then go straight back to step 2.
 >
 > **On macOS 14 (Sonoma) or earlier,** you can also Control-click the app, choose **Open**, then click **Open** again. Newer macOS versions removed that shortcut, so use the steps above.
 
-The first time you open it, a **Terminal window** appears while FableGear sets itself up. That's expected; leave it open until it finishes. (Before your first launch, install the prerequisites listed under [Install](#install).)
+The installer is a normal window, not a Terminal. (Before you open it, install the prerequisites listed under [Install](#install).)
 
 ### 2. Let FableGear see your music and your Rekordbox library
 
@@ -46,7 +46,7 @@ macOS keeps some folders, external drives and Library files private until you al
 - **If you clicked Don't Allow, or FableGear says it can't read a folder or drive**, fix it in System Settings:
   1. Open **System Settings → Privacy & Security**.
   2. Click **Files & Folders**. Find **FableGear** in the list and turn on the locations it needs, such as **Removable Volumes** for external drives like a USB stick or a portable hard drive.
-- **If FableGear can't read your Rekordbox database**, its setup screen shows a *"Full Disk Access may be required"* notice with an **Open Settings** button. That takes you to **Privacy & Security → Full Disk Access**. Switch on **FableGear**. If **Terminal** is also in that list (FableGear's first-run setup runs there), switch it on too.
+- **If FableGear can't read your Rekordbox database**, its setup screen shows a *"Full Disk Access may be required"* notice with an **Open Settings** button. That takes you to **Privacy & Security → Full Disk Access**. Switch on **FableGear**.
 - **Quit and reopen FableGear** after changing any of these. macOS only applies the new permission to an app the next time it starts.
 
 You can change any of this later in the same place. Turning access off simply stops FableGear from seeing that location.
@@ -212,14 +212,14 @@ The same safety contract applies as everywhere else: write tools check that Reko
 ## Install
 
 1. Install the prerequisites first (see [Requirements](#requirements)): Python 3.11–3.13, `ffmpeg`, and `fpcalc` (from Chromaprint). FableGear never installs or changes system software like these for you.
-2. Click **Download FableGear for macOS** at the top of this page and unzip the archive.
-3. Move **FableGear.app** to your Applications folder (or anywhere you like).
-4. Double-click it. macOS will block it the first time: follow [First launch on a Mac](#first-launch-on-a-mac-two-things-macos-will-ask-you-for) above.
-5. A Terminal window opens and sets FableGear up: it checks the prerequisites, builds a private Python environment inside the FableGear folder, and installs FableGear's packages there. It also puts a launcher in your Applications folder. When it finishes, FableGear opens.
+2. Click **Download FableGear for macOS** at the top of this page and unzip the archive. You get **Install FableGear.app**.
+3. Double-click it. macOS will block it the first time: follow [First launch on a Mac](#first-launch-on-a-mac-two-things-macos-will-ask-you-for) above.
+4. The installer window checks your Mac, builds a private Python environment for FableGear, installs FableGear's packages into it, and puts **FableGear** in your Applications folder (or `~/Applications` if your account can't write to `/Applications`). FableGear's own files live in `~/Library/Application Support/FableGear`. If a prerequisite is missing, the installer tells you what to get and waits.
+5. Open **FableGear** from Applications. The intro plays, then a short setup asks for the access FableGear needs. You can delete the installer afterwards.
 
-Later launches check for a newer release and update FableGear automatically.
+**Updating:** download the newest FableGear.zip and run its installer again. It replaces FableGear's program files and keeps your library, settings and private environment.
 
-**Prefer a window to a Terminal, or installing from source?** After cloning the repository, run `python3 installer_wizard.py` in the FableGear folder. It does the same checks and installs with a step-by-step window, and it opens in your browser if the native window isn't available. It needs nothing installed beforehand.
+**Installing from source?** After cloning the repository, run `python3 installer_wizard.py` in the FableGear folder (or `bash setup.sh` for a Terminal install). It does the same checks and builds the private environment inside the clone, with no files copied elsewhere.
 
 ---
 
@@ -243,8 +243,8 @@ FableGear checks for all three and tells you what's missing; it never installs o
 ## Quick start
 
 1. Install the [prerequisites](#prerequisites-you-install-these-yourself)
-2. Download, then [approve and open FableGear](#first-launch-on-a-mac-two-things-macos-will-ask-you-for) the first time
-3. Let the first-run setup finish in its Terminal window
+2. Download, then [approve and open the installer](#first-launch-on-a-mac-two-things-macos-will-ask-you-for) the first time
+3. Let the installer finish, then open FableGear from Applications
 4. Point it at your Rekordbox database and music root folder
 5. Run **Library Audit** first -- always audit before changing anything
 6. Review any health warnings before running write operations

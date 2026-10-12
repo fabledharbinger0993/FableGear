@@ -160,13 +160,22 @@ def get_status() -> dict:
 
 # ── Internals ─────────────────────────────────────────────────────────────────
 
+def _installed_version_file(folder: Path) -> str | None:
+    """Version stamped by the installer app (a VERSION file next to this module), or None."""
+    try:
+        text = (folder / "VERSION").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return text.splitlines()[0].strip() if text else None
+
+
 def _local_version() -> tuple[str | None, bool]:
     """
     Return (version_string, is_git_install).
 
     For git installs: tries the most recent tag first (e.g. "v1.0.0"), falls
     back to the short commit SHA (e.g. "abc1234") if no tags exist.
-    For ZIP installs: returns (None, False).
+    For installer-app / ZIP installs (no git): the stamped VERSION file, else None; is_git False.
     """
     script_dir = Path(__file__).parent
 
@@ -180,7 +189,7 @@ def _local_version() -> tuple[str | None, bool]:
             timeout=5,
         )
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-        return None, False   # ZIP install — no git
+        return _installed_version_file(script_dir), False   # installer-app / ZIP install — no git
 
     # Try latest tag first
     try:
