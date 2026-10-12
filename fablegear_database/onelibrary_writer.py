@@ -265,6 +265,36 @@ class _IdAllocator:
         return sorted(((v, k) for k, v in self._ids.items()), key=lambda r: r[0])
 
 
+def _fill_missing_from_tags(track) -> None:
+    """Fill a track's missing key and BPM from the audio file's own tags.
+
+    FableGear's library takes key/BPM from Rekordbox's database, so a track that was
+    only tagged (Tag Tracks writes Iron's result into the file) has nothing in the
+    library and would reach the USB with no key. The file is what gets copied to the
+    stick, so whatever the file says should travel with it. The library value always
+    wins: a key Rekordbox analysed is never overridden by a tag.
+
+    In-memory only (the database row is not changed). Silent on failure: an unreadable
+    file just means no fallback, never a failed export.
+    """
+    if track.key and track.bpm:
+        return
+    path = Path(track.file_path) if track.file_path else None
+    if path is None or not path.is_file():
+        return
+    try:
+        from anvil import read_fields
+
+        fields = read_fields(path)
+    except Exception as exc:
+        log.debug("tag fallback: could not read %s (%s)", path, exc)
+        return
+    if not track.key and fields.initial_key:
+        track.key = fields.initial_key
+    if not track.bpm and fields.bpm:
+        track.bpm = fields.bpm
+
+
 class OneLibraryWriter:
     """
     Writes a Pioneer OneLibrary exportLibrary.db from FableGear's database.
@@ -353,6 +383,8 @@ class OneLibraryWriter:
 
                     content_id = next_content_id
                     next_content_id += 1
+
+                    _fill_missing_from_tags(track)
 
                     genre_id = genres.get(track.genre)
                     artist_id = artists.get(track.artist)

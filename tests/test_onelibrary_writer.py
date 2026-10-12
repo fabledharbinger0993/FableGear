@@ -280,3 +280,64 @@ def test_property_row_reflects_real_track_count(fg_db, tmp_path):
     cur.execute("SELECT numberOfContents FROM property;")
     assert cur.fetchone() == (3,)
     conn.close()
+
+
+# ── Key/BPM fall back to the file's own tags ────────────────────────────────
+#
+# FableGear's library takes key/BPM from Rekordbox's database. A track that was only
+# tagged (Tag Tracks writes Iron's result into the file) has nothing in the library,
+# so without this fallback it reaches the USB with no key. The file is what gets copied
+# to the stick, so what the file says should travel with it.
+
+_FAKE_MPEG = b"\xff\xfb\x90\x44" + bytes(range(256)) * 4
+
+
+def _tagged_mp3(tmp_path, *, key=None, bpm=None, name="tagged.mp3"):
+    from anvil import TrackFields, write_fields
+
+    path = tmp_path / name
+    path.write_bytes(_FAKE_MPEG)
+    fields = TrackFields(initial_key=key, bpm=bpm)
+    force = {n for n, v in (("initial_key", key), ("bpm", bpm)) if v is not None}
+    write_fields(path, fields, force=force)
+    return path
+
+
+def _exported_key_and_bpm(fg_db, tmp_path):
+    target = tmp_path / "exportLibrary.db"
+    result = OneLibraryWriter(fg_db).write(target, include_playlists=False)
+    assert result.tracks_written == 1 and not result.errors
+    conn, cur = _open_independent(target)
+    cur.execute("SELECT k.name, c.bpmx100 FROM content c LEFT JOIN key k ON k.key_id = c.key_id;")
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def test_missing_library_key_and_bpm_come_from_the_file_tags(fg_db, tmp_path):
+    path = _tagged_mp3(tmp_path, key="8A", bpm=128.0)  # Iron emits Camelot
+    fg_db.insert_content(_make_track(file_path=str(path), file_name=path.name, key=None, bpm=None))
+    assert _exported_key_and_bpm(fg_db, tmp_path) == ("Am", 12800)  # 8A == A minor
+
+
+def test_library_key_wins_over_the_file_tag(fg_db, tmp_path):
+    path = _tagged_mp3(tmp_path, key="8A", bpm=128.0)
+    fg_db.insert_content(_make_track(file_path=str(path), file_name=path.name, key="5A", bpm=124.0))
+    assert _exported_key_and_bpm(fg_db, tmp_path) == ("Cm", 12400)  # Rekordbox's 5A, not the tag
+
+
+def test_untagged_file_exports_without_a_key_rather_than_failing(fg_db, tmp_path):
+    path = _tagged_mp3(tmp_path)  # a real file whose tags say nothing
+    fg_db.insert_content(_make_track(file_path=str(path), file_name=path.name, key=None, bpm=None))
+    assert _exported_key_and_bpm(fg_db, tmp_path) == (None, None)
+
+
+def test_missing_or_unreadable_file_does_not_break_the_export(fg_db, tmp_path):
+    fg_db.insert_content(_make_track(file_path=str(tmp_path / "gone.mp3"), key=None, bpm=None))
+    assert _exported_key_and_bpm(fg_db, tmp_path) == (None, None)
+    bad = tmp_path / "bad.mp3"
+    bad.write_bytes(b"\x00" * 10)
+    fg_db.insert_content(_make_track(file_path=str(bad), file_name="bad.mp3", key=None, bpm=None))
+    target = tmp_path / "second.db"
+    result = OneLibraryWriter(fg_db).write(target, include_playlists=False)
+    assert result.tracks_written == 2 and not result.errors
