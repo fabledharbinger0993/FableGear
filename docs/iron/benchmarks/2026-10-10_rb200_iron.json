@@ -1,0 +1,35 @@
+{
+  "manifest": "rb200 set",
+  "tracks_common": 200,
+  "missing_audio": [],
+  "engines": {
+    "iron": {
+      "tracks": 200,
+      "crashes": 0,
+      "bpm": {
+        "n": 200,
+        "exact_0.6": 1.0,
+        "within_1pct": 1.0,
+        "mirex_4pct": 1.0,
+        "classes": {
+          "exact": 200
+        }
+      },
+      "key": {
+        "n": 200,
+        "detected": 200,
+        "exact_of_total": 0.65,
+        "exact_of_detected": 0.65,
+        "mirex_weighted": 0.708,
+        "classes": {
+          "exact": 130,
+          "relative": 4,
+          "other": 44,
+          "fifth": 20,
+          "parallel": 2
+        }
+      },
+      "mean_s_per_track": 2.42
+    }
+  }
+}

@@ -144,3 +144,21 @@ function _initBackgroundImportWatch() {
     })
     .catch(() => {});
 }
+
+// ── Record Room playback wiring integrity check (non-fatal) ───────────────────
+function leCheckPlaybackIntegrity() {
+  const missing = [];
+  if (!document.getElementById('le-player-audio')) missing.push('#le-player-audio');
+  ['deckTogglePanel', 'deckPauseAll', 'leToggleTrackPlayback'].forEach(n => {
+    if (typeof window[n] !== 'function') missing.push('window.' + n);
+  });
+  if (!missing.length) return [];
+  console.warn('[FableGear] Record Room playback wiring incomplete — missing: ' + missing.join(', '));
+  if (!window._lePlaybackWarned) {
+    window._lePlaybackWarned = true;
+    try { window.showToast?.('Media player wiring incomplete: ' + missing.join(', '), 'error'); } catch (_) {}
+  }
+  return missing;
+}
+window.leCheckPlaybackIntegrity = leCheckPlaybackIntegrity;
+window.addEventListener('load', () => { try { leCheckPlaybackIntegrity(); } catch (_) {} });

@@ -1,0 +1,42 @@
+{
+  "manifest": "mixed150 set",
+  "tracks_common": 150,
+  "missing_audio": [],
+  "engines": {
+    "iron": {
+      "tracks": 150,
+      "crashes": 0,
+      "bpm": {
+        "n": 150,
+        "exact_0.6": 0.8,
+        "within_1pct": 0.8733,
+        "mirex_4pct": 0.9067,
+        "classes": {
+          "exact": 120,
+          "no_output": 1,
+          "mirex": 5,
+          "half": 4,
+          "within1": 11,
+          "double": 4,
+          "2:3": 1,
+          "miss": 4
+        }
+      },
+      "key": {
+        "n": 150,
+        "detected": 150,
+        "exact_of_total": 0.5667,
+        "exact_of_detected": 0.5667,
+        "mirex_weighted": 0.6713,
+        "classes": {
+          "other": 25,
+          "exact": 85,
+          "relative": 8,
+          "fifth": 23,
+          "parallel": 9
+        }
+      },
+      "mean_s_per_track": 1.26
+    }
+  }
+}
