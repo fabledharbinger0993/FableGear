@@ -233,7 +233,7 @@ def multi_onset_envelopes(
     (the multi-feature idea of Zapata et al. 2014; this is an independent implementation).
     """
     n_fft = int(2 ** round(np.log2(0.0464 * sr)))
-    hop = max(1, int(round(sr / 86.13)))
+    hop = max(1, round(sr / 86.13))
     frame_rate = sr / hop
     n_frames = 1 + (y.shape[0] - n_fft) // hop
     if n_frames < 3:
