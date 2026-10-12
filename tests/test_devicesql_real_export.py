@@ -51,6 +51,12 @@ def test_every_row_of_every_table_is_found(pdb):
     assert (counts["artists"], counts["albums"], counts["genres"], counts["labels"]) == (8, 1, 1, 1)
     assert (counts["keys"], counts["colors"], counts["playlist_entries"]) == (10, 8, 20)
     assert (counts["artwork"], counts["columns"], counts["history"]) == (6, 27, 1)
+    assert counts == {
+        "tracks": 21, "genres": 1, "artists": 8, "albums": 1, "labels": 1, "keys": 10, "colors": 8,
+        "playlist_tree": 1, "playlist_entries": 20, "table_9": 0, "table_10": 0, "history_playlists": 0,
+        "history_entries": 0, "artwork": 6, "table_14": 0, "table_15": 0, "columns": 27, "unknown_17": 22,
+        "unknown_18": 17, "history": 1,
+    }
     assert len(pdb.tracks) == 21 and [t.track_id for t in pdb.tracks] == list(range(1, 22))
 
 

@@ -40,7 +40,7 @@ probably on 3.30, or that stick already held a Rekordbox-made `export.pdb` [I].
   Rekordbox scale name (`Am`). [D]
 - ANLZ writer (beat grid, cues, waveform) runs in the CLI export (`export-onelibrary --with-anlz`). [D] Whether the Record Room UI export route calls it too is not verified. [U]
 - A read-only DeviceSQL reader, `chop_shop/devicesql_reader.py`. It parses the header, table pointers,
-  page index and (partly) track rows. **Gap [D]:** on the 21-track capture it recovers 3 of 21 track rows.
+  page index and (partly) track rows. **Fixed in milestone 1 [D]:** the row-index decoder read the 36-byte row groups backwards, so on the 21-track capture it recovered only 3 of 21 track rows. It now recovers all 21 and every lookup table, and the result matches the same stick's OneLibrary database.
 
 ## 3. What the Rekordbox capture shows
 

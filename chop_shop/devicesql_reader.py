@@ -28,12 +28,16 @@ field name below is taken directly from that page, not guessed from memory.
 HONESTY LIMIT (updated against two real files): this module was tested,
 read-only, against two genuine Rekordbox-written export.pdb files found on
 physically connected drives. Those two files are not committed, so that was a
-one-time manual check. UPDATE 2026-10-11: a third real file pair (a 21-track
-Rekordbox export that a CDJ-3000 loaded correctly) IS now committed under
-tests/fixtures/rekordbox_21track_export/, and tests/test_devicesql_reader.py
-re-verifies its header on every CI run. Row-level parsing is still not tested
-against it: this reader recovers only 3 of that file's 21 track rows
-(milestone 1 of docs/devicesql_export_writer.md).
+one-time manual check. UPDATE 2026-10-12: a third real file pair (a 21-track
+Rekordbox export that a CDJ-3000 loaded correctly) IS committed under
+tests/fixtures/rekordbox_21track_export/ and is checked on every CI run
+(tests/test_devicesql_real_export.py). Testing against it exposed that the
+row-index decoder had been reading the row groups backwards (it recovered 3 of
+the 21 tracks while its synthetic tests passed); it is fixed, and all 21 tracks
+and every lookup-table row now match the same stick's OneLibrary database. What
+is still NOT verified: files with more than one page of index entries, the
+tables that are counted but not decoded, and any firmware's output other than
+the one that wrote that file.
 
 File 1 (41 pages, ~167KB — an essentially empty placeholder library):
 every table's root page was an index page with num_entries=0
@@ -79,10 +83,12 @@ keys) is hardware-verified against File 2's real, populated data. The
 populated-index-page ENTRY-DECODE path (_parse_index_entries itself,
 useful for a future targeted-lookup feature) remains spec-verified-only —
 no real usage of it was needed once the full-scan bug above was fixed.
-artist/key NAME resolution is deliberately left unresolved (None) — the
-tracks table row only carries artist_id/key_id foreign keys, and this
-module does not (yet) walk the artists/keys tables, whose row layouts are
-not documented on the same reference page consulted here.
+Artist, album, genre, label and key names are resolved from their tables
+(row layouts demonstrated on the real export; see _read_name_table), and each
+TrackRow carries the artist and key NAME as well as the ids. Every other table
+is counted (PdbReport.table_row_counts) but not decoded. exportExt.pdb is a
+different table set: it is only counted, never decoded with export.pdb's
+schemas.
 
 Public interface:
     read_pdb(path) -> PdbReport
@@ -145,11 +151,9 @@ _MAX_TABLE_PAGES_WALKED = 100_000  # sanity guard against a corrupt next_page cy
 class TrackRow:
     """One recovered track row from the DeviceSQL tracks table.
 
-    artist / key are left None — resolving them to human-readable names
-    requires walking the artists/keys tables, which is out of scope for
-    this pass (see module docstring HONESTY LIMIT). artist_id/key_id are
-    kept as raw foreign keys so a future pass can resolve them without
-    re-walking the tracks table.
+    artist / key are the resolved names (filled in by read_pdb from the artists and
+    keys tables), or None when the id has no row in those tables. artist_id /
+    album_id / key_id are the raw foreign keys.
     """
     anlz_folder_path: str | None = None
     title: str | None = None
@@ -487,10 +491,10 @@ def _parse_track_row(page_buf: bytes, row_start_in_page: int) -> TrackRow | None
     return TrackRow(
         anlz_folder_path=resolve_string(_TRACK_STRING_IDX_ANALYZE_PATH),
         title=resolve_string(_TRACK_STRING_IDX_TITLE),
-        artist=None,   # requires walking the artists table — see HONESTY LIMIT
+        artist=None,   # filled in by read_pdb from the artists table
         drive_relative_path=resolve_string(_TRACK_STRING_IDX_FILE_PATH),
         bpm=(tempo / 100.0) if tempo else None,
-        key=None,      # requires walking the keys table — see HONESTY LIMIT
+        key=None,      # filled in by read_pdb from the keys table
         track_id=track_id,
         artist_id=artist_id,
         album_id=album_id,
@@ -845,14 +849,17 @@ def read_pdb(path: PathLike) -> PdbReport:
     try:
         with open(p, "rb") as fh:
             pointers = _read_table_pointers(fh, num_tables)
-            tracks = _read_tracks_table(fh, page_size, pointers)
-            report.keys = _read_name_table(fh, page_size, pointers, TABLE_TYPE_KEYS)
-            report.artists = _read_name_table(fh, page_size, pointers, TABLE_TYPE_ARTISTS)
-            report.albums = _read_name_table(fh, page_size, pointers, TABLE_TYPE_ALBUMS)
-            report.genres = _read_name_table(fh, page_size, pointers, TABLE_TYPE_GENRES)
-            report.labels = _read_name_table(fh, page_size, pointers, TABLE_TYPE_LABELS)
-            report.table_row_counts = _count_table_rows(
-                fh, page_size, pointers, named=not p.name.lower().startswith("exportext"))
+            # export.pdb has 20 tables; exportExt.pdb has 9 and a DIFFERENT set under the same type numbers, so
+            # only the main schema's decoders may run on it. An extension file is counted generically, never decoded.
+            main_schema = not p.name.lower().startswith("exportext")
+            tracks = _read_tracks_table(fh, page_size, pointers) if main_schema else []
+            if main_schema:
+                report.keys = _read_name_table(fh, page_size, pointers, TABLE_TYPE_KEYS)
+                report.artists = _read_name_table(fh, page_size, pointers, TABLE_TYPE_ARTISTS)
+                report.albums = _read_name_table(fh, page_size, pointers, TABLE_TYPE_ALBUMS)
+                report.genres = _read_name_table(fh, page_size, pointers, TABLE_TYPE_GENRES)
+                report.labels = _read_name_table(fh, page_size, pointers, TABLE_TYPE_LABELS)
+            report.table_row_counts = _count_table_rows(fh, page_size, pointers, named=main_schema)
         for track in tracks:
             track.artist = report.artists.get(track.artist_id) if track.artist_id is not None else None
             track.key = report.keys.get(track.key_id) if track.key_id is not None else None
@@ -862,6 +869,8 @@ def read_pdb(path: PathLike) -> PdbReport:
             f"Extracted {len(tracks)} track row(s). The row index layout and the track, key, artist, "
             "album, genre and label tables are verified against one real Rekordbox export "
             "(tests/fixtures/rekordbox_21track_export/); other tables are counted but not decoded."
+            if main_schema else
+            "Extension file (a different table set): rows are counted per table but not decoded."
         )
         logger.info(
             "Parsed PDB tracks table %s: %d row(s) recovered",
