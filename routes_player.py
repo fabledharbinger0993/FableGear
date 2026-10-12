@@ -28,6 +28,7 @@ def _is_user_mount(mountpoint: str) -> bool:
 
 from flask import Blueprint, jsonify, request, send_file
 
+from anvil.schema import bpm_from_db
 from helpers import (
     _EXPORT_JOBS,
     _EXPORT_LOCK,
@@ -103,7 +104,7 @@ def _library_track_payload(track, *, track_no=None):
         "album":      track.Album.Name if getattr(track, "Album", None) else "",
         "genre":      genre_name,
         "label":      label_name,
-        "bpm":        round(track.BPM / 100, 1) if track.BPM else None,
+        "bpm":        round(bpm_from_db(track.BPM), 1) if track.BPM else None,
         "key":        track.Key.Name if track.Key else None,
         "key_id":     int(track.KeyID) if track.KeyID else None,
         "duration":   track.Length if track.Length else None,

@@ -600,3 +600,25 @@ def test_os_refusal_raises_write_failed_and_leaves_file_untouched(tmp_path):
     finally:
         tmp_path.chmod(0o700)
     assert path.read_bytes() == before
+
+
+def test_bpm_db_helpers():
+    import math
+
+    from anvil.schema import bpm_from_db, bpm_to_db
+    assert bpm_to_db(128.5) == 12850
+    assert bpm_to_db(0) is None and bpm_to_db(None) is None
+    assert bpm_to_db(math.nan) is None and bpm_to_db(math.inf) is None
+    assert bpm_from_db(bpm_to_db(128.5)) == 128.5
+    assert bpm_from_db(None) == 0.0
+
+
+@pytest.mark.parametrize("bad", [-120, -0.01, 0, 1000, 1e308, float("inf"), float("-inf"), float("nan"), "fast", None])
+def test_bpm_to_db_rejects_anything_that_is_not_a_plausible_tempo(bad):
+    from anvil.schema import bpm_to_db
+    assert bpm_to_db(bad) is None  # never raises, never returns a negative or overflowed number
+
+
+def test_bpm_to_db_keeps_the_valid_range_exactly():
+    from anvil.schema import MAX_DB_BPM, bpm_to_db
+    assert bpm_to_db(0.01) == 1 and bpm_to_db(MAX_DB_BPM) == 99999 and bpm_to_db("128.5") == 12850

@@ -58,6 +58,8 @@ from pathlib import Path
 
 import sqlcipher3
 
+from anvil.schema import bpm_to_db
+
 from .database import FableGearDatabase
 from .tag_fallback import fill_missing_from_tags as _fill_missing_from_tags
 
@@ -378,7 +380,7 @@ class OneLibraryWriter:
                                 (album_id, track.album.strip(), artist_id, None, 0, track.album.strip())
                             )
 
-                    bpmx100 = round(track.bpm * 100) if track.bpm else None
+                    bpmx100 = bpm_to_db(track.bpm)
                     length = round(track.duration) if track.duration else None
 
                     # Path column: if staging to a drive, copy the audio there

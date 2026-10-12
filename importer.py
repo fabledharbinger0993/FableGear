@@ -55,6 +55,7 @@ try:
 except Exception:  # pragma: no cover - defensive fallback
     MultipleResultsFound = Exception
 
+from anvil.schema import bpm_to_db
 from config import (
     BATCH_SIZE,
 )
@@ -315,10 +316,10 @@ def _import_track(track: TrackInfo, db: Rekordbox6Database) -> TrackImportResult
         if artist_id:
             kwargs["ArtistID"] = artist_id
 
-    if track.bpm is not None:
+    if bpm_to_db(track.bpm) is not None:
         # Rekordbox stores BPM as int(round(bpm * 100)) for precision without floats.
         # FableGear DB stores raw float. Any cross-DB code must transform.
-        kwargs["BPM"] = round(track.bpm * 100)
+        kwargs["BPM"] = bpm_to_db(track.bpm)
 
     if track.key:
         key_id = resolve_key_id(track.key, db)
@@ -578,7 +579,7 @@ if __name__ == "__main__":
 
     print("\n=== METADATA PREVIEW ===")
     for track in scan_directory(test_root):
-        bpm_db = round(track.bpm * 100) if track.bpm else "None"
+        bpm_db = bpm_to_db(track.bpm) if track.bpm else "None"
         dur_db = int(track.duration_seconds) if track.duration_seconds else "None"
         print(f"  {track.path.name}")
         print(f"    Title    : {track.title}")

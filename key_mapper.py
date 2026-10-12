@@ -255,12 +255,12 @@ if __name__ == "__main__":
         # ── Seq audit — the TODO from the review ──
         print("\n=== DjmdKey Seq audit (SELECT ScaleName, Seq FROM DjmdKey ORDER BY Seq) ===")
         rows = db.get_key().all()
-        camelot_notes = {"Ebm": "7A", "Fm": "9A", "C": "1B", "Eb": "8B"}
+        camelot_notes = {"Ebm": "2A", "Fm": "4A", "C": "8B", "Eb": "5B"}
         expected_seq  = {"Ebm": 7,    "Fm": 9,    "C": 1,    "Eb": 10}
         for r in sorted(rows, key=lambda x: x.Seq):
             cn  = camelot_notes.get(r.ScaleName, "?")
             exp = expected_seq.get(r.ScaleName, "?")
             print(f"  ScaleName={r.ScaleName:6} Seq={r.Seq}  "
-                  f"(Camelot: {cn}, expected Camelot#: {exp})")
+                  f"(Camelot: {cn}, expected Rekordbox Seq: {exp})")
 
     print("\nSmoke test complete.")
