@@ -366,3 +366,18 @@ def test_id3v22_tags_that_anvil_refuses_still_supply_key_and_bpm(fg_db, tmp_path
         read_fields(path)  # the premise: Anvil does refuse this file
     fg_db.insert_content(_make_track(file_path=str(path), file_name=path.name, key=None, bpm=None))
     assert _exported_key_and_bpm(fg_db, tmp_path) == ("Am", 12600)
+
+
+def test_tag_only_track_gets_a_beat_grid_at_its_tagged_tempo(fg_db, tmp_path):
+    from chop_shop.anlz_reader import parse_anlz_file
+    from fablegear_database.exporter import PioneerExporter
+
+    path = _tagged_mp3(tmp_path, key="8A", bpm=126.0)
+    rid = fg_db.insert_content(_make_track(file_path=str(path), file_name=path.name,
+                                           key=None, bpm=None, duration=60.0))
+    root = tmp_path / "usb"
+    assert PioneerExporter(fg_db).export_track_anlz(rid, root, "Contents/tagged.mp3")
+    report = parse_anlz_file(root / "PIONEER" / "USBANLZ" / "P000" / f"{rid:08X}" / "ANLZ0000.DAT")
+    assert report.beat_grid, "a tag-only track must still get a beat grid"
+    assert {round(b.tempo_bpm, 1) for b in report.beat_grid} == {126.0}
+    assert [b.beat_no for b in report.beat_grid[:5]] == [1, 2, 3, 4, 1]
