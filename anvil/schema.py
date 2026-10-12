@@ -110,9 +110,10 @@ def bpm_to_db(bpm: float | None) -> int | None:
         value = float(bpm)
     except (TypeError, ValueError):
         return None
-    if not math.isfinite(value) or value == 0:
+    scaled = value * 100
+    if not math.isfinite(scaled) or scaled < 0.5:
         return None
-    return round(value * 100)
+    return round(scaled)
 
 
 def bpm_from_db(centi_bpm: int | None) -> float:
