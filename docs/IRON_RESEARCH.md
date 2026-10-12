@@ -2495,8 +2495,9 @@ the numbers, not separately tested.
 - `scripts/benchmark_key_bpm_vs_rekordbox.py`: one harness, one manifest, every engine on the same
   audio. Engines: `iron` (`iron.analyze`, production defaults) and `essentia` (BPM:
   `RhythmExtractor2013(method="multifeature")`, the call `audio_processor._detect_bpm_essentia`
-  makes; key: `KeyExtractor(profileType="edma")`). **The Essentia key path is not in production**
-  (`audio_processor._detect_key` is librosa), so it is a new comparator, not the app's current one.
+  makes; key: `KeyExtractor(profileType="edma")`). **The Essentia key path is not in production.**
+  The app's key path is Iron, with `audio_processor._detect_key` (librosa) only as the fallback when Iron returns
+  no key (§17.3), so Essentia is a reference comparator, not part of the app.
 - Scoring: BPM exact (±0.6), within 1%, MIREX 4%, and misses classed as double / half / 3:2 / 2:3 /
   other so octave and compound-meter errors show up. Key: Camelot exact plus the §18.1 MIREX weights
   (exact 1, fifth 0.5, relative 0.3, parallel 0.2). Declined tracks count as misses in
@@ -2517,7 +2518,7 @@ borrows its resumable-JSONL and process-pool pattern.
 ### 25.2 Ground truth used
 
 - **rb200**: 200 tracks Rekordbox 7 analysed (BPM and `KeyName` from its own analysis). Mostly
-  118-130 BPM house, so BPM is saturated on it (see 19.4). Audio lives on the owner's device
+  118-130 BPM house, so BPM is saturated on it (see 25.4). Audio lives on the owner's device
   (`FableGearTestbed/rb200/pristine`), not in the repo.
 - **mixed150**: 150 `source=rekordbox` rows from the testbed `manifest.json`. BPM and keys come from
   the older Passport `master.db` (§16, §18.2), so this is a weaker reference than rb200.
@@ -2525,7 +2526,7 @@ borrows its resumable-JSONL and process-pool pattern.
   both engines ran on at full length. It's the fair comparison.
 - **excerpt50**: 60-second mono clips from the middle of the same 50 tracks. Built first, to get
   Essentia's output on the same audio when Essentia couldn't run on full files. It turned out to
-  mislead (19.3).
+  mislead (25.3).
 
 ### 25.3 Results (demonstrated)
 
@@ -2570,9 +2571,10 @@ excerpt result is also on clips, so the excerpt table cannot be used to rank the
 - **Essentia is only measured on 50 tracks.** The sandbox that could install Essentia had no audio;
   the device's Linux VM had no Essentia wheel (its pip index blocked it). So there is no full-library
   Essentia number, and mixed150 has no Essentia run at all.
-- **Essentia's key output is not the app's comparator.** The app uses librosa for key (§18: 45.5% /
-  32.7% on rb200 / mixed150, versus Iron's 62.5% / 49.3% on the same sets). The Essentia key here is a
-  new reference, chosen because it is the one the owner named.
+- **Essentia is a reference comparator, not part of the app.** The app's key path is Iron (§17.3, §18); librosa runs
+  only as the fallback when Iron returns no key. The librosa figures from §18 (45.5% / 32.7% on rb200 / mixed150,
+  versus Iron's 62.5% / 49.3% on the same sets) describe the previous key path. The Essentia key here is a new
+  reference, chosen because it is the one the owner named.
 
 ### 25.5 Where this leaves the goal (inferred from the numbers above)
 
@@ -2580,7 +2582,7 @@ excerpt result is also on clips, so the excerpt table cannot be used to rank the
   That supports "Iron ≥ Essentia on BPM" on this sample. It does not support "beats Essentia" on a
   larger, stratified set until mixed150 or a larger full-track set is run for both. The weakest
   real tempo population is mixed150 (MIREX 90.7%: 4 halves, 4 doubles, 4 misses).
-- **Key:** Iron beats the Essentia key path on full50 (64% vs 54%). The app's real key comparator
+- **Key:** Iron beats the Essentia key path on full50 (64% vs 54%). The previous key path
   (librosa, §18) is far below both. This is the strongest result in this section, with the n=50 caveat.
 - **Rekordbox:** the goal "match or beat Rekordbox" cannot be checked with this ground truth, because
   Rekordbox is the ground truth.
@@ -2602,8 +2604,8 @@ use, §0 and the tool catalog). Results are resumable: rerun the same command to
 1. Run both engines on the 150-track mixed set, full-length, on a machine that has Essentia and the audio.
    This is the test that actually bears on "beats Essentia on tempo".
 2. Diagnose Iron's full-track 2:3 and half-tempo misses on mixed150 (§2, §8.1 applied to this set).
-3. Replace the Essentia key comparator with the app's real key path (librosa) so the table reflects
-   what ships, or add librosa as a third engine.
+3. Iron is now the app's key path, so this table already reflects what ships. Add librosa as a third engine
+   only if a comparison with the previous key path is still wanted.
 
 
 ---
