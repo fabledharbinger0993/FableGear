@@ -361,3 +361,134 @@ def test_install_stream_logic_in_the_page_behaves_under_scripted_event_streams()
     page = REPO_ROOT / "templates" / "installer_wizard.html"
     done = subprocess.run([node, str(script), str(page)], capture_output=True, text=True, timeout=60)
     assert done.returncode == 0, done.stdout + done.stderr
+
+
+# ─── Installing to a new location (the installer app's mode) ────────────────
+
+def _payload(tmp_path):
+    src = tmp_path / "payload"
+    (src / "static").mkdir(parents=True)
+    (src / "main.py").write_text("print('hi')\n")
+    (src / "launch.sh").write_text("#!/bin/bash\n")
+    (src / "VERSION").write_text("v9.9.9\n")
+    (src / "static" / "a.css").write_text("x")
+    (src / "__pycache__").mkdir()
+    (src / "__pycache__" / "m.pyc").write_text("x")
+    (src / "venv").mkdir()
+    (src / "venv" / "junk").write_text("x")
+    return src
+
+
+def _install_into(monkeypatch, src, target):
+    monkeypatch.setattr(wiz, "REPO_ROOT", src)
+    monkeypatch.setattr(wiz, "TARGET_ROOT", None)
+    monkeypatch.setattr(wiz, "VENV_DIR", src / "venv")
+    wiz.configure_target(target)
+
+
+def test_configure_target_moves_the_venv_with_it(tmp_path, monkeypatch):
+    _install_into(monkeypatch, _payload(tmp_path), tmp_path / "App Support" / "FableGear")
+    assert wiz.VENV_DIR == (tmp_path / "App Support" / "FableGear").resolve() / "venv"
+    assert wiz.install_root() == wiz.TARGET_ROOT
+
+
+def test_copy_app_copies_code_but_not_venv_or_caches(tmp_path, monkeypatch):
+    src, target = _payload(tmp_path), tmp_path / "dest"
+    _install_into(monkeypatch, src, target)
+    out = "".join(wiz.stream_copy_app())
+    assert "[COPY_OK]" in out and "[SEQUENCE_FAILED]" not in out
+    assert (target / "main.py").is_file() and (target / "static" / "a.css").is_file()
+    assert (target / "VERSION").read_text().strip() == "v9.9.9"
+    assert not (target / "venv").exists() and not (target / "__pycache__").exists()
+    assert (target / "launch.sh").stat().st_mode & 0o111
+
+
+def test_reinstall_replaces_code_but_keeps_the_venv_and_log(tmp_path, monkeypatch):
+    src, target = _payload(tmp_path), tmp_path / "dest"
+    _install_into(monkeypatch, src, target)
+    list(wiz.stream_copy_app())
+    (target / "venv").mkdir()
+    (target / "venv" / "keep").write_text("v")
+    (target / "fablegear.log").write_text("log")
+    (target / "old_module.py").write_text("stale")
+    out = "".join(wiz.stream_copy_app())
+    assert "[COPY_OK]" in out
+    assert not (target / "old_module.py").exists()          # deleted modules don't linger
+    assert (target / "venv" / "keep").read_text() == "v"
+    assert (target / "fablegear.log").read_text() == "log"
+
+
+def test_copy_refuses_to_empty_a_folder_that_is_not_a_fablegear_install(tmp_path, monkeypatch):
+    src, target = _payload(tmp_path), tmp_path / "Documents"
+    target.mkdir()
+    (target / "thesis.docx").write_text("precious")
+    _install_into(monkeypatch, src, target)
+    out = "".join(wiz.stream_copy_app())
+    assert "[SEQUENCE_FAILED]" in out and "does not look like a FableGear install" in out
+    assert (target / "thesis.docx").read_text() == "precious"
+    assert not (target / "main.py").exists()
+
+
+def test_python_install_ends_with_the_copy_when_installing_elsewhere(tmp_path, monkeypatch):
+    src, target = _payload(tmp_path), tmp_path / "dest"
+    _install_into(monkeypatch, src, target)
+    (wiz.VENV_DIR / "bin").mkdir(parents=True)
+    (wiz.VENV_DIR / "bin" / "python").write_text("#!/bin/sh\n")
+    monkeypatch.setattr(wiz, "required_install_commands", lambda: [_ok("req")])
+    monkeypatch.setattr(wiz, "optional_install_command", lambda: None)
+    out = "".join(wiz.stream_python_install())
+    assert out.index("[COPY_OK]") < out.index("[SEQUENCE_OK]")
+    assert (target / "main.py").is_file()
+    assert (wiz.VENV_DIR / "bin" / "python").exists()        # the venv survived the copy
+
+
+def test_copy_failure_fails_the_install(tmp_path, monkeypatch):
+    src, target = _payload(tmp_path), tmp_path / "dest"
+    _install_into(monkeypatch, src, target)
+    (wiz.VENV_DIR / "bin").mkdir(parents=True)
+    (wiz.VENV_DIR / "bin" / "python").write_text("#!/bin/sh\n")
+    monkeypatch.setattr(wiz, "required_install_commands", lambda: [_ok("req")])
+    monkeypatch.setattr(wiz, "optional_install_command", lambda: None)
+    monkeypatch.setattr(wiz.shutil, "copytree", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    out = "".join(wiz.stream_python_install())
+    assert "disk full" in out and "[SEQUENCE_FAILED]" in out and "[SEQUENCE_OK]" not in out
+
+
+def test_launcher_goes_to_applications_when_writable_else_the_user_folder(tmp_path, monkeypatch):
+    _install_into(monkeypatch, _payload(tmp_path), tmp_path / "dest")
+    system, user = tmp_path / "Applications", tmp_path / "home" / "Applications"
+    system.mkdir(); user.mkdir(parents=True)
+    monkeypatch.setattr(wiz, "APPLICATIONS_DIRS", (system, user))
+    assert wiz.launcher_destination() == system
+    monkeypatch.setattr(wiz.os, "access", lambda p, mode: p != system)
+    assert wiz.launcher_destination() == user
+
+
+def test_in_place_install_keeps_the_scripts_default_launcher_location(monkeypatch):
+    monkeypatch.setattr(wiz, "TARGET_ROOT", None)
+    assert wiz.launcher_destination() is None
+
+
+# ─── Never install over a running FableGear ─────────────────────────────────
+
+def test_app_is_running_detects_a_held_lock_and_ignores_a_free_one(tmp_path, monkeypatch):
+    import fcntl
+    monkeypatch.setattr(wiz.Path, "home", classmethod(lambda cls: tmp_path))
+    assert wiz.app_is_running() is False                      # no lock file at all
+    lock = tmp_path / ".fablegear" / "fablegear.lock"
+    lock.parent.mkdir()
+    lock.write_text("")
+    assert wiz.app_is_running() is False                      # file present, nobody holding it
+    with open(lock, "r+b") as holder:
+        fcntl.flock(holder.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert wiz.app_is_running() is True
+    assert wiz.app_is_running() is False                      # released again
+
+
+def test_venv_setup_and_copy_refuse_while_the_app_runs(tmp_path, monkeypatch):
+    monkeypatch.setattr(wiz, "app_is_running", lambda: True)
+    monkeypatch.setattr(wiz, "TARGET_ROOT", tmp_path / "dest")
+    for stream in (wiz.stream_venv_setup(), wiz.stream_copy_app()):
+        out = "".join(stream)
+        assert "FableGear is running" in out and "[SEQUENCE_FAILED]" in out
+    assert not (tmp_path / "dest").exists()                   # nothing was touched

@@ -67,6 +67,22 @@ REPO_ROOT = Path(__file__).resolve().parent
 TEMPLATE_PATH = REPO_ROOT / "templates" / "installer_wizard.html"
 STATIC_DIR = REPO_ROOT / "static"
 VENV_DIR = REPO_ROOT / "venv"
+# Where FableGear is installed. None means "in place" (a source checkout running this file
+# directly); the installer app passes --target and the code is copied there after the packages
+# are installed. REPO_ROOT is always where this wizard's own assets and requirements live.
+TARGET_ROOT: Path | None = None
+# FABLEGEAR_APPLICATIONS_DIR redirects the launcher app (used by the tests that install into a
+# scratch folder, so they never touch the real /Applications).
+_APPS_OVERRIDE = os.environ.get("FABLEGEAR_APPLICATIONS_DIR")
+APPLICATIONS_DIRS = ((Path(_APPS_OVERRIDE),) if _APPS_OVERRIDE
+                     else (Path("/Applications"), Path.home() / "Applications"))
+# Files that mark a folder as a FableGear install, so a re-install may replace its contents
+# but a wrongly aimed --target (a Documents folder, say) is refused rather than emptied.
+INSTALL_MARKERS = ("main.py", "launch.sh")
+# Never copied from the payload, and never deleted from an existing install.
+COPY_IGNORE = ("venv", "__pycache__", "*.pyc", ".git", ".fablegear_ready", ".fablegear_failed",
+               ".launch_lock", "fablegear.log", ".dev")
+KEEP_ON_REINSTALL = ("venv", "fablegear.log")
 LAUNCHER_SCRIPT = REPO_ROOT / "packaging" / "create_launcher_app.sh"
 TOKEN_PLACEHOLDER = "__WIZARD_TOKEN__"
 
@@ -348,6 +364,10 @@ def _venv_is_usable() -> bool:
 
 def stream_venv_setup() -> Iterator[str]:
     """Create (or repair) the private environment, then bring pip up to date."""
+    if app_is_running():
+        yield f"data: [ERROR] {RUNNING_MESSAGE}\n\n"
+        yield "data: [SEQUENCE_FAILED]\n\n"
+        return
     found = find_python()
     if found is None:
         yield "data: [ERROR] no Python in the supported range was found\n\n"
@@ -417,18 +437,124 @@ def stream_python_install() -> Iterator[str]:
                 yield line
         if failed:
             yield "data: [OPTIONAL_SKIPPED]\n\n"
+    if _copies_to_new_location():
+        for line in stream_copy_app():
+            yield line
+            if "[SEQUENCE_FAILED]" in line:
+                return
     yield "data: [SEQUENCE_OK]\n\n"
 
 
 # ─── Finish: launcher app, ready marker, hand-off ───────────────────────────
 
+def app_is_running() -> bool:
+    """True while a FableGear process holds its single-instance lock (~/.fablegear/fablegear.lock).
+
+    Installing over a running copy would swap modules and upgrade packages under it, so the
+    wizard refuses until it exits. Only probes an existing lock file; never creates one."""
+    lock = Path.home() / ".fablegear" / "fablegear.lock"
+    if not lock.is_file():
+        return False
+    try:
+        import fcntl
+        with open(lock, "r+b") as fh:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    except (ImportError, OSError):
+        return False
+    return False
+
+
+RUNNING_MESSAGE = ("FableGear is running. Quit FableGear (FableGear menu > Quit), then run the "
+                   "installer again -- installing over a running copy could corrupt it.")
+
+
+def install_root() -> Path:
+    """The folder FableGear lives in once installed."""
+    return TARGET_ROOT if TARGET_ROOT is not None else REPO_ROOT
+
+
+def configure_target(target: str | Path) -> Path:
+    """Install into `target` instead of in place; the private environment moves with it."""
+    global TARGET_ROOT, VENV_DIR
+    TARGET_ROOT = Path(target).expanduser().resolve()
+    VENV_DIR = TARGET_ROOT / "venv"
+    return TARGET_ROOT
+
+
+def _copies_to_new_location() -> bool:
+    return TARGET_ROOT is not None and TARGET_ROOT != REPO_ROOT.resolve()
+
+
+def launcher_destination() -> Path | None:
+    """Where the launcher app goes: /Applications if this user can write there, else
+    ~/Applications. None (the script's own default) when installing in place."""
+    if not _copies_to_new_location():
+        return None
+    for folder in APPLICATIONS_DIRS:
+        if folder.is_dir() and os.access(folder, os.W_OK):
+            return folder
+    return APPLICATIONS_DIRS[-1]
+
+
+def _clear_previous_install(target: Path) -> Iterator[str]:
+    """Remove the old code (never the venv or log) so deleted modules don't linger."""
+    if not target.exists():
+        return
+    entries = [e for e in target.iterdir() if e.name not in KEEP_ON_REINSTALL]
+    if entries and not any((target / m).is_file() for m in INSTALL_MARKERS):
+        raise RuntimeError(f"{target} already exists and does not look like a FableGear install -- "
+                           "refusing to replace its contents")
+    if entries:
+        yield "data: Replacing the previous installation (your library and settings are not touched)\n\n"
+    for entry in entries:
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+
+
+def stream_copy_app() -> Iterator[str]:
+    """Copy FableGear's code from the installer into the install folder."""
+    target = TARGET_ROOT
+    if target is None:
+        return
+    if app_is_running():   # it may have been opened while the packages were installing
+        yield f"data: [ERROR] {RUNNING_MESSAGE}\n\n"
+        yield "data: [SEQUENCE_FAILED]\n\n"
+        return
+    yield f"data: Copying FableGear into {target}\n\n"
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        yield from _clear_previous_install(target)
+        shutil.copytree(REPO_ROOT, target, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns(*COPY_IGNORE), symlinks=True)
+        for script in ("launch.sh", "setup.sh"):
+            path = target / script
+            if path.is_file():
+                path.chmod(0o755)
+    except (OSError, RuntimeError, shutil.Error) as exc:
+        yield f"data: [ERROR] could not copy FableGear into {target}: {exc}\n\n"
+        yield "data: [SEQUENCE_FAILED]\n\n"
+        return
+    yield "data: FableGear's files are in place\n\n"
+    yield "data: [COPY_OK]\n\n"
+
+
 def create_launcher_app() -> bool:
     """Run the shared launcher script. Never raises -- a missing launcher isn't fatal."""
     if not LAUNCHER_SCRIPT.is_file():
         return False
+    cmd = ["/bin/bash", str(LAUNCHER_SCRIPT), str(install_root())]
+    dest = launcher_destination()
+    if dest is not None:
+        cmd.append(str(dest))
     try:
         done = subprocess.run(
-            ["/bin/bash", str(LAUNCHER_SCRIPT), str(REPO_ROOT)],
+            cmd,
             capture_output=True, text=True, timeout=120, check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -439,15 +565,24 @@ def create_launcher_app() -> bool:
 
 def finish() -> dict:
     launcher = create_launcher_app()
-    (REPO_ROOT / ".fablegear_ready").touch()
-    return {"ok": True, "launcher": launcher}
+    (install_root() / ".fablegear_ready").touch()
+    result: dict = {"ok": True, "launcher": launcher}
+    dest = launcher_destination()
+    if dest is not None:
+        result["launcher_dir"] = str(dest)
+    return result
 
 
 def _launch_app_and_exit() -> None:
     """Hand off to the real app, then let this process end."""
     time.sleep(0.4)
+    root = install_root()
+    env = dict(os.environ)
+    version_file = root / "VERSION"
+    if version_file.is_file():
+        env["FABLEGEAR_VERSION"] = version_file.read_text().strip().splitlines()[0] if version_file.read_text().strip() else ""
     subprocess.Popen(
-        [venv_python(), str(REPO_ROOT / "main.py")], cwd=str(REPO_ROOT),
+        [venv_python(), str(root / "main.py")], cwd=str(root), env=env,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
     )
     os._exit(0)
@@ -559,7 +694,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--serve", action="store_true",
                         help="plain localhost server, no native window and no browser launch")
     parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--target", metavar="DIR",
+                        help="install FableGear into DIR (copy its files there and build the private "
+                             "environment there) instead of in place")
     args = parser.parse_args(argv)
+    if args.target:
+        configure_target(args.target)
 
     if not TEMPLATE_PATH.is_file():
         print(f"error: missing {TEMPLATE_PATH}", file=sys.stderr)

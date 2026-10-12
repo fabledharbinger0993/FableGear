@@ -1,14 +1,14 @@
 #!/bin/bash
-# build_release.sh — builds the distributable FableGear.app and uploads a new GitHub release.
+# build_release.sh — builds the distributable FableGear.zip and uploads a new GitHub release.
 #
 # Uses a shell-script .app (not osacompile). A shell script as the MacOS
 # executable requires no code signature and runs correctly after a single
 # Gatekeeper approval — no "damaged" errors, no binary signing issues.
 #
-# What the generated .app does:
-#   First launch  → opens Terminal, git-clones the repo to ~/FableGear,
-#                   then hands off to launch.sh (which runs setup.sh if needed)
-#   Every launch  → runs launch.sh directly (which does git pull + starts server)
+# What the zip contains: "Install FableGear.app", an installer that carries a snapshot of
+# FableGear's code. Opening it runs the install wizard (private venv first, packages only
+# there), copies FableGear to ~/Library/Application Support/FableGear/app and adds
+# FableGear.app to /Applications (or ~/Applications). See packaging/installer_launcher.sh.
 #
 # Usage:
 #   bash build_release.sh              # builds FableGear.zip in the current dir
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/fabledharbinger0993/FableGear.git"
-APP_NAME="FableGear.app"
+APP_NAME="Install FableGear.app"
 ZIP_NAME="FableGear.zip"
 BUILD_DIR="$(mktemp -d)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -37,58 +37,43 @@ VERSION="$(git -C "$SCRIPT_DIR" tag --merged HEAD --sort=-v:refname 2>/dev/null 
 VERSION="${VERSION:-v0.0.0}"
 echo "Building $APP_NAME  version $VERSION"
 
-# ── Create .app bundle structure ──────────────────────────────────────────────
+# ── Create the installer app ──────────────────────────────────────────────────
+# The zip holds one app, "Install FableGear.app". It carries a snapshot of FableGear's code
+# (committed HEAD only -- never uncommitted edits) and a launcher that runs the install wizard
+# from it. The wizard builds FableGear's private environment, installs the packages there,
+# copies the code to ~/Library/Application Support/FableGear/app and adds FableGear.app to
+# /Applications. Nothing is cloned or downloaded for the code itself.
 APP_PATH="$BUILD_DIR/$APP_NAME"
-mkdir -p "$APP_PATH/Contents/MacOS"
-mkdir -p "$APP_PATH/Contents/Resources"
+PAYLOAD="$APP_PATH/Contents/Resources/payload"
+mkdir -p "$APP_PATH/Contents/MacOS" "$PAYLOAD"
 
-# ── Write the launcher shell script ───────────────────────────────────────────
-cat > "$APP_PATH/Contents/MacOS/FableGear" << 'LAUNCHER'
-#!/bin/bash
-# FableGear bootstrap launcher
-# First run: clones the repo. Every run: hands off to launch.sh.
-# Uses open -a Terminal (Launch Services) — no Automation permission required.
-
-# ── Escape Rosetta ────────────────────────────────────────────────────────
-# Launch Services can run this script-app translated (x86_64) — observed in
-# the wild as a launcher stuck inside Rosetta runtime routines forever: the
-# Dock icon bounces, launch.sh never runs, and no window ever appears. It
-# also makes `uname -m` lie to launch.sh's arch check. If we're translated
-# on Apple Silicon, re-exec natively before doing anything else.
-if [ "$(/usr/sbin/sysctl -in sysctl.proc_translated 2>/dev/null)" = "1" ]; then
-  exec /usr/bin/arch -arm64 /bin/bash "$0" "$@"
+if [ -n "$(git -C "$SCRIPT_DIR" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+  echo "  ⚠ Uncommitted changes in the repo are NOT in this build (it packages committed HEAD)."
 fi
+COMMIT="$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
-INSTALL_DIR="$HOME/FableGear"
-REPO_URL="https://github.com/fabledharbinger0993/FableGear.git"
+# What the installed app does not need: tests, docs, dev scripts, CI config, source-only extras.
+# Git pathspec excludes are exact repo-root paths, unlike tar patterns, which match a name at any depth
+# and would silently strip any future static/docs or library/scripts folder the app needs.
+EXCLUDES=(tests docs scripts .github fg-logo.png FableGear.spec FableGear_win.spec requirements-dev.txt
+          requirements_build.txt MARKETING.md IMPLEMENTATION_COMPLETE.md DESIGN.md PRODUCT.md install.sh
+          start_remote.sh build_release.sh ruff.toml pyrightconfig.json)
+PATHSPEC=(.)
+for ex in "${EXCLUDES[@]}"; do PATHSPEC+=(":(exclude)$ex"); done
+git -C "$SCRIPT_DIR" archive HEAD -- "${PATHSPEC[@]}" | tar -x -C "$PAYLOAD"
 
-if [ -d "$INSTALL_DIR/.git" ]; then
-  # Detach: launch.sh can legitimately take minutes (dependency install,
-  # release update) — running it synchronously keeps this process alive,
-  # which macOS renders as the Dock icon bouncing the whole time. Hand off
-  # and exit so the icon settles immediately; launch.sh owns the rest.
-  nohup /bin/bash "$INSTALL_DIR/launch.sh" >/dev/null 2>&1 &
+# Stamp the build. A release gets the clean tag; a local build says so, so it can never be
+# mistaken for the published release.
+if [[ "$DO_RELEASE" == true ]]; then
+  echo "$VERSION" > "$PAYLOAD/VERSION"
 else
-  SETUP_SCRIPT="$(mktemp /tmp/fablegear-install.XXXXXX.sh)"
-  cat > "$SETUP_SCRIPT" << 'INNER'
-#!/bin/bash
-INSTALL_DIR="$HOME/FableGear"
-REPO_URL="https://github.com/fabledharbinger0993/FableGear.git"
-echo ""
-echo "  Installing FableGear..."
-echo ""
-if [ -d "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR/.git" ]; then
-  echo "  $INSTALL_DIR exists but is not a git repo — backing up to ${INSTALL_DIR}.bak"
-  mv "$INSTALL_DIR" "${INSTALL_DIR}.bak"
+  echo "${VERSION}+g${COMMIT}-local" > "$PAYLOAD/VERSION"
 fi
-git clone "$REPO_URL" "$INSTALL_DIR" && bash "$INSTALL_DIR/launch.sh"
-rm -f "$0"
-INNER
-  chmod +x "$SETUP_SCRIPT"
-  open -a Terminal "$SETUP_SCRIPT"
-fi
-LAUNCHER
-chmod +x "$APP_PATH/Contents/MacOS/FableGear"
+PAYLOAD_MB="$(du -sm "$PAYLOAD" | cut -f1)"
+echo "  ✓ Payload: committed HEAD ${COMMIT}, ${PAYLOAD_MB} MB"
+
+cp "$SCRIPT_DIR/packaging/installer_launcher.sh" "$APP_PATH/Contents/MacOS/Install FableGear"
+chmod +x "$APP_PATH/Contents/MacOS/Install FableGear"
 echo "  ✓ Launcher script written"
 
 # ── Write Info.plist ──────────────────────────────────────────────────────────
@@ -98,15 +83,15 @@ cat > "$APP_PATH/Contents/Info.plist" << PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key>
-  <string>FableGear</string>
+  <string>Install FableGear</string>
   <key>CFBundleIconFile</key>
   <string>applet</string>
   <key>CFBundleIdentifier</key>
-  <string>com.fabledharbinger.fablegear</string>
+  <string>com.fabledharbinger.fablegear.installer</string>
   <key>CFBundleName</key>
-  <string>FableGear</string>
+  <string>Install FableGear</string>
   <key>CFBundleDisplayName</key>
-  <string>FableGear</string>
+  <string>Install FableGear</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -122,8 +107,6 @@ cat > "$APP_PATH/Contents/Info.plist" << PLIST
   </array>
   <key>NSHighResolutionCapable</key>
   <true/>
-  <key>NSAppleEventsUsageDescription</key>
-  <string>FableGear uses Terminal to install dependencies and launch the server.</string>
 </dict>
 </plist>
 PLIST
@@ -169,22 +152,23 @@ if [[ "$DO_RELEASE" == true ]]; then
 
 ## Install
 
-1. Download **FableGear.zip** above
-2. Unzip — you get **FableGear.app**
-3. Move it to your Desktop or Applications folder
-4. Double-click to launch
+1. Download **FableGear.zip** above and unzip it — you get **Install FableGear.app**
+2. Open **Install FableGear** (macOS will ask you to approve it once — see below)
+3. Follow the installer window. It checks your Mac, builds FableGear's own private Python environment, installs FableGear's packages there, and adds **FableGear** to your Applications folder
+4. Open **FableGear** from Applications. The intro plays, then a short setup asks for the access it needs
+5. You can delete the installer afterwards
 
-> **First launch** opens a Terminal window and clones FableGear. Before launching, install Python 3.11–3.13, \`ffmpeg\`, and \`fpcalc\` (Chromaprint) yourself and make sure they are on your \`PATH\`. FableGear does not install or update Homebrew or system tools; it creates a local virtual environment and installs its Python packages there.
+> Before you start, install Python 3.11–3.13, \`ffmpeg\`, and \`fpcalc\` (Chromaprint) yourself. FableGear never installs or updates Homebrew or system tools — if one is missing the installer tells you exactly what to get and waits. Everything FableGear installs lives in its own folder (\`~/Library/Application Support/FableGear\`) and its private environment.
 
-> **Future launches** update FableGear automatically — no manual downloads needed.
+> **Updating:** download the newest FableGear.zip and run its installer again. It replaces FableGear's program files and keeps your library, settings and environment.
 
 ## \"FableGear can't be opened\"?
 
 This is macOS Gatekeeper — it blocks apps that aren't signed with an Apple Developer certificate. To allow it, once:
 
-1. Double-click FableGear.app, then click **Done** on the warning
+1. Double-click Install FableGear.app, then click **Done** on the warning
 2. Apple menu → **System Settings → Privacy & Security** (scroll the sidebar if needed)
-3. In the **Security** section, click **Open Anyway** next to the FableGear message
+3. In the **Security** section, click **Open Anyway** next to the Install FableGear message
 4. Enter your Mac's login password
 
 The button stays for about an hour after your attempt; if it's gone, double-click the app again. FableGear may also ask for access to your music folders and external drives (**Privacy & Security → Files & Folders**) and, for your Rekordbox library, **Full Disk Access**. Full walkthrough: https://github.com/fabledharbinger0993/FableGear#first-launch-on-a-mac-two-things-macos-will-ask-you-for"

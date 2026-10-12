@@ -1501,10 +1501,29 @@ def api_onboarding_install_app():
 
     install_dir = Path.home() / "Applications"
     app_path = install_dir / "FableGear.app"
+    # The installer app puts the launcher in /Applications (or ~/Applications when that isn't
+    # writable). Use whichever exists rather than building a second copy that points at the same
+    # folder.
+    system_app = Path("/Applications") / "FableGear.app"
+    # Prefer a launcher that points at THIS install; after upgrading from the old flow a stale
+    # ~/Applications copy (pointing at a deleted ~/FableGear) must not shadow the new one.
+    here = str(REPO_ROOT)
+    for candidate in (system_app, app_path):
+        try:
+            script = (candidate / "Contents" / "MacOS" / "FableGear").read_text(errors="ignore")
+        except OSError:
+            continue
+        if here in script.replace("\\ ", " "):
+            app_path = candidate
+            break
+    else:
+        if not app_path.exists() and system_app.exists():
+            app_path = system_app
     launch_sh = REPO_ROOT / "launch.sh"
     icon_src = REPO_ROOT / "static" / "icon-app-dock.png"
 
-    install_dir.mkdir(parents=True, exist_ok=True)
+    if app_path.parent == install_dir:
+        install_dir.mkdir(parents=True, exist_ok=True)
 
     # setup.sh already builds FableGear.app during dependency install. If it is
     # present, don't rebuild it with a different mechanism — just pin to Dock if
