@@ -111,7 +111,7 @@ def summarise(rows: list[dict], key: str) -> dict:
     for x in ok:
         for k, v in classify(x[key], x["rb_bpm"]).items():
             acc[k] += int(v)
-    out = {k: acc[k] for k in acc}
+    out: dict[str, int | float] = {k: acc[k] for k in acc}
     out.update({f"{k}_pct": round(100 * acc[k] / n, 2) for k in ("exact", "within1", "within4")}, n=n)
     return out
 
