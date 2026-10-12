@@ -326,3 +326,38 @@ def test_static_cannot_escape_and_unknown_paths_404(server, path):
 
 def test_static_serves_real_assets(server):
     assert _req(server, "GET", "/static/fablegear.css")[0] == 200
+
+
+# ── Review fixes: venv bounds, and success must be an explicit marker ──────────
+
+@pytest.mark.parametrize("version,usable", [((3, 13, 1), True), ((3, 11, 0), True), ((3, 14, 0), False),
+                                            ((3, 10, 9), False), (None, False)])
+def test_existing_venv_is_reused_only_inside_the_supported_range(tmp_path, monkeypatch, version, usable):
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "bin" / "activate").write_text("")
+    monkeypatch.setattr(wiz, "VENV_DIR", venv)
+    monkeypatch.setattr(wiz, "_python_version", lambda exe: version)
+    assert wiz._venv_is_usable() is usable
+
+
+def test_page_treats_a_closed_stream_without_the_success_marker_as_a_failure():
+    html = (REPO_ROOT / "templates" / "installer_wizard.html").read_text()
+    # both install streams track the explicit marker and fail when the connection closes without it
+    assert html.count("let sawOk = false;") == 2
+    assert html.count('data === "[SEQUENCE_OK]") { sawOk = true; return; }') == 2
+    assert html.count("if (!failed && !sawOk) {") == 2
+    assert "finalizeRows();" in html  # a confirmed success settles every row, including the last 'installing' one
+
+
+def test_install_stream_logic_in_the_page_behaves_under_scripted_event_streams():
+    """Runs the page's real streamInstall() under Node with scripted success / dropped / failed streams."""
+    import shutil
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    script = REPO_ROOT / "tests" / "js" / "stream_install_check.js"
+    page = REPO_ROOT / "templates" / "installer_wizard.html"
+    done = subprocess.run([node, str(script), str(page)], capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stdout + done.stderr

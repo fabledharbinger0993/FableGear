@@ -6,10 +6,13 @@ A friendly window for what setup.sh does in a Terminal: check the Mac, build
 FableGear's private Python environment, install its packages with live
 progress, create the launcher app, and hand off to FableGear.
 
-What it does NOT do, on purpose: install or change anything on the system
-outside the FableGear folder. No Homebrew, no Python, no ffmpeg, no Chromaprint.
-Those are yours -- if one is missing the wizard says exactly what is needed and
-waits while you install it. This is the same contract setup.sh follows.
+What it does NOT do, on purpose: install or change system software. No Homebrew,
+no Python, no ffmpeg, no Chromaprint. Those are yours -- if one is missing the wizard
+says exactly what is needed and waits while you install it. This is the same contract
+setup.sh follows. Everything it installs goes into the private venv inside the
+FableGear folder. The one thing it writes outside that folder is the launcher app:
+at the very end it (re)creates ~/Applications/FableGear.app via
+packaging/create_launcher_app.sh, best-effort and never fatal.
 
 Deliberately standalone, and stdlib-only. It imports nothing from the rest of
 FableGear (config.py loads a user config at import time that does not exist yet
@@ -340,7 +343,7 @@ def _venv_is_usable() -> bool:
     if not (VENV_DIR / "bin" / "activate").is_file():
         return False
     ver = _python_version(str(VENV_DIR / "bin" / "python"))
-    return bool(ver and ver[:2] >= MIN_PYTHON)
+    return bool(ver and MIN_PYTHON <= ver[:2] <= MAX_PYTHON)  # both bounds: a 3.14 venv is as unusable as a 3.9
 
 
 def stream_venv_setup() -> Iterator[str]:

@@ -745,6 +745,7 @@ const Spectre = (function () {
   // `logContainer` for the details panel, they just aren't the primary view.
   function streamInstall(url, logContainer, detailsEl, rows, onDone) {
     let failed = false;
+    let sawOk = false;          // the server's explicit "[SEQUENCE_OK]" -- closure alone is NOT success
     let currentRowKey = null;
     const es = new EventSource(url);
 
@@ -775,7 +776,7 @@ const Spectre = (function () {
         }
         return;
       }
-      if (data === "[SEQUENCE_OK]") { return; }
+      if (data === "[SEQUENCE_OK]") { sawOk = true; return; }
       if (data === "[SEQUENCE_FAILED]") {
         failed = true;
         if (currentRowKey) setRow(currentRowKey, "failed");
@@ -792,10 +793,37 @@ const Spectre = (function () {
       if (data.startsWith("[ERROR]") && currentRowKey) setRow(currentRowKey, "failed");
     };
 
-    // EventSource fires "error" when the server closes the connection,
-    // which happens right after the final SSE line in both success and
-    // failure -- that's the completion signal, nothing further to poll for.
-    es.addEventListener("error", () => { es.close(); onDone && onDone(!failed); });
+    // On success every row is settled: steps the server skipped (an environment that already existed)
+    // read "ready", and the last row that was still "installing" is done.
+    function finalizeRows() {
+      Object.keys(rows).forEach((k) => {
+        const row = rows[k];
+        if (row.el.classList.contains("is-pending")) {
+          row.el.classList.remove("is-pending");
+          row.el.classList.add("is-done");
+          row.stateEl.textContent = "ready";
+          const ring = row.el.querySelector(".spin-ring");
+          if (ring) ring.textContent = RING_ICON.done;
+        } else {
+          setRow(k, "done");
+        }
+      });
+    }
+
+    // EventSource also fires "error" for an HTTP failure or a dropped connection, not only when the server
+    // closes after its final frame. So only the explicit success marker counts; closing without it is a
+    // failure the user can retry.
+    es.addEventListener("error", () => {
+      es.close();
+      if (!failed && !sawOk) {
+        failed = true;
+        if (currentRowKey) setRow(currentRowKey, "failed");
+        logLine(logContainer, "✕ the connection closed before this step finished — try again", true);
+        revealDetailsOnFailure(detailsEl);
+      }
+      if (!failed) finalizeRows();
+      onDone && onDone(!failed);
+    });
   }
 
   const STATUS_ICON = { ok: "✓", warn: "!", fail: "✕" };
@@ -905,14 +933,6 @@ const Spectre = (function () {
     streamInstall("/api/install/venv?t=" + encodeURIComponent(TOKEN), els.envLog, els.envDetails, rows, (ok) => {
       els.primary.disabled = false;
       if (ok) {
-        // An existing, healthy environment skips the "create" row; mark it done.
-        Object.keys(rows).forEach((k) => {
-          if (rows[k].el.classList.contains("is-pending")) {
-            rows[k].el.classList.remove("is-pending");
-            rows[k].el.classList.add("is-done");
-            rows[k].stateEl.textContent = "ready";
-          }
-        });
         els.primary.textContent = "Continue";
         pendingRetry = null;
         Spectre.say(els.envProgress, "Environment's ready.");
@@ -955,6 +975,7 @@ const Spectre = (function () {
     Spectre.say(els.planGroups, "Now the good stuff — FableGear's own packages.");
 
     let failed = false;
+    let sawOk = false;
     let optionalSkipped = false;
     let currentKey = null;
     const es = new EventSource("/api/install/python?t=" + encodeURIComponent(TOKEN));
@@ -970,7 +991,7 @@ const Spectre = (function () {
         }
         return;
       }
-      if (data === "[SEQUENCE_OK]") { return; }
+      if (data === "[SEQUENCE_OK]") { sawOk = true; return; }
       if (data === "[OPTIONAL_SKIPPED]") {
         // Not a failure: the optional group can't install on every Mac, and
         // FableGear runs fine without it. Say so instead of looking broken.
@@ -996,6 +1017,13 @@ const Spectre = (function () {
     es.addEventListener("error", () => {
       es.close();
       els.primary.disabled = false;
+      if (!failed && !sawOk) {
+        // closed before the server's final frame: an interrupted install, not a finished one
+        failed = true;
+        if (currentKey) setCard(currentKey, "failed");
+        logLine(els.pyLog, "✕ the connection closed before the install finished — try again", true);
+        revealDetailsOnFailure(els.pyDetails);
+      }
       if (!failed) {
         Object.keys(rows).forEach((k) => {
           if (!(k === "optional" && optionalSkipped)) setCard(k, "done");
