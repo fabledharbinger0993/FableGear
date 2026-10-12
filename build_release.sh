@@ -29,7 +29,7 @@ for arg in "$@"; do
 done
 
 # ── Version from latest git tag ───────────────────────────────────────────────
-# Only vX.Y.Z tags count: the repo also carries non-release tags (e.g. fablego-last-in-main) that
+# Only vX.Y.Z tags count: the repo also carries non-release tags (an archival marker tag) that
 # `git describe` would otherwise pick, stamping the wrong version and naming the release after it.
 # git's --match is a glob (v[0-9]* would still accept v1-beta), so filter with an anchored regex.
 VERSION="$(git -C "$SCRIPT_DIR" tag --merged HEAD --sort=-v:refname 2>/dev/null \
