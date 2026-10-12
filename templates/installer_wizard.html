@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="fg-token" content="__WIZARD_TOKEN__">
 <title>FableGear — Setup</title>
 <link rel="stylesheet" href="/static/fablegear.css">
 <style>
@@ -273,6 +274,9 @@
   .grp.is-installing { border-color: rgba(var(--accent-rgb), .5); }
   .grp.is-done { border-color: var(--safe-border); }
   .grp.is-failed { border-color: var(--danger-border); }
+  .grp.is-skipped { border-color: var(--caution-border); }
+  .grp-note { display: none; color: var(--caution); font-size: .8rem; line-height: 1.5; margin-top: 6px; }
+  .grp.is-skipped .grp-note { display: block; }
   .grp-top { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
   .grp-label { font-weight: 600; font-size: .92rem; flex: 1; }
   .grp-tag {
@@ -451,7 +455,7 @@
     <section class="panel active welcome" data-step="0">
       <div class="welcome-mark">🎛️</div>
       <h1>Welcome to FableGear</h1>
-      <p>This sets up everything FableGear needs to run — a few system tools, a private Python environment, and nothing else. Takes a few minutes, and you'll see exactly what's happening the whole way through.</p>
+      <p>This checks your Mac, builds a private Python environment inside the FableGear folder, and installs FableGear's packages. It never installs or changes system software — your Python, ffmpeg and Chromaprint stay yours. If one is missing, I'll tell you exactly what to get. Takes a few minutes, and you'll see everything it does.</p>
     </section>
 
     <section class="panel" data-step="1">
@@ -465,14 +469,14 @@
 
     <section class="panel" data-step="2">
       <div class="sec-head">
-        <span class="sec-icon">🍺</span>
-        <div class="sec-title">System tools</div>
-        <div class="sec-sub">Homebrew, ffmpeg, and chromaprint — installed once, shared with everything else on your Mac that uses them.</div>
+        <span class="sec-icon">🧪</span>
+        <div class="sec-title">Private environment</div>
+        <div class="sec-sub">A Python environment that lives inside the FableGear folder — nothing here touches Python anywhere else on your Mac.</div>
       </div>
-      <div class="progress-list" id="brewProgress"></div>
-      <details class="log-details" id="brewDetails">
+      <div class="progress-list" id="envProgress"></div>
+      <details class="log-details" id="envDetails">
         <summary>Show technical details</summary>
-        <div class="log-wrap"><div class="log-body" id="brewLog"></div></div>
+        <div class="log-wrap"><div class="log-body" id="envLog"></div></div>
       </details>
     </section>
 
@@ -493,6 +497,7 @@
       <div class="done-mark">✓</div>
       <h1>You're all set</h1>
       <p style="color:var(--text-muted); font-size:.94rem; margin-top:8px; margin-bottom:30px;">FableGear is ready. Launching now — this window will close on its own.</p>
+      <p id="launcherNote" style="color:var(--text-dim); font-size:.82rem; margin-bottom:24px;"></p>
     </section>
 
   </div>
@@ -666,7 +671,8 @@ const Spectre = (function () {
 
 /* ── Wizard ──────────────────────────────────────────────────────────── */
 (function () {
-  const STEPS = ["Welcome", "System check", "System tools", "Python packages", "Done"];
+  const STEPS = ["Welcome", "System check", "Private environment", "Python packages", "Done"];
+  const TOKEN = (document.querySelector('meta[name="fg-token"]') || {}).content || "";
   let step = 0;
 
   const els = {
@@ -677,9 +683,9 @@ const Spectre = (function () {
     panels: document.querySelectorAll(".panel"),
     primary: document.getElementById("primaryBtn"),
     checkList: document.getElementById("checkList"),
-    brewProgress: document.getElementById("brewProgress"),
-    brewLog: document.getElementById("brewLog"),
-    brewDetails: document.getElementById("brewDetails"),
+    envProgress: document.getElementById("envProgress"),
+    envLog: document.getElementById("envLog"),
+    envDetails: document.getElementById("envDetails"),
     pyLog: document.getElementById("pyLog"),
     pyDetails: document.getElementById("pyDetails"),
     planGroups: document.getElementById("planGroups"),
@@ -739,7 +745,7 @@ const Spectre = (function () {
   // `logContainer` for the details panel, they just aren't the primary view.
   function streamInstall(url, logContainer, detailsEl, rows, onDone) {
     let failed = false;
-    let completed = false;
+    let sawOk = false;          // the server's explicit "[SEQUENCE_OK]" -- closure alone is NOT success
     let currentRowKey = null;
     const es = new EventSource(url);
 
@@ -770,7 +776,7 @@ const Spectre = (function () {
         }
         return;
       }
-      if (data === "[SEQUENCE_OK]") { completed = true; return; }
+      if (data === "[SEQUENCE_OK]") { sawOk = true; return; }
       if (data === "[SEQUENCE_FAILED]") {
         failed = true;
         if (currentRowKey) setRow(currentRowKey, "failed");
@@ -787,15 +793,36 @@ const Spectre = (function () {
       if (data.startsWith("[ERROR]") && currentRowKey) setRow(currentRowKey, "failed");
     };
 
+    // On success every row is settled: steps the server skipped (an environment that already existed)
+    // read "ready", and the last row that was still "installing" is done.
+    function finalizeRows() {
+      Object.keys(rows).forEach((k) => {
+        const row = rows[k];
+        if (row.el.classList.contains("is-pending")) {
+          row.el.classList.remove("is-pending");
+          row.el.classList.add("is-done");
+          row.stateEl.textContent = "ready";
+          const ring = row.el.querySelector(".spin-ring");
+          if (ring) ring.textContent = RING_ICON.done;
+        } else {
+          setRow(k, "done");
+        }
+      });
+    }
+
+    // EventSource also fires "error" for an HTTP failure or a dropped connection, not only when the server
+    // closes after its final frame. So only the explicit success marker counts; closing without it is a
+    // failure the user can retry.
     es.addEventListener("error", () => {
       es.close();
-      if (!completed && !failed) {
+      if (!failed && !sawOk) {
         failed = true;
         if (currentRowKey) setRow(currentRowKey, "failed");
-        logLine(logContainer, "Connection ended before the installer confirmed completion", true);
+        logLine(logContainer, "✕ the connection closed before this step finished — try again", true);
         revealDetailsOnFailure(detailsEl);
       }
-      onDone && onDone(completed && !failed);
+      if (!failed) finalizeRows();
+      onDone && onDone(!failed);
     });
   }
 
@@ -816,6 +843,8 @@ const Spectre = (function () {
   }
 
   function runChecks() {
+    els.checkList.innerHTML = "";
+    pendingRetry = null;
     fetch("/api/checks").then(r => r.json()).then(results => {
       results.forEach((c, i) => {
         const row = document.createElement("div");
@@ -823,8 +852,9 @@ const Spectre = (function () {
         row.style.animationDelay = (i * 70) + "ms";
         row.innerHTML =
           '<div class="check-dot pending"></div>' +
-          '<div class="check-label">' + c.label + '</div>' +
+          '<div class="check-label"></div>' +
           '<div class="check-detail"></div>';
+        row.querySelector(".check-label").textContent = c.label;
         els.checkList.appendChild(row);
 
         setTimeout(() => {
@@ -841,12 +871,22 @@ const Spectre = (function () {
       const settleMs = 260 + results.length * 160;
       setTimeout(() => {
         els.primary.disabled = false;
-        els.primary.textContent = worst === "fail" ? "Fix issues above to continue" : "Continue";
-        if (worst === "fail") els.primary.disabled = true;
+        if (worst === "fail") {
+          // Blocking problems are things only the user can fix (install Python,
+          // ffmpeg, Chromaprint, free space). Wait for them, don't dead-end.
+          els.primary.textContent = "Check again";
+          pendingRetry = () => {
+            els.primary.textContent = "Checking…";
+            els.primary.disabled = true;
+            runChecks();
+          };
+        } else {
+          els.primary.textContent = "Continue";
+        }
         Spectre.say(els.checkList,
-          worst === "fail" ? "Uh oh — a couple things need fixing before we go on."
-          : worst === "warn" ? "A couple things to grab first. No big deal."
-          : "Looking good — nothing standing in our way.");
+          worst === "fail" ? "Something's missing. Install it, then hit Check again — I'll wait."
+          : worst === "warn" ? "A heads-up or two, nothing blocking."
+          : "Looking good — nothing standing in our way.", 6000);
       }, settleMs);
     });
   }
@@ -862,7 +902,8 @@ const Spectre = (function () {
           '<span class="grp-tag' + (g.required ? "" : " optional") + '">' +
           (g.required ? "required" : "best-effort") + '</span></div>' +
           '<div class="grp-desc">' + g.description + '</div>' +
-          '<div class="grp-pkgs">' + g.packages.join(" · ") + '</div>';
+          '<div class="grp-pkgs">' + g.packages.join(" · ") + '</div>' +
+          (g.required ? '' : '<div class="grp-note">Not available for this Mac, so it was skipped. FableGear works fine without it — the Health panel will note that beat detection is in fallback mode.</div>');
         els.planGroups.appendChild(el);
       });
       runPythonStep(groups);
@@ -871,36 +912,34 @@ const Spectre = (function () {
 
   let pendingRetry = null;
 
-  function runBrewStep() {
-    els.brewProgress.innerHTML = "";
-    els.brewLog.innerHTML = "";
-    els.brewDetails.open = false;
-    els.brewDetails.classList.remove("failed-open");
-    els.primary.textContent = "Installing…";
+  function runEnvStep() {
+    els.envProgress.innerHTML = "";
+    els.envLog.innerHTML = "";
+    els.envDetails.open = false;
+    els.envDetails.classList.remove("failed-open");
+    els.primary.textContent = "Setting up…";
     els.primary.disabled = true;
     pendingRetry = null;
 
     const rows = {
-      homebrew: { ...buildProgressRow(els.brewProgress, "homebrew", "Homebrew", "Only if not already installed"),
-                  match: (cmd) => cmd.includes("Homebrew/install") },
-      ffmpeg: { ...buildProgressRow(els.brewProgress, "ffmpeg", "ffmpeg", "Audio decoding and normalisation"),
-              match: (cmd) => cmd.includes("install ffmpeg") },
-      chromaprint: { ...buildProgressRow(els.brewProgress, "chromaprint", "chromaprint", "Duplicate-detection fingerprinting"),
-                   match: (cmd) => cmd.includes("install chromaprint") },
+      venv: { ...buildProgressRow(els.envProgress, "venv", "Create the environment", "A private copy of Python for FableGear"),
+              match: (cmd) => cmd.includes(" -m venv") },
+      pip: { ...buildProgressRow(els.envProgress, "pip", "Update the package installer", "So the next step installs cleanly"),
+             match: (cmd) => cmd.includes("--upgrade pip") },
     };
 
-    Spectre.say(els.brewProgress, "Grabbing ffmpeg and chromaprint — back in a sec.");
+    Spectre.say(els.envProgress, "Building FableGear's own little corner of Python.");
 
-    streamInstall("/api/install/brew", els.brewLog, els.brewDetails, rows, (ok) => {
+    streamInstall("/api/install/venv?t=" + encodeURIComponent(TOKEN), els.envLog, els.envDetails, rows, (ok) => {
       els.primary.disabled = false;
       if (ok) {
         els.primary.textContent = "Continue";
         pendingRetry = null;
-        Spectre.say(els.brewProgress, "Nice — those are in.");
+        Spectre.say(els.envProgress, "Environment's ready.");
       } else {
         els.primary.textContent = "Try Again";
-        pendingRetry = runBrewStep;
-        Spectre.say(els.brewProgress, "Hmm, that didn't stick. Let's try again.", 5000);
+        pendingRetry = runEnvStep;
+        Spectre.say(els.envProgress, "Hmm, that didn't stick. Let's try again.", 5000);
       }
     });
   }
@@ -929,16 +968,17 @@ const Spectre = (function () {
     function setCard(key, state) {
       const row = rows[key];
       if (!row || !row.el) return;
-      row.el.classList.remove("is-pending", "is-installing", "is-done", "is-failed");
+      row.el.classList.remove("is-pending", "is-installing", "is-done", "is-failed", "is-skipped");
       row.el.classList.add("is-" + state);
     }
 
     Spectre.say(els.planGroups, "Now the good stuff — FableGear's own packages.");
 
     let failed = false;
-    let completed = false;
+    let sawOk = false;
+    let optionalSkipped = false;
     let currentKey = null;
-    const es = new EventSource("/api/install/python");
+    const es = new EventSource("/api/install/python?t=" + encodeURIComponent(TOKEN));
     es.onmessage = (ev) => {
       const data = ev.data;
       if (data.startsWith("$ ")) {
@@ -951,10 +991,13 @@ const Spectre = (function () {
         }
         return;
       }
-      if (data === "[SEQUENCE_OK]") { completed = true; return; }
-      if (data === "[OPTIONAL_FAILED]") {
-        revealDetailsOnFailure(els.pyDetails);
-        logLine(els.pyLog, "Optional packages could not be installed; continuing without enhanced beat detection", true);
+      if (data === "[SEQUENCE_OK]") { sawOk = true; return; }
+      if (data === "[OPTIONAL_SKIPPED]") {
+        // Not a failure: the optional group can't install on every Mac, and
+        // FableGear runs fine without it. Say so instead of looking broken.
+        optionalSkipped = true;
+        if (rows.optional) setCard("optional", "skipped");
+        logLine(els.pyLog, "– optional packages were not available for this Mac; continuing without them");
         return;
       }
       if (data === "[SEQUENCE_FAILED]") {
@@ -973,16 +1016,17 @@ const Spectre = (function () {
     };
     es.addEventListener("error", () => {
       es.close();
-      if (!completed && !failed) {
+      els.primary.disabled = false;
+      if (!failed && !sawOk) {
+        // closed before the server's final frame: an interrupted install, not a finished one
         failed = true;
         if (currentKey) setCard(currentKey, "failed");
+        logLine(els.pyLog, "✕ the connection closed before the install finished — try again", true);
         revealDetailsOnFailure(els.pyDetails);
-        logLine(els.pyLog, "Connection ended before the installer confirmed completion", true);
       }
-      els.primary.disabled = false;
-      if (!failed && completed) {
+      if (!failed) {
         Object.keys(rows).forEach((k) => {
-          if (!rows[k].el.classList.contains("is-failed")) setCard(k, "done");
+          if (!(k === "optional" && optionalSkipped)) setCard(k, "done");
         });
         els.primary.textContent = "Finish";
         pendingRetry = null;
@@ -1006,7 +1050,7 @@ const Spectre = (function () {
       runChecks();
     } else if (step === 1) {
       transitionToStep(2);
-      runBrewStep();
+      runEnvStep();
     } else if (step === 2) {
       transitionToStep(3);
       showPlan();
@@ -1014,7 +1058,15 @@ const Spectre = (function () {
       transitionToStep(4);
       document.getElementById("actions").style.display = "none";
       Spectre.say(document.querySelector('.panel[data-step="4"]'), "You're all set. Let's make some noise.", 6000);
-      fetch("/api/complete", { method: "POST" });
+      fetch("/api/complete?t=" + encodeURIComponent(TOKEN), { method: "POST" })
+        .then(r => r.json())
+        .then(d => {
+          const note = document.getElementById("launcherNote");
+          if (note) note.textContent = d.launcher
+            ? "I also put FableGear in your Applications folder — drag it to the Dock for one-click access."
+            : "Open FableGear any time by running launch.sh from the FableGear folder.";
+        })
+        .catch(() => {});
     }
   });
 
