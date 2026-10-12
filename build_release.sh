@@ -29,7 +29,12 @@ for arg in "$@"; do
 done
 
 # ── Version from latest git tag ───────────────────────────────────────────────
-VERSION="$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")"
+# Only vX.Y.Z tags count: the repo also carries non-release tags (an archival marker tag) that
+# `git describe` would otherwise pick, stamping the wrong version and naming the release after it.
+# git's --match is a glob (v[0-9]* would still accept v1-beta), so filter with an anchored regex.
+VERSION="$(git -C "$SCRIPT_DIR" tag --merged HEAD --sort=-v:refname 2>/dev/null \
+  | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
+VERSION="${VERSION:-v0.0.0}"
 echo "Building $APP_NAME  version $VERSION"
 
 # ── Create .app bundle structure ──────────────────────────────────────────────
