@@ -20,10 +20,15 @@ So the deck, stick, cable and filesystem (FAT32 on GPT) are fine, and the only m
 DeviceSQL `export.pdb`. [D for the result; I for "that is the only difference", since the two sticks
 also differ in ANLZ completeness, artwork and settings files.]
 
-Sources on firmware: AlphaTheta's USB notice says the plain CDJ-3000 reads the original Device
-Library format and lists OneLibrary as CDJ-3000X-class [S]. CDJ-3000 firmware 3.30 added OneLibrary
-and was withdrawn in November 2025, reportedly because playlists went blank on sticks holding both
-formats [S]. The deck under test is on 3.2x [D, user-reported]. The July 2026 note in
+Sources on firmware (retrieved 2026-10-11; these are late-2025 reports and a newer firmware may exist):
+- AlphaTheta, [Important Notice for Customers Using USB Devices with Our DJ Equipment](https://alphatheta.com/en/information/important-notice-for-customers-using-usb-devices-with-our-dj-equipment/):
+  the plain CDJ-3000 and XDJ-XZ read the original Device Library format; the CDJ-3000X is the OneLibrary
+  model; rekordbox 7.2.11 and later write both formats to an exported drive [S].
+- DJ Mag, [AlphaTheta suspends CDJ-3000 firmware update distribution following playlist issues](https://djmag.com/tech/alphatheta-suspends-cdj-3000-firmware-update-distribution-following-playlist-issues)
+  and Digital DJ Tips, [AlphaTheta pulls CDJ-3000 firmware after playlist issues](https://www.digitaldjtips.com/alphatheta-pulls-cdj-3000-firmware-after-playlist-issues/):
+  CDJ-3000 firmware 3.30 (21 Oct 2025) added OneLibrary and was withdrawn on 4 Nov 2025, reportedly because
+  playlists went blank on sticks holding both formats [S].
+The deck under test is on 3.2x [D, user-reported]. The July 2026 note in
 `HARDWARE_TEST_ONELIBRARY.md` ("CDJ-3000 plays OneLibrary-only") is therefore unexplained: the deck was
 probably on 3.30, or that stick already held a Rekordbox-made `export.pdb` [I].
 
@@ -97,7 +102,7 @@ on the CDJ-3000 on firmware 3.2x.
 
 - **The deck is strict [I].** A malformed file likely gives an error or an empty list. Every fix needs a
   physical test, so deck test A should use as few tracks and as few features as possible.
-- **Both formats on one stick.** Rekordbox 7.2.11 writes both [S]. The firmware 3.30 problem
+- **Both formats on one stick.** Rekordbox 7.2.11 writes both ([AlphaTheta notice](https://alphatheta.com/en/information/important-notice-for-customers-using-usb-devices-with-our-dj-equipment/)) [S]. The firmware 3.30 problem
   (blank playlists with both) is a reason to keep checking this on any deck that updates [S, U for
   current firmware]. FableGear should probably write both, as Rekordbox does, but that is undecided.
 - **Partial pdb at scale [U].** An older capture (413 tracks in OneLibrary, 57 in `export.pdb`) suggests

@@ -1,8 +1,8 @@
 """
 Tests for devicesql_reader.py's tracks-table row walker.
 
-No export.pdb binary is committed to this repo (see module docstring
-HONESTY LIMIT) so — same convention as tests/test_devicesql_reader.py and
+These tests do not read a committed export.pdb (one exists now: tests/fixtures/rekordbox_21track_export/;
+the row walker does not yet recover all its rows) so — same convention as tests/test_devicesql_reader.py and
 tests/test_anlz_reader.py — these tests build a SYNTHETIC PDB file
 byte-for-byte from Deep Symmetry's published DeviceSQL format
 specification (https://djl-analysis.deepsymmetry.org/rekordbox-export-analysis/exports.html),
@@ -11,7 +11,7 @@ documented format correctly; they do not (and cannot, without a real
 sample) verify fidelity to actual CDJ-3000 hardware output.
 
 One real data point exists: a genuinely Rekordbox-written export.pdb was
-found and read (not committed to the repo — see docs/format_samples/) whose
+found and read (that file is not committed to the repo) whose
 every table root page was an EMPTY index page (num_entries=0, page_flags
 0x64, matching the documented "typical value" exactly). That confirmed the
 file header, table pointer array, page header, and index-page-detection

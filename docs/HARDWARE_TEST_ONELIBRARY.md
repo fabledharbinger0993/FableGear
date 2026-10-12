@@ -1,6 +1,13 @@
 # Hardware test — does a CDJ-3000 read OneLibrary-only media?
 
-**Status: ✅ ANSWERED — YES.** Confirmed on real hardware 2026-07-29 by Marshall:
+> **Superseded in part, 2026-10-11.** A repeat on a CDJ-3000 running **firmware 3.2x** got the opposite
+> result: a OneLibrary-only FableGear stick showed nothing, and a Rekordbox-written stick (which carries an
+> `export.pdb`) loaded perfectly. The July result below is probably explained by firmware 3.30 (the first to
+> read OneLibrary, since withdrawn) or by a stick that already held a Rekordbox `export.pdb`; the July stick can
+> no longer be checked. Treat "CDJ-3000 reads OneLibrary-only media" as **true only for firmware that supports
+> OneLibrary**. See `docs/devicesql_export_writer.md`.
+
+**Status: ✅ ANSWERED — YES (July 2026, firmware not recorded).** Confirmed on real hardware 2026-07-29 by Marshall:
 FableGear-exported tracks loaded and played on a CDJ-3000 without issues.
 FableGear writes no DeviceSQL, so that stick was OneLibrary-only by construction.
 
