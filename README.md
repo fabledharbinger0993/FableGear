@@ -198,7 +198,7 @@ The same safety contract applies as everywhere else: write tools check that Reko
 3. Open **FableGear.app**
 4. If macOS blocks the first launch, right-click the app and choose **Open**
 
-On first launch, FableGear opens a Terminal window, installs dependencies, and sets itself up. It can also create a native Dock launcher on your Mac. Every later launch updates itself automatically.
+Before first launch, install Python 3.11–3.13, `ffmpeg`, and `fpcalc` (provided by Chromaprint), and make sure they are available on your `PATH`. FableGear does not install or update Homebrew, Python, or system tools. First launch checks these prerequisites, creates a project-local Python virtual environment, and installs FableGear's Python packages there. It can also create a native Dock launcher on your Mac. Later launches update FableGear automatically.
 
 ---
 
@@ -209,21 +209,25 @@ On first launch, FableGear opens a Terminal window, installs dependencies, and s
 - Internet connection for first-time setup (to install dependencies)
 - Rekordbox must be closed for any write operation
 
-### System dependencies (installed via Homebrew)
+### System dependencies (install separately)
 
 - `ffmpeg` -- audio processing and format conversion
 - `chromaprint` / `fpcalc` -- acoustic fingerprinting for duplicate detection
+- Python 3.11–3.13
+
+If you use Homebrew, install the tools yourself with `brew install ffmpeg chromaprint python@3.13`. FableGear's setup and launch will not automatically run Homebrew update, upgrade, or install commands.
 
 ---
 
 ## Quick start
 
-1. Install and launch FableGear
-2. Let the first-run setup complete
-3. Point it at your Rekordbox database and music root folder
-4. Run **Library Audit** first -- always audit before changing anything
-5. Review any health warnings before running write operations
-6. Use dry-run and preview modes whenever they are available
+1. Install Python 3.11–3.13, `ffmpeg`, and `fpcalc` and make sure they are on your `PATH`
+2. Install and launch FableGear
+3. Let the first-run setup install Python packages into its local virtual environment
+4. Point it at your Rekordbox database and music root folder
+5. Run **Library Audit** first -- always audit before changing anything
+6. Review any health warnings before running write operations
+7. Use dry-run and preview modes whenever they are available
 
 For large or older libraries, a safe order of operations is:
 

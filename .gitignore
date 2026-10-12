@@ -40,6 +40,7 @@ DerivedData/
 .env
 .fablegear-agent.env
 settings.json
+.vscode/
 
 # Setup sentinel (written by setup.sh, local to each machine)
 .rekitbox_ready
