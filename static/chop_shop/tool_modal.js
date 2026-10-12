@@ -572,7 +572,9 @@ function leEnsurePlayer() {
   if (_lePlayer) return _lePlayer;
   // Prefer the DOM-attached element — WKWebView (pywebview/macOS) requires the
   // audio element to be part of the document for media playback to work.
-  _lePlayer = document.getElementById('le-player-audio') || new Audio();
+  const domPlayer = document.getElementById('le-player-audio');
+  if (!domPlayer) console.warn('[FableGear] #le-player-audio missing from DOM; using detached Audio() fallback.');
+  _lePlayer = domPlayer || new Audio();
   _lePlayer.addEventListener('play', () => {
     // Single audio focus: the inline sample player and the performance decks
     // never sound at once. Starting a preview silences any running deck.
@@ -591,7 +593,7 @@ function leEnsurePlayer() {
     const msg = code === 4 ? 'Track file not found or format unsupported.'
               : code === 2 ? 'Network error loading track.'
               : 'Could not play track.';
-    showToast(msg, 'error');
+    window.showToast?.(msg, 'error');
     _lePlayingTrackId = null;
     leRefreshPlaybackButtons();
   });
