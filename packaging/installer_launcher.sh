@@ -25,6 +25,8 @@ if [ "$(/usr/sbin/sysctl -in sysctl.proc_translated 2>/dev/null)" = "1" ]; then
 fi
 
 dialog() {  # dialog <message> -- plain alert; best effort
+  # FABLEGEAR_NO_DIALOG: test hook -- an alert would block a headless run waiting for a click.
+  if [ -n "$FABLEGEAR_NO_DIALOG" ]; then echo "$1" >&2; return; fi
   /usr/bin/osascript -e "display dialog \"$1\" buttons {\"OK\"} default button \"OK\" with icon caution with title \"FableGear Installer\"" >/dev/null 2>&1
 }
 
@@ -45,11 +47,9 @@ _minor() {  # _minor <python> -> "11" for 3.11.x, empty if not python3
 
 PY=""
 # Prefer a supported Python (3.11-3.13) so the wizard's own checks pass.
-for cand in \
-  /Library/Frameworks/Python.framework/Versions/3.13/bin/python3 \
-  /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 \
-  /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 \
-  python3.13 python3.12 python3.11 python3; do
+# FABLEGEAR_PYTHON_CANDIDATES: test hook that replaces this list.
+CANDIDATES="${FABLEGEAR_PYTHON_CANDIDATES:-/Library/Frameworks/Python.framework/Versions/3.13/bin/python3 /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 python3.13 python3.12 python3.11 python3}"
+for cand in $CANDIDATES; do
   exe="$(command -v "$cand" 2>/dev/null)"
   [ -n "$exe" ] || continue
   v="$(_minor "$exe")"
@@ -59,9 +59,14 @@ done
 # Otherwise any working Python 3.9+ can still run the wizard (it will explain what to install).
 # /usr/bin/python3 is only a shim on a Mac without the Command Line Tools -- running it would
 # pop up Apple's developer-tools installer, which is a system change we promised not to make.
-if [ -z "$PY" ] && /usr/bin/xcode-select -p >/dev/null 2>&1 && [ -x /usr/bin/python3 ]; then
+if [ -z "$PY" ] && [ -z "$FABLEGEAR_PYTHON_CANDIDATES" ] && /usr/bin/xcode-select -p >/dev/null 2>&1 && [ -x /usr/bin/python3 ]; then
   v="$(_minor /usr/bin/python3)"
   [ -n "$v" ] && [ "$v" -ge 309 ] && PY=/usr/bin/python3
+fi
+
+if [ -z "$PY" ] && [ -n "$FABLEGEAR_NO_DIALOG" ]; then
+  echo "no supported Python found" >&2
+  exit 1
 fi
 
 if [ -z "$PY" ]; then

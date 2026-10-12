@@ -46,7 +46,11 @@ def _bundle(tmp_path: Path) -> Path:
 
 def _run(exe: Path, tmp_path: Path, path_dirs: list[Path], extra_env: dict | None = None):
     env = {"PATH": ":".join(map(str, path_dirs)) + ":/usr/bin:/bin", "HOME": str(tmp_path / "home"),
-           "FABLEGEAR_INSTALL_TARGET": str(tmp_path / "target dir"), **(extra_env or {})}
+           "FABLEGEAR_INSTALL_TARGET": str(tmp_path / "target dir"),
+           # Hooks: don't consult real interpreters on the machine running the tests, and never
+           # pop a dialog that would wait for a click.
+           "FABLEGEAR_PYTHON_CANDIDATES": "python3.13 python3.12 python3.11",
+           "FABLEGEAR_NO_DIALOG": "1", **(extra_env or {})}
     (tmp_path / "home").mkdir(exist_ok=True)
     return subprocess.run(["/bin/bash", str(exe)], env=env, capture_output=True, text=True, timeout=30)
 
@@ -78,3 +82,12 @@ def test_missing_payload_stops_without_running_anything(tmp_path):
     (exe.parent.parent / "Resources" / "payload" / "installer_wizard.py").unlink()
     done = _run(exe, tmp_path, [])
     assert done.returncode == 1
+
+
+def test_no_supported_python_reports_and_exits_without_running_the_wizard(tmp_path):
+    log = tmp_path / "calls.log"
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _fake_python(bindir / "python3.12", 309, log)        # too old
+    done = _run(_bundle(tmp_path), tmp_path, [bindir], {"FABLEGEAR_PYTHON_CANDIDATES": "python3.12"})
+    assert done.returncode == 1 and not log.exists()
