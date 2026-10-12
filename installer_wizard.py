@@ -71,7 +71,11 @@ VENV_DIR = REPO_ROOT / "venv"
 # directly); the installer app passes --target and the code is copied there after the packages
 # are installed. REPO_ROOT is always where this wizard's own assets and requirements live.
 TARGET_ROOT: Path | None = None
-APPLICATIONS_DIRS = (Path("/Applications"), Path.home() / "Applications")
+# FABLEGEAR_APPLICATIONS_DIR redirects the launcher app (used by the tests that install into a
+# scratch folder, so they never touch the real /Applications).
+_APPS_OVERRIDE = os.environ.get("FABLEGEAR_APPLICATIONS_DIR")
+APPLICATIONS_DIRS = ((Path(_APPS_OVERRIDE),) if _APPS_OVERRIDE
+                     else (Path("/Applications"), Path.home() / "Applications"))
 # Files that mark a folder as a FableGear install, so a re-install may replace its contents
 # but a wrongly aimed --target (a Documents folder, say) is refused rather than emptied.
 INSTALL_MARKERS = ("main.py", "launch.sh")
