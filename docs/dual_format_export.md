@@ -129,9 +129,18 @@ export of the same playlist set, then hardware-test on the OMNIS-DUO.
 Risk: hidden integrity fields (hashes, version stamps). The diff harness
 exists precisely to surface them.
 
-## Phase D — Write DeviceSQL (hard, the summit) — ⏸️ DEFERRED INDEFINITELY
+## Phase D — Write DeviceSQL (hard, the summit) — 🔓 REOPENED 2026-10-11
 
-**Superseded by hardware evidence, 2026-07-29.** A FableGear-exported stick —
+**Update 2026-10-11:** the deferral below rested on a July result. A hardware test on 2026-10-11
+(CDJ-3000, **firmware 3.2x**) contradicts it for that firmware: a OneLibrary-only FableGear stick showed
+nothing on the deck, which never opened `exportLibrary.db`, while a Rekordbox-written stick loaded
+perfectly. So the premise "CDJ-3000-era hardware does not require `export.pdb`" does **not** hold for a plain
+CDJ-3000 on 3.2x; OneLibrary arrived with firmware 3.30, which was withdrawn in November 2025. The July
+result is probably explained by firmware 3.30 or by a stick that already held a Rekordbox-made
+`export.pdb` (inferred; the July stick is no longer available to check). Plan, evidence and risks:
+`docs/devicesql_export_writer.md`.
+
+*Previous status (2026-07-29), kept for the record:* **superseded by hardware evidence.** A FableGear-exported stick —
 OneLibrary-only by construction, since no DeviceSQL writer exists — loaded and
 played on a **CDJ-3000 without issues**. The premise that CDJ-3000-era hardware
 requires `export.pdb` does not hold. See `docs/HARDWARE_TEST_ONELIBRARY.md`.
@@ -141,7 +150,8 @@ is now gated on **analysis quality** (FableGear's own beat grids reach the
 player), not on file formats.
 
 Revisit Phase D only if a concrete device family is found to require it —
-older 2000NXS2-era gear is the most likely candidate, and is untested.
+older 2000NXS2-era gear is the most likely candidate, and is untested. **Update 2026-10-11: a plain CDJ-3000 on
+firmware 3.2x is such a device family.**
 
 The original plan is retained below for that contingency.
 
