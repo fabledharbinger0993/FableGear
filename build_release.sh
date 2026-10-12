@@ -175,13 +175,14 @@ if [[ "$DO_RELEASE" == true ]]; then
 
 ## \"FableGear can't be opened\"?
 
-This is macOS Gatekeeper — it blocks apps that aren't signed with an Apple Developer certificate. To allow it:
+This is macOS Gatekeeper — it blocks apps that aren't signed with an Apple Developer certificate. To allow it, once:
 
-1. Go to **System Settings → Privacy & Security**
-2. Scroll down — you'll see *\"FableGear was blocked from use\"*
-3. Click **Open Anyway**
+1. Double-click FableGear.app, then click **Done** on the warning
+2. Apple menu → **System Settings → Privacy & Security** (scroll the sidebar if needed)
+3. In the **Security** section, click **Open Anyway** next to the FableGear message
+4. Enter your Mac's login password
 
-Alternatively, right-click the app → **Open** → **Open Anyway**."
+The button stays for about an hour after your attempt; if it's gone, double-click the app again. FableGear may also ask for access to your music folders and external drives (**Privacy & Security → Files & Folders**) and, for your Rekordbox library, **Full Disk Access**. Full walkthrough: https://github.com/fabledharbinger0993/FableGear#first-launch-on-a-mac-two-things-macos-will-ask-you-for"
 
   /opt/homebrew/bin/gh release create "$VERSION" "$ZIP_PATH" \
     --title "FableGear $VERSION" \
