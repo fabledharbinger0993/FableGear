@@ -132,6 +132,13 @@ source "$VENV/bin/activate"
 # ── Python packages ───────────────────────────────────────────────────────
 step "Python packages"
 
+info "FableGear will install its Python packages into $VENV only."
+read -rp "     Install the Python packages now? [y/N] " REPLY
+case "$REPLY" in
+  [Yy]*) ;;
+  *) echo "  ✗  Python package install declined — nothing was installed."; fail ;;
+esac
+
 info "Upgrading pip..."
 pip install --upgrade pip --quiet
 

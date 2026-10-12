@@ -83,7 +83,7 @@ fi
 # on a fresh machine, hanging the poll loop forever.  When installing via
 # this script we already have a visible Terminal, so run it here directly.
 if [ ! -f "$INSTALL_DIR/.fablegear_ready" ]; then
-    _blue "Running first-time setup (checks system tools and installs Python packages)..."
+    _blue "Running first-time setup (checks system tools and asks permission before installing Python packages)..."
     echo ""
     bash "$INSTALL_DIR/setup.sh"
 fi
