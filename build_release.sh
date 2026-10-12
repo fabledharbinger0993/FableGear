@@ -54,12 +54,12 @@ COMMIT="$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknow
 
 # What the installed app does not need: tests, docs, dev scripts, CI config, source-only extras.
 git -C "$SCRIPT_DIR" archive HEAD | tar -x -C "$PAYLOAD" \
-  --exclude='./tests' --exclude='./docs' --exclude='./scripts' --exclude='./.github' \
-  --exclude='./fg-logo.png' --exclude='./FableGear.spec' --exclude='./FableGear_win.spec' \
-  --exclude='./requirements-dev.txt' --exclude='./requirements_build.txt' \
-  --exclude='./MARKETING.md' --exclude='./IMPLEMENTATION_COMPLETE.md' --exclude='./DESIGN.md' \
-  --exclude='./PRODUCT.md' --exclude='./install.sh' --exclude='./start_remote.sh' \
-  --exclude='./build_release.sh' --exclude='./ruff.toml' --exclude='./pyrightconfig.json'
+  --exclude='tests' --exclude='docs' --exclude='scripts' --exclude='.github' \
+  --exclude='fg-logo.png' --exclude='FableGear.spec' --exclude='FableGear_win.spec' \
+  --exclude='requirements-dev.txt' --exclude='requirements_build.txt' \
+  --exclude='MARKETING.md' --exclude='IMPLEMENTATION_COMPLETE.md' --exclude='DESIGN.md' \
+  --exclude='PRODUCT.md' --exclude='install.sh' --exclude='start_remote.sh' \
+  --exclude='build_release.sh' --exclude='ruff.toml' --exclude='pyrightconfig.json'
 
 # Stamp the build. A release gets the clean tag; a local build says so, so it can never be
 # mistaken for the published release.
