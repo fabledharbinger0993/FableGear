@@ -67,8 +67,6 @@ __all__ = [
     "bpm_to_db",
     "clear_fields",
     "containers",
-    "bpm_from_db",
-    "bpm_to_db",
     "db_companion",
     "errors",
     "id3",
