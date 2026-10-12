@@ -34,6 +34,7 @@ _ANALYSIS_SR = 22050
 _ANALYSIS_DURATION = 90.0
 _BPM_MIN = 30.0
 _BPM_MAX = 300.0
+_BEAT_GRID_SECONDS = 60.0  # decoded from 0:00 for the beat grid (first couple of phrases)
 _HOP_LENGTH = 512  # iron.beats' own onset/accent envelope hop (tempo picks its own)
 _KICK_BAND_FMIN = 40.0  # Hz -- iron.beats.detect_beat_grid's accent_env, a kick drum's
 _KICK_BAND_FMAX = 120.0  # fundamental + first harmonic; see iron/dsp.py::band_energy
@@ -45,6 +46,12 @@ _KICK_BAND_FMAX = 120.0  # fundamental + first harmonic; see iron/dsp.py::band_e
 # _MAX_BODY_SECONDS so a multi-hour DJ mix or live recording doesn't attempt to decode and
 # analyze an hour of audio by default -- the same cost concern _STABILITY_WINDOW_SECONDS's
 # per-checkpoint window and scripts/ real-library testing already had to account for.
+#
+# Reverted here from a same-day whole-track-decode experiment (docs/IRON_RESEARCH.md SS9/
+# SS10): on a real 500-track benchmark, whole-track decoding measured no clear accuracy
+# gain over this windowed approach (58.6% vs 60.7% MIREX on different-but-comparable
+# samples -- within noise, not a real difference) while costing roughly 3-5x the per-track
+# decode+analysis time. Not a good trade -- see SS10 for the real numbers.
 _BODY_START_FRACTION = 1.0 / 3.0
 _BODY_END_FRACTION = 0.9
 _MAX_BODY_SECONDS = 240.0
@@ -202,7 +209,10 @@ def analyze(
 
     Decodes the track's BODY, not a fixed window from 0:00 -- see _BODY_START_FRACTION.
     Falls back to the first _ANALYSIS_DURATION seconds when the file's duration can't be
-    determined or is too short for a body/edge split to mean anything.
+    determined or is too short for a body/edge split to mean anything. (A same-day
+    whole-track-decode experiment was tried and reverted -- see docs/IRON_RESEARCH.md SS10:
+    no measurable accuracy gain over this windowed approach on a real 500-track benchmark,
+    at roughly 3-5x the per-track decode+analysis cost.)
 
     Never raises for an ordinary analysis failure (bad decode, no reliable tempo/key found)
     -- those land in `result.errors` so a batch caller doesn't need a try/except per file.
@@ -263,13 +273,22 @@ def analyze(
     wants_beat_grid = "downbeat_offset" in wanted or "time_signature" in wanted
     if wants_beat_grid and result.bpm is not None:
         try:
-            onset_env = dsp.onset_envelope(y, sr, hop_length=_HOP_LENGTH)
+            # The grid is found at the TOP of the track and counted back to 0:00 (see
+            # iron.beats._first_kick_class): projecting a mid-track grid back over
+            # minutes with a tempo estimate drifts tens of ms per 0.05 BPM of error.
+            if start > 0:
+                y_grid, sr_grid = _decode(path, _BEAT_GRID_SECONDS, start=0.0)
+            else:
+                y_grid, sr_grid = y, sr
+            onset_env = dsp.onset_envelope(y_grid, sr_grid, hop_length=_HOP_LENGTH)
             accent_env = dsp.band_energy(
-                y, sr, fmin=_KICK_BAND_FMIN, fmax=_KICK_BAND_FMAX, hop_length=_HOP_LENGTH
+                y_grid, sr_grid, fmin=_KICK_BAND_FMIN, fmax=_KICK_BAND_FMAX, hop_length=_HOP_LENGTH
             )
             outcome = beat_grid_detect.detect_beat_grid(
-                onset_env, sr / _HOP_LENGTH, result.bpm,
-                window_start_s=start, accent_env=accent_env,
+                onset_env, sr_grid / _HOP_LENGTH, result.bpm,
+                window_start_s=0.0, accent_env=accent_env,
+                onset_latency_s=dsp.onset_latency_seconds(sr_grid),
+                window_is_track_start=True,
             )
         except Exception as exc:  # a detector bug must not take down a batch run
             result.errors.append(f"beat-grid detection failed: {exc}")

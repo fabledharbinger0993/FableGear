@@ -1,5 +1,5 @@
 """
-Key detection: chroma -> Krumhansl-Schmuckler correlation -> Camelot.
+Key detection: whitened chroma -> learned-profile correlation -> Camelot.
 
 Fully synthetic fixtures (pure tones / simple chords generated with numpy), so these tests
 need no real music and carry no copyright question.
@@ -72,3 +72,23 @@ def test_detect_key_confidence_is_bounded():
     assert result is not None
     _camelot, confidence = result
     assert -1.0 <= confidence <= 1.0
+
+
+def test_detect_key_survives_detuned_recording():
+    # The same A minor triad pitched 30 cents sharp (a vinyl rip running fast): the tuning
+    # step must pull it back onto A, not split it between A and A#.
+    sharp = 2 ** (30 / 1200)
+    y = _chord([_NOTE_FREQ[n] * sharp for n in ("A", "C", "E")])
+    result = key.detect_key(y, SR)
+    assert result is not None
+    assert result[0] in ("8A", "11B")
+
+
+def test_whitening_keeps_loud_bass_from_outvoting_the_harmony():
+    # A G major triad over a much louder low C drone: without whitening, the drone's energy
+    # alone would decide the chroma peak; whitened, the triad's three pitch classes still count.
+    triad = _chord([_NOTE_FREQ[n] for n in ("G", "B", "D")])
+    drone = 8 * _tone(65.41)  # C2
+    vec = key._chroma(triad + drone, SR)
+    top3 = {key.NOTES[i] for i in np.argsort(vec)[-4:]}
+    assert {"G", "B", "D"} <= top3

@@ -9,6 +9,15 @@ SENTINEL="$SCRIPT_DIR/.fablegear_ready"
 FAILED="$SCRIPT_DIR/.fablegear_failed"
 LOG="$SCRIPT_DIR/fablegear.log"
 
+# Finder-launched apps may not inherit Homebrew's usual PATH.
+for p in /opt/homebrew/bin /usr/local/bin; do
+  case ":$PATH:" in
+    *":$p:"*) ;;
+    *) [ -d "$p" ] && PATH="$p:$PATH" ;;
+  esac
+done
+export PATH
+
 # ── Single-launcher lock ──────────────────────────────────────────────────
 # The .app hands off to this script detached, so an impatient double-click
 # could start two launchers racing through pip installs and git updates at
@@ -25,22 +34,10 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
 fi
 trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT
 
-# ── Locate Homebrew (works on both Apple Silicon and Intel) ───────────────
-_brew() {
-  for p in /opt/homebrew/bin/brew /usr/local/bin/brew; do
-    [ -f "$p" ] && { "$p" "$@"; return; }
-  done
-  return 1
-}
-
 # ── Determine whether first-run setup is needed ───────────────────────────
 _setup_needed() {
-  # Homebrew missing?
-  _brew --version &>/dev/null || return 0
-  # Required formulas missing?
-  for formula in ffmpeg chromaprint; do
-    _brew list --formula "$formula" &>/dev/null || return 0
-  done
+  command -v ffmpeg >/dev/null 2>&1 || return 0
+  command -v fpcalc >/dev/null 2>&1 || return 0
   # Python venv missing or broken (hollow venv has no activate)?
   [ ! -d "$VENV" ] && return 0
   [ ! -f "$VENV/bin/activate" ] && return 0
@@ -81,11 +78,6 @@ fi
 # ── Silence all output — Automator treats any stdout as an error ──────────
 exec > /dev/null 2>&1
 
-
-# ── Homebrew update/upgrade (silent, non-blocking, scoped to FableGear deps) ─
-if _brew --version &>/dev/null; then
-  (_brew update >/dev/null 2>&1 && _brew upgrade ffmpeg chromaprint >/dev/null 2>&1) &
-fi
 
 # ── Activate venv ─────────────────────────────────────────────────────────
 source "$VENV/bin/activate"
@@ -162,13 +154,6 @@ if [ ! -f "$SCRIPT_DIR/.dev" ]; then
       fi
     fi
   fi
-fi
-
-# ── Bring up Tailscale for FableGo remote access (best-effort, non-blocking) ─
-# FableGear runs fully offline without this. Tailscale just enables the mobile web app
-# to connect remotely. Silent on failure — missing Tailscale is not an error.
-if command -v tailscale &>/dev/null; then
-  tailscale up --accept-routes >> "$LOG" 2>&1 &
 fi
 
 # ── Launch FableGear (arch-aware) ─────────────────────────────────────────

@@ -196,7 +196,11 @@ async function leFsBrowse(path) {
   // ── Platform volume root — render drive picker cards ───────────────────
   if (data.is_volumes_root) {
     if (folderList) folderList.innerHTML = '';
-    const vols = data.volumes || [];
+    const allVols = data.volumes || [];
+    const hiddenDrives = typeof fgPruneHiddenDrives === 'function'
+      ? fgPruneHiddenDrives(allVols.map(v => v.path))
+      : new Set();
+    const vols = allVols.filter(v => !hiddenDrives.has(v.path));
     if (!vols.length) {
       trackList.innerHTML = '<div class="le-empty-state"><div class="le-empty-music-icon">💿</div><div>No external drives found</div></div>';
       return;
@@ -207,7 +211,7 @@ async function leFsBrowse(path) {
       const totalStr = v.total_gb != null ? `/ ${v.total_gb} GB` : '';
       const rec = v.recommended_home ? '<span class="le-vol-badge" title="Largest detected library">Recommended</span>' : '';
       const countStr = v.audio_estimate > 0 ? `${v.audio_estimate.toLocaleString()} audio files` : 'No music files found';
-      return `<div class="le-vol-card" onclick="leFsBrowse('${_escPath(v.path)}')" title="Browse ${_esc(v.name)}">
+      return `<div class="le-vol-card" data-path="${_escAttr(v.path)}" data-name="${_escAttr(v.name)}" onclick="leFsBrowse('${_escPath(v.path)}')" title="Browse ${_esc(v.name)}">
         <div class="le-vol-icon">💿</div>
         <div class="le-vol-name">${_esc(v.name)}</div>
         <div class="le-vol-meta">${countStr}</div>

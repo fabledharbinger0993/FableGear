@@ -78,6 +78,11 @@ _MIN_BEATS_FOR_GRID = 8
 # but rare, and 4/4 is right far more often than a marginal 3-vs-4 signal is wrong.
 _METER_3_MIN_SCORE = 0.2
 
+# Half-beat phase check (see _prefer_kick_phase). The shifted phase must carry this much more
+# kick-band energy than the tracked one before the grid is moved -- a tie keeps the tracker's
+# own answer rather than flipping on noise.
+_PHASE_SWITCH_RATIO = 1.1
+
 
 def _beat_strength(onset_env: np.ndarray, beat_frames: list[int]) -> np.ndarray:
     """Onset-envelope value at each phase-locked beat frame -- how strong an accent, if
@@ -111,6 +116,75 @@ def _accent_strength(
     return out
 
 
+def _phase_strength(accent_env: np.ndarray, frames: list[int], half_width: int) -> float:
+    """Mean of the peak accent value within +-half_width frames of each frame. Symmetric and
+    narrow on purpose -- unlike _accent_strength's half-period backward search, it must not
+    reach from one half-beat phase into the other."""
+    n = accent_env.shape[0]
+    peaks = [float(accent_env[max(0, f - half_width):min(n, f + half_width + 1)].max())
+             for f in frames if 0 <= f < n]
+    return float(np.mean(peaks)) if peaks else 0.0
+
+
+def _prefer_kick_phase(
+    accent_env: np.ndarray, beat_frames: list[int], period_frames: float
+) -> list[int]:
+    """
+    Return `beat_frames`, or the same grid shifted by half a beat if the kick band says the
+    beat sits there.
+
+    `dsp.track_beats` phase-locks on broadband spectral flux, which in dance music is often
+    dominated by the off-beat hi-hat rather than the kick (a noise burst has far more
+    broadband flux than an ~80 Hz sine). On 2026-10-09 the tracker sat on the off-beat for
+    100% of beats on the kick+hi-hat fixture at every tempo tested, and for 79 of 149 real
+    tracks against Rekordbox beat grids. This is a PHASE choice at an already-decided
+    period -- not one of the cross-period comparisons docs/IRON_RESEARCH.md section 5 rules out.
+    """
+    half = period_frames / 2.0
+    shifted = [round(f + half) for f in beat_frames]
+    width = max(1, round(period_frames / 8.0))
+    on = _phase_strength(accent_env, beat_frames, width)
+    off = _phase_strength(accent_env, shifted, width)
+    return shifted if off > on * _PHASE_SWITCH_RATIO else list(beat_frames)
+
+
+def _extend_to_start(beat_frames: list[int], period_frames: float, earliest: float) -> list[int]:
+    """Prepend whole beat periods until the grid reaches `earliest` (a frame index, may be
+    slightly negative to allow for onset latency). dsp.track_beats does not place the first
+    beat or two of a window -- on 2026-10-10 its first beat sat ~0.5 s in on real tracks
+    whose first kick (Rekordbox's beat 1) was at ~0.06 s."""
+    frames = list(beat_frames)
+    while frames and frames[0] - period_frames >= earliest:
+        frames.insert(0, max(0, round(frames[0] - period_frames)))
+    return frames
+
+
+def _music_start(strength: np.ndarray) -> int:
+    """Index of the first beat with a real kick: accent at least half the median beat accent."""
+    median = float(np.median(strength)) if strength.size else 0.0
+    loud = np.nonzero(strength >= 0.5 * median)[0] if median > 0 else np.array([], dtype=int)
+    return int(loud[0]) if loud.size else 0
+
+
+def _first_kick_class(strength: np.ndarray, beats_per_bar: int) -> tuple[int, float]:
+    """
+    Downbeat class for a grid that starts at the TOP of the track: the first beat with a
+    real kick (accent at least half the track's median beat accent) is beat 1. Club tracks
+    start on a 1 -- or bring the kick in on a phrase boundary after a 16/32-beat intro, which
+    is still a 1.
+
+    Measured 2026-10-10 against Rekordbox beat grids (rb200, first 60 s, grid counted back
+    to 0:00): 54% of downbeat_offsets within 25 ms and 75.5% within 50 ms, vs 13% / -- for
+    the loudest-class rule on a mid-track window. Loudest-class and 4/8/16-beat phrase-
+    contrast scoring were both worse on the same windows (35% / 37%): in four-on-the-floor
+    music every kick is equally loud, and phrase contrast near the intro is weak.
+    """
+    chosen = _music_start(strength) % beats_per_bar
+    class_means = np.array([strength[c::beats_per_bar].mean() for c in range(beats_per_bar)])
+    total = float(class_means.sum())
+    return chosen, (float(class_means[chosen] / total) if total > 0 else 0.0)
+
+
 def _detect_beats_per_bar(strength: np.ndarray) -> tuple[int, float]:
     """
     Return (beats_per_bar, confidence). See this module's docstring for why the only two
@@ -121,16 +195,21 @@ def _detect_beats_per_bar(strength: np.ndarray) -> tuple[int, float]:
         return 4, 0.0
 
     acf = dsp.autocorrelate(strength - strength.mean())
-    if acf.shape[0] <= 4 or acf[0] <= 0:
+    if acf.shape[0] <= 5 or acf[0] <= 0:
         return 4, 0.0
 
-    zero_lag = float(acf[0])
-    score_3 = float(acf[3])
-    score_4 = float(acf[4])
+    r = acf / float(acf[0])
+    # Score each bar length by how far its lag STANDS OUT from the neighbouring lags, not
+    # by its raw value: a slow drift in accent strength (a build, a filter sweep) lifts every
+    # small lag together, and raw lag-3 vs lag-4 then picks 3/4 on plain 4/4 house -- 43 of
+    # 200 real tracks on 2026-10-10 (median r3 0.75, r3 - r4 only 0.11). A real triple
+    # meter peaks at lag 3 with dips at 2 and 4; drift cancels out of the contrast.
+    peak_3 = float(r[3] - (r[2] + r[4]) / 2.0)
+    peak_4 = float(r[4] - (r[3] + r[5]) / 2.0)
 
-    if score_3 > score_4 and (score_3 / zero_lag) > _METER_3_MIN_SCORE:
-        return 3, float(np.clip(score_3 / zero_lag, 0.0, 1.0))
-    return 4, float(np.clip(max(score_4, 0.0) / zero_lag, 0.0, 1.0))
+    if peak_3 > peak_4 and peak_3 > _METER_3_MIN_SCORE:
+        return 3, float(np.clip(peak_3, 0.0, 1.0))
+    return 4, float(np.clip(max(peak_4, 0.0), 0.0, 1.0))
 
 
 def _detect_downbeat_class(strength: np.ndarray, beats_per_bar: int) -> tuple[int, float]:
@@ -155,6 +234,8 @@ def detect_beat_grid(
     *,
     window_start_s: float = 0.0,
     accent_env: np.ndarray | None = None,
+    onset_latency_s: float = 0.0,
+    window_is_track_start: bool = False,
 ) -> tuple[float, str, float] | None:
     """
     Return (downbeat_offset, time_signature, confidence), or None if too few beats were
@@ -171,6 +252,12 @@ def detect_beat_grid(
     always from 0:00 -- see iron/api.py's _pick_body_window). This assumes constant tempo
     for the whole file, the same scope anvil.TrackFields.downbeat_offset's own comment
     states.
+
+    `onset_latency_s` is how far `onset_env`'s frame timestamps run ahead of the onsets that
+    produced them -- pass `iron.dsp.onset_latency_seconds(sr)` for an envelope from
+    `dsp.onset_envelope`/`dsp.energy_flux` (~70 ms at Iron's defaults; without it every beat
+    lands that much early). The default 0.0 is for envelopes whose frame index IS the onset
+    time, e.g. a synthetic pulse train.
 
     `accent_env` is an optional, more accent-discriminating signal (intended caller:
     iron.dsp.band_energy restricted to a kick drum's band) used for the downbeat/meter
@@ -210,16 +297,26 @@ def detect_beat_grid(
         return None
 
     if accent_env is not None and accent_env.shape[0] > 0:
+        beat_frames = _prefer_kick_phase(accent_env, list(beat_frames), period_frames)
+    if window_is_track_start:
+        beat_frames = _extend_to_start(list(beat_frames), period_frames, -onset_latency_s * frame_rate)
+    if accent_env is not None and accent_env.shape[0] > 0:
         strength = _accent_strength(accent_env, beat_frames, period_frames)
     else:
         strength = _beat_strength(onset_env, beat_frames)
-    beats_per_bar, _meter_confidence = _detect_beats_per_bar(strength)
-    downbeat_class, downbeat_confidence = _detect_downbeat_class(strength, beats_per_bar)
+    # Meter is judged from where the music starts: a kickless intro in front of the kicks
+    # is a step in `strength`, and a step's autocorrelation falls off with lag, so lag 3
+    # outscores lag 4 -- an intro alone made a 4/4 track read as 3/4 at 0.82 confidence.
+    beats_per_bar, _meter_confidence = _detect_beats_per_bar(strength[_music_start(strength):])
+    if window_is_track_start:
+        downbeat_class, downbeat_confidence = _first_kick_class(strength, beats_per_bar)
+    else:
+        downbeat_class, downbeat_confidence = _detect_downbeat_class(strength, beats_per_bar)
 
     class_frames = [f for i, f in enumerate(beat_frames) if i % beats_per_bar == downbeat_class]
     first_downbeat_frame = class_frames[0] if class_frames else beat_frames[0]
 
-    absolute_s = window_start_s + first_downbeat_frame / frame_rate
+    absolute_s = window_start_s + first_downbeat_frame / frame_rate + onset_latency_s
     bar_period_s = (period_frames / frame_rate) * beats_per_bar
     downbeat_offset = float(absolute_s % bar_period_s) if bar_period_s > 0 else float(absolute_s)
 

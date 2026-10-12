@@ -85,6 +85,57 @@ def onset_envelope(y: np.ndarray, sr: int, *, n_fft: int = 2048, hop_length: int
     return np.concatenate([[0.0], flux])
 
 
+def onset_latency_seconds(sr: int, *, n_fft: int = 2048) -> float:
+    """
+    How far an onset-envelope frame's reported time (frame * hop / sr) runs AHEAD of the
+    onset that produced its peak, for `onset_envelope`/`energy_flux` framing.
+
+    `frame_signal` does not centre frames: frame k spans samples [k*hop, k*hop + n_fft) and
+    is timestamped at its START. A sharp attack enters each successive frame from the
+    trailing edge and is weighted by the Hann window, whose slope is steepest three-quarters
+    of the way along it -- so the frame-to-frame energy increase (the flux) peaks when the
+    attack sits ~0.75 * n_fft into the frame, and the reported frame time is that much early.
+
+    Irrelevant to tempo (a constant shift doesn't change a period); essential anywhere a frame
+    index becomes an absolute time. Measured before this correction (2026-10-09): Iron's beats
+    sat 63 ms early on a synthetic click track and a median 77 ms early against 149 real
+    Rekordbox beat grids; 0.75 * 2048 / 22050 = 69.7 ms.
+    """
+    return 0.75 * n_fft / sr
+
+
+def energy_flux(y: np.ndarray, sr: int, *, n_fft: int = 2048, hop_length: int = 512) -> np.ndarray:
+    """
+    Broadband RMS-energy novelty: the half-wave-rectified frame-to-frame increase in RAW
+    (non-log-compressed) signal energy, summed across the whole frame rather than per
+    frequency bin -- deliberately coarser than `onset_envelope`'s log-magnitude spectral
+    flux, no per-bin shape information at all, just "is this frame louder than the last
+    one." A genuinely different onset-detection feature, not a retuned version of the
+    existing one: the same broadband-energy-flux mechanism essentia's actual
+    `RhythmExtractor2013(multifeature)` uses as one of ~5 independent onset-detection
+    functions it runs and cross-validates against each other (Zapata, Davies & Gómez 2014)
+    -- an independent numpy-only implementation of a published, non-proprietary technique,
+    not a port of essentia's code.
+
+    Validated on real data before being wired into `iron.tempo` (docs/IRON_RESEARCH.md
+    §2.4, §12): on a 130-track disco/soul set built specifically to expose the 2:3
+    compound-meter ambiguity `onset_envelope`'s docstring already documents as unsolved,
+    this feature alone answered the ambiguous cases correctly 93% of the time vs
+    `onset_envelope`'s 21% -- not "differently biased", genuinely more discriminating on
+    that specific failure mode.
+
+    Same call signature as `onset_envelope` (`sr` unused, kept for API symmetry) so callers
+    can use either interchangeably for a given `y`/`n_fft`/`hop_length`.
+    """
+    del sr
+    frames = frame_signal(y, n_fft, hop_length)
+    if frames.shape[0] < 2:
+        return np.zeros(frames.shape[0], dtype=np.float64)
+    energy = np.sum(frames.astype(np.float64) ** 2, axis=1)
+    flux = np.maximum(np.diff(energy), 0.0)
+    return np.concatenate([[0.0], flux])
+
+
 def autocorrelate(x: np.ndarray) -> np.ndarray:
     """
     Full autocorrelation of `x`, computed via FFT (fast for the frame counts an onset
@@ -307,6 +358,328 @@ def windowed_autocorrelation(
     return acc / count if count else acc
 
 
+_DEFAULT_ONSET_BANDS: tuple[tuple[float, float], ...] = (
+    (20.0, 150.0),      # kick / sub-bass
+    (150.0, 500.0),     # bass / low-mid (bassline, low toms)
+    (500.0, 2000.0),    # mid (snare body, vocals, most percussion)
+    (2000.0, 8000.0),   # high (hi-hats, cymbals, syncopated percussion)
+)
+
+
+def onset_envelope_multiband(
+    y: np.ndarray,
+    sr: int,
+    *,
+    n_fft: int = 2048,
+    hop_length: int = 512,
+    bands: tuple[tuple[float, float], ...] = _DEFAULT_ONSET_BANDS,
+) -> np.ndarray:
+    """
+    Per-frequency-band spectral-flux onset strength (Klapuri 2003, "Musical meter estimation
+    and music transcription" -- an independent numpy-only implementation of a published,
+    non-proprietary multiband onset-detection technique, not a port of any dependency's code.
+
+    `onset_envelope`'s single broadband flux sums energy across the whole spectrum before
+    looking for transients, which forces genuinely distinct rhythmic voices -- a kick's
+    sub-bass thump and a syncopated hi-hat's high-frequency tick -- into one combined signal.
+    When those voices carry conflicting periodicities (a compound meter / 2-against-3 feel,
+    common in disco/soul/nu-disco), the combined flux can wash out or blur the very ambiguity
+    that needs resolving. Computing flux independently per band keeps each rhythmic voice's
+    own periodicity intact for iron.tempo to score separately before combining.
+
+    Returns shape (len(bands), n_frames) -- one broadband-style onset envelope per band, same
+    frame count/rate as `onset_envelope`.
+    """
+    mag = magnitude_spectrogram(y, n_fft=n_fft, hop_length=hop_length)
+    n_bands = len(bands)
+    if mag.shape[0] < 2:
+        return np.zeros((n_bands, mag.shape[0]), dtype=np.float64)
+
+    freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+    log_mag = np.log1p(mag)
+    out = np.zeros((n_bands, mag.shape[0]), dtype=np.float64)
+    for i, (fmin, fmax) in enumerate(bands):
+        band_mask = (freqs >= fmin) & (freqs < fmax)
+        if not np.any(band_mask):
+            continue
+        band_log = log_mag[:, band_mask]
+        flux = np.sum(np.maximum(np.diff(band_log, axis=0), 0.0), axis=1)
+        out[i, 1:] = flux
+    return out
+
+
+def cyclic_tempo_strength(
+    acf: np.ndarray,
+    frame_rate: float,
+    *,
+    bpm_min: float = 30.0,
+    bpm_max: float = 300.0,
+    octave_bins: int = 60,
+) -> np.ndarray:
+    """
+    Fold autocorrelation-derived tempo strength across octaves into a single octave-invariant
+    "tempo class" distribution (Grosche & Müller's cyclic tempogram principle -- an
+    independent numpy-only implementation of a published, non-proprietary technique, not a
+    port of any dependency's code).
+
+    Every integer lag in [bpm_min, bpm_max] maps to a BPM, and every BPM maps to a point on a
+    circular "tempo class" axis via `log2(bpm) mod 1` -- two BPMs an octave apart (e.g. 65 and
+    130) land on the exact same point. Summing each lag's raw autocorrelation strength onto
+    its tempo-class bin, across the WHOLE valid lag range (not just a raw winner and its clean
+    integer multiples), pools every octave's worth of evidence for that pulse "feel" into one
+    robust curve -- independent of which single octave happened to win on raw strength alone,
+    and with no hand-tuned genre-band table. Unlike `iron.tempo`'s `_GENRE_BANDS` (a fixed
+    prior that only helps a track whose true tempo happens to fall inside a hand-picked
+    range), this works for any tempo, because it's derived from the track's own multi-octave
+    autocorrelation evidence rather than an external assumption about DJ-genre tempo
+    clustering.
+
+    Returns an `octave_bins`-length array indexed by fractional tempo-class position (bin i
+    covers class [i/octave_bins, (i+1)/octave_bins)).
+    """
+    out = np.zeros(octave_bins, dtype=np.float64)
+    lag_lo = max(1, int(frame_rate * 60.0 / bpm_max))
+    lag_hi = min(acf.shape[0] - 1, int(frame_rate * 60.0 / bpm_min))
+    if lag_hi <= lag_lo:
+        return out
+    for lag in range(lag_lo, lag_hi + 1):
+        strength = acf[lag]
+        if strength <= 0:
+            continue
+        bpm = frame_rate * 60.0 / lag
+        tempo_class = np.log2(bpm) % 1.0
+        idx = min(octave_bins - 1, int(tempo_class * octave_bins))
+        out[idx] += strength
+    return out
+
+
+def cyclic_tempo_class_lookup(strength_curve: np.ndarray, bpm: float) -> float:
+    """Look up a single BPM's pooled octave-class strength on a cyclic_tempo_strength curve."""
+    octave_bins = strength_curve.shape[0]
+    if octave_bins == 0:
+        return 0.0
+    tempo_class = np.log2(bpm) % 1.0
+    idx = min(octave_bins - 1, int(tempo_class * octave_bins))
+    return float(strength_curve[idx])
+
+
+def track_beats_with_penalty_variance(
+    onset_env: np.ndarray, period: float, *, alpha: float = 100.0, search_multiple: float = 2.0
+) -> tuple[list[int], float, float]:
+    """
+    Same DP phase-locker as `track_beats`, but also returns the variance of the per-step
+    log-domain transition penalty along the winning path -- a genuinely different
+    cross-period comparison signal than `track_beats`' own `total_score` (see that function's
+    docstring: comparing raw or magnitude-normalized `total_score` across candidate periods
+    was tried in iron/tempo.py and reverted -- a systematic bias toward faster candidates
+    survived both raw and baseline-corrected normalization). Penalty variance is not a
+    normalization of that same score at all; it's a self-consistency check.
+
+    A true period phase-locks onto real, evenly-spaced beats, keeping every transition close
+    to `period` and the penalty variance near zero. A double/half-time alias forces the
+    tracker to skip or double up on weaker off-beat energy to fill its own faster or slower
+    grid, producing a path with visibly inconsistent (high-variance) transition penalties --
+    even on inputs where its raw summed score still comes out ahead by fitting more beats in.
+    """
+    beats, score = track_beats(onset_env, period, alpha=alpha, search_multiple=search_multiple)
+    if len(beats) < 2:
+        return beats, score, float("inf")
+    intervals = np.diff(beats)
+    period_i = max(1, round(period))
+    penalties = (np.log(intervals / period_i)) ** 2
+    return beats, score, float(np.var(penalties))
+
+
+def grid_alignment_score(
+    onset_env: np.ndarray, period: float, *, n_phase_bins: int = 8, tolerance_frac: float = 0.15
+) -> float:
+    """
+    Rigid (non-adaptive) beat-grid alignment score for a candidate period -- a fixed comb of
+    predicted beat positions (0, period, 2*period, ...) at several trial phase offsets, with
+    only a small, constant per-position tolerance window and no cross-position path-finding.
+
+    NOT VALIDATED FOR CROSS-PERIOD (octave) COMPARISON -- tried and empirically falsified
+    the same day this was written (docs/IRON_RESEARCH.md SS11), the THIRD documented failed
+    attempt at this general class of fix in this file (after `track_beats`' raw score and
+    `track_beats_with_penalty_variance`, both also reverted for cross-period comparison,
+    each for a different reason -- see their own docstrings). This one's failure mode is
+    structural, not a tuning problem: a half-tempo candidate's sparser grid is a strict
+    SUBSET of the true period's own grid positions on a regular pulse train, so it can score
+    equal to or (on a real fixture with an accent pattern, confirmed empirically) even higher
+    than the true period, actively preferring the wrong answer. Designing this to avoid the
+    two EARLIER attempts' specific failure modes (no adaptive search window, median not sum)
+    was not sufficient -- the subset relationship is a different, more fundamental problem
+    neither of those two design choices addresses. Do not use this for T vs T/2 vs 2T
+    disambiguation without a genuinely different idea; it remains available as a primitive
+    for other uses (e.g. scoring beat-grid confidence at an ALREADY-DECIDED period, the same
+    validated-narrower-purpose spirit as `track_beats` itself).
+
+    Per-position score is `onset_env`'s own max within +/- `tolerance_frac` * period of each
+    predicted position (allowing for real timing humanization, not exact-frame alignment).
+    The MEDIAN (not sum) of these per-position values is used deliberately: summing over
+    more beat positions is exactly the length-bias mechanism that broke `track_beats`' raw
+    score -- a faster (shorter-period) candidate always has more terms to sum, an advantage
+    independent of whether the period is musically real. Median alone doesn't have that
+    particular bias, but see the note above for why that wasn't enough on its own.
+
+    Tries `n_phase_bins` evenly-spaced phase offsets within one period and returns the best
+    (a genuinely correct period at the wrong phase should not be penalized as if the period
+    itself were wrong). Normalized by `onset_env`'s own mean so scores are comparable across
+    different candidate periods and different tracks.
+    """
+    n = onset_env.shape[0]
+    period_i = max(1, round(period))
+    if n < period_i:
+        return 0.0
+    tolerance = max(1, round(period_i * tolerance_frac))
+    env_mean = float(onset_env.mean())
+    if env_mean <= 0:
+        return 0.0
+
+    best_median = 0.0
+    for phase_bin in range(n_phase_bins):
+        phase = round(phase_bin * period_i / n_phase_bins)
+        values = []
+        pos = phase
+        while pos < n:
+            lo = max(0, pos - tolerance)
+            hi = min(n, pos + tolerance + 1)
+            values.append(float(np.max(onset_env[lo:hi])) if hi > lo else 0.0)
+            pos += period_i
+        if not values:
+            continue
+        median_val = float(np.median(values))
+        if median_val > best_median:
+            best_median = median_val
+    return best_median / env_mean
+
+
+def interleave_gap_ratio(
+    onset_env: np.ndarray,
+    period_slow: float,
+    period_fast: float,
+    *,
+    tolerance_frac: float = 0.15,
+) -> float:
+    """
+    Discriminate a genuinely-faster candidate from a spurious one by looking ONLY at the
+    grid positions the faster candidate predicts that the slower one does NOT cover.
+
+    Returns mean onset energy at those "in-between" (fast-only) positions divided by mean
+    energy at the shared positions. Interpretation:
+
+      high (~0.6+)  -- the in-between positions carry real onset energy too, so the FASTER
+                       candidate is the real pulse and the slower one is a half/sub-time alias
+      low  (~0.2-)  -- the in-between positions are comparatively empty, so the SLOWER
+                       candidate is real and the faster one is inventing beats that aren't there
+
+    **This is structurally different from the three cross-period comparison attempts already
+    tried and reverted in this codebase** (`track_beats`' raw score, §2.2;
+    `track_beats_with_penalty_variance`, §8.4; `grid_alignment_score`, §11.6 -- see each of
+    their docstrings). All three only ever REWARDED hits, which is why none of them could
+    disfavor a slower candidate: a sparser grid's positions are a strict subset of a denser
+    one's, so "does this candidate's grid land on real content" is trivially yes for both.
+    This function asks the complementary question those three never asked -- what does the
+    faster candidate claim is there that the slower one doesn't, and is anything actually
+    there? -- which is exactly the gap-penalty mechanism §11.6 flagged as the unexplored fix.
+
+    Known limitation, measured on synthetic fixtures: a rigidly periodic offbeat element
+    (e.g. a hi-hat on every exact half-beat) can populate the in-between slots of a 3:2-faster
+    grid and inflate this ratio, producing a false "faster is real" verdict. Observed on a
+    174 BPM fixture vs its 1.5x rival (ratio 1.40 where every other tested fixture scored
+    0.06-0.19). Real music's less-rigid offbeats make this less likely but not impossible --
+    treat a high ratio as suggestive, and gate any override on it accordingly rather than
+    trusting it alone.
+
+    `period_slow` and `period_fast` are in frames, matching `onset_env`'s own frame rate;
+    `period_fast` must be the shorter of the two.
+    """
+    n = onset_env.shape[0]
+    if n == 0 or period_fast <= 0 or period_slow <= period_fast:
+        return float("nan")
+    tolerance = max(1, round(period_fast * tolerance_frac))
+
+    def _peak_at(pos: int) -> float:
+        lo, hi = max(0, pos - tolerance), min(n, pos + tolerance + 1)
+        return float(np.max(onset_env[lo:hi])) if hi > lo else 0.0
+
+    shared: list[float] = []
+    between: list[float] = []
+    pos = 0.0
+    while pos < n:
+        # distance from this fast-grid position to the NEAREST slow-grid position
+        nearest_slow = round(pos / period_slow) * period_slow
+        target = shared if abs(pos - nearest_slow) <= tolerance else between
+        target.append(_peak_at(round(pos)))
+        pos += period_fast
+
+    if not between or not shared:
+        return float("nan")
+    shared_mean = float(np.mean(shared))
+    if shared_mean <= 0:
+        return float("nan")
+    return float(np.mean(between)) / shared_mean
+
+
+def chroma_cqt(
+    y: np.ndarray,
+    sr: int,
+    *,
+    n_fft: int = 16384,
+    hop_length: int = 4096,
+    fmin: float = 55.0,
+    fmax: float = 5000.0,
+    bins_per_octave: int = 12,
+) -> np.ndarray:
+    """
+    Whole-clip chroma via a log-frequency-binned spectrogram -- a pseudo-Constant-Q approach
+    (Brown 1991's published log-frequency-binning principle; an independent numpy-only
+    implementation, not a port of any dependency's code). Every FFT bin's power is split
+    across its 1-2 nearest semitone centers with linear (triangular) weight by log-frequency
+    distance, rather than `chroma()`'s hard round-to-nearest-bin assignment.
+
+    Why not a literal per-bin variable-kernel direct CQT (Brown & Puckette 1992): that
+    method's kernel length scales with 1/frequency specifically to buy TIME resolution at
+    high frequencies while holding FREQUENCY resolution constant-Q at low ones -- valuable
+    for frame-by-frame transcription. This function collapses to one whole-track vector (same
+    convention as `chroma()`), so time resolution doesn't matter here; a single
+    high-resolution STFT (large n_fft) plus log-frequency bin weighting buys the same
+    frequency-resolution fix at a small fraction of the cost -- one FFT per frame, not ~80
+    independent per-bin kernel correlations swept over the whole clip.
+
+    Fixes a real defect in `chroma()`'s linear-Hz bins: at n_fft=4096 / sr=22050 (Iron's
+    working rate), FFT bin width is ~5.4 Hz -- wider than a semitone's ~3.3 Hz spacing at
+    55 Hz (A1), so adjacent low bass semitones can share or straddle the same linear bin. At
+    n_fft=16384 bin width drops to ~1.3 Hz, resolving semitones cleanly across this function's
+    full 55-5000 Hz range.
+    """
+    mag = magnitude_spectrogram(y, n_fft=n_fft, hop_length=hop_length)
+    if mag.shape[0] == 0:
+        return np.zeros(bins_per_octave, dtype=np.float64)
+
+    freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+    band = (freqs >= fmin) & (freqs <= fmax)
+    if not np.any(band):
+        return np.zeros(bins_per_octave, dtype=np.float64)
+    band_freqs = freqs[band]
+    power = np.sum(mag[:, band] ** 2, axis=0)  # power per linear bin, summed over all frames
+
+    # Fractional semitone position above fmin; fmin's own pitch class is derived the same way
+    # chroma()'s MIDI mapping does (A4=440=MIDI69), so both functions agree on which chroma
+    # index a given frequency lands in.
+    log_pos = bins_per_octave * np.log2(band_freqs / fmin)
+    lower = np.floor(log_pos).astype(np.int64)
+    frac = log_pos - lower
+    fmin_pitch_class = round(69.0 + 12.0 * np.log2(fmin / 440.0)) % bins_per_octave
+    pitch_lower = np.mod(lower + fmin_pitch_class, bins_per_octave)
+    pitch_upper = np.mod(lower + 1 + fmin_pitch_class, bins_per_octave)
+
+    vec = np.zeros(bins_per_octave, dtype=np.float64)
+    np.add.at(vec, pitch_lower, power * (1.0 - frac))
+    np.add.at(vec, pitch_upper, power * frac)
+    return vec
+
+
 def chroma(
     y: np.ndarray,
     sr: int,
@@ -345,3 +718,51 @@ def chroma(
     vec = np.zeros(12, dtype=np.float64)
     np.add.at(vec, pitch_class, energy)
     return vec
+
+
+def whitened_log_spectrum(
+    y: np.ndarray,
+    sr: int,
+    *,
+    n_fft: int = 16384,
+    hop_length: int = 4096,
+    fmin: float = 27.5,
+    bins_per_octave: int = 36,
+    n_octaves: float = 7.5,
+) -> np.ndarray:
+    """
+    Whole-clip, spectrally whitened log-frequency spectrum: one value per log-frequency bin
+    (bin b centred on fmin * 2**(b / bins_per_octave)), summed over frames.
+
+    Each frame's magnitude is mapped onto log-frequency bins (triangular interpolation, as in
+    `chroma_cqt()`), then divided by its own local spectral envelope -- a one-octave moving
+    average -- and only the part standing above that envelope is kept. That is spectral
+    whitening: a loud kick/bass region or a bright mix can no longer outvote quieter tonal
+    peaks just by carrying more energy, which on real music was the single largest key-accuracy
+    gain measured (docs/IRON_RESEARCH.md SS18). Original numpy implementation of the general
+    technique, not a port of any library's code.
+
+    At the defaults (27.5 Hz = A0, 36 bins/octave) semitone centres fall on every third bin,
+    so key.py can estimate tuning from which sub-semitone phase carries the energy.
+    """
+    n_log = int(bins_per_octave * n_octaves)
+    mag = magnitude_spectrogram(y, n_fft=n_fft, hop_length=hop_length)
+    if mag.shape[0] == 0:
+        return np.zeros(n_log, dtype=np.float64)
+
+    freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+    rows = np.nonzero(freqs >= fmin)[0]
+    pos = bins_per_octave * np.log2(freqs[rows] / fmin)
+    lower = np.floor(pos).astype(np.int64)
+    frac = pos - lower
+    weights = np.zeros((freqs.size, n_log), dtype=np.float64)
+    for b, w in ((lower, 1.0 - frac), (lower + 1, frac)):
+        keep = b < n_log
+        np.add.at(weights, (rows[keep], b[keep]), w[keep])
+
+    with np.errstate(all="ignore"):  # Accelerate BLAS can raise spurious matmul flags
+        logmag = mag @ weights
+    logmag = np.nan_to_num(logmag)
+    kernel = np.ones(bins_per_octave) / bins_per_octave
+    envelope = np.stack([np.convolve(row, kernel, mode="same") for row in logmag]) + 1e-9
+    return np.maximum(logmag / envelope - 1.0, 0.0).sum(axis=0)
