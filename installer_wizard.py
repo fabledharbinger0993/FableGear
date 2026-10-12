@@ -2,52 +2,61 @@
 """
 FableGear -- Install Wizard.
 
-Runs after setup.sh has done the one thing only bash can do (create a venv
-and get Flask + pywebview into it), and takes over everything after that:
-system checks, the remaining dependency install with live progress, and the
-handoff into FableGear itself.
+A friendly window for what setup.sh does in a Terminal: check the Mac, build
+FableGear's private Python environment, install its packages with live
+progress, create the launcher app, and hand off to FableGear.
 
-Deliberately standalone. This module imports nothing from the rest of
-FableGear -- not config.py, not helpers.py -- because it has to run
-correctly BEFORE those are guaranteed to work. config.py calls
-load_user_config() at import time and expects a config file that does not
-exist yet at this point in a fresh install; helpers.py pulls in that whole
-chain transitively. Bootstrapping code that depends on the thing it is
-bootstrapping is how installers turn one problem into two.
+What it does NOT do, on purpose: install or change anything on the system
+outside the FableGear folder. No Homebrew, no Python, no ffmpeg, no Chromaprint.
+Those are yours -- if one is missing the wizard says exactly what is needed and
+waits while you install it. This is the same contract setup.sh follows.
 
-Two run modes:
+Deliberately standalone, and stdlib-only. It imports nothing from the rest of
+FableGear (config.py loads a user config at import time that does not exist yet
+on a fresh install) and it does not even need Flask: installing Flask is one of
+the things it does, so depending on it would be circular. Any python3 can run
+this file -- including the one macOS ships -- because the interpreter that runs
+the wizard is separate from the one it picks for FableGear's environment.
 
-    python3 installer_wizard.py           # pywebview window (real installs)
+Run modes:
+
+    python3 installer_wizard.py           # native window if pywebview is
+                                          # importable, otherwise your browser
     python3 installer_wizard.py --serve   # plain localhost server, no window
 
---serve exists for two reasons: it is how this file gets tested without a
-display (a headless browser can drive plain HTTP; it cannot drive a native
-WKWebView), and it is a legitimate fallback on a machine where pywebview's
-native dependencies are unavailable -- "open http://127.0.0.1:PORT" beats a
-dead end.
+The dependency list shown to the user is generated FROM requirements_ui.txt,
+requirements.txt and requirements_optional.txt at request time, never
+hand-copied: a list that goes stale relative to what is really installed is
+worse than a package name with no description.
 
-The dependency step list is generated FROM requirements_ui.txt,
-requirements.txt, and requirements_optional.txt at request time -- never
-hand-copied. A file that goes stale relative to what setup.sh actually
-installs is a worse bug than the wizard displaying a package name with no
-description, so read the real file and gets a real command wrong.
+Security: the server listens on 127.0.0.1 only, rejects any Host header that is
+not a loopback name (DNS rebinding), and every endpoint that installs software or
+launches the app requires a random per-run token that only the served page knows
+(so a web page open in another tab cannot trigger an install).
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import mimetypes
 import os
 import platform
+import secrets
 import shutil
 import socket
 import subprocess
 import sys
 import threading
 import time
+import webbrowser
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlsplit
 
 log = logging.getLogger("installer_wizard")
 
@@ -55,17 +64,35 @@ REPO_ROOT = Path(__file__).resolve().parent
 TEMPLATE_PATH = REPO_ROOT / "templates" / "installer_wizard.html"
 STATIC_DIR = REPO_ROOT / "static"
 VENV_DIR = REPO_ROOT / "venv"
+LAUNCHER_SCRIPT = REPO_ROOT / "packaging" / "create_launcher_app.sh"
+TOKEN_PLACEHOLDER = "__WIZARD_TOKEN__"
 
 MIN_PYTHON = (3, 11)
+MAX_PYTHON = (3, 13)
 MIN_FREE_DISK_GB = 2.0
-BREW_FORMULAS = ("ffmpeg", "chromaprint")
+
+# Tools FableGear shells out to. (command, label, what it is for)
+REQUIRED_TOOLS = (
+    ("ffmpeg", "ffmpeg", "audio decoding and conversion"),
+    ("fpcalc", "Chromaprint (fpcalc)", "duplicate-detection fingerprinting"),
+)
+
+# A GUI-launched process gets a minimal PATH, so look where package managers and
+# installers put things too. Read-only: nothing here is ever written to.
+EXTRA_TOOL_DIRS = ("/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin")
+PYTHON_CANDIDATES = (
+    "python3.13", "python3.12", "python3.11", "python3",
+    "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3",
+    "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3",
+    "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3",
+)
 
 
 # ─── System checks ─────────────────────────────────────────────────────────
 #
-# Each check is independent and never raises -- a check that crashes the
-# wizard over a missing `sw_vers` binary is worse than one that reports
-# "unknown" and lets the user proceed. status is one of "ok" / "warn" / "fail".
+# Each check is independent and never raises -- a check that crashes the wizard
+# over a missing `sw_vers` is worse than one that reports "unknown" and lets the
+# user decide. status is one of "ok" / "warn" / "fail"; only "fail" blocks.
 
 @dataclass
 class CheckResult:
@@ -86,13 +113,36 @@ def _run(cmd: list[str], timeout: float = 5.0) -> str | None:
         return None
 
 
+def _search_path() -> str:
+    parts = [p for p in os.environ.get("PATH", "").split(os.pathsep) if p]
+    for extra in EXTRA_TOOL_DIRS:
+        if extra not in parts and os.path.isdir(extra):
+            parts.append(extra)
+    return os.pathsep.join(parts)
+
+
+def find_tool(name: str) -> str | None:
+    return shutil.which(name, path=_search_path())
+
+
+def _has_homebrew() -> bool:
+    return any(Path(p).is_file() for p in ("/opt/homebrew/bin/brew", "/usr/local/bin/brew"))
+
+
+def install_hint() -> str:
+    """How to get the missing tools. Advice only -- the wizard never runs it."""
+    if _has_homebrew():
+        return "With Homebrew you can run: brew install ffmpeg chromaprint"
+    return ("Install ffmpeg (ffmpeg.org) and Chromaprint (acoustid.org/chromaprint), "
+            "or use your package manager")
+
+
 def check_platform() -> CheckResult:
     system = platform.system()
     if system != "Darwin":
-        # This module runs in CI/dev on Linux too (see tests). Report it
-        # plainly rather than pretending to be on macOS.
+        # Also runs in CI/dev on Linux (see tests); say so plainly.
         return CheckResult("platform", "Operating system", "warn",
-                            f"FableGear targets macOS; running on {system}")
+                           f"FableGear targets macOS; running on {system}")
     version = _run(["sw_vers", "-productVersion"]) or platform.mac_ver()[0]
     if not version:
         return CheckResult("platform", "macOS version", "warn", "Could not detect version")
@@ -102,7 +152,7 @@ def check_platform() -> CheckResult:
         return CheckResult("platform", "macOS version", "warn", version)
     if major < 12:
         return CheckResult("platform", "macOS version", "fail",
-                            f"macOS {version} -- FableGear requires 12.0 or later")
+                           f"macOS {version} -- FableGear requires 12.0 or later")
     return CheckResult("platform", "macOS version", "ok", f"macOS {version}")
 
 
@@ -113,68 +163,71 @@ def check_disk_space() -> CheckResult:
         return CheckResult("disk", "Free disk space", "warn", str(exc))
     if free_gb < MIN_FREE_DISK_GB:
         return CheckResult("disk", "Free disk space", "fail",
-                            f"{free_gb:.1f} GB free -- need at least {MIN_FREE_DISK_GB:.0f} GB")
+                           f"{free_gb:.1f} GB free -- need at least {MIN_FREE_DISK_GB:.0f} GB")
     return CheckResult("disk", "Free disk space", "ok", f"{free_gb:.1f} GB free")
 
 
 def check_network() -> CheckResult:
     try:
-        socket.create_connection(("github.com", 443), timeout=4).close()
+        socket.create_connection(("pypi.org", 443), timeout=4).close()
     except OSError:
         return CheckResult("network", "Internet connection", "fail",
-                            "Could not reach github.com -- installs need a connection")
+                           "Could not reach pypi.org -- installing packages needs a connection")
     return CheckResult("network", "Internet connection", "ok", "Connected")
 
 
-def _find_brew() -> str | None:
-    for candidate in ("/opt/homebrew/bin/brew", "/usr/local/bin/brew"):
-        if Path(candidate).is_file():
-            return candidate
-    return shutil.which("brew")
+def _python_version(exe: str) -> tuple[int, int, int] | None:
+    out = _run([exe, "-c", "import sys; print('%d.%d.%d' % sys.version_info[:3])"])
+    try:
+        major, minor, micro = (int(x) for x in (out or "").split("."))
+    except ValueError:
+        return None
+    return (major, minor, micro)
 
 
-def check_homebrew() -> CheckResult:
-    brew = _find_brew()
-    if not brew:
-        return CheckResult("homebrew", "Homebrew", "warn",
-                            "Not found -- the next step will install it")
-    return CheckResult("homebrew", "Homebrew", "ok", f"Found at {brew}")
+def find_python() -> tuple[str, tuple[int, int, int]] | None:
+    """The first interpreter in MIN_PYTHON..MAX_PYTHON, or None. Same rule as setup.sh."""
+    for name in PYTHON_CANDIDATES:
+        exe = name if os.path.isabs(name) else find_tool(name)
+        if not exe or not os.path.isfile(exe):
+            continue
+        ver = _python_version(exe)
+        if ver and MIN_PYTHON <= ver[:2] <= MAX_PYTHON:
+            return exe, ver
+    return None
 
 
-def check_formula(name: str) -> CheckResult:
-    brew = _find_brew()
-    if brew and _run([brew, "list", "--formula", name]) is not None:
-        return CheckResult(f"formula:{name}", name, "ok", "Installed")
-    return CheckResult(f"formula:{name}", name, "warn", "Will be installed")
+def check_python() -> CheckResult:
+    found = find_python()
+    want = f"{MIN_PYTHON[0]}.{MIN_PYTHON[1]}-{MAX_PYTHON[0]}.{MAX_PYTHON[1]}"
+    if found is None:
+        return CheckResult(
+            "python", "Python", "fail",
+            f"No Python {want} found. Install one from python.org/downloads "
+            "(or your package manager), then press Check again")
+    exe, ver = found
+    return CheckResult("python", "Python", "ok", f"Python {ver[0]}.{ver[1]}.{ver[2]}  ({exe})")
 
 
-def check_python_version() -> CheckResult:
-    info = sys.version_info
-    label = f"Python {info.major}.{info.minor}.{info.micro}"
-    if (info.major, info.minor) < MIN_PYTHON:
-        return CheckResult("python", "Python version", "fail",
-                            f"{label} -- FableGear requires "
-                            f"{MIN_PYTHON[0]}.{MIN_PYTHON[1]}+")
-    return CheckResult("python", "Python version", "ok", label)
+def check_tool(command: str, label: str, purpose: str) -> CheckResult:
+    path = find_tool(command)
+    if path:
+        return CheckResult(f"tool:{command}", label, "ok", path)
+    return CheckResult(f"tool:{command}", label, "fail",
+                       f"Not found (needed for {purpose}). {install_hint()}, "
+                       "then press Check again")
 
 
 def check_venv() -> CheckResult:
-    activate = VENV_DIR / "bin" / "activate"
-    if activate.is_file():
-        return CheckResult("venv", "Virtual environment", "ok", str(VENV_DIR))
-    return CheckResult("venv", "Virtual environment", "warn", "Not created yet")
+    if (VENV_DIR / "bin" / "activate").is_file():
+        return CheckResult("venv", "Private Python environment", "ok", str(VENV_DIR))
+    return CheckResult("venv", "Private Python environment", "warn", "Will be created next")
 
 
 def run_all_checks() -> list[CheckResult]:
-    checks = [
-        check_platform(),
-        check_disk_space(),
-        check_network(),
-        check_python_version(),
-        check_venv(),
-        check_homebrew(),
-    ]
-    checks.extend(check_formula(name) for name in BREW_FORMULAS)
+    checks = [check_platform(), check_disk_space(), check_network(), check_python()]
+    checks.extend(check_tool(*tool) for tool in REQUIRED_TOOLS)
+    checks.append(check_venv())
     return checks
 
 
@@ -192,11 +245,10 @@ class RequirementGroup:
 
 def _parse_requirements(path: Path) -> list[str]:
     """
-    Extract top-level package names from a requirements file.
+    Top-level package names from a requirements file.
 
-    Comment lines and blank lines are skipped; a bare `-r other_file.txt`
-    line is skipped too since that reference is resolved by pip, not by us
-    -- listing it as a "package" would be wrong.
+    Comments, blank lines and `-r other.txt` includes are skipped: the include is
+    resolved by pip, and listing it as a "package" would be wrong.
     """
     if not path.is_file():
         return []
@@ -205,7 +257,6 @@ def _parse_requirements(path: Path) -> list[str]:
         line = raw.strip()
         if not line or line.startswith("#") or line.startswith("-r "):
             continue
-        # Strip a version specifier: "pyrekordbox==0.4.4" -> "pyrekordbox"
         for sep in ("==", ">=", "<=", "~=", ">", "<"):
             if sep in line:
                 line = line.split(sep, 1)[0]
@@ -215,59 +266,40 @@ def _parse_requirements(path: Path) -> list[str]:
 
 
 def build_plan() -> list[RequirementGroup]:
-    """
-    The dependency plan the wizard displays and installs, generated from the
-    actual requirements files rather than duplicated by hand.
-    """
     return [
         RequirementGroup(
-            id="ui",
-            label="Interface",
-            file="requirements_ui.txt",
-            required=True,
+            id="ui", label="Interface", file="requirements_ui.txt", required=True,
             description="The window and controls you're looking at right now.",
             packages=_parse_requirements(REPO_ROOT / "requirements_ui.txt"),
         ),
         RequirementGroup(
-            id="core",
-            label="Library engine",
-            file="requirements.txt",
-            required=True,
-            description="Reads and writes your Rekordbox library, "
-                        "analyzes audio, talks to your drives.",
+            id="core", label="Library engine", file="requirements.txt", required=True,
+            description="Reads and writes your Rekordbox library, analyzes audio, "
+                        "talks to your drives.",
             packages=_parse_requirements(REPO_ROOT / "requirements.txt"),
         ),
         RequirementGroup(
-            id="optional",
-            label="Enhanced beat detection",
-            file="requirements_optional.txt",
-            required=False,
-            description="Best-effort. Narrower platform support, so a "
-                        "missing wheel here degrades a feature instead of "
-                        "stopping the install.",
+            id="optional", label="Enhanced beat detection",
+            file="requirements_optional.txt", required=False,
+            description="Best-effort. Narrower platform support, so if it can't "
+                        "install, FableGear still runs with less accurate beat detection.",
             packages=_parse_requirements(REPO_ROOT / "requirements_optional.txt"),
         ),
     ]
 
 
-# ─── Streamed subprocess execution (SSE) ────────────────────────────────────
+# ─── Streamed subprocess execution (SSE framing) ────────────────────────────
 #
-# Same framing convention as helpers.py::_stream / _sse_response elsewhere in
-# FableGear (data: <line>\n\n, a final data: [DONE]\n\n). Reimplemented here
-# rather than imported, per the module docstring: this code must not depend
-# on the app's own import chain.
+# Same framing as helpers.py::_stream elsewhere in FableGear (data: <line>\n\n),
+# reimplemented here per the module docstring rather than imported.
 
 def stream_command(cmd: list[str], *, cwd: Path | None = None) -> Iterator[str]:
     """Run `cmd`, yielding SSE-framed output lines as they arrive."""
     yield f"data: $ {' '.join(cmd)}\n\n"
     try:
         proc = subprocess.Popen(
-            cmd,
-            cwd=str(cwd) if cwd else None,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
+            cmd, cwd=str(cwd) if cwd else None,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
         )
     except OSError as exc:
         yield f"data: [ERROR] could not start: {exc}\n\n"
@@ -277,211 +309,283 @@ def stream_command(cmd: list[str], *, cwd: Path | None = None) -> Iterator[str]:
     assert proc.stdout is not None
     for line in proc.stdout:
         yield f"data: {line.rstrip()}\n\n"
-
-    code = proc.wait()
-    yield f"data: [DONE:{code}]\n\n"
+    yield f"data: [DONE:{proc.wait()}]\n\n"
 
 
-def stream_steps(
-    steps: list[list[str]], *, cwd: Path | None = None, optional_last: bool = False
-) -> Iterator[str]:
-    """Run commands in sequence, stopping on required failures."""
-    for index, cmd in enumerate(steps):
-        saw_failure = False
+def _exit_code(done_line: str) -> str:
+    return done_line[len("data: [DONE:"):].split("]")[0]
+
+
+def stream_steps(steps: list[list[str]], *, cwd: Path | None = None) -> Iterator[str]:
+    """Run commands in sequence, stopping at the first failure."""
+    for cmd in steps:
+        failed = False
         for line in stream_command(cmd, cwd=cwd):
             if line.startswith("data: [DONE:"):
-                code = line[len("data: [DONE:"):].split("]")[0]
-                if code != "0":
-                    saw_failure = True
+                failed = _exit_code(line) != "0"
             else:
                 yield line
-        if saw_failure:
-            if optional_last and index == len(steps) - 1:
-                yield "data: [OPTIONAL_FAILED]\n\n"
-                continue
+        if failed:
             yield "data: [SEQUENCE_FAILED]\n\n"
             return
     yield "data: [SEQUENCE_OK]\n\n"
 
 
-def brew_install_commands() -> list[list[str]]:
-    brew = _find_brew()
+def venv_python() -> str:
+    candidate = VENV_DIR / "bin" / "python"
+    return str(candidate) if candidate.exists() else sys.executable
+
+
+def _venv_is_usable() -> bool:
+    if not (VENV_DIR / "bin" / "activate").is_file():
+        return False
+    ver = _python_version(str(VENV_DIR / "bin" / "python"))
+    return bool(ver and ver[:2] >= MIN_PYTHON)
+
+
+def stream_venv_setup() -> Iterator[str]:
+    """Create (or repair) the private environment, then bring pip up to date."""
+    found = find_python()
+    if found is None:
+        yield "data: [ERROR] no Python in the supported range was found\n\n"
+        yield "data: [SEQUENCE_FAILED]\n\n"
+        return
+    py, _ver = found
+
+    if VENV_DIR.exists() and not _venv_is_usable():
+        # Same repair setup.sh does: a hollow venv (no activate script) or one built
+        # by a too-old Python can't be fixed in place. It lives inside the FableGear
+        # folder and is rebuilt from requirements, so nothing of the user's is lost.
+        yield f"data: Existing environment is unusable -- rebuilding {VENV_DIR}\n\n"
+        shutil.rmtree(VENV_DIR, ignore_errors=True)
+
+    steps: list[list[str]] = []
+    if not VENV_DIR.exists():
+        steps.append([py, "-m", "venv", str(VENV_DIR)])
+    steps.append([str(VENV_DIR / "bin" / "python"), "-m", "pip", "install", "--upgrade", "pip"])
+    yield from stream_steps(steps, cwd=REPO_ROOT)
+
+
+def required_install_commands() -> list[list[str]]:
+    py = venv_python()
     cmds: list[list[str]] = []
-    if not brew:
-        # setup.sh runs `bash -c "$(curl -fsSL URL)"` -- that idiom only works
-        # because setup.sh's OWN bash performs the $(...) substitution (with
-        # quoting intact) before ever invoking the inner `bash -c`. Passed
-        # straight through subprocess.Popen(argv_list) there is no outer
-        # shell to do that: the inner bash receives the literal, unquoted
-        # text "$(curl ... )" as its own -c script, evaluates the
-        # substitution itself in bare command position, and an UNQUOTED
-        # substitution result gets word-split on whitespace/newlines --
-        # so the first "word" of the downloaded multi-line script becomes
-        # its own shebang line, and bash tries to exec a program literally
-        # named "#!/bin/bash" and fails with "No such file or directory".
-        # The standard curl-pipe-bash form sidesteps this: one clean argv
-        # string, no nested substitution-in-command-position to word-split.
-        cmds.append([
-            "/bin/bash", "-c",
-            "set -o pipefail; "
-            "curl -fsSL "
-            "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
-            " | /bin/bash",
-        ])
-    for formula in BREW_FORMULAS:
-        if brew:
-            cmds.append([brew, "install", formula])
-        else:
-            # The bootstrap installer updates shell startup files, not this
-            # process's PATH. Resolve Homebrew when each formula command runs,
-            # after the bootstrap step has had a chance to install it.
-            cmds.append([
-                "/bin/bash", "-c",
-                'brew_bin="$(command -v brew || true)"; '
-                'if [ -z "$brew_bin" ]; then '
-                "for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do "
-                'if [ -x "$candidate" ]; then brew_bin="$candidate"; break; fi; '
-                "done; fi; "
-                'if [ -z "$brew_bin" ]; then '
-                'echo "Homebrew was installed but could not be found" >&2; exit 127; '
-                "fi; "
-                f'exec "$brew_bin" install {formula}',
-            ])
-    return cmds
-
-
-def python_install_commands() -> list[list[str]]:
-    venv_python = VENV_DIR / "bin" / "python"
-    py = str(venv_python) if venv_python.exists() else sys.executable
-    cmds = [[py, "-m", "pip", "install", "--upgrade", "pip"]]
     for group in build_plan():
-        req_path = REPO_ROOT / group.file
-        if req_path.is_file():
-            cmds.append([py, "-m", "pip", "install", "-r", str(req_path)])
+        if group.required and (REPO_ROOT / group.file).is_file():
+            cmds.append([py, "-m", "pip", "install", "-r", str(REPO_ROOT / group.file)])
     return cmds
 
 
-# ─── Flask app ───────────────────────────────────────────────────────────────
+def optional_install_command() -> list[str] | None:
+    path = REPO_ROOT / "requirements_optional.txt"
+    if not path.is_file():
+        return None
+    return [venv_python(), "-m", "pip", "install", "-r", str(path)]
 
-def create_app():
-    from flask import Flask, Response, jsonify, send_from_directory
 
-    app = Flask(__name__, static_folder=None)
+def stream_python_install() -> Iterator[str]:
+    """
+    Required packages first (any failure stops everything), then the optional group,
+    which can never fail the install: setup.sh treats it the same way, because
+    essentia has narrow wheel coverage and a missing wheel must degrade beat
+    detection, not take the whole install down.
+    """
+    if not (VENV_DIR / "bin" / "python").exists():
+        # Never fall back to the system interpreter: that would pip-install FableGear's
+        # packages into the user's global Python, which is exactly what this wizard
+        # promises not to touch.
+        yield "data: [ERROR] the private environment doesn't exist yet -- run that step first\n\n"
+        yield "data: [SEQUENCE_FAILED]\n\n"
+        return
 
-    @app.route("/")
-    def index():
-        html = TEMPLATE_PATH.read_text(encoding="utf-8")
-        return Response(html, mimetype="text/html")
+    for line in stream_steps(required_install_commands(), cwd=REPO_ROOT):
+        if "[SEQUENCE_OK]" in line:
+            break
+        yield line
+        if "[SEQUENCE_FAILED]" in line:
+            return
 
-    @app.route("/static/<path:filename>")
-    def static_files(filename):
-        return send_from_directory(STATIC_DIR, filename)
+    cmd = optional_install_command()
+    if cmd is not None:
+        failed = False
+        for line in stream_command(cmd, cwd=REPO_ROOT):
+            if line.startswith("data: [DONE:"):
+                failed = _exit_code(line) != "0"
+            else:
+                yield line
+        if failed:
+            yield "data: [OPTIONAL_SKIPPED]\n\n"
+    yield "data: [SEQUENCE_OK]\n\n"
 
-    @app.route("/api/checks")
-    def api_checks():
-        return jsonify([asdict(c) for c in run_all_checks()])
 
-    @app.route("/api/plan")
-    def api_plan():
-        return jsonify([asdict(g) for g in build_plan()])
+# ─── Finish: launcher app, ready marker, hand-off ───────────────────────────
 
-    def _sse(gen: Iterator[str]) -> Response:
-        return Response(
-            gen, mimetype="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+def create_launcher_app() -> bool:
+    """Run the shared launcher script. Never raises -- a missing launcher isn't fatal."""
+    if not LAUNCHER_SCRIPT.is_file():
+        return False
+    try:
+        done = subprocess.run(
+            ["/bin/bash", str(LAUNCHER_SCRIPT), str(REPO_ROOT)],
+            capture_output=True, text=True, timeout=120, check=False,
         )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log.warning("launcher creation failed: %s", exc)
+        return False
+    return done.returncode == 0 and "created" in done.stdout
 
-    @app.route("/api/install/brew")
-    def api_install_brew():
-        return _sse(stream_steps(brew_install_commands()))
 
-    @app.route("/api/install/python")
-    def api_install_python():
-        steps = python_install_commands()
-        optional_group = next((group for group in build_plan() if not group.required), None)
-        optional_last = bool(
-            steps
-            and optional_group
-            and str(REPO_ROOT / optional_group.file) in steps[-1]
-        )
-        return _sse(stream_steps(steps, cwd=REPO_ROOT, optional_last=optional_last))
-
-    @app.route("/api/complete", methods=["POST"])
-    def api_complete():
-        (REPO_ROOT / ".fablegear_ready").touch()
-        threading.Thread(target=_launch_app_and_exit, daemon=True).start()
-        return jsonify({"ok": True})
-
-    return app
+def finish() -> dict:
+    launcher = create_launcher_app()
+    (REPO_ROOT / ".fablegear_ready").touch()
+    return {"ok": True, "launcher": launcher}
 
 
 def _launch_app_and_exit() -> None:
     """Hand off to the real app, then let this process end."""
     time.sleep(0.4)
-    venv_python = VENV_DIR / "bin" / "python"
-    py = str(venv_python) if venv_python.exists() else sys.executable
     subprocess.Popen(
-        [py, str(REPO_ROOT / "main.py")],
-        cwd=str(REPO_ROOT),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
+        [venv_python(), str(REPO_ROOT / "main.py")], cwd=str(REPO_ROOT),
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
     )
     os._exit(0)
 
 
+# ─── HTTP server (stdlib) ───────────────────────────────────────────────────
+
+class WizardServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, address, *, token: str | None = None):
+        super().__init__(address, _Handler)
+        self.token = token or secrets.token_urlsafe(16)
+        self.port = self.server_address[1]
+
+
+class _Handler(BaseHTTPRequestHandler):
+    server: WizardServer
+    server_version = "FableGearWizard"
+    protocol_version = "HTTP/1.0"  # streamed responses end by closing the connection
+
+    def log_message(self, fmt, *args):  # keep the Terminal quiet
+        log.debug("%s - %s", self.address_string(), fmt % args)
+
+    # -- helpers
+    def _send(self, status: int, body: bytes, ctype: str, extra: dict | None = None):
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _json(self, payload, status: int = 200):
+        self._send(status, json.dumps(payload).encode(), "application/json")
+
+    def _host_ok(self) -> bool:
+        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]").lower()
+        return host in ("127.0.0.1", "localhost", "::1")
+
+    def _token_ok(self, query: dict) -> bool:
+        supplied = (query.get("t") or [""])[0]
+        return secrets.compare_digest(supplied, self.server.token)
+
+    def _sse(self, gen: Iterator[str]):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        try:
+            for chunk in gen:
+                self.wfile.write(chunk.encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    # -- routes
+    def do_GET(self):
+        self._dispatch("GET")
+
+    def do_POST(self):
+        self._dispatch("POST")
+
+    def _dispatch(self, method: str):
+        if not self._host_ok():
+            return self._send(HTTPStatus.FORBIDDEN, b"forbidden", "text/plain")
+        parts = urlsplit(self.path)
+        path, query = parts.path, parse_qs(parts.query)
+
+        if method == "GET":
+            if path == "/":
+                html = TEMPLATE_PATH.read_text(encoding="utf-8").replace(
+                    TOKEN_PLACEHOLDER, self.server.token)
+                return self._send(200, html.encode(), "text/html; charset=utf-8")
+            if path.startswith("/static/"):
+                return self._static(unquote(path[len("/static/"):]))
+            if path == "/api/checks":
+                return self._json([asdict(c) for c in run_all_checks()])
+            if path == "/api/plan":
+                return self._json([asdict(g) for g in build_plan()])
+            if path in ("/api/install/venv", "/api/install/python"):
+                if not self._token_ok(query):
+                    return self._send(HTTPStatus.FORBIDDEN, b"forbidden", "text/plain")
+                gen = stream_venv_setup() if path.endswith("/venv") else stream_python_install()
+                return self._sse(gen)
+        elif method == "POST" and path == "/api/complete":
+            if not self._token_ok(query):
+                return self._send(HTTPStatus.FORBIDDEN, b"forbidden", "text/plain")
+            result = finish()
+            self._json(result)
+            threading.Thread(target=_launch_app_and_exit, daemon=True).start()
+            return None
+        return self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
+
+    def _static(self, rel: str):
+        target = (STATIC_DIR / rel).resolve()
+        if STATIC_DIR.resolve() not in target.parents or not target.is_file():
+            return self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
+        ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+        return self._send(200, target.read_bytes(), ctype)
+
+
 # ─── Entry point ───────────────────────────────────────────────────────────
-
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="FableGear install wizard")
     parser.add_argument("--serve", action="store_true",
-                        help="run as a plain localhost server instead of a native window")
-    parser.add_argument("--port", type=int, default=None)
+                        help="plain localhost server, no native window and no browser launch")
+    parser.add_argument("--port", type=int, default=0)
     args = parser.parse_args(argv)
 
     if not TEMPLATE_PATH.is_file():
         print(f"error: missing {TEMPLATE_PATH}", file=sys.stderr)
         return 2
 
-    app = create_app()
-    port = args.port or _free_port()
+    server = WizardServer(("127.0.0.1", args.port))
+    url = f"http://127.0.0.1:{server.port}"
 
     if args.serve:
-        print(f"FableGear install wizard: http://127.0.0.1:{port}")
-        app.run(host="127.0.0.1", port=port, debug=False)
+        print(f"FableGear install wizard: {url}")
+        server.serve_forever()
         return 0
+
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
 
     try:
-        import webview
+        import webview  # only present once FableGear's own packages are installed
     except ImportError:
-        print("pywebview is not installed -- falling back to --serve mode.",
-              file=sys.stderr)
-        print(f"Open http://127.0.0.1:{port} in a browser.", file=sys.stderr)
-        app.run(host="127.0.0.1", port=port, debug=False)
+        # The normal case on a fresh Mac: pywebview is one of the things we install.
+        print(f"FableGear install wizard: {url}\n(opening your browser)")
+        webbrowser.open(url)
+        thread.join()
         return 0
 
-    thread = threading.Thread(
-        target=lambda: app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False),
-        daemon=True,
-    )
-    thread.start()
-    time.sleep(0.3)
-
-    # Wider than the 640px wizard panel on purpose -- Spectre roams the
-    # side margins this leaves, teleporting between them (see
-    # templates/installer_wizard.html). 940 gives ~150px of lane on each
-    # side at a 110px mascot size, matching the "dead space beside the
-    # content" approach already used on the marketing site.
-    webview.create_window(
-        "FableGear Setup", f"http://127.0.0.1:{port}",
-        width=940, height=700, resizable=False, frameless=False,
-    )
+    # Wider than the 640px wizard panel on purpose -- Spectre roams the side
+    # margins this leaves (see templates/installer_wizard.html).
+    webview.create_window("FableGear Setup", url, width=940, height=700,
+                          resizable=False, frameless=False)
     webview.start()
     return 0
 
