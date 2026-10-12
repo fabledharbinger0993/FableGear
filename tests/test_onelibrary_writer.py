@@ -381,3 +381,70 @@ def test_tag_only_track_gets_a_beat_grid_at_its_tagged_tempo(fg_db, tmp_path):
     assert report.beat_grid, "a tag-only track must still get a beat grid"
     assert {round(b.tempo_bpm, 1) for b in report.beat_grid} == {126.0}
     assert [b.beat_no for b in report.beat_grid[:5]] == [1, 2, 3, 4, 1]
+
+
+# ── Tag fallback: validation, tag spellings, and the per-file cache ─────────────
+
+def _id3_file(tmp_path, name, **frames):
+    """A file with an ID3v2.4 tag holding exactly the given frames (via mutagen, as a third party would)."""
+    from mutagen.id3 import ID3, TBPM, TKEY, TXXX
+
+    path = tmp_path / name
+    path.write_bytes(_FAKE_MPEG)
+    tag = ID3()
+    if "key" in frames:
+        tag.add(TKEY(encoding=3, text=[frames["key"]]))
+    if "bpm" in frames:
+        tag.add(TBPM(encoding=3, text=[frames["bpm"]]))
+    if "txxx_key" in frames:
+        tag.add(TXXX(encoding=3, desc="INITIALKEY", text=[frames["txxx_key"]]))
+    if "txxx_bpm" in frames:
+        tag.add(TXXX(encoding=3, desc="BPM", text=[frames["txxx_bpm"]]))
+    tag.save(path)
+    return path
+
+
+@pytest.fixture
+def fresh_cache(monkeypatch):
+    from fablegear_database import tag_fallback
+
+    monkeypatch.setattr(tag_fallback, "_CACHE", {})
+    return tag_fallback
+
+
+@pytest.mark.parametrize("bad", ["nan", "inf", "0", "9999", "fast", "-5"])
+def test_implausible_tag_bpm_is_ignored_but_the_key_is_still_used(fresh_cache, tmp_path, bad):
+    path = _id3_file(tmp_path, "bad.mp3", key="8A", bpm=bad)
+    track = _make_track(file_path=str(path), key=None, bpm=None)
+    fresh_cache.fill_missing_from_tags(track)
+    assert track.key == "8A" and track.bpm is None
+
+
+def test_overlong_key_text_is_ignored(fresh_cache, tmp_path):
+    path = _id3_file(tmp_path, "longkey.mp3", key="x" * 60, bpm="126")
+    track = _make_track(file_path=str(path), key=None, bpm=None)
+    fresh_cache.fill_missing_from_tags(track)
+    assert track.key is None and track.bpm == 126.0
+
+
+def test_txxx_key_and_bpm_spellings_are_read(fresh_cache, tmp_path):
+    path = _id3_file(tmp_path, "txxx.mp3", txxx_key="8A", txxx_bpm="127.5")
+    track = _make_track(file_path=str(path), key=None, bpm=None)
+    fresh_cache.fill_missing_from_tags(track)
+    assert (track.key, track.bpm) == ("8A", 127.5)
+
+
+def test_file_is_read_once_per_export_and_again_after_it_changes(fresh_cache, tmp_path, monkeypatch):
+    path = _id3_file(tmp_path, "cache.mp3", key="8A", bpm="126")
+    calls = []
+    real = fresh_cache._read_tags
+    monkeypatch.setattr(fresh_cache, "_read_tags", lambda p: calls.append(p) or real(p))
+    for _ in range(2):  # the database row, then the beat grid
+        fresh_cache.fill_missing_from_tags(_make_track(file_path=str(path), key=None, bpm=None))
+    assert len(calls) == 1
+    path = _id3_file(tmp_path, "cache.mp3", key="5A", bpm="128")  # edited in place
+    import os
+    os.utime(path, ns=(10**18, 10**18))                           # make the change unmistakable
+    track = _make_track(file_path=str(path), key=None, bpm=None)
+    fresh_cache.fill_missing_from_tags(track)
+    assert len(calls) == 2 and (track.key, track.bpm) == ("5A", 128.0)
