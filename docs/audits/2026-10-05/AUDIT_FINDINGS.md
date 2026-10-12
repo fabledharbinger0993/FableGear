@@ -1,6 +1,6 @@
 # FableGear audit: findings
 
-> **Screenshots are not in this tree.** The 79 evidence images referenced as `screens/...` (7.1 MB) were removed to keep the repo small. They are preserved in git history at commit `7d38ae9` (branch `claude/stoic-hamilton-ycmk9v`): `git show 7d38ae9:docs/audits/2026-10-05/screens/<path>`. The `screens/...` paths below are evidence IDs, not live links.
+> **Screenshots are not in this tree.** The 79 evidence images referenced as `screens/...` (13 MB) were left out to keep the repository small. They live on the head of PR #166 (branch `claude/stoic-hamilton-ycmk9v`, commit `7d38ae9`), which is not part of `main`. To read one: `git fetch origin pull/166/head:audit-2026-10-05-screens`, then `git show audit-2026-10-05-screens:docs/audits/2026-10-05/screens/<path>`. Do not delete that branch or PR ref if you want the images to stay reachable. The `screens/...` paths in this document are evidence IDs, not live links.
 
 Audit of `main` at `1840750`. Run 2026-10-05/06 against the real Flask app in a Linux sandbox:
 
@@ -186,6 +186,7 @@ The verifier re-ran each row in a fresh sandbox. The last column shows its verdi
 | **C8** `tool-normalize-wav-bitdepth-downgrade` | **WAV is always re-encoded as 16-bit.** 24-bit and 32-bit float sources lose resolution, contradicting the "same bit depth" claim, and the original is deleted. | [D] | **Confirmed, re-graded HIGH.** Silent quality loss against an explicit promise, but the track stays usable and no clipping is introduced. |
 | **C9** `tool-organize-workers-race-overwrite` | **Organize with 2 or 4 workers lets colliding files overwrite each other.** 2 of 120 distinct files were permanently lost with "No errors" reported. Undo then put the wrong audio into two original paths. | `library_organizer.py` [D] | **Confirmed critical** |
 | **C10** `wizard-live-trap7` | **A reload, quit or crash at onboarding steps 5–7 permanently traps a first-run user on step 7.** It has no Back, save-config returns 400, and every relaunch resumes there. | `onboarding.html` step 7 [D, ×2 independent] | **Confirmed critical** |
+| **C11** `undo-resume-concurrent-resume-double-gain` | **A second Resume can double-apply Normalize.** A second tab or a reload shows "Interrupted run" with Resume, which skips the destructive-action confirm, and the server has no single-job guard. A second Normalize ran on the same folder and one file ended at +10 LUFS against 0 dBFS. | `runners.js:246-249`, `pipeline.js:583-640` [D] | **Confirmed, re-graded HIGH.** Also listed under High below. |
 
 ### High
 
@@ -406,4 +407,4 @@ This is built only from pieces that already exist.
   - AcoustID (`fpcalc` absent; the missing-fpcalc paths *were* tested, and they fail silently, which is itself a finding).
 - **Harness note:** the auditors initially shared one app copy, and the product's cancel/quit paths killed each other's jobs. That is product finding `tool-process-b-cross-instance-kill`. From round 2 on, every sandbox runs its own app copy.
 - **Evidence:** full per-finding evidence, repro commands and screenshot paths are in `FINDINGS_DETAIL.md`.
-- **Screenshots:** the 79 screenshots cited by critical and high findings, plus the lead's own, are committed under `screens/`, palette-reduced to keep the repo small. The other ~1,000 captures, the probe JSON, the raw scripts and the snapshots stay in the session scratchpad, which is why some paths cited in `FINDINGS_DETAIL.md` are absent from the repo.
+- **Screenshots:** the 79 screenshots cited by critical and high findings, plus the lead's own, were captured under `screens/` and palette-reduced; they are not included in this tree (see the note at the top). The other ~1,000 captures, the probe JSON, the raw scripts and the snapshots stay in the session scratchpad, which is why some paths cited in `FINDINGS_DETAIL.md` are absent from the repo.

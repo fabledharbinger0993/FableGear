@@ -1,6 +1,6 @@
 # Audit 2026-10-05: full findings detail
 
-> **Screenshots are not in this tree.** The 79 evidence images referenced as `screens/...` (7.1 MB) were removed to keep the repo small. They are preserved in git history at commit `7d38ae9` (branch `claude/stoic-hamilton-ycmk9v`): `git show 7d38ae9:docs/audits/2026-10-05/screens/<path>`. The `screens/...` paths below are evidence IDs, not live links.
+> **Screenshots are not in this tree.** The 79 evidence images referenced as `screens/...` (13 MB) were left out to keep the repository small. They live on the head of PR #166 (branch `claude/stoic-hamilton-ycmk9v`, commit `7d38ae9`), which is not part of `main`. To read one: `git fetch origin pull/166/head:audit-2026-10-05-screens`, then `git show audit-2026-10-05-screens:docs/audits/2026-10-05/screens/<path>`. Do not delete that branch or PR ref if you want the images to stay reachable. The `screens/...` paths in this document are evidence IDs, not live links.
 
 Generated from each auditor's structured output. Every finding carries the auditor's evidence label (demonstrated / inferred / speculative) and, for critical/high findings, the independent verifier's verdict. The prioritized summary is in `AUDIT_FINDINGS.md`; this file is the evidence appendix.
 
