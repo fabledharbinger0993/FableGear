@@ -101,7 +101,9 @@ pip install --quiet -r "$SCRIPT_DIR/requirements_optional.txt" >> "$LOG" 2>&1 ||
 # Devs working from source opt out by touching a .dev sentinel in the repo root.
 # Offline-safe: if the API is unreachable, the app launches on current code.
 cd "$SCRIPT_DIR"
-if [ ! -f "$SCRIPT_DIR/.dev" ]; then
+# An installed copy (made by the installer app) is a snapshot with no .git: it is updated by running
+# a newer installer, so skip the git-based update entirely.
+if [ ! -f "$SCRIPT_DIR/.dev" ] && [ -d "$SCRIPT_DIR/.git" ]; then
   git fetch origin --tags --quiet >> "$LOG" 2>&1
   LATEST_TAG=$(curl -fsSL --max-time 10 \
     "https://api.github.com/repos/fabledharbinger0993/FableGear/releases/latest" 2>/dev/null \
@@ -160,7 +162,12 @@ fi
 # Resolve once here so the running app can read it directly (helpers.py /
 # state_tracker.py both check FABLEGEAR_VERSION first, falling back to a
 # `git rev-parse` subprocess call per-request when it's unset).
-export FABLEGEAR_VERSION="$(git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+if [ -f "$SCRIPT_DIR/VERSION" ]; then
+  FABLEGEAR_VERSION="$(head -n1 "$SCRIPT_DIR/VERSION" | tr -d '[:space:]')"
+else
+  FABLEGEAR_VERSION="$(git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+fi
+export FABLEGEAR_VERSION
 
 # Use 'arch -arm64' only on Apple Silicon; use plain Python on Intel Macs.
 ARCH_NAME=$(uname -m)

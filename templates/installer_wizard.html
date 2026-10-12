@@ -455,7 +455,7 @@
     <section class="panel active welcome" data-step="0">
       <div class="welcome-mark">🎛️</div>
       <h1>Welcome to FableGear</h1>
-      <p>This checks your Mac, builds a private Python environment inside the FableGear folder, and installs FableGear's packages. It never installs or changes system software — your Python, ffmpeg and Chromaprint stay yours. If one is missing, I'll tell you exactly what to get. Takes a few minutes, and you'll see everything it does.</p>
+      <p>This checks your Mac, builds a private Python environment just for FableGear, installs FableGear's packages into it, then puts FableGear in your Applications folder. It never installs or changes system software — your Python, ffmpeg and Chromaprint stay yours. If one is missing, I'll tell you exactly what to get. Takes a few minutes, and you'll see everything it does.</p>
     </section>
 
     <section class="panel" data-step="1">
@@ -471,7 +471,7 @@
       <div class="sec-head">
         <span class="sec-icon">🧪</span>
         <div class="sec-title">Private environment</div>
-        <div class="sec-sub">A Python environment that lives inside the FableGear folder — nothing here touches Python anywhere else on your Mac.</div>
+        <div class="sec-sub">A Python environment that belongs to FableGear alone — nothing here touches Python anywhere else on your Mac.</div>
       </div>
       <div class="progress-list" id="envProgress"></div>
       <details class="log-details" id="envDetails">
@@ -484,7 +484,7 @@
       <div class="sec-head">
         <span class="sec-icon">📦</span>
         <div class="sec-title">FableGear's own packages</div>
-        <div class="sec-sub">Installed into a private environment inside the app folder — nothing here touches Python anywhere else on your Mac.</div>
+        <div class="sec-sub">Installed only into FableGear's private environment, then FableGear's files are copied into place — nothing here touches Python anywhere else on your Mac.</div>
       </div>
       <div id="planGroups"></div>
       <details class="log-details" id="pyDetails">
@@ -1063,7 +1063,7 @@ const Spectre = (function () {
         .then(d => {
           const note = document.getElementById("launcherNote");
           if (note) note.textContent = d.launcher
-            ? "I also put FableGear in your Applications folder — drag it to the Dock for one-click access."
+            ? "FableGear is now in " + (d.launcher_dir || "your Applications folder") + " — open it from there any time, and drag it to the Dock for one-click access. You can delete this installer."
             : "Open FableGear any time by running launch.sh from the FableGear folder.";
         })
         .catch(() => {});
