@@ -15,11 +15,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from anvil.schema import bpm_to_db
 from construct import Container
 from pyrekordbox import AnlzFile
 from pyrekordbox.anlz import structs
 from pyrekordbox.anlz.tags import PCO2AnlzTag, PCOBAnlzTag, PPTHAnlzTag, PQTZAnlzTag
+
+from anvil.schema import bpm_to_db
 
 from .database import ContentRecord, FableGearDatabase
 from .tag_fallback import fill_missing_from_tags
