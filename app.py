@@ -11,7 +11,6 @@ Blueprint layout:
   routes_rekordbox.py — The Zombie Machine (/api/run/audit, /api/run/import,
                                             /api/run/link, /api/run/relocate,
                                             /api/migrate-pioneer-db)
-  routes_mobile.py    — The Overlord    (/api/mobile/*, /api/connectivity)
 """
 
 import json
@@ -43,7 +42,6 @@ from helpers import (
     get_step_status,
     limiter,
     list_running_managed_subprocesses,
-    sock,
     terminate_managed_subprocesses,
 )
 
@@ -104,7 +102,6 @@ _LEGACY_STATIC_ALIASES = {
     "RB_LOGO.png": "FableGear-logo.png",
     "icon-audit.png": "icon-settings.png",
     "icon-convert.png": "icon-converter.png",
-    "icon-fablego.png": "icon-logo-fablegear.png",
     "icon-fg-drives.png": "icon-drives.png",
     "icon-fg-files.png": "icon-queue.png",
     "icon-fg-library.png": "icon-record-room.png",
@@ -168,7 +165,6 @@ app.send_static_file = _send_static_with_legacy_fallback
 
 # Attach lazy-init extensions to the app instance
 limiter.init_app(app)
-sock.init_app(app)
 
 # Cache-bust token — changes every server start so WKWebView picks up new assets
 import time as _time
@@ -181,20 +177,17 @@ def inject_cache_bust():
 
 
 # ── Network boundary ──────────────────────────────────────────────────────────
-# main.py binds 0.0.0.0 so FableGo can reach the mobile API over Tailscale/LAN.
-# That must NOT expose the desktop tool routes (/api/run/prune, /api/run/rename,
-# etc.) to the network: they are unauthenticated by design because the desktop
-# UI talks to them over loopback only.
+# main.py binds 127.0.0.1 unless the owner opts in with allow_lan_ui. Either way
+# the desktop tool routes (/api/run/prune, /api/run/rename, etc.) must NOT be
+# reachable from the network: they are unauthenticated by design because the
+# desktop UI talks to them over loopback only. This guard is defence in depth.
 #
 # Policy, first match wins:
 #   1. Loopback (127.0.0.1 / ::1)        → allow  (desktop UI, pywebview)
-#   2. /api/mobile/*                      → allow  (blueprint + sock handlers
-#                                                   enforce their own Bearer auth)
-#   3. /api/connectivity                  → allow  (handler enforces loopback itself)
-#   4. GET /static/*                      → allow  (public assets: css/js/icons)
-#   5. allow_lan_ui: true in ~/.fablegear/config.json
+#   2. GET /static/*                      → allow  (public assets: css/js/icons)
+#   3. allow_lan_ui: true in ~/.fablegear/config.json
 #                                         → allow  (explicit owner opt-out)
-#   6. otherwise                          → 403
+#   4. otherwise                          → 403
 
 def _lan_ui_allowed() -> bool:
     """Owner opt-out: {"allow_lan_ui": true} in ~/.fablegear/config.json."""
@@ -210,10 +203,6 @@ def _lan_ui_allowed() -> bool:
 def _enforce_network_boundary():
     if request.remote_addr in ("127.0.0.1", "::1"):
         return
-    if request.path.startswith("/api/mobile/"):
-        return  # mobile surface authenticates itself (Bearer, incl. websocket)
-    if request.path == "/api/connectivity":
-        return  # handler performs its own loopback check
     if request.method in ("GET", "HEAD") and request.path.startswith("/static/"):
         return
     if _lan_ui_allowed():
@@ -230,7 +219,6 @@ def _enforce_network_boundary():
 
 # ── Blueprints ────────────────────────────────────────────────────────────────
 
-from routes_mobile import bp as mobile_bp
 from routes_player import bp as player_bp
 from routes_rekordbox import bp as rekordbox_bp
 from routes_tools import bp as tools_bp
@@ -239,7 +227,6 @@ from routes_undo import bp as undo_bp
 app.register_blueprint(player_bp)
 app.register_blueprint(tools_bp)
 app.register_blueprint(rekordbox_bp)
-app.register_blueprint(mobile_bp)
 app.register_blueprint(undo_bp)
 
 # ── Startup side-effects ──────────────────────────────────────────────────────

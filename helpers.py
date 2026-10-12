@@ -27,7 +27,6 @@ from pathlib import Path
 from flask import Response, jsonify
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from flask_sock import Sock
 from mutagen import File as MutagenFile
 
 from pioneer_export_validator import (
@@ -183,8 +182,6 @@ limiter: Limiter = Limiter(
     default_limits=["1000 per hour"],
     storage_uri="memory://",
 )
-
-sock: Sock = Sock()
 
 
 # ── Active-process tracker (interrupt / emergency-stop) ───────────────────────
@@ -592,7 +589,7 @@ except ImportError:
 
 
 # ── Shared export job state ───────────────────────────────────────────────────
-# Used by both routes_player (library export) and routes_mobile (USB export).
+# Used by both routes_player (library export).
 
 _EXPORT_JOBS: dict[str, dict] = {}
 _EXPORT_LOCK: threading.Lock = threading.Lock()
@@ -1246,13 +1243,11 @@ def _run_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
     Unsupported Pioneer USB exports such as exportLibrary.db/export.pdb are
     detected and rejected up front rather than being mis-written.
     """
-    import json as _json
     import shutil as _shutil
     from pathlib import Path as _Path
 
     from pyrekordbox import Rekordbox6Database
 
-    import ws_bus as _ws
     from config import LOCAL_DB as _DB
     from config import MUSIC_ROOT as _MUSIC_ROOT
     from db_connection import read_db, rekordbox_is_running
@@ -1289,16 +1284,9 @@ def _run_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
             safe_name = _safe_segment(file_stem, "track")
             return _Path("External") / f"{safe_name}-{path_hash}{file_ext}"
 
-    def _push(update: dict) -> None:
-        try:
-            _ws.broadcast(_json.dumps({"type": "export_update", "job_id": job_id, **update}))
-        except Exception:
-            pass
-
     def _update(patch: dict) -> None:
         with _EXPORT_LOCK:
             _EXPORT_JOBS[job_id].update(patch)
-        _push(patch)
 
     def _volume_still_mounted() -> bool:
         return export_target_reachable(drive_path)

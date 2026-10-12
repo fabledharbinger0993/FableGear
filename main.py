@@ -61,9 +61,20 @@ if sys.platform == 'darwin':
     os.environ['PATH'] = os.pathsep.join(_path_parts)
 
 # ── Server config ─────────────────────────────────────────────────────────────
-# Bind to all interfaces so Tailscale (and LAN) can reach the mobile API.
-# The desktop UI still opens via localhost; the mobile API uses the Tailscale IP.
-_HOST = '0.0.0.0'
+# Loopback only: the desktop UI is the sole client. An owner who deliberately wants
+# the UI reachable on their network can set {"allow_lan_ui": true} in
+# ~/.fablegear/config.json (app.py's network guard honours the same flag).
+def _lan_ui_enabled() -> bool:
+    try:
+        import json
+        from pathlib import Path
+        cfg = Path.home() / '.fablegear' / 'config.json'
+        return bool(json.loads(cfg.read_text()).get('allow_lan_ui', False))
+    except Exception:
+        return False
+
+
+_HOST = '0.0.0.0' if _lan_ui_enabled() else '127.0.0.1'
 _PORT = 5001
 _LOCAL_URL = f'http://127.0.0.1:{_PORT}/'   # used for health-check and browser
 

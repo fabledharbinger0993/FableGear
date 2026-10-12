@@ -64,7 +64,6 @@ ignore = [
 "main.py" = ["E402"]
 "cli.py" = ["E402"]
 "helpers.py" = ["E402"]
-"routes_mobile.py" = ["E402"]
 "routes_player.py" = ["E402"]
 "routes_tools.py" = ["E402"]
 "routes_rekordbox.py" = ["E402"]
