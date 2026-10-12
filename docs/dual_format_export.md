@@ -97,17 +97,18 @@ What's still open, and deliberately NOT faked:
   byte-level layout for these is verified against a fixture in this repo,
   so `anlz_reader.py` records their presence and tag size and stops there
   rather than inventing field offsets.
-- **No real hardware binaries are committed.** `docs/format_samples/`
-  contains only the `usb_format_inspection.md` report (redacted), not the
-  underlying `.DAT`/`.EXT`/`.2EX`/`.pdb` settings files themselves.
-  Every parser's unit tests run against synthetic, spec-derived byte
-  buffers (clearly labeled as such in each test file) — they verify the
-  parsing *logic*, not fidelity to real hardware output. The moment a
-  sanitized real export is committed under `docs/format_samples/`, add a
-  real-fixture integration test — this is now the single highest-value
-  next step, since it's what would upgrade the row walker (and everything
-  built on it, including any future Phase D writer) from "spec-verified"
-  to actually trusted.
+- **One real hardware export is committed; most parsers still run on synthetic buffers.**
+  As of 2026-10-11, `tests/fixtures/rekordbox_21track_export/` holds the `export.pdb`,
+  `exportExt.pdb` and `exportLibrary.db` of a 21-track Rekordbox export that a CDJ-3000 loaded
+  correctly (the deck rewrote the pdb files after loading; see that folder's README). Only their
+  **headers** are asserted so far (`tests/test_devicesql_reader.py`). The row walker recovers 3 of
+  that file's 21 track rows, so **row-level fidelity to real hardware output is still not
+  established**; closing that is milestone 1 of `docs/devicesql_export_writer.md`. The ANLZ
+  (`.DAT`/`.EXT`/`.2EX`) and settings files are still not committed, `docs/format_samples/` still
+  contains only the redacted `usb_format_inspection.md` report, and those parsers' unit tests still run
+  against synthetic, spec-derived byte buffers (labelled as such in each test file): they verify
+  parsing *logic*, not fidelity to real output. Committing sanitized real ANLZ files is the next
+  fixture worth adding.
 - OneLibrary (`exportLibrary.db`) schema dump is still not started — see
   original scope below.
 

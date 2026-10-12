@@ -7,12 +7,12 @@
 > no longer be checked. Treat "CDJ-3000 reads OneLibrary-only media" as **true only for firmware that supports
 > OneLibrary**. See `docs/devicesql_export_writer.md`.
 
-**Status: ✅ ANSWERED — YES (July 2026, firmware not recorded).** Confirmed on real hardware 2026-07-29 by Marshall:
+**July 2026 status (HISTORICAL, superseded for firmware 3.2x; see the note above): ✅ ANSWERED — YES, firmware not recorded.** Confirmed on real hardware 2026-07-29 by Marshall:
 FableGear-exported tracks loaded and played on a CDJ-3000 without issues.
 FableGear writes no DeviceSQL, so that stick was OneLibrary-only by construction.
 
-**Consequence: Phase D (the DeviceSQL writer, "the summit") is deferred
-indefinitely.** `onelibrary_writer.py` is the independence path, and it works on
+**July consequence (HISTORICAL; Phase D was reopened on 2026-10-11): Phase D (the DeviceSQL writer, "the summit") was
+deferred indefinitely.** `onelibrary_writer.py` was taken to be the independence path, and to work on
 the hardware that matters. See §6 and §7 — independence is now gated on
 **analysis quality**, not on file formats.
 
@@ -178,12 +178,13 @@ priority the moment this test passes.
 - **Test condition holds:** FableGear has no DeviceSQL writer, so the media was
   OneLibrary-only by construction.
 - **Outcome row from §6:** row 1 — *OneLibrary-only is sufficient.*
-- **Decision:** **Phase D deferred indefinitely.** Effort redirects to analysis
-  quality (§7).
+- **Decision (July 2026, since reopened; see the note at the top):** Phase D deferred
+  indefinitely. Effort was redirected to analysis quality (§7).
 
 Not separately captured on this run, and worth confirming opportunistically at
-the next soundcheck — none of these change the Phase D decision, they only
-sharpen how much of the ANLZ path is trusted:
+the next soundcheck. None of these would have changed the July Phase D decision; they only
+sharpen how much of the ANLZ path is trusted. (The missing firmware version turned out to be the item
+that mattered most: it is what the 2026-10-11 result hinges on.)
 
 - [ ] Beat grid held over ~1 min of quantized looping (vs. just playing cleanly)
 - [ ] Waveforms drawn immediately vs. the player re-analyzing on load
