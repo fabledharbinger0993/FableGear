@@ -739,6 +739,7 @@ const Spectre = (function () {
   // `logContainer` for the details panel, they just aren't the primary view.
   function streamInstall(url, logContainer, detailsEl, rows, onDone) {
     let failed = false;
+    let completed = false;
     let currentRowKey = null;
     const es = new EventSource(url);
 
@@ -769,7 +770,7 @@ const Spectre = (function () {
         }
         return;
       }
-      if (data === "[SEQUENCE_OK]") { return; }
+      if (data === "[SEQUENCE_OK]") { completed = true; return; }
       if (data === "[SEQUENCE_FAILED]") {
         failed = true;
         if (currentRowKey) setRow(currentRowKey, "failed");
@@ -786,10 +787,16 @@ const Spectre = (function () {
       if (data.startsWith("[ERROR]") && currentRowKey) setRow(currentRowKey, "failed");
     };
 
-    // EventSource fires "error" when the server closes the connection,
-    // which happens right after the final SSE line in both success and
-    // failure -- that's the completion signal, nothing further to poll for.
-    es.addEventListener("error", () => { es.close(); onDone && onDone(!failed); });
+    es.addEventListener("error", () => {
+      es.close();
+      if (!completed && !failed) {
+        failed = true;
+        if (currentRowKey) setRow(currentRowKey, "failed");
+        logLine(logContainer, "Connection ended before the installer confirmed completion", true);
+        revealDetailsOnFailure(detailsEl);
+      }
+      onDone && onDone(completed && !failed);
+    });
   }
 
   const STATUS_ICON = { ok: "✓", warn: "!", fail: "✕" };
@@ -877,9 +884,9 @@ const Spectre = (function () {
       homebrew: { ...buildProgressRow(els.brewProgress, "homebrew", "Homebrew", "Only if not already installed"),
                   match: (cmd) => cmd.includes("Homebrew/install") },
       ffmpeg: { ...buildProgressRow(els.brewProgress, "ffmpeg", "ffmpeg", "Audio decoding and normalisation"),
-                match: (cmd) => / ffmpeg\b/.test(cmd) && cmd.includes("brew install") },
+              match: (cmd) => cmd.includes("install ffmpeg") },
       chromaprint: { ...buildProgressRow(els.brewProgress, "chromaprint", "chromaprint", "Duplicate-detection fingerprinting"),
-                     match: (cmd) => / chromaprint\b/.test(cmd) && cmd.includes("brew install") },
+                   match: (cmd) => cmd.includes("install chromaprint") },
     };
 
     Spectre.say(els.brewProgress, "Grabbing ffmpeg and chromaprint — back in a sec.");
@@ -929,6 +936,7 @@ const Spectre = (function () {
     Spectre.say(els.planGroups, "Now the good stuff — FableGear's own packages.");
 
     let failed = false;
+    let completed = false;
     let currentKey = null;
     const es = new EventSource("/api/install/python");
     es.onmessage = (ev) => {
@@ -943,7 +951,12 @@ const Spectre = (function () {
         }
         return;
       }
-      if (data === "[SEQUENCE_OK]") { return; }
+      if (data === "[SEQUENCE_OK]") { completed = true; return; }
+      if (data === "[OPTIONAL_FAILED]") {
+        revealDetailsOnFailure(els.pyDetails);
+        logLine(els.pyLog, "Optional packages could not be installed; continuing without enhanced beat detection", true);
+        return;
+      }
       if (data === "[SEQUENCE_FAILED]") {
         failed = true;
         if (currentKey) setCard(currentKey, "failed");
@@ -960,9 +973,17 @@ const Spectre = (function () {
     };
     es.addEventListener("error", () => {
       es.close();
+      if (!completed && !failed) {
+        failed = true;
+        if (currentKey) setCard(currentKey, "failed");
+        revealDetailsOnFailure(els.pyDetails);
+        logLine(els.pyLog, "Connection ended before the installer confirmed completion", true);
+      }
       els.primary.disabled = false;
-      if (!failed) {
-        Object.keys(rows).forEach((k) => setCard(k, "done"));
+      if (!failed && completed) {
+        Object.keys(rows).forEach((k) => {
+          if (!rows[k].el.classList.contains("is-failed")) setCard(k, "done");
+        });
         els.primary.textContent = "Finish";
         pendingRetry = null;
         Spectre.say(els.planGroups, "That's everything. Nearly there.");

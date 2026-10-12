@@ -209,6 +209,20 @@ def test_stream_steps_all_succeed():
     assert lines[-1] == "data: [SEQUENCE_OK]\n\n"
 
 
+def test_stream_steps_optional_last_failure_is_nonfatal():
+    steps = [["echo", "required"], ["/bin/sh", "-c", "exit 1"]]
+    lines = list(wiz.stream_steps(steps, optional_last=True))
+    assert "data: [OPTIONAL_FAILED]\n\n" in lines
+    assert lines[-1] == "data: [SEQUENCE_OK]\n\n"
+
+
+def test_stream_steps_required_failure_still_stops_before_optional():
+    steps = [["/bin/sh", "-c", "exit 1"], ["echo", "SHOULD_NOT_RUN"]]
+    lines = list(wiz.stream_steps(steps, optional_last=True))
+    assert "SHOULD_NOT_RUN" not in "".join(lines)
+    assert lines[-1] == "data: [SEQUENCE_FAILED]\n\n"
+
+
 # ─── The word-splitting regression ─────────────────────────────────────────
 #
 # Caught during development: `bash -c "$(curl ...)"` built as a Python argv
@@ -241,6 +255,12 @@ def test_brew_install_uses_pipe_not_bare_command_substitution(monkeypatch):
     # nothing for bash to word-split.
     assert " | /bin/bash" in script
     assert "curl -fsSL" in script
+    assert "set -o pipefail" in script
+    for formula, command in zip(wiz.BREW_FORMULAS, cmds[1:]):
+        assert command[:2] == ["/bin/bash", "-c"]
+        assert "/opt/homebrew/bin/brew" in command[2]
+        assert "/usr/local/bin/brew" in command[2]
+        assert f"install {formula}" in command[2]
 
 
 def test_brew_install_skips_homebrew_step_when_already_present(monkeypatch):
@@ -249,6 +269,24 @@ def test_brew_install_skips_homebrew_step_when_already_present(monkeypatch):
     # Every command should be a formula install, not the bootstrap installer.
     assert all("curl" not in " ".join(c) for c in cmds)
     assert len(cmds) == len(wiz.BREW_FORMULAS)
+
+
+def test_brew_formula_command_finds_brew_installed_during_bootstrap(monkeypatch, tmp_path):
+    monkeypatch.setattr(wiz, "_find_brew", lambda: None)
+    fake_brew = tmp_path / "brew"
+    fake_brew.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\"\n")
+    fake_brew.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    result = subprocess.run(
+        wiz.brew_install_commands()[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == "install ffmpeg"
 
 
 def test_python_install_commands_cover_every_requirements_file():

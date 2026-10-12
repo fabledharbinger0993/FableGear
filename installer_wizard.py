@@ -282,9 +282,11 @@ def stream_command(cmd: list[str], *, cwd: Path | None = None) -> Iterator[str]:
     yield f"data: [DONE:{code}]\n\n"
 
 
-def stream_steps(steps: list[list[str]], *, cwd: Path | None = None) -> Iterator[str]:
-    """Run several commands in sequence, stopping at the first failure."""
-    for cmd in steps:
+def stream_steps(
+    steps: list[list[str]], *, cwd: Path | None = None, optional_last: bool = False
+) -> Iterator[str]:
+    """Run commands in sequence, stopping on required failures."""
+    for index, cmd in enumerate(steps):
         saw_failure = False
         for line in stream_command(cmd, cwd=cwd):
             if line.startswith("data: [DONE:"):
@@ -294,15 +296,18 @@ def stream_steps(steps: list[list[str]], *, cwd: Path | None = None) -> Iterator
             else:
                 yield line
         if saw_failure:
+            if optional_last and index == len(steps) - 1:
+                yield "data: [OPTIONAL_FAILED]\n\n"
+                continue
             yield "data: [SEQUENCE_FAILED]\n\n"
             return
     yield "data: [SEQUENCE_OK]\n\n"
 
 
 def brew_install_commands() -> list[list[str]]:
-    brew = _find_brew() or "brew"
+    brew = _find_brew()
     cmds: list[list[str]] = []
-    if not _find_brew():
+    if not brew:
         # setup.sh runs `bash -c "$(curl -fsSL URL)"` -- that idiom only works
         # because setup.sh's OWN bash performs the $(...) substitution (with
         # quoting intact) before ever invoking the inner `bash -c`. Passed
@@ -318,12 +323,30 @@ def brew_install_commands() -> list[list[str]]:
         # string, no nested substitution-in-command-position to word-split.
         cmds.append([
             "/bin/bash", "-c",
+            "set -o pipefail; "
             "curl -fsSL "
             "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
             " | /bin/bash",
         ])
     for formula in BREW_FORMULAS:
-        cmds.append([brew, "install", formula])
+        if brew:
+            cmds.append([brew, "install", formula])
+        else:
+            # The bootstrap installer updates shell startup files, not this
+            # process's PATH. Resolve Homebrew when each formula command runs,
+            # after the bootstrap step has had a chance to install it.
+            cmds.append([
+                "/bin/bash", "-c",
+                'brew_bin="$(command -v brew || true)"; '
+                'if [ -z "$brew_bin" ]; then '
+                "for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do "
+                'if [ -x "$candidate" ]; then brew_bin="$candidate"; break; fi; '
+                "done; fi; "
+                'if [ -z "$brew_bin" ]; then '
+                'echo "Homebrew was installed but could not be found" >&2; exit 127; '
+                "fi; "
+                f'exec "$brew_bin" install {formula}',
+            ])
     return cmds
 
 
@@ -374,7 +397,14 @@ def create_app():
 
     @app.route("/api/install/python")
     def api_install_python():
-        return _sse(stream_steps(python_install_commands(), cwd=REPO_ROOT))
+        steps = python_install_commands()
+        optional_group = next((group for group in build_plan() if not group.required), None)
+        optional_last = bool(
+            steps
+            and optional_group
+            and str(REPO_ROOT / optional_group.file) in steps[-1]
+        )
+        return _sse(stream_steps(steps, cwd=REPO_ROOT, optional_last=optional_last))
 
     @app.route("/api/complete", methods=["POST"])
     def api_complete():
