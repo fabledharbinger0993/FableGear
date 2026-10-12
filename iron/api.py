@@ -223,8 +223,11 @@ def analyze(
     Analyze one file and return whatever candidates were found for the fields in `want`.
 
     Decodes the track's BODY, not a fixed window from 0:00 -- see _BODY_START_FRACTION.
-    Falls back to the first _ANALYSIS_DURATION seconds when the file's duration can't be
-    determined or is too short for a body/edge split to mean anything. (A same-day
+    When the duration can't be determined (e.g. ffprobe is missing), the body window is
+    taken from the audio itself: up to 2 x _MAX_BODY_SECONDS is decoded once, the real length
+    is measured from the samples, and the body slice is cut out of them (so that fallback costs
+    up to that much audio, not just _ANALYSIS_DURATION). Only a file too short for a body/edge
+    split to mean anything is analysed from its first _ANALYSIS_DURATION seconds. (A same-day
     whole-track-decode experiment was tried and reverted -- see docs/IRON_RESEARCH.md SS10:
     no measurable accuracy gain over this windowed approach on a real 500-track benchmark,
     at roughly 3-5x the per-track decode+analysis cost.)

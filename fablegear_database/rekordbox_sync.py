@@ -173,11 +173,14 @@ class RekordboxSyncAdapter:
 
                     # BPM
                     rdb_bpm = bpm_from_db(rdb_row.BPM)
-                    if fg_rec.bpm and abs(fg_rec.bpm - rdb_bpm) > 0.01:
+                    # An invalid FableGear BPM (inf, negative, absurd) is treated as MISSING: it must never
+                    # overwrite or erase Rekordbox's value.
+                    fg_bpm_valid = bpm_to_db(fg_rec.bpm) is not None
+                    if fg_bpm_valid and abs(fg_rec.bpm - rdb_bpm) > 0.01:
                         rdb_row.BPM = bpm_to_db(fg_rec.bpm)
                         rdb_updated = True
                         stats["details"].append(f"Update BPM in Rekordbox for {path}")
-                    elif not fg_rec.bpm and rdb_bpm > 0:
+                    elif not fg_bpm_valid and rdb_bpm > 0:
                         fg_rec.bpm = rdb_bpm
                         fg_updated = True
                         stats["details"].append(f"Merge BPM to FableGear for {path}")

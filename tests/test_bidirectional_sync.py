@@ -300,3 +300,26 @@ def test_sync_dry_run_safety(fg_db, rdb_path, tmp_path):
     assert content is None
     rdb.close()
 
+
+
+def test_an_invalid_fablegear_bpm_never_erases_the_rekordbox_value(fg_db, rdb_path, tmp_path):
+    track_file = tmp_path / "bpm_track.mp3"
+    track_file.touch()
+    rid = fg_db.insert_content(ContentRecord(
+        file_path=str(track_file), file_name="bpm_track.mp3", file_size=1, title="BPM Track", bpm=128.0))
+    RekordboxSyncAdapter(fg_db).sync_bidirectional(rdb_path, dry_run=False)
+
+    check = Rekordbox6Database(rdb_path, unlock=False)
+    assert check.get_content(FolderPath=str(track_file)).first().BPM == 12800
+    check.close()
+
+    fg_db.update_content(rid, {"bpm": float("inf")})  # a corrupted value in FableGear's own database
+    stats = RekordboxSyncAdapter(fg_db).sync_bidirectional(rdb_path, dry_run=False)
+
+    after = Rekordbox6Database(rdb_path, unlock=False)
+    try:
+        assert after.get_content(FolderPath=str(track_file)).first().BPM == 12800  # Rekordbox untouched
+    finally:
+        after.close()
+    assert fg_db.get_content_by_id(rid).bpm == 128.0                              # and FableGear is repaired from it
+    assert not any("Update BPM in Rekordbox" in d for d in stats.get("details", []))

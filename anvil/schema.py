@@ -102,15 +102,24 @@ class TrackFields:
 
 # ─── Database companion ───────────────────────────────────────────────────────
 
+# Rekordbox shows tempos up to 999.99; anything outside (0, 999.99] is not a tempo.
+MAX_DB_BPM = 999.99
+
+
 def bpm_to_db(bpm: float | None) -> int | None:
-    """BPM as Rekordbox stores it (centi-BPM int); None for None/0/non-finite."""
+    """BPM as Rekordbox stores it (centi-BPM int).
+
+    None for None, zero, negative, non-finite or implausibly large values (> 999.99), so a bad number
+    can never reach a database, and never raises (the bound is checked before the multiply, so a huge
+    finite value cannot overflow).
+    """
     if bpm is None:
         return None
     try:
         value = float(bpm)
     except (TypeError, ValueError):
         return None
-    if not math.isfinite(value) or value == 0:
+    if not math.isfinite(value) or value <= 0 or value > MAX_DB_BPM:
         return None
     return round(value * 100)
 
