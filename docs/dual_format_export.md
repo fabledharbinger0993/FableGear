@@ -97,17 +97,18 @@ What's still open, and deliberately NOT faked:
   byte-level layout for these is verified against a fixture in this repo,
   so `anlz_reader.py` records their presence and tag size and stops there
   rather than inventing field offsets.
-- **No real hardware binaries are committed.** `docs/format_samples/`
-  contains only the `usb_format_inspection.md` report (redacted), not the
-  underlying `.DAT`/`.EXT`/`.2EX`/`.pdb` settings files themselves.
-  Every parser's unit tests run against synthetic, spec-derived byte
-  buffers (clearly labeled as such in each test file) — they verify the
-  parsing *logic*, not fidelity to real hardware output. The moment a
-  sanitized real export is committed under `docs/format_samples/`, add a
-  real-fixture integration test — this is now the single highest-value
-  next step, since it's what would upgrade the row walker (and everything
-  built on it, including any future Phase D writer) from "spec-verified"
-  to actually trusted.
+- **One real hardware export is committed; most parsers still run on synthetic buffers.**
+  As of 2026-10-11, `tests/fixtures/rekordbox_21track_export/` holds the `export.pdb`,
+  `exportExt.pdb` and `exportLibrary.db` of a 21-track Rekordbox export that a CDJ-3000 loaded
+  correctly (the deck rewrote the pdb files after loading; see that folder's README). Only their
+  **headers** are asserted so far (`tests/test_devicesql_reader.py`). The row walker recovers 3 of
+  that file's 21 track rows, so **row-level fidelity to real hardware output is still not
+  established**; closing that is milestone 1 of `docs/devicesql_export_writer.md`. The ANLZ
+  (`.DAT`/`.EXT`/`.2EX`) and settings files are still not committed, `docs/format_samples/` still
+  contains only the redacted `usb_format_inspection.md` report, and those parsers' unit tests still run
+  against synthetic, spec-derived byte buffers (labelled as such in each test file): they verify
+  parsing *logic*, not fidelity to real output. Committing sanitized real ANLZ files is the next
+  fixture worth adding.
 - OneLibrary (`exportLibrary.db`) schema dump is still not started — see
   original scope below.
 
@@ -129,9 +130,18 @@ export of the same playlist set, then hardware-test on the OMNIS-DUO.
 Risk: hidden integrity fields (hashes, version stamps). The diff harness
 exists precisely to surface them.
 
-## Phase D — Write DeviceSQL (hard, the summit) — ⏸️ DEFERRED INDEFINITELY
+## Phase D — Write DeviceSQL (hard, the summit) — 🔓 REOPENED 2026-10-11
 
-**Superseded by hardware evidence, 2026-07-29.** A FableGear-exported stick —
+**Update 2026-10-11:** the deferral below rested on a July result. A hardware test on 2026-10-11
+(CDJ-3000, **firmware 3.2x**) contradicts it for that firmware: a OneLibrary-only FableGear stick showed
+nothing on the deck, which never opened `exportLibrary.db`, while a Rekordbox-written stick loaded
+perfectly. So the premise "CDJ-3000-era hardware does not require `export.pdb`" does **not** hold for a plain
+CDJ-3000 on 3.2x; OneLibrary arrived with firmware 3.30, which was withdrawn in November 2025. The July
+result is probably explained by firmware 3.30 or by a stick that already held a Rekordbox-made
+`export.pdb` (inferred; the July stick is no longer available to check). Plan, evidence and risks:
+`docs/devicesql_export_writer.md`.
+
+*Previous status (2026-07-29), kept for the record:* **superseded by hardware evidence.** A FableGear-exported stick —
 OneLibrary-only by construction, since no DeviceSQL writer exists — loaded and
 played on a **CDJ-3000 without issues**. The premise that CDJ-3000-era hardware
 requires `export.pdb` does not hold. See `docs/HARDWARE_TEST_ONELIBRARY.md`.
@@ -141,7 +151,8 @@ is now gated on **analysis quality** (FableGear's own beat grids reach the
 player), not on file formats.
 
 Revisit Phase D only if a concrete device family is found to require it —
-older 2000NXS2-era gear is the most likely candidate, and is untested.
+older 2000NXS2-era gear is the most likely candidate, and is untested. **Update 2026-10-11: a plain CDJ-3000 on
+firmware 3.2x is such a device family.**
 
 The original plan is retained below for that contingency.
 

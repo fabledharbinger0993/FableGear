@@ -27,9 +27,13 @@ field name below is taken directly from that page, not guessed from memory.
 
 HONESTY LIMIT (updated against two real files): this module was tested,
 read-only, against two genuine Rekordbox-written export.pdb files found on
-physically connected drives (neither committed to this repo — no fixture
-binary lives under docs/format_samples/, so this was a one-time manual
-check, not something CI re-verifies).
+physically connected drives. Those two files are not committed, so that was a
+one-time manual check. UPDATE 2026-10-11: a third real file pair (a 21-track
+Rekordbox export that a CDJ-3000 loaded correctly) IS now committed under
+tests/fixtures/rekordbox_21track_export/, and tests/test_devicesql_reader.py
+re-verifies its header on every CI run. Row-level parsing is still not tested
+against it: this reader recovers only 3 of that file's 21 track rows
+(milestone 1 of docs/devicesql_export_writer.md).
 
 File 1 (41 pages, ~167KB — an essentially empty placeholder library):
 every table's root page was an index page with num_entries=0

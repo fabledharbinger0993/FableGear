@@ -1,17 +1,20 @@
 """
 Tests for devicesql_reader.py's tracks-table row walker.
 
-No export.pdb binary is committed to this repo (see module docstring
-HONESTY LIMIT) so — same convention as tests/test_devicesql_reader.py and
+These tests do not read a committed export.pdb (one exists now: tests/fixtures/rekordbox_21track_export/;
+the row walker does not yet recover all its rows) so — same convention as tests/test_devicesql_reader.py and
 tests/test_anlz_reader.py — these tests build a SYNTHETIC PDB file
 byte-for-byte from Deep Symmetry's published DeviceSQL format
 specification (https://djl-analysis.deepsymmetry.org/rekordbox-export-analysis/exports.html),
 not a captured hardware file. They verify the parser round-trips the
-documented format correctly; they do not (and cannot, without a real
-sample) verify fidelity to actual CDJ-3000 hardware output.
+documented format correctly; they do not by themselves verify fidelity to actual CDJ-3000 hardware
+output. A real, populated Rekordbox export IS committed now (tests/fixtures/rekordbox_21track_export/,
+header-checked in tests/test_devicesql_reader.py). Asserting complete row recovery against it is not done
+here yet because the walker still finds only 3 of its 21 track rows (milestone 1 of
+docs/devicesql_export_writer.md).
 
 One real data point exists: a genuinely Rekordbox-written export.pdb was
-found and read (not committed to the repo — see docs/format_samples/) whose
+found and read (that file is not committed to the repo) whose
 every table root page was an EMPTY index page (num_entries=0, page_flags
 0x64, matching the documented "typical value" exactly). That confirmed the
 file header, table pointer array, page header, and index-page-detection
@@ -20,7 +23,8 @@ suite had missed: the walker was skipping index pages entirely instead of
 following their entries to the actual data pages. Fixed in
 _walk_table_pages / _parse_index_entries. The populated-index-page case
 (a non-empty index page's entries actually resolving to data) is still
-synthetic-only below — no real sample with populated tables was available.
+synthetic-only in this file: the committed 21-track fixture does have populated tables, but the walker
+does not yet recover all of its rows, so that is not asserted here.
 """
 
 import sys
