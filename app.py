@@ -30,7 +30,6 @@ _SYSTEM = platform.system()  # "Darwin" | "Windows" | "Linux"
 
 from flask import Flask, Response, jsonify, render_template, render_template_string, request, send_file
 
-# ── Shared helpers (base layer — no circular imports) ─────────────────────────
 from helpers import (
     REPO_ROOT,
     _backup_info,
@@ -44,6 +43,9 @@ from helpers import (
     list_running_managed_subprocesses,
     terminate_managed_subprocesses,
 )
+
+# ── Shared helpers (base layer — no circular imports) ─────────────────────────
+from lan_policy import lan_ui_enabled
 
 _REPO_ROOT = REPO_ROOT   # local alias for legacy references below
 
@@ -190,13 +192,8 @@ def inject_cache_bust():
 #   4. otherwise                          → 403
 
 def _lan_ui_allowed() -> bool:
-    """Owner opt-out: {"allow_lan_ui": true} in ~/.fablegear/config.json."""
-    try:
-        import json as _json
-        cfg_path = Path.home() / ".fablegear" / "config.json"
-        return bool(_json.loads(cfg_path.read_text()).get("allow_lan_ui", False))
-    except Exception:
-        return False
+    """Owner opt-out: {"allow_lan_ui": true} in ~/.fablegear/config.json (only the JSON boolean true counts)."""
+    return lan_ui_enabled()
 
 
 @app.before_request

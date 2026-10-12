@@ -133,6 +133,32 @@ def test_loopback_phone_routes_no_longer_exist(client, path):
     assert _hit(client, path, LOOPBACK).status_code == 404
 
 
+def _set_lan_flag(value):
+    cfg_path = Path(os.environ["HOME"]) / ".fablegear" / "config.json"
+    cfg = json.loads(cfg_path.read_text())
+    cfg["allow_lan_ui"] = value
+    cfg_path.write_text(json.dumps(cfg))
+    return cfg_path
+
+
+@pytest.mark.parametrize("flag,expected_blocked", [
+    (True, False),       # the documented opt-in: an off-box request reaches the app
+    ("true", True),      # a string is not consent
+    ("false", True),
+    (1, True),
+    (False, True),
+])
+def test_lan_ui_opt_in_is_strict(client, flag, expected_blocked):
+    cfg_path = _set_lan_flag(flag)
+    try:
+        status = _hit(client, "/api/cancel", LAN, method="POST").status_code
+    finally:
+        cfg = json.loads(cfg_path.read_text())
+        cfg.pop("allow_lan_ui", None)
+        cfg_path.write_text(json.dumps(cfg))
+    assert (status == 403) is expected_blocked
+
+
 def test_lan_static_assets_public(client):
     assert _hit(client, "/static/fablegear.css", LAN).status_code == 200
 

@@ -589,7 +589,7 @@ except ImportError:
 
 
 # ── Shared export job state ───────────────────────────────────────────────────
-# Used by both routes_player (library export).
+# Used by routes_player (library export).
 
 _EXPORT_JOBS: dict[str, dict] = {}
 _EXPORT_LOCK: threading.Lock = threading.Lock()
