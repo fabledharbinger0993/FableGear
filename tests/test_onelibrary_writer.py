@@ -280,3 +280,171 @@ def test_property_row_reflects_real_track_count(fg_db, tmp_path):
     cur.execute("SELECT numberOfContents FROM property;")
     assert cur.fetchone() == (3,)
     conn.close()
+
+
+# ── Key/BPM fall back to the file's own tags ────────────────────────────────
+#
+# FableGear's library takes key/BPM from Rekordbox's database. A track that was only
+# tagged (Tag Tracks writes Iron's result into the file) has nothing in the library,
+# so without this fallback it reaches the USB with no key. The file is what gets copied
+# to the stick, so what the file says should travel with it.
+
+_FAKE_MPEG = b"\xff\xfb\x90\x44" + bytes(range(256)) * 4
+
+
+def _tagged_mp3(tmp_path, *, key=None, bpm=None, name="tagged.mp3"):
+    from anvil import TrackFields, write_fields
+
+    path = tmp_path / name
+    path.write_bytes(_FAKE_MPEG)
+    fields = TrackFields(initial_key=key, bpm=bpm)
+    force = {n for n, v in (("initial_key", key), ("bpm", bpm)) if v is not None}
+    write_fields(path, fields, force=force)
+    return path
+
+
+def _exported_key_and_bpm(fg_db, tmp_path):
+    target = tmp_path / "exportLibrary.db"
+    result = OneLibraryWriter(fg_db).write(target, include_playlists=False)
+    assert result.tracks_written == 1 and not result.errors
+    conn, cur = _open_independent(target)
+    cur.execute("SELECT k.name, c.bpmx100 FROM content c LEFT JOIN key k ON k.key_id = c.key_id;")
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def test_missing_library_key_and_bpm_come_from_the_file_tags(fg_db, tmp_path):
+    path = _tagged_mp3(tmp_path, key="8A", bpm=128.0)  # Iron emits Camelot
+    fg_db.insert_content(_make_track(file_path=str(path), file_name=path.name, key=None, bpm=None))
+    assert _exported_key_and_bpm(fg_db, tmp_path) == ("Am", 12800)  # 8A == A minor
+
+
+def test_library_key_wins_over_the_file_tag(fg_db, tmp_path):
+    path = _tagged_mp3(tmp_path, key="8A", bpm=128.0)
+    fg_db.insert_content(_make_track(file_path=str(path), file_name=path.name, key="5A", bpm=124.0))
+    assert _exported_key_and_bpm(fg_db, tmp_path) == ("Cm", 12400)  # Rekordbox's 5A, not the tag
+
+
+def test_untagged_file_exports_without_a_key_rather_than_failing(fg_db, tmp_path):
+    path = _tagged_mp3(tmp_path)  # a real file whose tags say nothing
+    fg_db.insert_content(_make_track(file_path=str(path), file_name=path.name, key=None, bpm=None))
+    assert _exported_key_and_bpm(fg_db, tmp_path) == (None, None)
+
+
+def test_missing_or_unreadable_file_does_not_break_the_export(fg_db, tmp_path):
+    fg_db.insert_content(_make_track(file_path=str(tmp_path / "gone.mp3"), key=None, bpm=None))
+    assert _exported_key_and_bpm(fg_db, tmp_path) == (None, None)
+    bad = tmp_path / "bad.mp3"
+    bad.write_bytes(b"\x00" * 10)
+    fg_db.insert_content(_make_track(file_path=str(bad), file_name="bad.mp3", key=None, bpm=None))
+    target = tmp_path / "second.db"
+    result = OneLibraryWriter(fg_db).write(target, include_playlists=False)
+    assert result.tracks_written == 2 and not result.errors
+
+
+def _id3v22_mp3(tmp_path, key, bpm):
+    """A file with an ID3v2.2 tag (three-character frame ids), which Anvil refuses."""
+    def frame(fid, value):
+        data = b"\x00" + value.encode()
+        return fid + len(data).to_bytes(3, "big") + data
+
+    body = frame(b"TKE", key) + frame(b"TBP", bpm)
+    size = len(body)
+    syncsafe = bytes([(size >> 21) & 0x7F, (size >> 14) & 0x7F, (size >> 7) & 0x7F, size & 0x7F])
+    path = tmp_path / "v22.mp3"
+    path.write_bytes(b"ID3\x02\x00\x00" + syncsafe + body + _FAKE_MPEG)
+    return path
+
+
+def test_id3v22_tags_that_anvil_refuses_still_supply_key_and_bpm(fg_db, tmp_path):
+    from anvil import read_fields
+    from anvil.errors import UnsupportedFormat
+
+    path = _id3v22_mp3(tmp_path, "8A", "126")
+    with pytest.raises(UnsupportedFormat):
+        read_fields(path)  # the premise: Anvil does refuse this file
+    fg_db.insert_content(_make_track(file_path=str(path), file_name=path.name, key=None, bpm=None))
+    assert _exported_key_and_bpm(fg_db, tmp_path) == ("Am", 12600)
+
+
+def test_tag_only_track_gets_a_beat_grid_at_its_tagged_tempo(fg_db, tmp_path):
+    from chop_shop.anlz_reader import parse_anlz_file
+    from fablegear_database.exporter import PioneerExporter
+
+    path = _tagged_mp3(tmp_path, key="8A", bpm=126.0)
+    rid = fg_db.insert_content(_make_track(file_path=str(path), file_name=path.name,
+                                           key=None, bpm=None, duration=60.0))
+    root = tmp_path / "usb"
+    assert PioneerExporter(fg_db).export_track_anlz(rid, root, "Contents/tagged.mp3")
+    report = parse_anlz_file(root / "PIONEER" / "USBANLZ" / "P000" / f"{rid:08X}" / "ANLZ0000.DAT")
+    assert report.beat_grid, "a tag-only track must still get a beat grid"
+    assert {round(b.tempo_bpm, 1) for b in report.beat_grid} == {126.0}
+    assert [b.beat_no for b in report.beat_grid[:5]] == [1, 2, 3, 4, 1]
+
+
+# ── Tag fallback: validation, tag spellings, and the per-file cache ─────────────
+
+def _id3_file(tmp_path, name, **frames):
+    """A file with an ID3v2.4 tag holding exactly the given frames (via mutagen, as a third party would)."""
+    from mutagen.id3 import ID3, TBPM, TKEY, TXXX
+
+    path = tmp_path / name
+    path.write_bytes(_FAKE_MPEG)
+    tag = ID3()
+    if "key" in frames:
+        tag.add(TKEY(encoding=3, text=[frames["key"]]))
+    if "bpm" in frames:
+        tag.add(TBPM(encoding=3, text=[frames["bpm"]]))
+    if "txxx_key" in frames:
+        tag.add(TXXX(encoding=3, desc="INITIALKEY", text=[frames["txxx_key"]]))
+    if "txxx_bpm" in frames:
+        tag.add(TXXX(encoding=3, desc="BPM", text=[frames["txxx_bpm"]]))
+    tag.save(path)
+    return path
+
+
+@pytest.fixture
+def fresh_cache(monkeypatch):
+    from fablegear_database import tag_fallback
+
+    monkeypatch.setattr(tag_fallback, "_CACHE", {})
+    return tag_fallback
+
+
+@pytest.mark.parametrize("bad", ["nan", "inf", "0", "9999", "fast", "-5"])
+def test_implausible_tag_bpm_is_ignored_but_the_key_is_still_used(fresh_cache, tmp_path, bad):
+    path = _id3_file(tmp_path, "bad.mp3", key="8A", bpm=bad)
+    track = _make_track(file_path=str(path), key=None, bpm=None)
+    fresh_cache.fill_missing_from_tags(track)
+    assert track.key == "8A" and track.bpm is None
+
+
+def test_overlong_key_text_is_ignored(fresh_cache, tmp_path):
+    path = _id3_file(tmp_path, "longkey.mp3", key="x" * 60, bpm="126")
+    track = _make_track(file_path=str(path), key=None, bpm=None)
+    fresh_cache.fill_missing_from_tags(track)
+    assert track.key is None and track.bpm == 126.0
+
+
+def test_txxx_key_and_bpm_spellings_are_read(fresh_cache, tmp_path):
+    path = _id3_file(tmp_path, "txxx.mp3", txxx_key="8A", txxx_bpm="127.5")
+    track = _make_track(file_path=str(path), key=None, bpm=None)
+    fresh_cache.fill_missing_from_tags(track)
+    assert (track.key, track.bpm) == ("8A", 127.5)
+
+
+def test_file_is_read_once_per_export_and_again_after_it_changes(fresh_cache, tmp_path, monkeypatch):
+    path = _id3_file(tmp_path, "cache.mp3", key="8A", bpm="126")
+    calls = []
+    real = fresh_cache._read_tags
+    monkeypatch.setattr(fresh_cache, "_read_tags", lambda p: calls.append(p) or real(p))
+    for _ in range(2):  # the database row, then the beat grid
+        fresh_cache.fill_missing_from_tags(_make_track(file_path=str(path), key=None, bpm=None))
+    assert len(calls) == 1
+    path = _id3_file(tmp_path, "cache.mp3", key="5A", bpm="128")  # edited in place
+    import os
+    os.utime(path, ns=(10**18, 10**18))                           # make the change unmistakable
+    track = _make_track(file_path=str(path), key=None, bpm=None)
+    fresh_cache.fill_missing_from_tags(track)
+    assert len(calls) == 2 and (track.key, track.bpm) == ("5A", 128.0)
