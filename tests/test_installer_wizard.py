@@ -467,3 +467,28 @@ def test_launcher_goes_to_applications_when_writable_else_the_user_folder(tmp_pa
 def test_in_place_install_keeps_the_scripts_default_launcher_location(monkeypatch):
     monkeypatch.setattr(wiz, "TARGET_ROOT", None)
     assert wiz.launcher_destination() is None
+
+
+# ─── Never install over a running FableGear ─────────────────────────────────
+
+def test_app_is_running_detects_a_held_lock_and_ignores_a_free_one(tmp_path, monkeypatch):
+    import fcntl
+    monkeypatch.setattr(wiz.Path, "home", classmethod(lambda cls: tmp_path))
+    assert wiz.app_is_running() is False                      # no lock file at all
+    lock = tmp_path / ".fablegear" / "fablegear.lock"
+    lock.parent.mkdir()
+    lock.write_text("")
+    assert wiz.app_is_running() is False                      # file present, nobody holding it
+    with open(lock, "r+b") as holder:
+        fcntl.flock(holder.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert wiz.app_is_running() is True
+    assert wiz.app_is_running() is False                      # released again
+
+
+def test_venv_setup_and_copy_refuse_while_the_app_runs(tmp_path, monkeypatch):
+    monkeypatch.setattr(wiz, "app_is_running", lambda: True)
+    monkeypatch.setattr(wiz, "TARGET_ROOT", tmp_path / "dest")
+    for stream in (wiz.stream_venv_setup(), wiz.stream_copy_app()):
+        out = "".join(stream)
+        assert "FableGear is running" in out and "[SEQUENCE_FAILED]" in out
+    assert not (tmp_path / "dest").exists()                   # nothing was touched

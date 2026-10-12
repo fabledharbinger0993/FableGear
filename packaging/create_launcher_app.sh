@@ -36,10 +36,12 @@ mkdir -p "$DEST_DIR" 2>/dev/null
 # to be called FableGear.app.
 if [ -d "$APP_DEST" ]; then
   existing_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_DEST/Contents/Info.plist" 2>/dev/null)"
-  case "$existing_id" in
-    ""|"$BUNDLE_ID"|com.apple.ScriptEditor.id.*) ;;   # ours, or an older osacompile launcher of ours
-    *) info "$APP_DEST is a different app ($existing_id) — leaving it alone."; exit 0 ;;
-  esac
+  # Only our exact bundle id counts as ours (the old release's launcher used it too). Anything else,
+  # including an AppleScript applet or a bundle with no identifier, is left alone rather than deleted.
+  if [ "$existing_id" != "$BUNDLE_ID" ]; then
+    info "$APP_DEST is not a FableGear launcher (id: ${existing_id:-none}) — leaving it alone."
+    exit 0
+  fi
   rm -rf "$APP_DEST"
 fi
 

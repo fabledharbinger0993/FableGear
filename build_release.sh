@@ -53,13 +53,14 @@ fi
 COMMIT="$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 # What the installed app does not need: tests, docs, dev scripts, CI config, source-only extras.
-git -C "$SCRIPT_DIR" archive HEAD | tar -x -C "$PAYLOAD" \
-  --exclude='tests' --exclude='docs' --exclude='scripts' --exclude='.github' \
-  --exclude='fg-logo.png' --exclude='FableGear.spec' --exclude='FableGear_win.spec' \
-  --exclude='requirements-dev.txt' --exclude='requirements_build.txt' \
-  --exclude='MARKETING.md' --exclude='IMPLEMENTATION_COMPLETE.md' --exclude='DESIGN.md' \
-  --exclude='PRODUCT.md' --exclude='install.sh' --exclude='start_remote.sh' \
-  --exclude='build_release.sh' --exclude='ruff.toml' --exclude='pyrightconfig.json'
+# Git pathspec excludes are exact repo-root paths, unlike tar patterns, which match a name at any depth
+# and would silently strip any future static/docs or library/scripts folder the app needs.
+EXCLUDES=(tests docs scripts .github fg-logo.png FableGear.spec FableGear_win.spec requirements-dev.txt
+          requirements_build.txt MARKETING.md IMPLEMENTATION_COMPLETE.md DESIGN.md PRODUCT.md install.sh
+          start_remote.sh build_release.sh ruff.toml pyrightconfig.json)
+PATHSPEC=(.)
+for ex in "${EXCLUDES[@]}"; do PATHSPEC+=(":(exclude)$ex"); done
+git -C "$SCRIPT_DIR" archive HEAD -- "${PATHSPEC[@]}" | tar -x -C "$PAYLOAD"
 
 # Stamp the build. A release gets the clean tag; a local build says so, so it can never be
 # mistaken for the published release.

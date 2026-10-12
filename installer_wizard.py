@@ -364,6 +364,10 @@ def _venv_is_usable() -> bool:
 
 def stream_venv_setup() -> Iterator[str]:
     """Create (or repair) the private environment, then bring pip up to date."""
+    if app_is_running():
+        yield f"data: [ERROR] {RUNNING_MESSAGE}\n\n"
+        yield "data: [SEQUENCE_FAILED]\n\n"
+        return
     found = find_python()
     if found is None:
         yield "data: [ERROR] no Python in the supported range was found\n\n"
@@ -443,6 +447,31 @@ def stream_python_install() -> Iterator[str]:
 
 # ─── Finish: launcher app, ready marker, hand-off ───────────────────────────
 
+def app_is_running() -> bool:
+    """True while a FableGear process holds its single-instance lock (~/.fablegear/fablegear.lock).
+
+    Installing over a running copy would swap modules and upgrade packages under it, so the
+    wizard refuses until it exits. Only probes an existing lock file; never creates one."""
+    lock = Path.home() / ".fablegear" / "fablegear.lock"
+    if not lock.is_file():
+        return False
+    try:
+        import fcntl
+        with open(lock, "r+b") as fh:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    except (ImportError, OSError):
+        return False
+    return False
+
+
+RUNNING_MESSAGE = ("FableGear is running. Quit FableGear (FableGear menu > Quit), then run the "
+                   "installer again -- installing over a running copy could corrupt it.")
+
+
 def install_root() -> Path:
     """The folder FableGear lives in once installed."""
     return TARGET_ROOT if TARGET_ROOT is not None else REPO_ROOT
@@ -492,6 +521,10 @@ def stream_copy_app() -> Iterator[str]:
     """Copy FableGear's code from the installer into the install folder."""
     target = TARGET_ROOT
     if target is None:
+        return
+    if app_is_running():   # it may have been opened while the packages were installing
+        yield f"data: [ERROR] {RUNNING_MESSAGE}\n\n"
+        yield "data: [SEQUENCE_FAILED]\n\n"
         return
     yield f"data: Copying FableGear into {target}\n\n"
     try:
