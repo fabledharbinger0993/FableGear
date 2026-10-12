@@ -17,15 +17,6 @@ from pathlib import Path
 
 _SYSTEM = platform.system()
 
-def _is_user_mount(mountpoint: str) -> bool:
-    if _SYSTEM == "Darwin":
-        return mountpoint.startswith("/Volumes/") or mountpoint.startswith("/Volumes")
-    if _SYSTEM == "Windows":
-        return (len(mountpoint) == 3 and mountpoint[1] == ":"
-                and mountpoint[2] in ("/", "\\")
-                and mountpoint[0].upper() not in ("A", "B"))
-    return mountpoint.startswith("/media/") or mountpoint.startswith("/mnt/")
-
 from flask import Blueprint, jsonify, request, send_file
 
 from anvil.schema import bpm_from_db
@@ -35,34 +26,13 @@ from helpers import (
     _MAX_EXPORT_JOBS,
     _detect_pioneer_drive_layout,
     _evict_old_jobs,
+    _is_user_mount,
     _run_export,
+    get_connected_volumes,
 )
 
 bp = Blueprint("player", __name__)
 log = logging.getLogger(__name__)
-
-# ── connected helpers ───────────────────────────────────────────────────
-
-def get_connected_volumes() -> list[dict]:
-    """Return list of user-mountable volumes with name/path.
-    Used by filesystem scan and export routes.
-    """
-    import psutil
-
-    volumes = []
-    try:
-        for part in psutil.disk_partitions():
-            mountpoint = part.mountpoint
-            if not _is_user_mount(mountpoint):
-                continue
-            name = mountpoint.rstrip("/\\") if _SYSTEM == "Windows" else Path(mountpoint).name
-            volumes.append({
-                "name": name or mountpoint,
-                "path": mountpoint,
-            })
-    except Exception:
-        pass  # Graceful fallback for any psutil issues
-    return volumes
 
 # ── Library payload helpers ───────────────────────────────────────────────────
 

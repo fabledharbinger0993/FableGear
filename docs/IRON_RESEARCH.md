@@ -34,7 +34,7 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 
 ---
 
-## 1. Current status (as of 2026-08-27)
+## 1. Current status (callouts dated up to 2026-10-12; body text from 2026-08-27)
 
 > **2026-10-09 update -- read §16 first.** On branch `iron-unified` the tempo detector is the
 > `iron-tempo-rebuild` design (multi-onset + tempo prior): **91.3% MIREX / 80.5% exact** on a
@@ -47,10 +47,6 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 > **2026-10-10:** FableGear now runs on Iron (BPM + key) and Anvil (tags) -- signed off.
 > Beat 1 is found by counting back from the first real kick: downbeat_offset 54% within
 > 25 ms / 75.5% within 50 ms of Rekordbox (was 13% / 22.5%). See §17.
->
-> **2026-10-10 (candidate discriminator):** choosing among Iron's own octave/compound-meter candidates
-> from audio evidence gave no held-out gain (n=600 hold, 11 breaks / 0 fixes for the dev-selected rule).
-> Iron's detector is unchanged. See §22 before trying this family again.
 >
 > **2026-10-10 (candidate discriminator):** choosing among Iron's own octave/compound-meter candidates
 > from audio evidence gave no held-out gain (n=600 hold, 11 breaks / 0 fixes for the dev-selected rule).
@@ -1965,7 +1961,7 @@ the `master.db` snapshot (the join is not yet in the repo).
 
 Not a re-litigation of §2-§18: it does not revisit any octave method, only the metric.
 
-## 19.8 The 55 Iron-side residuals, hand-grouped against Rekordbox (2026-10-10 follow-up)
+### 19.8 The 55 Iron-side residuals, hand-grouped against Rekordbox (2026-10-10 follow-up)
 
 All 55 are Rekordbox-analysed tracks where Iron is more than 2% from Rekordbox's BPM (§19.5).
 Grouped by Iron/Rekordbox ratio. Rekordbox's value is the reference, so these are evidence of a
@@ -1999,7 +1995,7 @@ not been attempted.
 3. Leave the 1.3-2x slow-acapella group alone until the Rekordbox values for those tracks are checked:
    the reference itself looks doubtful there.
 
-## 19.9 Ear check of the 165-180 BPM residuals: the "error" is partly a convention (2026-10-10)
+### 19.9 Ear check of the 165-180 BPM residuals: the "error" is partly a convention (2026-10-10)
 
 Marshall (the owner) ear-checked six half-time and six 2:3 tracks from §19.8, all drum-and-bass or
 jungle. Result (ear, not measurement):
@@ -2032,14 +2028,6 @@ jungle. Result (ear, not measurement):
   example the hi-hat/snare pattern at the faster period). Not tested.
 
 Not verified beyond the six ear checks per group. Do not treat this section as a new accuracy number.
-
-## How to add to this doc
-
-Append a new dated section (`## N. <short title>`) rather than editing existing sections'
-conclusions — if you disprove something above, add a note pointing at it rather than
-silently rewriting history, the same discipline this file's own §2.2/§3 already follow. Keep
-the "Current status" (§1) and "Things NOT to re-litigate" (§5) sections up to date as the
-two sections most likely to be read and not the rest.
 
 ## 20. The 55-residual follow-up, half-time kick check, and a 160-185 BPM candidate (2026-10-10)
 
@@ -2609,3 +2597,11 @@ use, §0 and the tool catalog). Results are resumable: rerun the same command to
 
 
 ---
+
+## How to add to this doc
+
+Append a new dated section (`## N. <short title>`) rather than editing existing sections'
+conclusions — if you disprove something above, add a note pointing at it rather than
+silently rewriting history, the same discipline this file's own §2.2/§3 already follow. Keep
+the "Current status" (§1) and "Things NOT to re-litigate" (§5) sections up to date as the
+two sections most likely to be read and not the rest.
