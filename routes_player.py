@@ -1542,6 +1542,23 @@ def api_library_remove_track(track_id):
     return jsonify({"ok": True, "id": str(tid), "status": "removed"})
 
 
+def _reserve_copy_destination(src: Path) -> Path:
+    """Atomically claim a not-yet-existing "<name> (copy[ N])<ext>" beside ``src``.
+
+    O_CREAT|O_EXCL makes the check-and-create a single step, so concurrent requests get different
+    names and each owns exactly the file it created. Returns the (now empty) reserved path.
+    """
+    n = 1
+    while True:
+        label = " (copy)" if n == 1 else f" (copy {n})"
+        candidate = src.with_name(f"{src.stem}{label}{src.suffix}")
+        try:
+            os.close(os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644))
+            return candidate
+        except FileExistsError:
+            n += 1
+
+
 @bp.route("/api/library/tracks/<track_id>/duplicate", methods=["POST"])
 def api_library_duplicate_track(track_id):
     fg, err = _fg_only_db()
@@ -1556,12 +1573,13 @@ def api_library_duplicate_track(track_id):
     src = Path(rec.file_path or "")
     if not src.is_file():
         return jsonify({"error": "Audio file is missing on disk"}), 409
-    # Copy the audio next to the original; never overwrite an existing file.
-    dest = src.with_name(f"{src.stem} (copy){src.suffix}")
-    n = 2
-    while dest.exists():
-        dest = src.with_name(f"{src.stem} (copy {n}){src.suffix}")
-        n += 1
+    # Claim a free name next to the original (atomically, so two requests can never share one),
+    # then copy into it. We only ever remove a path this request created itself.
+    try:
+        dest = _reserve_copy_destination(src)
+    except OSError as exc:
+        log.warning("duplicate track could not reserve a destination: %s", exc)
+        return jsonify({"error": "Could not create the copy next to the original"}), 500
     try:
         shutil.copy2(src, dest)
         new_id = fg.duplicate_content(tid, str(dest))
