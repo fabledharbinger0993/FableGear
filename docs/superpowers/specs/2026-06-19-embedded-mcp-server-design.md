@@ -25,8 +25,8 @@ server.
     ┌────┴────┐     ┌──────────────┐
     │ Claude  │     │ Cloud agents │
     │ Desktop │     │ (Kimi, etc.) │
-    │ Cursor  │     │ via Tailscale│
-    └─────────┘     │ or tunnel    │
+    │ Cursor  │     │ via a tunnel │
+    └─────────┘     │              │
                     └──────────────┘
 ```
 
