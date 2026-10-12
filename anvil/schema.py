@@ -121,7 +121,8 @@ def bpm_to_db(bpm: float | None) -> int | None:
         return None
     if not math.isfinite(value) or value <= 0 or value > MAX_DB_BPM:
         return None
-    return round(value * 100)
+    res = round(value * 100)
+    return res if res > 0 else None
 
 
 def bpm_from_db(centi_bpm: int | None) -> float:
