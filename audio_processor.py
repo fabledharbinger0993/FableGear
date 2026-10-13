@@ -1107,9 +1107,9 @@ def process_file(
     _force_key = force or force_key
     needs_bpm = detect_bpm and not (_existing("bpm") and not _force_bpm)
     needs_key = detect_key and not (_existing("initial_key") and not _force_key)
-    if not needs_bpm and _existing("bpm"):
+    if detect_bpm and not needs_bpm and _existing("bpm"):
         result.bpm_existing = float(existing.bpm)
-    if not needs_key and _existing("initial_key"):
+    if detect_key and not needs_key and _existing("initial_key"):
         result.key_existing = str(existing.initial_key).strip()
     # Detector order: Iron (ours) -> essentia (optional) -> librosa. Iron and
     # essentia each read the file themselves, so try them before deciding whether
