@@ -520,6 +520,12 @@ async function leTrackListDrop(ev) {
       showToast(`${what} into your library.` + (playlistId ? '' : ' Open a playlist to add it there too.'), 'success');
     }
     await leLoadLibrary();
+    // leLoadLibrary() drops back to All Tracks; re-open the playlist the track
+    // was dropped into so its track list and count refresh, as the Add button does.
+    if (playlistId) {
+      const playlistBtn = document.querySelector(`.le-tree-item[data-id="${playlistId}"]`);
+      if (playlistBtn) await leSelectPlaylist({ id: playlistId, type: 'playlist', name: playlistName }, playlistBtn);
+    }
   } catch (e) {
     if (typeof showToast === 'function') showToast(`Import failed: ${e.message}`, 'error');
   }

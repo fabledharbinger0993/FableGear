@@ -748,6 +748,42 @@ async function leLoadLibrary() {
   }
 }
 
+// Quiet refresh of the FableGear library while a background import is still
+// writing tracks (boot.js drives the cadence from /api/onboarding/import-sources/status).
+// Unlike leLoadLibrary() it shows no loading placeholder, does not reset the
+// selection or the active playlist, and does not rebuild the playlist tree.
+let _leLiveRefreshBusy = false;
+async function leRefreshLibraryLive() {
+  if (_leLiveRefreshBusy) return;
+  // Only refresh a library the Record Room has already loaded: a first load
+  // belongs to leLoadLibrary(), which also fetches playlists.
+  if (!_leTracksLoaded) return;
+  if (_leGetState('_leMode', 'db') !== 'db') return;
+  if (_leGetState('_leDbSource', 'fablegear') !== 'fablegear') return;
+  _leLiveRefreshBusy = true;
+  try {
+    const res = await fetch('/api/library/tracks?db=fablegear');
+    if (!res.ok) return;
+    _leAllTracks = await res.json();
+    document.getElementById('le-all-count').textContent = _leAllTracks.length;
+    libBuildGenreSelect();
+    leRenderSourceLocations();
+    if (_leActiveNodeType === 'all') {
+      // leRenderTracks() scrolls to the top; keep the reader's place while tracks land.
+      const list = document.getElementById('le-track-list');
+      const scrollTop = list ? list.scrollTop : 0;
+      _leBaseTracks = _leAllTracks;
+      leApplyFilters();
+      if (list) list.scrollTop = scrollTop;
+    }
+  } catch (_) {
+    // Transient; the next tick or a manual Reload will catch up.
+  } finally {
+    _leLiveRefreshBusy = false;
+  }
+}
+window.leRefreshLibraryLive = leRefreshLibraryLive;
+
 // Dashboard stat strip above the filter bar — real numbers, computed from
 // the same data already fetched for the track list and playlist tree.
 function _leCountPlaylists(nodes) {
