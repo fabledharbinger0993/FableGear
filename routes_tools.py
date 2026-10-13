@@ -377,13 +377,25 @@ def api_pipeline():
     if not raw_steps:
         return jsonify({"error": "steps list is required"}), 400
 
-    _WRITE_STEP_TYPES = {"import", "link", "relocate", "prune", "rename"}
+    # prune (De-Duplicate Remove) is absent on purpose: it only touches FableGear's own
+    # database and files, never Rekordbox's, so Rekordbox may stay open.
+    _WRITE_STEP_TYPES = {"import", "link", "relocate", "rename"}
     if not dry_run and any(s.get("type") in _WRITE_STEP_TYPES for s in raw_steps):
         err = _require_rb_closed()
         if err:
             return err
 
     built: list[dict] = []
+
+    # The folder the pipeline's Scan step covers is the library De-Duplicate Remove works on.
+    _scan_root = ""
+    for s in raw_steps:
+        if s.get("type") == "duplicates":
+            _cfg = s.get("config", {})
+            _paths = _cfg.get("paths") or [_cfg.get("path", "")]
+            _paths = [_paths] if isinstance(_paths, str) else _paths
+            _scan_root = next((p for p in _paths if p), "")
+            break
 
     for s in raw_steps:
         stype = s.get("type", "")
@@ -494,6 +506,9 @@ def api_pipeline():
             cmd = [sys.executable, str(CLI_PATH), "prune"]
             if not dry_run:
                 cmd.append("--no-dry-run")
+            _root = str(cfg.get("library_root", "")).strip() or _scan_root
+            if _root:
+                cmd += ["--library-root", _root]
             # CSV path: gated (one-step-per-request) mode sends it explicitly as
             # config.csv; AUTO mode omits it and _stream_pipeline appends the
             # report path captured from the preceding duplicates step.

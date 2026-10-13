@@ -372,6 +372,18 @@ def load_report(csv_path: Path, archive=None) -> list[DupeGroup]:
 
 # ── Where duplicates go ──────────────────────────────────────────────────────
 
+def effective_library_root(library_root: Path | str | None, sample_path: Path | str | None = None) -> Path:
+    """The library a removal belongs to: the root it was given; else the drive the files
+    are on (/Volumes/<name>); else the configured music folder."""
+    if library_root:
+        return Path(library_root)
+    if sample_path is not None:
+        parts = Path(sample_path).parts
+        if len(parts) >= 3 and parts[1] == "Volumes":
+            return Path(*parts[:3])
+    return Path(_config.MUSIC_ROOT)
+
+
 def duplicates_folder(library_root: Path | None, sample_path: Path | None = None) -> Path:
     """Where this library's duplicates go: ``<FableGear Archive>/Duplicates``.
 
@@ -379,17 +391,13 @@ def duplicates_folder(library_root: Path | None, sample_path: Path | None = None
     so duplicates are out of the library, out of future scans, and in the same place
     as everything else FableGear keeps (savepoints, logs, undone copies).
     With the Archive switched off there is no such folder, so a "FableGear Duplicates"
-    folder is used beside the library instead (the top of the drive when the library
-    is a whole drive), which scanners also skip by name.
+    folder is used beside the library instead, which scanners also skip by name. A
+    library that is a whole drive (a mount point, or a folder directly under /Volumes),
+    or that sits directly under "/" (no writable parent), keeps it inside, as
+    archive_root_for_music_root does for the Archive itself.
     """
-    root = Path(library_root) if library_root else None
-    if root is None and sample_path is not None:
-        parts = Path(sample_path).parts
-        if len(parts) >= 3 and parts[1] == "Volumes":
-            root = Path(*parts[:3])
+    root = effective_library_root(library_root, sample_path)
     music_root = Path(_config.MUSIC_ROOT)
-    if root is None:
-        root = music_root
 
     if _config.ARCHIVE_ENABLED:
         if root == music_root:
@@ -418,6 +426,15 @@ def _archive_destination(src: Path, library_root: Path | None, dup_dir: Path) ->
         dest = base.with_name(f"{base.stem} ({n}){base.suffix}")
         n += 1
     return dest
+
+
+def _append_move_log(dup_dir: Path, entry: dict) -> None:
+    """Append one line to the Duplicates folder's moves.jsonl and flush it to disk."""
+    dup_dir.mkdir(parents=True, exist_ok=True)
+    with open(dup_dir / "moves.jsonl", "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
 
 
 def _move_verified(src: Path, dest: Path) -> None:
@@ -548,7 +565,7 @@ def _content_row_dict(cur, content_id: int) -> dict | None:
 
 
 def _has_associations(cur, content_id: int) -> bool:
-    for table in ("fg_playlist_song", "fg_cue"):
+    for table in ("fg_playlist_song", "fg_cue", "fg_beatgrid"):
         if cur.execute(f"SELECT 1 FROM {table} WHERE content_id = ? LIMIT 1", (content_id,)).fetchone():
             return True
     return False
@@ -578,7 +595,7 @@ def prune_files(
       duplicate's playlist memberships, cues, beat grid and any metadata the
       kept track is missing are moved onto the kept track before the row is
       removed. The keeper's own values always win. Without a keeper, a track
-      that is in a playlist or has cues is protected: it is left exactly where
+      that is in a playlist or has cues or a beat grid is protected: it is left exactly where
       it is, and nothing is removed.
 
     For each file, the file is moved first and the database changed second, in
@@ -599,8 +616,8 @@ def prune_files(
     def cancelled() -> bool:
         return bool(should_cancel and should_cancel())
 
-    root = Path(library_root) if library_root else None
-    dup_dir = duplicates_folder(root, Path(file_paths[0]) if file_paths else None)
+    root = effective_library_root(library_root, file_paths[0] if file_paths else None)
+    dup_dir = duplicates_folder(root)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     emit(f"Duplicates folder → {dup_dir}")
 
@@ -622,7 +639,6 @@ def prune_files(
     db_removed = files_moved = skipped = 0
     playlists_rethreaded = associations_rethreaded = metadata_backfilled = 0
     errors: list[str] = []
-    moves: list[dict] = []
 
     for path in file_paths:
         if cancelled():
@@ -635,7 +651,7 @@ def prune_files(
         def _row(cur, p: str):
             return cur.execute("SELECT id FROM fg_content WHERE file_path = ?", (p,)).fetchone()
 
-        # Safety gate, before anything moves: a track that is in a playlist or has cues
+        # Safety gate, before anything moves: a track that is in a playlist or has cues or a beat grid
         # needs a kept track to receive them.
         try:
             with archive.connection() as conn:
@@ -644,8 +660,8 @@ def prune_files(
                 keeper_row = _row(cur, keeper_path) if keeper_path else None
                 if dup_row is not None and keeper_row is None and _has_associations(cur, dup_row[0]):
                     skipped += 1
-                    emit(f"    Skip — {name} is in playlists or has cues, and its kept copy "
-                         f"isn't in the database. Nothing was changed.")
+                    emit(f"    Skip — {name} is in playlists or has cues or a beat grid, and its kept "
+                         f"copy isn't in the database. Nothing was changed.")
                     continue
         except Exception as exc:
             errors.append(f"Database check failed for {name}: {exc}")
@@ -712,10 +728,15 @@ def prune_files(
         associations_rethreaded += path_assoc
         metadata_backfilled += path_meta
         files_moved += 1
-        moves.append({
-            "when": stamp, "original": str(src), "moved_to": str(dest),
-            "kept": keeper_path, "in_database": removed,
-        })
+        # The restore record is written the moment the move is complete, not at the end of
+        # the batch, so an interrupted run still leaves a line for every file it moved.
+        try:
+            _append_move_log(dup_dir, {
+                "when": stamp, "original": str(src), "moved_to": str(dest),
+                "kept": keeper_path, "in_database": removed,
+            })
+        except OSError as exc:
+            errors.append(f"Could not write the moves log for {name}: {exc}")
         emit(f"    Moved ✓  {name}")
         try:
             # Same shape as Organize/Rename: file_path is where the file is NOW, "from" is
@@ -727,14 +748,6 @@ def prune_files(
             )
         except Exception as exc:
             _log.warning("Archive journal failed for %s: %s", path, exc)
-
-    if moves:
-        try:
-            with open(dup_dir / "moves.jsonl", "a", encoding="utf-8") as fh:
-                for entry in moves:
-                    fh.write(json.dumps(entry) + "\n")
-        except OSError as exc:
-            errors.append(f"Could not write the moves log: {exc}")
 
     emit("")
     emit("═══ DE-DUPLICATE SUMMARY ═══")

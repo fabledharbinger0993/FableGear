@@ -437,3 +437,72 @@ def test_a_missing_archive_never_fails_the_run(monkeypatch):
     import routes_tools
     monkeypatch.setattr(__import__("config"), "REPORTS_DIR", Path("/proc/definitely/not/writable"))
     assert routes_tools._write_prune_report(["x"]) is None
+
+
+def test_a_duplicate_with_only_a_beat_grid_is_protected_without_a_kept_copy(archive, library):
+    keeper = library / "House" / "k.mp3"       # not in the database
+    keeper.write_bytes(b"x")
+    dup = library / "Techno" / "d.mp3"
+    did = _track(archive, dup)
+    _sql(archive, "INSERT INTO fg_beatgrid (content_id, beat_number, time_msec, bpm) VALUES (?,?,?,?)",
+         (did, 1, 100, 128.0))
+
+    summary = _remove(archive, library, dup, keeper)
+
+    assert summary["skipped"] == 1 and summary["files_moved"] == 0 and dup.exists()
+    assert _sql(archive, "SELECT COUNT(*) FROM fg_beatgrid WHERE content_id = ?", (did,)) == [(1,)]
+
+
+def test_the_move_log_has_a_line_for_every_file_even_if_the_run_stops_early(archive, library, monkeypatch):
+    k = library / "House" / "k.mp3"
+    d1, d2 = library / "Techno" / "d1.mp3", library / "Techno" / "d2.mp3"
+    for f in (k, d1, d2):
+        _track(archive, f)
+    real = pruner._move_verified
+    calls = []
+
+    def flaky(src, dest):
+        calls.append(src)
+        if len(calls) == 2:
+            raise KeyboardInterrupt           # the run dies on the second file
+        return real(src, dest)
+    monkeypatch.setattr(pruner, "_move_verified", flaky)
+
+    with pytest.raises(KeyboardInterrupt):
+        pruner.prune_files([str(d1), str(d2)], archive=archive,
+                           keeper_map={str(d1): str(k), str(d2): str(k)}, library_root=library)
+
+    log = (pruner.duplicates_folder(library) / "moves.jsonl").read_text().splitlines()
+    assert len(log) == 1 and json.loads(log[0])["original"] == str(d1)
+
+
+def test_files_keep_their_folders_even_when_no_library_root_is_given(archive, library):
+    keeper, dup = library / "House" / "k.mp3", library / "Techno" / "d.mp3"
+    _track(archive, keeper)
+    _track(archive, dup)
+    # CLI default: no --library-root; the files are under the configured MUSIC_ROOT.
+    summary = pruner.prune_files([str(dup)], archive=archive, keeper_map={str(dup): str(keeper)})
+    assert (Path(summary["duplicates_dir"]) / "Music" / "Techno" / "d.mp3").is_file()
+
+
+def test_a_failed_cross_drive_copy_leaves_nothing_behind(tmp_path, monkeypatch):
+    src, dest = tmp_path / "a.mp3", tmp_path / "out" / "a.mp3"
+    src.write_bytes(b"audio")
+    monkeypatch.setattr(pruner.os, "rename", lambda *a: (_ for _ in ()).throw(OSError("different drive")))
+    real_unlink = Path.unlink
+
+    def no_unlink(self, *a, **k):
+        if self == src:
+            raise PermissionError("read-only drive")
+        return real_unlink(self, *a, **k)
+    monkeypatch.setattr(Path, "unlink", no_unlink)
+
+    with pytest.raises(PermissionError):
+        pruner._move_verified(src, dest)
+    assert src.exists() and not dest.exists()
+
+
+def test_the_pipeline_does_not_wait_for_rekordbox_to_close_before_removing_duplicates():
+    source = (REPO_ROOT / "routes_tools.py").read_text()
+    line = next(ln for ln in source.splitlines() if ln.strip().startswith("_WRITE_STEP_TYPES"))
+    assert '"prune"' not in line

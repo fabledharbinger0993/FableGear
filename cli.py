@@ -1207,7 +1207,7 @@ def cmd_prune(args: argparse.Namespace) -> None:
             archive=archive,
             log=lambda m: print(m, flush=True),
             keeper_map=keeper_map,
-            library_root=getattr(args, "library_root", None),
+            library_root=getattr(args, "library_root", None),  # None: the drive of the files, else MUSIC_ROOT
         )
     except Exception:
         log.exception("Prune failed")
