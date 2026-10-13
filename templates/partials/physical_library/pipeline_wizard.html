@@ -49,12 +49,12 @@
             <span class="pipe-action-text"><strong>Rename Files</strong><span>Cleans file names from metadata tags</span></span>
           </button>
           <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('duplicates')" title="Find identical recordings no matter how they're named">
-            <img src="/static/icon-deduper.png" class="pipe-action-icon" alt="Find Duplicates">
-            <span class="pipe-action-text"><strong>Find Duplicates</strong><span>Scans for files that are the same recording</span></span>
+            <img src="/static/icon-deduper.png" class="pipe-action-icon" alt="De-Duplicate: Scan">
+            <span class="pipe-action-text"><strong>De-Duplicate: Scan</strong><span>Scans for files that are the same recording</span></span>
           </button>
-          <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('prune')" title="Remove the copies confirmed in Find Duplicates">
-            <img src="/static/icon-deduper.png" class="pipe-action-icon" alt="Prune Duplicates">
-            <span class="pipe-action-text"><strong>Prune Duplicates</strong><span>Remove copies found by Find Duplicates</span></span>
+          <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('prune')" title="Move the copies confirmed in the De-Duplicate Scan to the Duplicates folder">
+            <img src="/static/icon-deduper.png" class="pipe-action-icon" alt="De-Duplicate: Remove">
+            <span class="pipe-action-text"><strong>De-Duplicate: Remove</strong><span>Move the copies found by the Scan to the Duplicates folder</span></span>
           </button>
           <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('relocate')" title="Update RekordBox after files have moved">
             <img src="/static/icon-settings.png" class="pipe-action-icon" alt="Fix Broken Paths">

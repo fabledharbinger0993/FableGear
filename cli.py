@@ -1123,35 +1123,27 @@ def cmd_prune(args: argparse.Namespace) -> None:
     """Auto-prune duplicates listed in a duplicate_report.csv.
 
     Reads the quality-ranked report, keeps the best copy in each group, and
-    moves the rest to a recoverable Trash folder (removing their DB rows and
-    re-threading playlists to the keeper). Dry-run by default — pass
-    --no-dry-run to actually prune. Mirrors the interactive Chop Shop prune
-    and is the executor for the pipeline's "prune" step.
+    moves the rest to the "FableGear Duplicates" folder beside the library
+    (removing their rows from the FableGear database and moving playlists, cues
+    and missing metadata to the kept track). Nothing is deleted. Rekordbox's
+    database is never touched. Dry-run by default — pass --no-dry-run to
+    actually remove. Mirrors the interactive Chop Shop De-Duplicate and is the
+    executor for the pipeline's "prune" step.
     """
     from pruner import TrashRescueRequired, load_report, prune_files, trash_rescue_preflight
-
-    from db_connection import read_db, write_db
 
     csv_path = Path(args.csv_path)
     if not csv_path.is_file():
         log.error("Duplicate report not found: %s", csv_path)
         sys.exit(1)
 
-    # Operate on the device DB when the Pioneer drive is mounted, else local —
-    # same selection the interactive prune endpoint uses.
-    try:
-        from FableGear.config import DEVICE_DB as _DEVICE_DB
-    except ImportError:
-        try:
-            from config import DEVICE_DB as _DEVICE_DB
-        except Exception:
-            _DEVICE_DB = None
-    db_path = _DEVICE_DB if (_DEVICE_DB and _DEVICE_DB.exists()) else LOCAL_DB
+    if getattr(args, "permanent", False):
+        log.warning("--permanent is no longer supported: duplicates are moved to the "
+                    "FableGear Duplicates folder, never deleted. Ignoring it.")
 
-    # Load + rank the report (read-only connection flags DB-referenced files).
+    # Load + rank the report (the FableGear database flags tracked files).
     try:
-        with read_db(db_path) as _rdb:
-            groups = load_report(csv_path, _rdb)
+        groups = load_report(csv_path, _archive())
     except Exception:
         log.exception("Failed to load duplicate report")
         sys.exit(1)
@@ -1194,7 +1186,7 @@ def cmd_prune(args: argparse.Namespace) -> None:
         lines += [f"  REMOVE: {p}" for p in remove_paths[:200]]
         if len(remove_paths) > 200:
             lines.append(f"  … and {len(remove_paths) - 200} more.")
-        lines += ["", "Re-run with --no-dry-run to move these to the recovery folder."]
+        lines += ["", "Re-run with --no-dry-run to move these to the FableGear Duplicates folder."]
         _emit_report("\n".join(lines), "Prune", f"prune_{timestamp}.txt")
         return
 
@@ -1207,32 +1199,30 @@ def cmd_prune(args: argparse.Namespace) -> None:
         log.error("Resolve the rescue report before pruning again.")
         sys.exit(1)
 
-    log.info("Pruning %d duplicate file(s) from %s", len(remove_paths), db_path)
+    log.info("Moving %d duplicate file(s) to the FableGear Duplicates folder", len(remove_paths))
     archive = _require_archive("prune")
     try:
-        with write_db(db_path) as db:
-            summary = prune_files(
-                remove_paths,
-                db,
-                log=lambda m: print(m, flush=True),
-                permanent=args.permanent,
-                keeper_map=keeper_map,
-                archive=archive,
-            )
+        summary = prune_files(
+            remove_paths,
+            archive=archive,
+            log=lambda m: print(m, flush=True),
+            keeper_map=keeper_map,
+            library_root=getattr(args, "library_root", None),  # None: the drive of the files, else MUSIC_ROOT
+        )
     except Exception:
         log.exception("Prune failed")
         sys.exit(1)
 
     lines = [
-        "Prune complete.",
+        "De-Duplicate complete.",
         "",
         f"  DB entries removed   : {summary.get('db_removed', 0)}",
-        f"  Files moved to trash : {summary.get('files_moved', 0)}",
+        f"  Files moved          : {summary.get('files_moved', 0)}",
         f"  Playlists re-threaded: {summary.get('playlists_rethreaded', 0)}",
         f"  Skipped              : {summary.get('skipped', 0)}",
     ]
-    if summary.get("trash_dir"):
-        lines.append(f"  Recovery folder      : {summary['trash_dir']}")
+    if summary.get("duplicates_dir"):
+        lines.append(f"  Duplicates folder    : {summary['duplicates_dir']}")
     errs = summary.get("errors") or []
     if errs:
         lines += ["", f"{len(errs)} error(s):"] + [f"  {e}" for e in errs[:50]]
@@ -2156,208 +2146,18 @@ def _generate_export_anlz(fg_db, target: Path, result) -> None:
 
 
 def cmd_rekordbox_dedupe(args: argparse.Namespace) -> None:
-    """Scan only Rekordbox library tracks for duplicates, then optionally prune + rethread playlists."""
-    from duplicate_detector import scan_duplicates, write_csv_report, write_trash_rescue_report
-    from pruner import TrashRescueRequired, load_report, prune_files, trash_rescue_preflight
+    """Retired. De-Duplicate now works on FableGear's own database only.
 
-    from config import AUDIO_EXTENSIONS
-    from db_connection import read_db, write_db
-
-    db_path = _resolve_active_db_path(getattr(args, "db_path", None))
-    workers = max(1, int(getattr(args, "workers", 1) or 1))
-    match_mode = getattr(args, "match_mode", "exact")
-    fuzzy_threshold = float(getattr(args, "fuzzy_threshold", 0.85))
-
-    log.info("Rekordbox dedupe scan using DB: %s", db_path)
-    try:
-        with read_db(db_path) as db:
-            rows = db.get_content().all()
-            db_paths = [Path(str(row.FolderPath)) for row in rows if getattr(row, "FolderPath", None)]
-    except Exception:
-        log.exception("Failed to read Rekordbox content list")
-        sys.exit(1)
-
-    seen: set[Path] = set()
-    scan_files: list[Path] = []
-    missing_on_disk = 0
-    non_audio_paths = 0
-    for p in db_paths:
-        rp = p.expanduser()
-        if rp in seen:
-            continue
-        seen.add(rp)
-        if rp.suffix.lower() not in AUDIO_EXTENSIONS:
-            non_audio_paths += 1
-            continue
-        if not rp.exists():
-            missing_on_disk += 1
-            continue
-        scan_files.append(rp)
-
-    if not scan_files:
-        _emit_report(
-            "No on-disk audio files were found from the Rekordbox library paths.",
-            "Rekordbox Dedupe",
-            f"rekordbox_dedupe_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-        )
-        return
-
-    output = Path(args.output).expanduser() if getattr(args, "output", None) else None
-    if output is None:
-        try:
-            try:
-                from FableGear.config import REPORTS_DIR
-            except ImportError:
-                from config import REPORTS_DIR
-            out_dir = REPORTS_DIR / "Duplicates"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output = out_dir / f"rekordbox_duplicate_report_{stamp}.csv"
-        except Exception:
-            output = Path.home() / ".fablegear" / "Reports" / "Duplicates" / "rekordbox_duplicate_report.csv"
-
-    rescue_output = output.with_name(
-        output.stem.replace("duplicate_report", "trash_rescue_report")
-        if "duplicate_report" in output.stem
-        else f"trash_rescue_{output.stem}"
-    ).with_suffix(".txt")
-
-    log.info(
-        "Scanning %d Rekordbox-referenced files (missing=%d non-audio=%d, workers=%d, match=%s)",
-        len(scan_files), missing_on_disk, non_audio_paths, workers, match_mode,
+    This command used to remove duplicate rows from Rekordbox's master.db. Rekordbox's
+    own duplicate finder does that job, so FableGear no longer writes there. The name
+    stays so old scripts get a clear message instead of "unknown command".
+    """
+    log.error(
+        "rekordbox-dedupe has been retired: FableGear no longer changes Rekordbox's database. "
+        "Use De-Duplicate instead: `cli.py duplicates PATH` to scan, then `cli.py prune REPORT.csv` "
+        "to move duplicates to the FableGear Duplicates folder."
     )
-    archive = _require_archive("rekordbox-dedupe")
-    try:
-        result = scan_duplicates(
-            root=scan_files[0].parent,
-            files_override=scan_files,
-            max_workers=workers,
-            match_mode=match_mode,
-            fuzzy_threshold=fuzzy_threshold,
-            archive=archive,
-        )
-    except Exception:
-        log.exception("Rekordbox duplicate scan failed")
-        sys.exit(1)
-
-    if result.groups or result.unique_in_trash:
-        try:
-            if result.groups:
-                write_csv_report(result, output)
-            write_trash_rescue_report(result, rescue_output)
-        except Exception:
-            log.exception("Failed to write Rekordbox dedupe reports")
-            sys.exit(1)
-
-    if not result.groups:
-        lines = [
-            "No duplicate groups found among Rekordbox-referenced files.",
-            f"Scanned files        : {len(scan_files)}",
-            f"Missing on disk      : {missing_on_disk}",
-            f"Non-audio DB entries : {non_audio_paths}",
-        ]
-        if result.unique_in_trash:
-            lines.append(f"Trash rescue report  : {rescue_output}")
-        _emit_report(
-            "\n".join(lines),
-            "Rekordbox Dedupe",
-            f"rekordbox_dedupe_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-        )
-        return
-
-    try:
-        with read_db(db_path) as db:
-            groups = load_report(output, db)
-    except Exception:
-        log.exception("Failed to load Rekordbox duplicate report for pruning")
-        sys.exit(1)
-
-    remove_paths: list[str] = []
-    keeper_map: dict[str, str] = {}
-    locked_groups = 0
-    for g in groups:
-        cands = g.remove_candidates
-        if not cands:
-            if g.keep_in_trash:
-                locked_groups += 1
-            continue
-        keep = g.keep
-        for e in cands:
-            remove_paths.append(e.file_path)
-            if keep:
-                keeper_map[e.file_path] = keep.file_path
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    if not remove_paths:
-        _emit_report(
-            "No prunable duplicates found in Rekordbox library scan.\n"
-            f"  Duplicate groups               : {len(groups)}\n"
-            f"  Locked (keeper in trash)       : {locked_groups}\n"
-            f"  Duplicate report               : {output}\n"
-            f"  Trash rescue report            : {rescue_output}",
-            "Rekordbox Dedupe",
-            f"rekordbox_dedupe_{timestamp}.txt",
-        )
-        return
-
-    if args.dry_run:
-        lines = [
-            "DRY RUN — no DB rows or files were modified.",
-            "",
-            f"DB path              : {db_path}",
-            f"Scanned files        : {len(scan_files)}",
-            f"Duplicate groups     : {len(groups)}",
-            f"Would remove files   : {len(remove_paths)}",
-            f"Playlist rewires     : up to {len(keeper_map)} duplicate references",
-            f"Duplicate report     : {output}",
-            f"Trash rescue report  : {rescue_output}",
-        ]
-        if locked_groups:
-            lines.append(f"Locked groups        : {locked_groups} (keeper in trash)")
-        _emit_report("\n".join(lines), "Rekordbox Dedupe", f"rekordbox_dedupe_{timestamp}.txt")
-        return
-
-    try:
-        trash_rescue_preflight(output)
-    except TrashRescueRequired as exc:
-        log.error("%s", exc)
-        for issue in exc.issues:
-            log.error("  - %s", issue)
-        log.error("Resolve the rescue report before pruning again.")
-        sys.exit(1)
-
-    log.info("Pruning %d Rekordbox duplicate files from %s", len(remove_paths), db_path)
-    try:
-        with write_db(db_path) as db:
-            summary = prune_files(
-                remove_paths,
-                db,
-                log=lambda m: print(m, flush=True),
-                permanent=args.permanent,
-                keeper_map=keeper_map,
-                archive=archive,
-            )
-    except Exception:
-        log.exception("Rekordbox dedupe prune failed")
-        sys.exit(1)
-
-    lines = [
-        "Rekordbox dedupe complete.",
-        "",
-        f"  DB path               : {db_path}",
-        f"  DB entries removed    : {summary.get('db_removed', 0)}",
-        f"  Files moved to trash  : {summary.get('files_moved', 0)}",
-        f"  Playlists re-threaded : {summary.get('playlists_rethreaded', 0)}",
-        f"  Skipped               : {summary.get('skipped', 0)}",
-        f"  Duplicate report      : {output}",
-        f"  Trash rescue report   : {rescue_output}",
-    ]
-    if summary.get("trash_dir"):
-        lines.append(f"  Recovery folder       : {summary['trash_dir']}")
-    errs = summary.get("errors") or []
-    if errs:
-        lines += ["", f"{len(errs)} error(s):"] + [f"  {e}" for e in errs[:50]]
-    _emit_report("\n".join(lines), "Rekordbox Dedupe", f"rekordbox_dedupe_{timestamp}.txt")
+    sys.exit(2)
 
 
 def _resolve_effect_mode(mode: str | None, *, legacy_off: bool = False, legacy_force: bool = False) -> str:
@@ -4161,9 +3961,14 @@ Examples:
     p_prune.add_argument(
         "--permanent",
         action="store_true",
-        help="Permanently delete instead of moving to a recoverable Trash folder",
+        help="No longer supported (duplicates are never deleted); accepted and ignored",
     )
-    p_prune.set_defaults(func=cmd_prune, dry_run=True, permanent=False)
+    p_prune.add_argument(
+        "--library-root",
+        default=None,
+        help="Music library root. The FableGear Duplicates folder is created beside it.",
+    )
+    p_prune.set_defaults(func=cmd_prune, dry_run=True, permanent=False, library_root=None)
 
     # ── process ──
     p_parse = sub.add_parser(
