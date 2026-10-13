@@ -384,7 +384,7 @@ def duplicates_folder(library_root: Path | None, sample_path: Path | None = None
         from config import MUSIC_ROOT
         root = Path(MUSIC_ROOT)
     parent = root.parent
-    is_drive_root = os.path.ismount(root) or parent in (Path("/"), Path("/Volumes"))
+    is_drive_root = os.path.ismount(root) or parent == Path("/Volumes")
     base = root if is_drive_root else parent
     return base / DUPLICATES_DIR_NAME
 
