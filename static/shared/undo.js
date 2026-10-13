@@ -239,7 +239,7 @@ async function undoLoadTimeline() {
 }
 
 const _TOOL_LABELS = {
-  process: 'Tag Tracks', normalize: 'Normalize', organize: 'Organize',
+  process: 'Forge', normalize: 'Normalize', organize: 'Organize',
   rename: 'Rename', prune: 'Prune', convert: 'Convert',
   import: 'Import', relocate: 'Relocate', dedupe: 'Dedup',
   audit: 'Audit', pipeline: 'Pipeline',

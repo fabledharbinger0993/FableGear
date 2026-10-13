@@ -4,7 +4,7 @@ fallback in chop_shop/novelty_scanner.py.
 
 Regression coverage for a bug found in live use: with no
 ~/rekordbox-toolkit/scan_index.json on disk (a fresh install, or files
-never run through Tag Tracks), every source and destination track has
+never run through Forge), every source and destination track has
 bpm=key=duration=None. _dest_candidates() then treats every comparison as
 "no metadata on either side" and skips it entirely — so Phase 1 finds zero
 candidates for every track, Phase 2 (fingerprinting) never runs, and every

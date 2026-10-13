@@ -12,7 +12,7 @@ const sessionReports = {};
 const STEP_PILL_LABELS = {
   'Audit — Library Health Check':                 'Step 1 Summary',
   'Audit — Database + Physical Scan':             'Step 1 Summary',
-  'Tag Tracks — BPM & Key Detection':             'Step 2 Summary',
+  'Forge — BPM & Key Detection':             'Step 2 Summary',
   'Preview Import — Dry Run':                     'Step 3 Preview',
   'Import — Writing Tracks to Database':          'Step 3 Summary',
   'Link Playlists — Matching Tracks to Folders':  'Step 4 Summary',

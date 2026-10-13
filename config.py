@@ -86,6 +86,7 @@ LOGS_DIR       = ARCHIVE_ROOT / "Logs"
 
 LOG_DIRS: dict[str, Path] = {
     "Audit":       LOGS_DIR / "Audit",
+    # Forge's reports; the folder keeps its original name so existing history stays put.
     "Tag Tracks":  LOGS_DIR / "Tag Tracks",
     "Import":      LOGS_DIR / "Import",
     "Normalize":   LOGS_DIR / "Normalize",

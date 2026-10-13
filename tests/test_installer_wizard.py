@@ -18,6 +18,15 @@ if str(REPO_ROOT) not in sys.path:
 
 import installer_wizard as wiz
 
+
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path_factory, monkeypatch):
+    """Never read the real ~/.fablegear lock: a FableGear running on the dev's Mac
+    would make every install sequence refuse. Tests that need a lock set their own home."""
+    home = tmp_path_factory.mktemp("home")
+    monkeypatch.setattr(wiz.Path, "home", classmethod(lambda cls: home))
+
+
 CHECK_FUNCS = [
     wiz.check_platform,
     wiz.check_disk_space,

@@ -285,7 +285,7 @@ def test_property_row_reflects_real_track_count(fg_db, tmp_path):
 # ── Key/BPM fall back to the file's own tags ────────────────────────────────
 #
 # FableGear's library takes key/BPM from Rekordbox's database. A track that was only
-# tagged (Tag Tracks writes Iron's result into the file) has nothing in the library,
+# tagged (Forge writes Iron's result into the file) has nothing in the library,
 # so without this fallback it reaches the USB with no key. The file is what gets copied
 # to the stick, so what the file says should travel with it.
 

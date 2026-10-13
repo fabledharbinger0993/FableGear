@@ -820,7 +820,7 @@ def _generate_filename(
     present and non-junk) or "Artist - Title.ext" / "Artist - Title (2).ext".
 
     Artist, album, and title come from the file's tags — which by this point
-    already carry whatever the Tag Tracks / AcoustID enrichment step wrote — so
+    already carry whatever the Forge / AcoustID enrichment step wrote — so
     the name reflects the best available metadata, not just the raw filename.
     Any mix/remix annotation is already folded into `title` by the caller (it
     arrives as "Title (Refreq Edit)"), so it naturally lands at the end.

@@ -60,7 +60,7 @@
 <!-- ══ Chop Shop tool rail ═══════════════════════════════════════════════════ -->
 <nav class="workflow-rail" id="workflow-rail">
   <button type="button" class="step-tab active" data-target="step-process">
-    <img class="step-icon" src="/static/icon-track-tagger.png" alt="Tag Tracks">
+    <img class="step-icon" src="/static/icon-track-tagger.png" alt="Forge">
   </button>
   <button type="button" class="step-tab" data-target="step-rename">
     <img class="step-icon" src="/static/icon-renamer.png" alt="Rename">
@@ -273,7 +273,7 @@
 <!-- ══ Health issues modal ══════════════════════════════════════════════════
      Findings + their smart-handling fixes (fix_hint / fix_action, see
      static/shared/health.js) are reviewed here instead of inline in the
-     dock, so a long list can't overlap the docked Tag Tracks/tool modal. -->
+     dock, so a long list can't overlap the docked Forge/tool modal. -->
 <div id="health-modal-backdrop" class="hidden">
   <div id="health-modal">
     <div class="settings-header">
@@ -341,7 +341,7 @@
             <textarea id="settings-excluded-dirs" rows="4"
                    placeholder="cache&#10;PROCESSING_CACHE&#10;POST_PROCESS_ARCHIVE"></textarea>
             <div class="settings-excl-note">
-              Folders with these names are skipped during all scans (Tag Tracks, Normalize, Convert, Audit).
+              Folders with these names are skipped during all scans (Forge, Normalize, Convert, Audit).
             </div>
           </div>
 
@@ -357,7 +357,7 @@
               <span>Clear stored AcoustID key</span>
             </label>
             <div class="settings-excl-note">
-              Enables the “Metadata Enrichment” option in Tag Tracks — fingerprints each file and fills in
+              Enables the “Metadata Enrichment” option in Forge — fingerprints each file and fills in
               missing title / artist / album from MusicBrainz. Music data only; nothing else leaves your machine.
               Free key at acoustid.org/new-application. Leave blank to disable.
             </div>
@@ -465,7 +465,7 @@
           <div class="settings-warnings" id="settings-warnings">
             <h4>Features affected when logging is disabled</h4>
             <div class="settings-warn-item">
-              <strong>Tag Tracks → Duplicate Finder:</strong> Without a scan index, every file gets fingerprinted every run.
+              <strong>Forge → Duplicate Finder:</strong> Without a scan index, every file gets fingerprinted every run.
             </div>
             <div class="settings-warn-item">
               <strong>Rollback unavailable:</strong> Import, Normalize, Fix Paths, and Prune changes cannot be undone without Savepoints.
@@ -516,7 +516,7 @@
         <div class="settings-section">
           <h3>Tool Definitions</h3>
           <div class="settings-def">
-            <strong>Tag Tracks</strong> — Scans audio files with librosa for BPM and key detection. Writes ID3/Vorbis tags. Optional MusicBrainz enrichment fills in missing title, artist, and album.
+            <strong>Forge</strong> — Runs Iron (BPM and musical key) and Anvil (tag reading and writing) on your audio files. Results go into the file's tags and into the FableGear database, which feeds the Pioneer USB export. Optional MusicBrainz enrichment fills in missing title, artist, and album.
           </div>
           <div class="settings-def">
             <strong>Rename</strong> — Cleans filenames by standardizing separators, removing junk characters, and applying artist/title formatting rules. Dry-run mode previews all changes first.
