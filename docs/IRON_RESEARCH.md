@@ -36,6 +36,10 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 
 ## 1. Current status (callouts dated up to 2026-10-12; body text from 2026-08-27)
 
+> **2026-10-13 (Record Room integration):** Iron (analyse) and Anvil (tag write) are now
+> Record Room track actions, persisting to the FableGear DB. USB export still does not carry
+> key/BPM to Pioneer hardware: a decision is pending (§26.3).
+>
 > **2026-10-09 update -- read §16 first.** On branch `iron-unified` the tempo detector is the
 > `iron-tempo-rebuild` design (multi-onset + tempo prior): **91.3% MIREX / 80.5% exact** on a
 > stratified real set (anvil-line Iron: 72.5% / 55.7% on the same tracks), so the tempo
@@ -2597,6 +2601,29 @@ use, §0 and the tool catalog). Results are resumable: rerun the same command to
 
 
 ---
+
+## 26. Record Room integration: Iron and Anvil as library actions, and the USB gap (2026-10-13)
+
+Workflow and plumbing, not detector accuracy. No Iron tempo or key output changed.
+
+### 26.1 Audit of main against the five integration requirements (demonstrated from code)
+
+- **Record Room access: was missing.** Tag Tracks ran only from Chop Shop (`static/chop_shop/runners.js`).
+- **Persist to the FableGear DB: demonstrated on the Chop Shop path** (`cli.py` `_persist_process_results` → `bulk_set_analysis`).
+- **Anvil tags from DB data: was missing.** File tags were written only from the in-memory detector result (`audio_processor.py` `_write_tags`).
+- **Data follows the track in playlists: demonstrated inside the DB** (playlists reference `content_id`; `duplicate_content` copies bpm and key).
+- **USB output readable by Pioneer hardware: missing in the Record Room.** `helpers.py` `_run_export` reads the Rekordbox DB, writes `PIONEER/Master/master.db`, and passes neither BPM nor key to `add_content`. Hardware readability of that layout is not verified; the code's own note in `_detect_pioneer_drive_layout` says it is not a standard Rekordbox export.
+
+### 26.2 What changed
+
+- `routes_player.py`: `POST /api/library/tracks/<id>/analyze` runs `audio_processor._analyze_iron` (Iron only, no librosa fallback) and persists through `bulk_set_analysis`. A missing value keeps the stored one. Reads the audio file, never writes it.
+- `routes_player.py`: `POST /api/library/tracks/<id>/tags` writes the database's BPM and key into the file's tags through `audio_processor._write_tags` (Anvil, with its mutagen fallback). It is the only Record Room action that writes an audio file, and it is explicit and refused for tracks with no analysis.
+- `static/record_room/context_menu.js`: two track menu items, "Analyse BPM & key (Iron)" and "Write BPM & key to file tags".
+- `tests/test_record_room_iron_anvil.py`: 8 tests on temp fixtures, with Iron and `_write_tags` stubbed. No real Rekordbox DB or Passport drive touched.
+
+### 26.3 Still open (decision needed, not implemented)
+
+- **USB export carrying key and BPM.** The options are (a) route the Record Room export through `OneLibraryWriter` (`fablegear_database/onelibrary_writer.py`, which writes `bpmx100` and key, plus ANLZ via `PioneerExporter.export_track_anlz`), which is the CLI `export-onelibrary` path, or (b) pass BPM and key into `add_content` on the `master.db` layout. Option (a) is recommended. Hardware readability of either is not verified by any test in this repo.
 
 ## How to add to this doc
 
