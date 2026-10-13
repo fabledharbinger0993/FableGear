@@ -435,6 +435,11 @@ class FableGearDatabase:
             conn.executemany(sql, rows)
         return len(rows)
 
+    def known_paths(self) -> set[str]:
+        """Every file_path currently tracked in fg_content."""
+        with self.connection() as conn:
+            return {row[0] for row in conn.execute("SELECT file_path FROM fg_content")}
+
     def bulk_fill_analysis(
         self, entries: list[tuple[str, float | None, str | None, int]]
     ) -> int:
