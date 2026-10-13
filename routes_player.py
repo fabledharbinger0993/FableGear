@@ -1521,6 +1521,12 @@ def _track_file_on_disk(rec):
     return path if path.is_file() else None
 
 
+def _require_record_room_request():
+    if request.headers.get("X-FableGear-Request") != "record-room":
+        return jsonify({"error": "A valid Record Room request header is required."}), 403
+    return None
+
+
 @bp.route("/api/library/tracks/<track_id>/analyze", methods=["POST"])
 def api_library_analyze_track(track_id):
     """Run Iron (BPM + key) on one track and persist the result to the FableGear database.
@@ -1530,6 +1536,10 @@ def api_library_analyze_track(track_id):
     action: POST /api/library/tracks/<id>/tags.
     """
     from audio_processor import _analyze_iron
+
+    header_error = _require_record_room_request()
+    if header_error:
+        return header_error
 
     fg, err = _fg_only_db()
     if err:
@@ -1565,6 +1575,10 @@ def api_library_write_track_tags(track_id):
     the fields the database holds are written, and a track with neither is refused.
     """
     from audio_processor import _write_tags
+
+    header_error = _require_record_room_request()
+    if header_error:
+        return header_error
 
     fg, err = _fg_only_db()
     if err:
