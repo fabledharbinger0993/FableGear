@@ -408,7 +408,7 @@ async function executePrune() {
     if (exitCode === 0) {
       pruneSelected.clear();
       _updatePruneSummary();
-      _showPruneStatus(`✓ De-Duplicate complete — ${paths.length} file${paths.length > 1 ? 's' : ''} moved to the Duplicates folder in your FableGear Archive. Nothing was deleted, and Undo can put them back.`, false);
+      _showPruneStatus('✓ De-Duplicate finished. Check View Output for moved and skipped files; completed moves are in the Duplicates folder of your FableGear Archive. Nothing was deleted, and Undo can put them back.', false);
     } else if (exitCode === 130) {
       _showPruneStatus('⚠ Cancelled. Files already moved are in the Duplicates folder; re-open the report to continue.', true);
     } else {
