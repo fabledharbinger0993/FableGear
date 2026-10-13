@@ -214,6 +214,9 @@ SKIP_DIRS: set[str] = {
     "site-packages",
 }
 
+# A custom Archive folder may have any name; never scan it either.
+SKIP_DIRS.add(ARCHIVE_ROOT.name)
+
 # Merge in any user-specified exclusions from config.json ("excluded_dirs" key)
 _user_excluded: list = _cfg.get("excluded_dirs", [])
 if _user_excluded:

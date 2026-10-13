@@ -139,7 +139,7 @@ These tools work on your physical audio files, not the Rekordbox database.
 | Tool | What it does |
 |---|---|
 | **Forge** | Analyzes your audio with FableGear's own detectors (Iron finds BPM and key; Anvil reads and writes the tags) and saves BPM and musical key both into the file's metadata and into the FableGear database (the source for the Pioneer USB export). This means the info survives even if you rebuild your Rekordbox database or use the files outside Rekordbox. |
-| **De-Duplicate** | Step 1 uses acoustic fingerprinting to detect the same recording even when the filenames, formats, or bitrates are different (not just a filename check -- it listens to the audio). Step 2 moves the extra copies into a `FableGear Duplicates` folder beside your library and removes them from the FableGear database. Nothing is deleted, scans skip that folder, and Rekordbox's own database is never touched. |
+| **De-Duplicate** | Step 1 uses acoustic fingerprinting to detect the same recording even when the filenames, formats, or bitrates are different (not just a filename check -- it listens to the audio). Step 2 moves the extra copies into the `Duplicates` folder of your `FableGear Archive` (beside your library, skipped by every scan) and removes them from the FableGear database, after taking a savepoint of it. Nothing is deleted, the Undo screen can put files and entries back, and Rekordbox's own database is never touched. |
 | **Rename Files** | Batch rename files using patterns or learned rules from example pairs. Shows you a preview before anything changes. |
 | **Organize Library** | Rebuilds your folder structure based on embedded metadata (artist, album, etc.). Handles album artist intelligently so featured artists don't create extra folders. |
 | **Normalize Loudness** | Measures loudness (EBU R128) and re-encodes tracks that fall outside your target level. Preview and backup included. |
@@ -156,7 +156,7 @@ Most DJ software treats "duplicate" as one thing: two files on disk that sound t
 
 FableGear treats these as two distinct problems, in two distinct tools:
 
-- **De-Duplicate** (Chop Shop) is *physical library* dedup. The filesystem is the source of truth. It fingerprints the actual audio to find files that sound the same, regardless of tags or filenames, and removing one moves a real file to the `FableGear Duplicates` folder beside your library (never deleted).
+- **De-Duplicate** (Chop Shop) is *physical library* dedup. The filesystem is the source of truth. It fingerprints the actual audio to find files that sound the same, regardless of tags or filenames, and removing one moves a real file to the Archive's `Duplicates` folder beside your library (never deleted).
 - **Consolidate Duplicates** (Record Room) is *database library* dedup. The Rekordbox database is the source of truth. It groups `DjmdContent` records by artist, title, and duration and flags groups that disagree on file path -- including records whose file no longer resolves anywhere. It never fingerprints, reads, moves, or deletes a single audio file; it only decides which record survives.
 
 Both tools share the same non-breaking rule: **a record is never removed until every playlist that referenced it has been re-wired to the record that's staying.** If FableGear can't tell which copy should win -- both paths resolve, or both are broken, with no other distinguishing signal -- it leaves the group for you to resolve by hand rather than guessing.

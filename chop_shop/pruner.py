@@ -4,13 +4,17 @@ FableGear / pruner.py -- the Remove step of De-Duplicate.
 Loads a duplicate_report.csv, enriches entries with live file metadata,
 and executes confirmed removals:
 
-  1. Moves each duplicate file into the "FableGear Duplicates" folder that sits
-     NEXT TO the music library (never inside it, so later scans skip it). The
-     file keeps its path relative to the library, so it is easy to find and
-     put back. Nothing is deleted.
+  1. Moves each duplicate file into the Duplicates folder of the FableGear
+     Archive, which sits NEXT TO the music library (never inside it, so later
+     scans skip it). The file keeps its path relative to the library, so it is
+     easy to find and put back. Nothing is deleted.
   2. Removes the duplicate's row from the FableGear database (fg_content),
      after moving its playlist memberships, cues, beat grid and any metadata
      the kept track is missing onto the kept track.
+
+Before the first change, the FableGear database is snapshotted into the
+Archive's Savepoints folder. Every move is journaled in the Archive log in the
+shape the Undo screen reverts (file moved back, track entry re-added).
 
 Rekordbox's own database is never opened or written.
 
@@ -40,6 +44,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+import config as _config
 from config import DUPLICATES_DIR_NAME
 
 _log = logging.getLogger(__name__)
@@ -368,25 +373,33 @@ def load_report(csv_path: Path, archive=None) -> list[DupeGroup]:
 # ── Where duplicates go ──────────────────────────────────────────────────────
 
 def duplicates_folder(library_root: Path | None, sample_path: Path | None = None) -> Path:
-    """The "FableGear Duplicates" folder for a library: NEXT TO the library root.
+    """Where this library's duplicates go: ``<FableGear Archive>/Duplicates``.
 
-    Beside the library, not inside it, so a scan of the library never sees it
-    (scanners also skip the folder by name, see config.SKIP_DIRS). When the library
-    root is a whole drive (a mount point, or a folder directly under /Volumes) there
-    is no "next to", so the folder sits at the top of that drive instead.
+    The Archive already sits next to the library and every scanner skips it by name,
+    so duplicates are out of the library, out of future scans, and in the same place
+    as everything else FableGear keeps (savepoints, logs, undone copies).
+    With the Archive switched off there is no such folder, so a "FableGear Duplicates"
+    folder is used beside the library instead (the top of the drive when the library
+    is a whole drive), which scanners also skip by name.
     """
     root = Path(library_root) if library_root else None
     if root is None and sample_path is not None:
         parts = Path(sample_path).parts
         if len(parts) >= 3 and parts[1] == "Volumes":
             root = Path(*parts[:3])
+    music_root = Path(_config.MUSIC_ROOT)
     if root is None:
-        from config import MUSIC_ROOT
-        root = Path(MUSIC_ROOT)
+        root = music_root
+
+    if _config.ARCHIVE_ENABLED:
+        if root == music_root:
+            return Path(_config.ARCHIVE_ROOT) / "Duplicates"
+        from user_config import archive_root_for_music_root
+        return archive_root_for_music_root(root) / "Duplicates"
+
     parent = root.parent
     is_drive_root = os.path.ismount(root) or parent in (Path("/"), Path("/Volumes"))
-    base = root if is_drive_root else parent
-    return base / DUPLICATES_DIR_NAME
+    return (root if is_drive_root else parent) / DUPLICATES_DIR_NAME
 
 
 def _archive_destination(src: Path, library_root: Path | None, dup_dir: Path) -> Path:
@@ -521,6 +534,16 @@ def _rethread_beatgrid(cur, remove_id: int, keeper_id: int) -> int:
     return cur.rowcount
 
 
+def _content_row_dict(cur, content_id: int) -> dict | None:
+    """The fg_content row as a plain dict, for the journal (so Undo can put it back)."""
+    cur.execute("SELECT * FROM fg_content WHERE id = ?", (content_id,))
+    row = cur.fetchone()
+    if row is None:
+        return None
+    names = [d[0] for d in cur.description]
+    return {k: v for k, v in zip(names, row) if v is not None and k not in ("id", "created_at", "updated_at")}
+
+
 def _has_associations(cur, content_id: int) -> bool:
     for table in ("fg_playlist_song", "fg_cue"):
         if cur.execute(f"SELECT 1 FROM {table} WHERE content_id = ? LIMIT 1", (content_id,)).fetchone():
@@ -578,6 +601,21 @@ def prune_files(
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     emit(f"Duplicates folder → {dup_dir}")
 
+    # A savepoint before anything changes: the Archive's "backup before every write".
+    # If it can't be made, nothing is touched.
+    if file_paths:
+        try:
+            snap = archive.snapshot(Path(_config.SAVEPOINTS_DIR) / "FableGear Library", "deduplicate")
+            emit(f"Savepoint of the FableGear database → {snap}")
+        except Exception as exc:
+            msg = f"Could not take a savepoint of the FableGear database, so nothing was changed: {exc}"
+            emit(f"  ✗ {msg}")
+            return {
+                "db_removed": 0, "files_moved": 0, "skipped": 0, "errors": [msg],
+                "duplicates_dir": str(dup_dir), "playlists_rethreaded": 0,
+                "associations_rethreaded": 0, "metadata_backfilled": 0, "cancelled": False,
+            }
+
     db_removed = files_moved = skipped = 0
     playlists_rethreaded = associations_rethreaded = metadata_backfilled = 0
     errors: list[str] = []
@@ -628,12 +666,14 @@ def prune_files(
         try:
             path_playlists = path_assoc = path_meta = 0
             removed = False
+            row_snapshot = None
             with archive.transaction() as conn:
                 cur = conn.cursor()
                 dup_row = _row(cur, path)
                 keeper_row = _row(cur, keeper_path) if keeper_path else None
                 if dup_row is not None:
                     remove_id = dup_row[0]
+                    row_snapshot = _content_row_dict(cur, remove_id)
                     touched: set[int] = set()
                     if keeper_row is not None:
                         keeper_id = keeper_row[0]
@@ -675,9 +715,12 @@ def prune_files(
         })
         emit(f"    Moved ✓  {name}")
         try:
+            # Same shape as Organize/Rename: file_path is where the file is NOW, "from" is
+            # where it came from, so the Undo screen can move it back. "row" lets Undo
+            # re-add the track entry. Playlist slots, cues and grids stay with the kept track.
             archive.log_operation(
-                "prune", path, status="ok",
-                metadata={"moved_to": str(dest), "kept": keeper_path},
+                "prune", str(dest), status="ok",
+                metadata={"from": str(src), "kept": keeper_path, "row": row_snapshot},
             )
         except Exception as exc:
             _log.warning("Archive journal failed for %s: %s", path, exc)

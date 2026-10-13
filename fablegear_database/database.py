@@ -435,6 +435,35 @@ class FableGearDatabase:
             conn.executemany(sql, rows)
         return len(rows)
 
+    def snapshot(self, dest_dir: Path, label: str, keep: int = 10) -> Path:
+        """Write a consistent copy of this database into dest_dir before a bulk change.
+
+        Uses SQLite's online backup, so it is safe while the app has the database open
+        (WAL included). Only the newest ``keep`` snapshots with the same label are kept.
+        Raises if the copy can't be made or doesn't open as a database.
+        """
+        dest_dir = Path(dest_dir)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        dest = dest_dir / f"fablegear.backup_{stamp}_{label}.db"
+        src = sqlite3.connect(self.config.db_path)
+        try:
+            dst = sqlite3.connect(dest)
+            try:
+                src.backup(dst)
+                if dst.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise RuntimeError("snapshot failed its integrity check")
+            finally:
+                dst.close()
+        except Exception:
+            dest.unlink(missing_ok=True)
+            raise
+        finally:
+            src.close()
+        for old in sorted(dest_dir.glob(f"fablegear.backup_*_{label}.db"))[:-keep]:
+            old.unlink(missing_ok=True)
+        return dest
+
     def known_paths(self) -> set[str]:
         """Every file_path currently tracked in fg_content."""
         with self.connection() as conn:

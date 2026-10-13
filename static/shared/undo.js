@@ -110,6 +110,7 @@ const _UNDO_OP_LABELS = {
   rename: 'Rename — files renamed',
   novelty_copy: 'Novelty — tracks copied in',
   convert: 'Convert — files re-encoded',
+  prune: 'De-Duplicate — files moved to the Duplicates folder',
 };
 
 async function undoLoadOperations() {

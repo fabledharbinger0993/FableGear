@@ -23,6 +23,15 @@ from config import DUPLICATES_DIR_NAME, SKIP_DIRS
 from fablegear_database.database import ContentRecord, DatabaseConfig, FableGearDatabase
 
 
+@pytest.fixture(autouse=True)
+def _isolated_archive(tmp_path, monkeypatch):
+    """Point FableGear's Archive at a scratch folder so no test writes into the real one."""
+    monkeypatch.setattr(pruner._config, "ARCHIVE_ENABLED", True)
+    monkeypatch.setattr(pruner._config, "ARCHIVE_ROOT", tmp_path / "FableGear Archive")
+    monkeypatch.setattr(pruner._config, "SAVEPOINTS_DIR", tmp_path / "FableGear Archive" / "Savepoints")
+    monkeypatch.setattr(pruner._config, "MUSIC_ROOT", tmp_path / "Music")
+
+
 @pytest.fixture
 def archive(tmp_path):
     return FableGearDatabase(DatabaseConfig(db_path=tmp_path / "fg.db"))
@@ -73,21 +82,33 @@ def _remove(archive, library, dup, keeper, **kw):
 
 # ── Where the duplicates go ──────────────────────────────────────────────────
 
-def test_duplicates_folder_sits_beside_the_library_not_inside(tmp_path, library):
+def test_duplicates_go_in_the_archive_beside_the_library(tmp_path, library):
     folder = pruner.duplicates_folder(library)
-    assert folder == tmp_path / DUPLICATES_DIR_NAME
-    assert library not in folder.parents
+    assert folder == tmp_path / "FableGear Archive" / "Duplicates"
+    assert library not in folder.parents           # outside the library, so scans never see it
 
 
-def test_duplicates_folder_for_a_whole_drive_goes_at_the_top_of_the_drive():
-    folder = pruner.duplicates_folder(Path("/Volumes/Passport"))
-    assert folder == Path("/Volumes/Passport") / DUPLICATES_DIR_NAME
+def test_another_library_gets_its_own_archive_beside_it(tmp_path):
+    other = tmp_path / "Other" / "Crate"
+    other.mkdir(parents=True)
+    assert pruner.duplicates_folder(other) == tmp_path / "Other" / "FableGear Archive" / "Duplicates"
+
+
+def test_a_whole_drive_library_keeps_its_archive_at_the_top_of_the_drive():
+    assert pruner.duplicates_folder(Path("/Volumes/Passport")) == Path("/Volumes/Passport/FableGear Archive/Duplicates")
+
+
+def test_with_the_archive_off_a_duplicates_folder_sits_beside_the_library(tmp_path, library, monkeypatch):
+    monkeypatch.setattr(pruner._config, "ARCHIVE_ENABLED", False)
+    assert pruner.duplicates_folder(library) == tmp_path / DUPLICATES_DIR_NAME
+    assert pruner.duplicates_folder(Path("/Volumes/Passport")) == Path("/Volumes/Passport") / DUPLICATES_DIR_NAME
 
 
 def test_scanners_skip_the_duplicates_folder():
     import scanner
-    assert DUPLICATES_DIR_NAME in SKIP_DIRS
+    assert DUPLICATES_DIR_NAME in SKIP_DIRS and "FableGear Archive" in SKIP_DIRS
     assert scanner._should_skip_dir(Path("/anywhere") / DUPLICATES_DIR_NAME)
+    assert scanner._should_skip_dir(Path("/anywhere") / "FableGear Archive")
 
 
 def test_destination_keeps_the_path_relative_to_the_library(tmp_path, library):
@@ -278,3 +299,141 @@ def test_the_pruner_never_touches_rekordbox():
     source = (REPO_ROOT / "chop_shop" / "pruner.py").read_text()
     for banned in ("pyrekordbox", "db_connection", "write_db", "DjmdContent", "master.db"):
         assert banned not in source.replace("Rekordbox's own database is never opened or written", ""), banned
+
+
+# ── Savepoint before the first change ────────────────────────────────────────
+
+def test_the_library_database_is_snapshotted_before_anything_changes(archive, library, tmp_path):
+    keeper, dup = library / "House" / "k.mp3", library / "Techno" / "d.mp3"
+    _track(archive, keeper)
+    _track(archive, dup)
+
+    summary = _remove(archive, library, dup, keeper)
+
+    snaps = list((tmp_path / "FableGear Archive" / "Savepoints" / "FableGear Library").glob("fablegear.backup_*_deduplicate.db"))
+    assert len(snaps) == 1 and not summary["errors"]
+    import sqlite3
+    with sqlite3.connect(snaps[0]) as conn:           # it holds the state BEFORE the removal
+        assert conn.execute("SELECT COUNT(*) FROM fg_content WHERE file_path = ?", (str(dup),)).fetchone() == (1,)
+
+
+def test_savepoints_never_land_where_the_rekordbox_restore_looks(tmp_path):
+    # routes_undo restores only "master.backup_*" files; ours must not match that.
+    assert "master.backup_" not in "fablegear.backup_20260101_deduplicate.db"
+
+
+def test_no_savepoint_means_nothing_is_changed(archive, library, monkeypatch):
+    keeper, dup = library / "House" / "k.mp3", library / "Techno" / "d.mp3"
+    _track(archive, keeper)
+    _track(archive, dup)
+
+    def refuse(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(archive, "snapshot", refuse)
+
+    summary = _remove(archive, library, dup, keeper)
+
+    assert summary["files_moved"] == 0 and "savepoint" in summary["errors"][0]
+    assert dup.exists() and archive.get_content_by_path(str(dup)) is not None
+
+
+def test_only_the_newest_savepoints_are_kept(archive, tmp_path):
+    folder = tmp_path / "snaps"
+    for _ in range(4):
+        archive.snapshot(folder, "deduplicate", keep=2)
+    assert len(list(folder.glob("fablegear.backup_*_deduplicate.db"))) == 2
+
+
+# ── Undo ─────────────────────────────────────────────────────────────────────
+
+def _undo(archive, monkeypatch, endpoint, payload):
+    from flask import Flask
+
+    import routes_undo
+    monkeypatch.setattr(routes_undo, "_fg_archive_db", lambda: archive)
+    with Flask(__name__).test_request_context(method="POST", json=payload):
+        resp = getattr(routes_undo, endpoint)()
+    return resp.get_json()
+
+
+def _journal(archive):
+    return _sql(archive, "SELECT id, file_path, metadata FROM fg_processing_log WHERE operation_type = 'prune' ORDER BY id")
+
+
+def test_remove_is_journaled_where_it_is_now_and_where_it_came_from(archive, library):
+    keeper, dup = library / "House" / "k.mp3", library / "Techno" / "d.mp3"
+    _track(archive, keeper)
+    _track(archive, dup, artist="Someone")
+    summary = _remove(archive, library, dup, keeper)
+
+    (_rid, file_path, meta), = _journal(archive)
+    meta = json.loads(meta)
+    assert file_path == str(Path(summary["duplicates_dir"]) / "Music" / "Techno" / "d.mp3")
+    assert meta["from"] == str(dup) and meta["kept"] == str(keeper)
+    assert meta["row"]["artist"] == "Someone"
+
+
+def test_undo_puts_the_file_and_its_track_entry_back(archive, library, monkeypatch):
+    keeper, dup = library / "House" / "k.mp3", library / "Techno" / "d.mp3"
+    _track(archive, keeper)
+    _track(archive, dup, artist="Someone", bpm=126.0)
+    _remove(archive, library, dup, keeper)
+    (row_id, _fp, _meta), = _journal(archive)
+
+    out = _undo(archive, monkeypatch, "undo_operations_revert",
+                {"type": "prune", "first_id": row_id, "last_id": row_id})
+
+    assert out["ok"] and out["reverted"] == 1 and not out["errors"]
+    assert dup.is_file()
+    restored = archive.get_content_by_path(str(dup))
+    assert restored is not None and restored.artist == "Someone" and restored.bpm == 126.0
+
+
+def test_undo_is_blocked_when_the_original_spot_is_taken(archive, library, monkeypatch):
+    keeper, dup = library / "House" / "k.mp3", library / "Techno" / "d.mp3"
+    _track(archive, keeper)
+    _track(archive, dup)
+    _remove(archive, library, dup, keeper)
+    (row_id, _fp, _meta), = _journal(archive)
+    dup.write_bytes(b"something new")
+
+    out = _undo(archive, monkeypatch, "undo_operations_preview",
+                {"type": "prune", "first_id": row_id, "last_id": row_id})
+
+    assert out["revertible"] == 0 and out["blocked"] == 1
+    assert dup.read_bytes() == b"something new"
+
+
+def test_prune_shows_up_as_a_revertible_session(archive, library, monkeypatch):
+    keeper, dup = library / "House" / "k.mp3", library / "Techno" / "d.mp3"
+    _track(archive, keeper)
+    _track(archive, dup)
+    _remove(archive, library, dup, keeper)
+    from flask import Flask
+
+    import routes_undo
+    monkeypatch.setattr(routes_undo, "_fg_archive_db", lambda: archive)
+    with Flask(__name__).test_request_context():
+        sessions = routes_undo.undo_operations().get_json()["sessions"]
+    assert any(x["type"] == "prune" and x["revertible"] for x in sessions)
+
+
+def test_tests_never_touch_the_real_archive():
+    assert "FableGear Archive" in str(pruner._config.SAVEPOINTS_DIR)
+    assert str(pruner._config.SAVEPOINTS_DIR).startswith(str(Path(__file__).resolve().anchor)) and "/Volumes/" not in str(pruner._config.SAVEPOINTS_DIR)
+    assert "pytest" in str(pruner._config.SAVEPOINTS_DIR)
+
+
+def test_the_web_remove_saves_a_report_in_the_archive(tmp_path, monkeypatch):
+    import routes_tools
+    monkeypatch.setattr(routes_tools.config if hasattr(routes_tools, "config") else __import__("config"),
+                        "REPORTS_DIR", tmp_path / "FableGear Archive" / "Reports")
+    out = routes_tools._write_prune_report(["Duplicates folder → x", "Files moved: 1"])
+    assert out is not None and out.parent == tmp_path / "FableGear Archive" / "Reports" / "Prune"
+    assert "Files moved: 1" in out.read_text()
+
+
+def test_a_missing_archive_never_fails_the_run(monkeypatch):
+    import routes_tools
+    monkeypatch.setattr(__import__("config"), "REPORTS_DIR", Path("/proc/definitely/not/writable"))
+    assert routes_tools._write_prune_report(["x"]) is None

@@ -314,11 +314,16 @@ def undo_trash_restore():
 #   relocate          — Rekordbox DB FolderPath was updated old→new:
 #                       update it back new→old when the original file path
 #                       still exists on disk (the typical "wrong root" fix).
-# prune is deliberately absent — pruned files restore via the Trash tab.
+#   prune             — De-Duplicate moved the file into the Archive's Duplicates
+#                       folder: move it back (original slot must be free) and
+#                       re-add its track entry. Playlist slots, cues and beat
+#                       grids were moved to the kept track and stay there.
+#                       Removals made before De-Duplicate went to the Trash
+#                       folder instead; those restore via the Trash tab.
 # convert is listed read-only: the original was re-encoded and cannot be
 # recreated by moving files around.
 
-_REVERTIBLE = {"organize", "rename", "novelty_copy", "relocate"}
+_REVERTIBLE = {"organize", "rename", "novelty_copy", "relocate", "prune"}
 _SESSION_GAP_SEC = 15 * 60
 
 
@@ -356,7 +361,7 @@ def undo_operations():
                 """
                 SELECT id, operation_type, file_path, completed_at, metadata
                 FROM fg_processing_log
-                WHERE operation_type IN ('organize', 'rename', 'novelty_copy', 'convert', 'relocate')
+                WHERE operation_type IN ('organize', 'rename', 'novelty_copy', 'convert', 'relocate', 'prune')
                 ORDER BY id DESC LIMIT ?
                 """,
                 (limit,),
@@ -426,6 +431,8 @@ def _build_revert_plan(op_type: str, first_id: int, last_id: int) -> dict:
         src = Path(meta["from"]) if meta.get("from") else None
 
         item = {"id": row_id, "current": dest_str, "returns_to": str(src) if src else None}
+        if op_type == "prune" and isinstance(meta.get("row"), dict):
+            item["row"] = meta["row"]
         if op_type == "novelty_copy":
             # Copy-undo: remove the copy (source was never touched).
             if dest and dest.exists():
@@ -470,6 +477,17 @@ def _build_revert_plan(op_type: str, first_id: int, last_id: int) -> dict:
         plan["items"].append(item)
         plan["revertible" if item["ok"] else "blocked"] += 1
     return plan
+
+
+def _restore_pruned_entry(db, row: dict | None, path: Path) -> None:
+    """Undo of De-Duplicate: re-add the track entry that was removed, pointing at the restored file."""
+    if not row or db.get_content_by_path(str(path)) is not None:
+        return
+    from fablegear_database.database import ContentRecord
+    fields = {k: v for k, v in row.items() if k in ContentRecord.__dataclass_fields__ and k not in ("cues", "beatgrid")}
+    fields["file_path"] = str(path)
+    fields["file_name"] = path.name
+    db.insert_content(ContentRecord(**fields))
 
 
 @bp.route("/api/undo/operations/preview", methods=["POST"])
@@ -607,7 +625,9 @@ def undo_operations_revert():
                 try:
                     # relocate reverts update the RB DB directly via
                     # update_content_path — no archive relink needed there.
-                    if op_type != "relocate":
+                    if op_type == "prune":
+                        _restore_pruned_entry(db, item.get("row"), new_path)
+                    elif op_type != "relocate":
                         rec = db.get_content_by_path(str(current))
                         if rec and rec.id is not None:
                             db.relink_content(rec.id, str(new_path))

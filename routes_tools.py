@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from flask import Blueprint, Response, jsonify, request, send_file
@@ -1084,6 +1085,21 @@ def api_open_file():
         return api_error_from_exc(exc)
 
 
+def _write_prune_report(lines: list[str]) -> Path | None:
+    """Save a De-Duplicate Remove run to Archive/Reports/Prune/prune_<time>.txt, like the CLI does.
+    Returns the file, or None when the Archive is unavailable (never fails the run)."""
+    try:
+        import config
+        folder = Path(config.REPORTS_DIR) / "Prune"
+        folder.mkdir(parents=True, exist_ok=True)
+        out = folder / f"prune_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return out
+    except Exception as exc:
+        log.warning("Could not write the De-Duplicate report: %s", exc)
+        return None
+
+
 @bp.route("/api/run/prune")
 def api_run_prune():
     """
@@ -1169,14 +1185,24 @@ def api_run_prune():
                 log_q.put(("done", 1))
                 return
 
+            report_lines: list[str] = []
+
+            def _log_line(m: str) -> None:
+                report_lines.append(m)
+                log_q.put(("line", m))
+
             summary = prune_files(
                 paths,
                 archive=_fg_archive,
-                log=lambda m: log_q.put(("line", m)),
+                log=_log_line,
                 keeper_map=keeper_map,
                 should_cancel=_PRUNE_CANCEL_EVENT.is_set,
                 library_root=staged.get("library_root") or None,
             )
+
+            _report_file = _write_prune_report(report_lines)
+            if _report_file:
+                log_q.put(("line", f"Report saved to: {_report_file}"))
 
             if summary.get("cancelled"):
                 log_q.put(("line", "[ERROR] Prune cancelled before completion."))
