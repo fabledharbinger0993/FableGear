@@ -36,6 +36,7 @@ const ctx = {
   setTimeout, clearTimeout, setInterval, clearInterval, Set, Map, Date, JSON, Math, Array, Object, String, Number,
   parseFloat, encodeURIComponent, Promise,
   showToast(){}, addEventListener(){}, __applied: 0, __fetches: [], __next: [], __statusBody: null,
+  __holdNextTracks: false, __resolveHeldTracks: null, __dropCalls: [], __playlistButton: null,
 };
 ctx.window = ctx;
 ctx.globalThis = ctx;
@@ -44,13 +45,27 @@ ctx.fetch = (url) => {
   if (String(url).includes('import-sources/status')) {
     return Promise.resolve({ json: async () => ctx.__statusBody });
   }
+  if (String(url).includes('/api/library/db/import')) {
+    return Promise.resolve({ ok: true, json: async () => ({
+      new_files: 1, content_ids: { '/music/drop.mp3': 42 },
+    }) });
+  }
+  if (String(url).includes('/api/library/playlists/')) {
+    return Promise.resolve({ ok: true, json: async () => ({ added: 1 }) });
+  }
+  if (String(url).includes('/api/library/tracks?db=fablegear') && ctx.__holdNextTracks) {
+    ctx.__holdNextTracks = false;
+    return new Promise(resolve => {
+      ctx.__resolveHeldTracks = tracks => resolve({ ok: true, json: async () => tracks });
+    });
+  }
   return Promise.resolve({ ok: true, json: async () => ctx.__next });
 };
 vm.createContext(ctx);
 vm.runInContext(
   "function _leGetState(k, f) { if (window[k] === undefined) window[k] = f; return window[k]; }",
   ctx);
-for (const f of ['static/record_room/library_editor.js', 'static/chop_shop/tool_modal.js', 'static/shared/boot.js']) {
+for (const f of ['static/record_room/library_editor.js', 'static/chop_shop/tool_modal.js', 'static/shared/boot.js', 'static/record_room/library_mode.js']) {
   vm.runInContext(fs.readFileSync(root + '/' + f, 'utf8'), ctx, { filename: f });
 }
 // Stand-ins for the DOM-heavy helpers: record that the filter pass ran and
@@ -95,14 +110,29 @@ const tick = () => new Promise(r => setTimeout(r, 5));
   await Promise.all([run('leRefreshLibraryLive()'), run('leRefreshLibraryLive()')]);
   out.overlapFetches = ctx.__fetches.length - before;
 
-  // 5. Not in the FableGear database source: no fetch.
+  // 5. A refresh requested during an in-flight fetch is coalesced into a follow-up.
+  const beforePending = ctx.__fetches.length;
+  ctx.__holdNextTracks = true;
+  ctx.__next = [{ id: 'before-final-batch' }];
+  const inFlight = run('leRefreshLibraryLive()');
+  await tick();
+  run('leRefreshLibraryLive()');
+  out.pendingFetchesBeforeResolve = ctx.__fetches.length - beforePending;
+  ctx.__next = [{ id: 'final-batch' }];
+  ctx.__resolveHeldTracks([{ id: 'before-final-batch' }]);
+  await inFlight;
+  await tick();
+  out.pendingRefreshFetches = ctx.__fetches.length - beforePending;
+  out.pendingRefreshTrackId = run('_leAllTracks[0].id');
+
+  // 6. Not in the FableGear database source: no fetch.
   ctx.window._leDbSource = 'local';
   const beforeLocal = ctx.__fetches.length;
   await run('leRefreshLibraryLive()');
   out.localFetches = ctx.__fetches.length - beforeLocal;
   ctx.window._leDbSource = 'fablegear';
 
-  // 6. boot.js: an importing tick triggers a refresh; a repeat tick inside the
+  // 7. boot.js: an importing tick triggers a refresh; a repeat tick inside the
   //    throttle window does not; completion triggers one final refresh.
   let refreshes = 0;
   ctx.window.leRefreshLibraryLive = () => { refreshes++; };
@@ -116,6 +146,32 @@ const tick = () => new Promise(r => setTimeout(r, 5));
                        result: { new_files: 10, updated_files: 0, skipped_files: 0, error_files: 0 } };
   run('_pollBackgroundImport()'); await tick();
   out.completionRefreshes = refreshes;
+
+  // 8. A successful drop reloads the library and restores the active playlist.
+  run(`
+    _leActivePlaylistId = 7;
+    _leActivePlaylistName = 'Crate';
+    leLoadLibrary = async function () {
+      __dropCalls.push('loadLibrary');
+      __playlistButton = { rebuilt: true };
+    };
+    leSelectPlaylist = async function (node, button) {
+      __dropCalls.push('selectPlaylist:' + node.id + ':' + node.name);
+      __dropCalls.push(button === __playlistButton ? 'rebuiltButton' : 'wrongButton');
+    };
+  `);
+  ctx.__playlistButton = null;
+  ctx.document.querySelector = selector => {
+    ctx.__dropSelector = selector;
+    return ctx.__playlistButton;
+  };
+  await ctx.window.leTrackListDrop({
+    preventDefault(){},
+    currentTarget: { classList: { remove(){} } },
+    dataTransfer: { getData: type => type === 'text/plain' ? '/music/drop.mp3' : '' },
+  });
+  out.dropSelector = ctx.__dropSelector;
+  out.dropCalls = ctx.__dropCalls;
 
   console.log(JSON.stringify(out));
 })().catch(e => console.log(JSON.stringify({ threw: String(e && e.stack || e) })));
@@ -156,8 +212,14 @@ def test_source_view_is_not_replaced(out):
     assert out["sourceBaseKept"] == "kept"
 
 
-def test_overlapping_refreshes_collapse_to_one_fetch(out):
-    assert out["overlapFetches"] == 1
+def test_overlapping_refreshes_queue_one_followup_fetch(out):
+    assert out["overlapFetches"] == 2
+
+
+def test_refresh_requested_during_fetch_runs_after_it_finishes(out):
+    assert out["pendingFetchesBeforeResolve"] == 1
+    assert out["pendingRefreshFetches"] == 2
+    assert out["pendingRefreshTrackId"] == "final-batch"
 
 
 def test_non_fablegear_source_is_not_refreshed(out):
@@ -175,3 +237,8 @@ def test_onboarding_wizard_has_continue_in_background_button():
     assert 'id="import-background-btn"' in html
     assert "continueImportInBackground()" in html
     assert "_obImportBackgrounded" in html
+
+
+def test_playlist_drop_restores_the_active_playlist_after_reload(out):
+    assert out["dropSelector"] == '.le-tree-item[data-id="7"]'
+    assert out["dropCalls"] == ["loadLibrary", "selectPlaylist:7:Crate", "rebuiltButton"]
