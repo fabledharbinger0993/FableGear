@@ -914,22 +914,30 @@ def _persist_process_results(all_results, archive) -> int:
     if archive is None:
         return 0
     entries = []
+    existing_entries = []
     for r in all_results:
-        if r.bpm_detected is None and r.key_detected is None:
+        if (r.bpm_detected is None and r.key_detected is None
+                and r.bpm_existing is None and r.key_existing is None):
             continue
         try:
             size = r.path.stat().st_size
         except OSError:
             size = 0
-        entries.append((str(r.path), r.bpm_detected, r.key_detected, size))
+        if r.bpm_detected is not None or r.key_detected is not None:
+            entries.append((str(r.path), r.bpm_detected, r.key_detected, size))
+        # Tags other tools wrote (detection was skipped): fill gaps in the database.
+        if r.bpm_existing is not None or r.key_existing is not None:
+            existing_entries.append((str(r.path), r.bpm_existing, r.key_existing, size))
     try:
         written = archive.bulk_set_analysis(entries)
+        archive.bulk_fill_analysis(existing_entries)
         archive.log_operation(
             "tag_tracks",
             status="ok",
             metadata={
                 "files_processed": len(all_results),
                 "analysis_persisted": written,
+                "existing_tags_recorded": len(existing_entries),
                 "bpm_written": sum(1 for r in all_results if r.bpm_written),
                 "key_written": sum(1 for r in all_results if r.key_written),
                 "normalized": sum(1 for r in all_results if r.normalised),
@@ -947,7 +955,7 @@ def _persist_process_results(all_results, archive) -> int:
 
 def _run_shared_report(args, all_results, root_sections, _quarantine_dir) -> None:
     """
-    Build and emit the Tag Tracks / Normalize completion report.
+    Build and emit the Forge / Normalize completion report.
     Called from both the directory-scan and --paths-file retry branches of cmd_process.
     """
 
@@ -1049,7 +1057,7 @@ def _run_shared_report(args, all_results, root_sections, _quarantine_dir) -> Non
         if decode_results:
             report_lines.append(f"  ⚠  Audio Decode Failures ({len(decode_results)})")
             report_lines.append("     File opened, but audio couldn't be decoded — BPM/key were skipped.")
-            report_lines.append("     → Convert these files to MP3 or AIFF first, then re-run Tag Tracks.")
+            report_lines.append("     → Convert these files to MP3 or AIFF first, then re-run Forge.")
             for r in decode_results[:12]:
                 report_lines.append(f"       • {r.path.name}")
             if len(decode_results) > 12:
@@ -2420,8 +2428,8 @@ def cmd_process(args: argparse.Namespace) -> None:
 
     archive = _archive()
     if archive is None and (detect_bpm or detect_key or normalise or enrich_tags or rename_mode != "off"):
-        log.error("FableGear archive unavailable — refusing Tag Tracks run because writes would be unlogged.")
-        print("[ERROR] FableGear archive unavailable — Tag Tracks requires archive logging for all actions.", flush=True)
+        log.error("FableGear archive unavailable — refusing Forge run because writes would be unlogged.")
+        print("[ERROR] FableGear archive unavailable — Forge requires archive logging for all actions.", flush=True)
         sys.exit(2)
 
     # ── Specific-file retry mode ────────────────────────────────────────────
@@ -2838,7 +2846,7 @@ def cmd_process(args: argparse.Namespace) -> None:
         if decode_results:
             report_lines.append(f"  ⚠  Audio Decode Failures ({len(decode_results)})")
             report_lines.append("     File opened, but audio couldn't be decoded — BPM/key were skipped.")
-            report_lines.append("     → Convert these files to MP3 or AIFF first, then re-run Tag Tracks.")
+            report_lines.append("     → Convert these files to MP3 or AIFF first, then re-run Forge.")
             _MAX = 12
             for r in decode_results[:_MAX]:
                 report_lines.append(f"       • {r.path.name}")

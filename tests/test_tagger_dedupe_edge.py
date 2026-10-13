@@ -80,6 +80,64 @@ def test_tagger_persist_does_not_clobber_existing_values(archive, tmp_path):
     assert rec.key == "6A"
 
 
+def test_forge_records_existing_tags_for_skipped_files(archive, tmp_path):
+    """A file tagged by another tool (detection skipped) still reaches the database."""
+    from audio_processor import ProcessResult
+    from cli import _persist_process_results
+
+    f1 = _make_file(tmp_path, "mik.mp3")
+    _persist_process_results([ProcessResult(path=f1, bpm_existing=126.0, key_existing="4A")], archive)
+
+    rec = archive.get_content_by_path(str(f1))
+    assert rec is not None and rec.bpm == 126.0 and rec.key == "4A"
+
+
+def test_forge_existing_tags_never_overwrite_database_values(archive, tmp_path):
+    from audio_processor import ProcessResult
+    from cli import _persist_process_results
+
+    f1 = _make_file(tmp_path, "a.mp3")
+    archive.bulk_set_analysis([(str(f1), 128.0, "8A", 64)])  # a fresh Iron result
+
+    _persist_process_results([ProcessResult(path=f1, bpm_existing=64.0, key_existing="3B")], archive)
+
+    rec = archive.get_content_by_path(str(f1))
+    assert rec.bpm == 128.0 and rec.key == "8A"
+
+
+def test_forge_mixed_detected_and_existing(archive, tmp_path):
+    from audio_processor import ProcessResult
+    from cli import _persist_process_results
+
+    f1 = _make_file(tmp_path, "a.mp3")
+    _persist_process_results(
+        [ProcessResult(path=f1, bpm_detected=130.0, key_existing="2A")], archive)
+
+    rec = archive.get_content_by_path(str(f1))
+    assert rec.bpm == 130.0 and rec.key == "2A"
+
+
+def test_process_file_reports_existing_tags_when_skipping(tmp_path, monkeypatch):
+    import anvil
+    import audio_processor as ap
+
+    f = tmp_path / "x.mp3"
+    f.write_bytes(b"\x00" * 64)
+    monkeypatch.setattr(ap.anvil, "read_fields",
+                        lambda path: anvil.TrackFields(bpm=122.0, initial_key="7A"))
+    def iron(path, *, bpm, key):  # nothing may be asked of the detector
+        assert not bpm and not key
+        return None, None
+
+    monkeypatch.setattr(ap, "_analyze_iron", iron)
+
+    res = ap.process_file(f, detect_bpm=True, detect_key=True, normalise=False)
+
+    assert res.skipped_bpm and res.skipped_key
+    assert res.bpm_existing == 122.0 and res.key_existing == "7A"
+    assert res.bpm_detected is None and res.key_detected is None
+
+
 # ── 2/3/4. Deduper reuse, write-back, staleness ──────────────────────────────
 
 def _fp_stub(fingerprints: dict):

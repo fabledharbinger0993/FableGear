@@ -60,7 +60,7 @@ def fill_missing_from_tags(track) -> None:
     """Fill a track's missing key and BPM from the audio file's own tags.
 
     FableGear's library takes key/BPM from Rekordbox's database, so a track that was
-    only tagged (Tag Tracks writes Iron's result into the file) has nothing in the
+    only tagged (Forge writes Iron's result into the file) has nothing in the
     library and would reach the USB with no key. The file is what gets copied to the
     stick, so whatever the file says should travel with it. The library value always
     wins: a key Rekordbox analysed is never overridden by a tag.

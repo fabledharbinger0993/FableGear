@@ -435,6 +435,35 @@ class FableGearDatabase:
             conn.executemany(sql, rows)
         return len(rows)
 
+    def bulk_fill_analysis(
+        self, entries: list[tuple[str, float | None, str | None, int]]
+    ) -> int:
+        """
+        Record BPM / key that were already in the files' tags, where the database
+        has none. Unlike bulk_set_analysis, a value already in fg_content wins:
+        these are other tools' tags, not a fresh Iron measurement.
+
+        entries: (file_path, bpm, key, file_size).
+        """
+        if not entries:
+            return 0
+        sql = (
+            "INSERT INTO fg_content (file_path, file_name, file_size, bpm, key) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(file_path) DO UPDATE SET "
+            "  bpm = COALESCE(bpm, excluded.bpm), "
+            "  key = COALESCE(key, excluded.key), "
+            "  file_size = excluded.file_size, "
+            "  updated_at = datetime('now', 'localtime')"
+        )
+        rows = [
+            (path, Path(path).name, file_size, bpm, key)
+            for path, bpm, key, file_size in entries
+        ]
+        with self.transaction() as conn:
+            conn.executemany(sql, rows)
+        return len(rows)
+
     def delete_content(self, record_id: int) -> bool:
         """
         Delete a content record by ID.

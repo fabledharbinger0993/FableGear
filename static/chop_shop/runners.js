@@ -5,7 +5,7 @@
    Original source lines: 2133-2425
    ──────────────────────────────────────────────────────────────────────── */
 
-// ── Error summary from last Tag Tracks / Normalize run ──────────────────────
+// ── Error summary from last Forge / Normalize run ──────────────────────
 let _lastErrorSummary = null;   // populated by FABLEGEAR_ERROR_SUMMARY line
 
 function _retryErroredCount() {
@@ -132,7 +132,7 @@ function _doRunProcess(paths) {
     enrichMode === 'off' &&
     renameMode === 'off'
   ) {
-    showToast('All Tag Tracks modes are Off — enable at least one effect.', 'warning');
+    showToast('All Forge modes are Off — enable at least one effect.', 'warning');
     return;
   }
 
@@ -154,12 +154,12 @@ function _doRunProcess(paths) {
     rename_mode: renameMode,
   });
   document.getElementById('step-process')?.querySelector('.tool-resume-banner')?.remove();
-  runCommand(`/api/run/process?${p}`, 'Tag Tracks — BPM & Key Detection',
+  runCommand(`/api/run/process?${p}`, 'Forge — BPM & Key Detection',
     ec => { if (ec === 0) _clearToolCkpt('process'); }, true, false);
 }
 
 function _runProcessRetry(body) {
-  const label = `Tag Tracks — Retry ${body.paths.length} errored track${body.paths.length === 1 ? '' : 's'}`;
+  const label = `Forge — Retry ${body.paths.length} errored track${body.paths.length === 1 ? '' : 's'}`;
   if (isRunning) return;
   initLog(label);
   showScanBar(label);
@@ -396,7 +396,7 @@ function runConvert() {
 
 const PIPE_STEPS = {
   audit:      { name: 'Library Audit',      icon: '/static/icon-settings.png',          desc: 'DB snapshot + physical filesystem inventory' },
-  process:    { name: 'Tag Tracks',         icon: '/static/icon-track-tagger.png',   desc: 'Write BPM and Key into each file' },
+  process:    { name: 'Forge',         icon: '/static/icon-track-tagger.png',   desc: 'Iron finds BPM and Key; Anvil tags the file; the database is updated' },
   rename:     { name: 'Rename Files',       icon: '/static/icon-renamer.png',        desc: 'Clean filenames using embedded metadata' },
   duplicates: { name: 'Find Duplicates',    icon: '/static/icon-deduper.png',        desc: 'Scan for files that are the same recording' },
   prune:      { name: 'Prune Duplicates',   icon: '/static/icon-deduper.png',          desc: 'Remove copies found by Find Duplicates' },

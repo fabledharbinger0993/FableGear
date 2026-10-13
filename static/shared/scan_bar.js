@@ -298,7 +298,7 @@ function runCommand(url, logTitle, onDone, useBar = true, showPrefilter = false)
             if (pf.skipped > 0) {
               appendLog(`Pre-filter: ${pf.candidates.toLocaleString()} of ${pf.total.toLocaleString()} need fingerprinting — ${pf.skipped.toLocaleString()} skipped (no matching key+BPM+duration)`, 'success');
             } else {
-              appendLog(`Pre-filter: all ${pf.total.toLocaleString()} files queued — no index yet. Run Audit + Tag Tracks first to reduce this.`, 'warn');
+              appendLog(`Pre-filter: all ${pf.total.toLocaleString()} files queued — no index yet. Run Audit + Forge first to reduce this.`, 'warn');
             }
             if (pf.cached > 0) {
               appendLog(`Cache: ${pf.cached.toLocaleString()} fingerprints reused — only ${pf.to_compute.toLocaleString()} files need fpcalc`, 'success');
