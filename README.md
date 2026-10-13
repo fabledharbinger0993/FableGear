@@ -98,10 +98,10 @@ flowchart TD
 
     CS1["Forge"]
     CS2["De-Duplicate"]
-    CS3["Rename Files"]
-    CS4["Organize Library"]
-    CS5["Normalize Loudness"]
-    CS6["Convert Format"]
+    CS3["Re-Name"]
+    CS4["Re-Organize"]
+    CS5["Forge: Quench"]
+    CS6["Re-Factor"]
     CS7["Novelty Scanner"]
 
     CS --> CS1
@@ -138,12 +138,12 @@ These tools work on your physical audio files, not the Rekordbox database.
 
 | Tool | What it does |
 |---|---|
-| **Forge** | Analyzes your audio with FableGear's own detectors (Iron finds BPM and key; Anvil reads and writes the tags) and saves BPM and musical key both into the file's metadata and into the FableGear database (the source for the Pioneer USB export). This means the info survives even if you rebuild your Rekordbox database or use the files outside Rekordbox. |
+| **Forge** | Analyzes your audio with FableGear's own detectors (Iron finds BPM and key; Anvil reads and writes the tags) and saves BPM and musical key both into the file's metadata and into the FableGear database. Carrying BPM and key onto a Pioneer USB is still being built (the Record Room export does not pass them yet). This means the info survives even if you rebuild your Rekordbox database or use the files outside Rekordbox. |
 | **De-Duplicate** | Step 1 uses acoustic fingerprinting to detect the same recording even when the filenames, formats, or bitrates are different (not just a filename check -- it listens to the audio). Step 2 moves the extra copies into the `Duplicates` folder of your `FableGear Archive` (beside your library, skipped by every scan) and removes them from the FableGear database, after taking a savepoint of it. Nothing is deleted, the Undo screen can put files and entries back, and Rekordbox's own database is never touched. |
-| **Rename Files** | Batch rename files using patterns or learned rules from example pairs. Shows you a preview before anything changes. |
-| **Organize Library** | Rebuilds your folder structure based on embedded metadata (artist, album, etc.). Handles album artist intelligently so featured artists don't create extra folders. |
-| **Normalize Loudness** | Measures loudness (EBU R128) and re-encodes tracks that fall outside your target level. Preview and backup included. |
-| **Convert Format** | Re-encodes a folder of audio files into a target format (e.g., FLAC to AIFF, WAV to MP3). |
+| **Re-Name** | Batch rename files using patterns or learned rules from example pairs. Shows you a preview before anything changes. |
+| **Re-Organize** | Rebuilds your folder structure based on embedded metadata (artist, album, etc.). Handles album artist intelligently so featured artists don't create extra folders. |
+| **Quench** (inside Forge) | Measures loudness (EBU R128) and re-encodes tracks that fall outside your target level. It is off by default, because it is the one step that rewrites audio. Preview and backup included. |
+| **Re-Factor** | Re-encodes a folder of audio files into a target format (e.g., FLAC to AIFF, WAV to MP3). |
 | **Novelty Scanner** | Scans another drive for tracks that are not already in your main library, based on acoustic fingerprints. Useful for finding new music across external drives or a friend's collection. |
 
 > **A note on accuracy.** BPM detection is the strongest part of the analysis. Key detection is a best guess and is wrong noticeably more often, so spot-check keys before you rely on them for harmonic mixing.
@@ -253,7 +253,7 @@ FableGear checks for all three and tells you what's missing; it never installs o
 For large or older libraries, a safe order of operations is:
 
 ```
-Audit --> Fix paths --> Detect duplicates --> Tag / Normalize --> Organize --> Import --> Relink playlists
+Audit --> Fix paths --> De-Duplicate --> Forge (tag / quench) --> Re-Organize --> Import --> Relink playlists
 ```
 
 ---

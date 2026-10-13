@@ -4074,6 +4074,11 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   vertical-align: middle;
   margin-left: 6px;
 }
+.field-badge.danger {
+  background: rgba(var(--danger-rgb, 239,68,68),.15);
+  color: var(--danger, #ef4444);
+  border: 1px solid rgba(var(--danger-rgb, 239,68,68),.3);
+}
 .field-badge.caution {
   background: rgba(var(--caution-rgb, 255,170,0),.15);
   color: var(--caution, #ffa500);
@@ -5733,7 +5738,6 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
 /* ── Card CSS-variable watermarks ──────────────────────────────────────── */
 #step-process    { --card-watermark: url('/static/icon-track-tagger.png'); }
 #step-duplicates { --card-watermark: url('/static/icon-deduper.png'); }
-#step-normalize  { --card-watermark: url('/static/icon-normalizer.png'); }
 #step-convert    { --card-watermark: url('/static/icon-converter.png'); }
 #step-organize   { --card-watermark: url('/static/icon-organizer.png'); }
 #step-novelty    { --card-watermark: url('/static/icon-novelty.png'); }

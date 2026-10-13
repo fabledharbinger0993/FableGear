@@ -204,7 +204,6 @@ document.addEventListener('DOMContentLoaded', () => {
   setupFolderZone('audit-zone',     'audit-pills',     'audit-zone-text');
   setupFolderZone('process-zone',   'process-pills',   'process-zone-text');
   setupFolderZone('dupes-zone',     'dupes-pills',     'dupes-zone-text');
-  setupFolderZone('normalize-zone', 'normalize-pills', 'normalize-zone-text');
   setupFolderZone('convert-zone',   'convert-pills',   'convert-zone-text');
   setupFolderZone('novelty-zone',   'novelty-pills',   'novelty-zone-text');
   setupFolderZone('import-zone',    'import-pills',    'import-zone-text');
@@ -218,17 +217,13 @@ document.addEventListener('DOMContentLoaded', () => {
   setupSinglePathZone('novelty-dest-zone',    'novelty-dest');
   setupSinglePathZone('novelty-copy-to-zone', 'novelty-copy-to');
   setupAllDropZones();
-  normPreviewSetupObserver();
   _initToolCheckpoints();
 
   // Pre-populate all music-folder tool zones with the configured music_root.
   // This means every tool (Audit, Duplicates, Convert, etc.) opens pre-filled
   // so the user doesn't have to re-enter the library path every time.
-  // normalize-pills is deliberately excluded: it carries a MutationObserver
-  // (normPreviewSetupObserver) that fires a live loudness-preview scan the
-  // instant a pill is added, so a silent config pre-fill here used to kick
-  // off a real scan against the toolkit's highest-risk tool on every page
-  // load — including a guaranteed failed request when the drive is offline.
+  // The Forge loudness preview (Quench) is a button, never triggered by a pill being
+  // added: pre-filling process-pills here must not start a scan on page load.
   fetch('/api/config')
     .then(r => r.ok ? r.json() : null)
     .then(cfg => {

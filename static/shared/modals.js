@@ -16,7 +16,7 @@ const STEP_PILL_LABELS = {
   'Preview Import — Dry Run':                     'Step 3 Preview',
   'Import — Writing Tracks to Database':          'Step 3 Summary',
   'Link Playlists — Matching Tracks to Folders':  'Step 4 Summary',
-  'Normalize — Loudness to −8.0 LUFS':            'Step 5 Summary',
+  'Forge — Quench (loudness to −8.0 LUFS)':        'Quench Summary',
   'De-Duplicate — Scan: Quick (exact copies)':     'De-Duplicate Scan',
   'De-Duplicate — Scan: Deep (acoustic fingerprint)': 'De-Duplicate Scan',
   'Relocate — Updating File Paths in Database':   'Relocate Summary',
@@ -25,8 +25,8 @@ const STEP_PILL_LABELS = {
 function _pillLabel(title) {
   if (STEP_PILL_LABELS[title]) return STEP_PILL_LABELS[title];
   // Dynamic labels: Organize, Convert, Novelty, Pipeline
-  if (title.startsWith('Organize —'))      return 'Organize Summary';
-  if (title.startsWith('Converting '))     return 'Convert Summary';
+  if (title.startsWith('Re-Organize —'))   return 'Re-Organize Summary';
+  if (title.startsWith('Re-Factor —'))     return 'Re-Factor Summary';
   if (title.startsWith('Novelty Scan —'))  return 'Novelty Summary';
   if (title.startsWith('De-Duplicate — Remove')) return 'De-Duplicate Remove';
   if (title.startsWith('Running Pipeline') || title.startsWith('Pipeline —')) return 'Pipeline Summary';
@@ -136,7 +136,7 @@ function _populateErrorActions(scanTitle) {
     hasAny = true;
     const b = document.createElement('button');
     b.className = 'rmod-ea-btn convert';
-    b.textContent = `${s.decode_failed.length} need conversion first — open Convert tool`;
+    b.textContent = `${s.decode_failed.length} need conversion first — open Re-Factor`;
     b.onclick = () => {
       closeReportModal(false);
       document.getElementById('step-convert')?.scrollIntoView({ behavior: 'smooth', block: 'start' });

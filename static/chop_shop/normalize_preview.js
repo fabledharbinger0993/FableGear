@@ -8,20 +8,22 @@
 /* ── Normalize loudness preview player ──────────────────────────────────────
    4 glowing sample rows: quietest original, quietest normalised,
    loudest original, loudest normalised.
-   Triggered automatically whenever a folder is added to normalize-pills.     */
+   Quench preview: runs when the user presses "Preview loudness" in the Forge card, on the
+   first Forge folder. Never automatic -- the Forge folder is pre-filled with the music
+   library, so an automatic scan would run on every page load.                          */
 
 let _normPreviewJobId = null;
 let _normPreviewTimer = null;
 let _normActiveAudio  = null;   // currently-playing Audio element
 
-function normPreviewSetupObserver() {
-  const pills = document.getElementById('normalize-pills');
-  if (!pills) return;
-  new MutationObserver(() => {
-    const paths = getFolderPaths('normalize-pills');
-    if (paths.length > 0) _normPreviewStart(paths[0]);
-    else _normPreviewReset();
-  }).observe(pills, { childList: true });
+function normPreviewRun() {
+  const paths = getFolderPaths('process-pills');
+  if (!paths.length) {
+    _flashNeedsInput('process-pills');
+    showToast('Add a music folder first.', 'warning');
+    return;
+  }
+  _normPreviewStart(paths[0]);
 }
 
 async function _normPreviewStart(folderPath) {

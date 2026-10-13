@@ -4,7 +4,7 @@
       <div class="card-icon caution"><img src="/static/icon-track-tagger.png" alt="Forge"></div>
       <div class="card-meta">
         <div class="card-title">Forge — Detect BPM &amp; Musical Key</div>
-        <div class="card-blurb">Iron finds each track's BPM and musical key; Anvil writes them into the file's tags, and FableGear keeps a copy in its database for your Pioneer USB export. Skips files that already have tags — won't overwrite your Mix In Key work unless you ask it to.</div>
+        <div class="card-blurb">Iron finds each track's BPM and musical key; Anvil writes them into the file's tags, and FableGear keeps a copy in its database. Skips files that already have tags — won't overwrite your Mix In Key work unless you ask it to.</div>
       </div>
       <span class="risk-badge caution">Writes Tags</span>
     </div>
@@ -13,11 +13,12 @@
       <details>
         <summary>How does it detect BPM and key?</summary>
         <div class="explain-body">
-          <p><strong>BPM</strong> is calculated by librosa beat tracking, which analyzes the actual audio waveform for beat
-            patterns — not guessing from the filename. Result is sanity-checked (must be between 30–300 BPM).</p>
-          <p><strong>Key</strong> uses the Krumhansl-Schmuckler algorithm on the audio's chroma features via librosa. The
-            result is translated to whichever notation RekordBox uses (Camelot, Open Key, or standard — whatever's already
-            in your database).</p>
+          <p><strong>Iron</strong>, FableGear's own detector, listens to the actual audio — not the filename — and finds
+            the <strong>BPM</strong> and the <strong>musical key</strong> in one pass. The BPM is sanity-checked (30–300).
+            Keys are written in Camelot notation. If Iron can't answer for a file, librosa (and essentia, if installed) step in
+            as logged fallbacks.</p>
+          <p><strong>Anvil</strong>, FableGear's tag reader and writer, saves the results into the file's tags and reads
+            them back to verify. A copy also goes into the FableGear database. (Carrying BPM and key onto a Pioneer USB is still being built: the Record Room export doesn't pass them yet.)</p>
           <p>Files that already have a BPM or key tag are <strong>skipped by default</strong>. Use the
             <em>Re-detect</em> toggles only if you want to replace existing values.</p>
           <p>Optional <strong>MusicBrainz enrichment</strong> fingerprints each track via AcoustID and fills in missing title, artist, and album tags from the MusicBrainz database. Requires an AcoustID API key in settings.</p>
@@ -27,7 +28,7 @@
         <summary>What could go wrong?</summary>
         <div class="explain-body">
           <p>This modifies the <strong>file tags</strong> (ID3, AIFF metadata etc.). Your audio waveform is untouched —
-            <strong>unless Normalize loudness is checked</strong>, which re-encodes the file to hit the target volume.</p>
+            <strong>unless Quench is switched on</strong>, which re-encodes the file to hit the target volume.</p>
           <p>Edge cases to know about:</p>
           <ul>
             <li>BPM detection can be fooled by very long intros or unusual time signatures. Review results in RekordBox afterward.</li>
@@ -74,14 +75,6 @@
             </select>
           </label>
           <label class="checkbox-label" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
-            <span>Normalize mode</span>
-            <select id="process-normalize-mode" class="settings-path-input" style="max-width:260px">
-              <option value="off" selected>Off</option>
-              <option value="passive">Passive — normalize out-of-range files</option>
-              <option value="aggressive">Aggressive — force normalize all scanned files</option>
-            </select>
-          </label>
-          <label class="checkbox-label" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
             <span>Rename mode</span>
             <select id="process-rename-mode" class="settings-path-input" style="max-width:260px">
               <option value="off" selected>Off</option>
@@ -93,6 +86,68 @@
             <input type="checkbox" id="process-retry-errored">
             <span>Retry errored tracks only <span class="field-badge caution" id="process-retry-count"></span></span>
           </label>
+        </div>
+      </div>
+      <div class="field" id="quench-section">
+        <label>Quench — level the loudness <span class="field-badge danger">Rewrites audio</span></label>
+        <div class="enrichment-option-row">
+          <label class="checkbox-label" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+            <span>Quench mode</span>
+            <select id="process-normalize-mode" class="settings-path-input" style="max-width:290px" onchange="quenchModeChanged()">
+              <option value="off" selected>Off — leave the audio alone</option>
+              <option value="passive">Passive — level only files outside the target</option>
+              <option value="aggressive">Aggressive — level every scanned file</option>
+            </select>
+          </label>
+          <label class="checkbox-label" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+            <span>Parallel workers <span class="label-hint">— 1 for tagging, 4 recommended when Quench is on</span></span>
+            <select id="process-workers" class="settings-path-input" style="max-width:290px" title="Number of files processed at the same time">
+              <option value="1" selected>1 — sequential</option>
+              <option value="2">2 workers</option>
+              <option value="4">4 workers</option>
+              <option value="6">6 workers</option>
+              <option value="8">8 workers</option>
+            </select>
+          </label>
+          <p class="field-hint" id="quench-warning" style="display:none"><strong>Quench rewrites the actual audio file.</strong> Make sure you have an independent backup of your drive first.</p>
+        </div>
+        <details>
+          <summary>What exactly happens to my files?</summary>
+          <div class="explain-body">
+            <p>Each file is measured for integrated loudness (EBU R128). If it's outside −8.0 LUFS ± 0.5 LUFS, the file is re-encoded:</p>
+            <ul>
+              <li><strong>MP3</strong> → re-encoded at 320 kbps CBR (a lossy encode cycle, even at 320)</li>
+              <li><strong>AIFF/WAV</strong> → re-encoded losslessly at the same bit depth as the original</li>
+            </ul>
+            <p>Files already within the window are <strong>left untouched</strong>. The original is renamed to <code>.bak</code> while the new file is written and checked; only then is the <code>.bak</code> deleted.</p>
+            <p><strong>Only quench if uneven levels are a real problem for you.</strong> −8.0 LUFS is the usual DJ target. It is the one Forge step that changes the audio itself, so leave it Off for tag-only runs, and don't run it while Rekordbox is using the drive or during a gig.</p>
+          </div>
+        </details>
+        <div class="btn-row">
+          <button type="button" class="btn btn-secondary" onclick="normPreviewRun()">Preview loudness on the first folder</button>
+        </div>
+        <div id="norm-preview">
+          <div id="norm-preview-status" class="norm-preview-status">
+            Press the button to hear the quietest and loudest tracks before and after.
+          </div>
+          <div id="norm-sample-list">
+            <div class="norm-sample-row norm-sample-placeholder" data-slot="0">
+              <div class="norm-sample-meta"><span class="norm-sample-kind">Quietest</span><span class="norm-sample-tag">Original</span></div>
+              <div class="norm-sample-player"><button class="norm-play-btn" type="button" title="Play audio" disabled></button><div class="norm-progress-track"><div class="norm-progress-fill"></div></div></div>
+            </div>
+            <div class="norm-sample-row norm-sample-placeholder" data-slot="1">
+              <div class="norm-sample-meta"><span class="norm-sample-kind">Quietest</span><span class="norm-sample-tag norm-sample-tag--norm">Quenched  −8 LUFS</span></div>
+              <div class="norm-sample-player"><button class="norm-play-btn" type="button" title="Play audio" disabled></button><div class="norm-progress-track"><div class="norm-progress-fill"></div></div></div>
+            </div>
+            <div class="norm-sample-row norm-sample-placeholder" data-slot="2">
+              <div class="norm-sample-meta"><span class="norm-sample-kind">Loudest</span><span class="norm-sample-tag">Original</span></div>
+              <div class="norm-sample-player"><button class="norm-play-btn" type="button" title="Play audio" disabled></button><div class="norm-progress-track"><div class="norm-progress-fill"></div></div></div>
+            </div>
+            <div class="norm-sample-row norm-sample-placeholder" data-slot="3">
+              <div class="norm-sample-meta"><span class="norm-sample-kind">Loudest</span><span class="norm-sample-tag norm-sample-tag--norm">Quenched  −8 LUFS</span></div>
+              <div class="norm-sample-player"><button class="norm-play-btn" type="button" title="Play audio" disabled></button><div class="norm-progress-track"><div class="norm-progress-fill"></div></div></div>
+            </div>
+          </div>
         </div>
       </div>
       <div class="field">
@@ -110,7 +165,7 @@
         </div>
       </div>
       <div class="btn-row">
-        <button type="button" class="btn btn-neon" onclick="runProcess()">Detect BPM &amp; Key</button>
+        <button type="button" class="btn btn-neon" onclick="runProcess()">Run Forge</button>
       </div>
     </div>
   </div>

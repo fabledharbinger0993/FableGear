@@ -399,7 +399,7 @@ function _pipeWizConfigHTML(step, saved) {
             </select>
           </div>
           <div class="pipe-cfg-field">
-            <label class="pipe-cfg-label">Normalize mode</label>
+            <label class="pipe-cfg-label">Quench mode</label>
             <select class="pipe-cfg-input" data-cfg="normalize_mode">
               <option value="off" ${normalizeMode === 'off' ? 'selected' : ''}>Off</option>
               <option value="passive" ${normalizeMode === 'passive' ? 'selected' : ''}>Passive</option>
@@ -673,16 +673,30 @@ function _resumeProcess(ckpt) {
   if (normalizeMode) normalizeMode.value = ckpt.normalize_mode || 'off';
   const renameMode = document.getElementById('process-rename-mode');
   if (renameMode) renameMode.value = ckpt.rename_mode || 'off';
+  const workers = document.getElementById('process-workers');
+  if (workers && ckpt.workers) workers.value = ckpt.workers;
+  quenchModeChanged();
   document.getElementById('step-process')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   runProcess();
 }
 
+// Interrupted Normalize runs from before Quench moved into Forge resume as a Forge run
+// with BPM/key off and Quench on.
 function _resumeNormalize(ckpt) {
-  _populatePills('normalize-pills', ckpt.paths);
-  const w = document.getElementById('normalize-workers');
-  if (w && ckpt.workers) w.value = ckpt.workers;
-  document.getElementById('step-normalize')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  runNormalize(true); // _skipConfirm = true
+  _populatePills('process-pills', ckpt.paths);
+  const set = (id, value) => { const el = document.getElementById(id); if (el) el.value = value; };
+  set('process-bpm-mode', 'off');
+  set('process-key-mode', 'off');
+  set('process-enrich-mode', 'off');
+  set('process-rename-mode', 'off');
+  set('process-normalize-mode', 'passive');
+  if (ckpt.workers) set('process-workers', ckpt.workers);
+  quenchModeChanged();
+  // The run is now a Forge run with its own checkpoint, so retire the old Normalize one,
+  // or its banner would come back on the next page load and offer to rerun the same job.
+  _clearToolCkpt('normalize');
+  document.getElementById('step-process')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  runProcess(true); // _skipConfirm = true
 }
 
 function _resumeConvert(ckpt) {
@@ -744,7 +758,7 @@ function _resumeRename(ckpt) {
 // ── Init — show banners for any stale checkpoints on page load ───────────────
 function _initToolCheckpoints() {
   _showToolResumeBanner('process',    'step-process',    _resumeProcess);
-  _showToolResumeBanner('normalize',  'step-normalize',  _resumeNormalize);
+  _showToolResumeBanner('normalize',  'step-process',  _resumeNormalize);
   _showToolResumeBanner('convert',    'step-convert',    _resumeConvert);
   _showToolResumeBanner('duplicates', 'step-duplicates', _resumeDuplicates);
   _showToolResumeBanner('organize',   'step-organize',   _resumeOrganize);
@@ -1191,7 +1205,7 @@ function runOrganize() {
   if (parseInt(workers) > 1) p.set('workers', workers);
   if (threshold !== '15') p.set('mix_threshold', threshold);
   const modeLabel = mode === 'integrate' ? 'Integration (copies only, source untouched)' : 'Assimilation (move + clean source)';
-  const label = dryRun ? `Organize — Dry Run · ${modeLabel}` : `Organize — ${modeLabel}`;
+  const label = dryRun ? `Re-Organize — Dry Run · ${modeLabel}` : `Re-Organize — ${modeLabel}`;
   if (!dryRun) {
     _saveToolCkpt('organize', { sources, target, mode, workers, dryRun: false });
     document.getElementById('step-organize')?.querySelector('.tool-resume-banner')?.remove();
