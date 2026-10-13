@@ -98,6 +98,30 @@ body[data-theme="booth"] {
   --accent2:       #e04a30;
   --accent2-dim:   rgba(224, 74, 48, 0.15);
 
+  /* The app's pink "second voice". The Chop Shop room accent (--room-accent) is built on it,
+     so without these the Chop Shop rail, panel borders and headers stayed hot pink. */
+  --accent-b:      #ff6a4a;
+  --accent-b-rgb:  255, 106, 74;
+  --accent-b-dim:  rgba(255, 106, 74, 0.15);
+
+  /* Panel surfaces and accents (tokens added in fablegear.css; defaults are navy/violet/teal/green). */
+  --chop-panel-top-rgb:    30, 11, 9;
+  --chop-panel-bottom-rgb: 14, 5, 4;
+  --chop-card-rgb:         26, 10, 8;
+  --log-bg:                #080203;
+  --violet-rgb:            255, 150, 110;
+  --health-bg-rgb:         44, 16, 11;
+  --health-border-rgb:     255, 120, 80;
+  --pill-text:         #ffc9a8;
+  --pill-text-hi:      #ffe4cc;
+  --pill-on-top-rgb:   88, 26, 14;
+  --pill-on-bottom-rgb:54, 15, 8;
+  --pill-top-rgb:          44, 14, 10;
+  --pill-bottom-rgb:       28, 9, 6;
+  --quenched-text:         #ffb060;
+  --text-pale:             #ffe0cc;
+  --tl-green:              #c97a2a;
+
   /* Extended palette (mirrors the fablegear.css :root additions) —
      every hue family red-shifted into the long-wavelength band. */
   --text-bright:       #ffe9d6;
@@ -165,9 +189,51 @@ body[data-theme="booth"] {
   --holo-soft-rgb:     240, 150, 110;
   --holo-text-rgb:     255, 200, 170;
 }
+/* Images and video carry their own colours that no variable can reach, so they are flattened to
+   one red-orange hue (greyscale first, then tinted): a dark booth gets no blue or green light. */
+body[data-theme="booth"] {
+  --img-tint: grayscale(1) sepia(1) hue-rotate(-35deg) saturate(2.4) brightness(0.9) contrast(1.05);
+}
 body[data-theme="booth"] img,
-body[data-theme="booth"] video { filter: sepia(0.55) hue-rotate(-28deg) saturate(1.5) brightness(0.85); }
+body[data-theme="booth"] video { filter: var(--img-tint); }
+/* Icons that add a glow set their own filter, which would drop the tint: keep both. */
+body[data-theme="booth"] .step-tab.active .step-icon,
+body[data-theme="booth"] .step-tab:hover .step-icon { filter: var(--img-tint) drop-shadow(0 0 9px rgba(var(--room-accent-rgb), .45)); }
+body[data-theme="booth"] #nav-btn-pipeline-wizard .step-icon { filter: var(--img-tint) drop-shadow(0 0 8px rgba(var(--accent-rgb), .28)); }
 body[data-theme="booth"] .cam-badge { filter: sepia(0.35) hue-rotate(-15deg); }
+
+/* The startup room picker (.fgwin) is styled with its own blues, violets and cyans, so it gets
+   a booth block of its own: the same layout, red-shifted. */
+body[data-theme="booth"] .fgwin {
+  background:
+    radial-gradient(120% 95% at 30% -15%, rgba(255, 106, 74, 0.13), transparent 58%),
+    linear-gradient(180deg, rgba(28, 9, 7, 0.94), rgba(14, 5, 4, 0.96));
+}
+body[data-theme="booth"] .fgwin-close {
+  border-color: rgba(255, 150, 110, 0.32);
+  background: rgba(40, 12, 8, 0.8);
+  color: #ffe0cc;
+}
+body[data-theme="booth"] .fgwin-mark {
+  background: linear-gradient(90deg, #fff1e6 0%, #ffb27a 18%, rgb(var(--accent-rgb)) 36%, #ff7a50 62%, #e0623a 82%, #fff1e6 100%);
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: fgwin-title-shift-booth 6s linear infinite, fgwin-title-pan 7s ease-in-out infinite alternate;
+}
+@keyframes fgwin-title-shift-booth {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(255, 150, 90, .6)) drop-shadow(0 0 18px rgba(var(--accent-rgb), .35)); }
+  50%      { filter: drop-shadow(0 0 8px rgba(255, 90, 60, .6)) drop-shadow(0 0 20px rgba(255, 90, 60, .3)); }
+}
+body[data-theme="booth"] .fgwin-tag { color: rgba(255, 217, 184, 0.8); }
+body[data-theme="booth"] .fgwin-card { background: rgba(24, 9, 7, 0.72); color: #ffd9b8; }
+body[data-theme="booth"] .fgwin-pill {
+  border-color: rgba(255, 150, 110, 0.3);
+  background: rgba(46, 16, 11, 0.72);
+  color: #ffd9b8;
+}
+body[data-theme="booth"] .fgwin-pill:hover { border-color: rgba(255, 180, 140, 0.55); color: #ffe9d6; }
+body[data-theme="booth"] .fgwin-new { color: rgba(255, 217, 184, 0.88); }
 
 /* ── 3. Command palette ─────────────────────────────────────────────────── */
 #fg-palette-backdrop {
