@@ -240,7 +240,7 @@ async function undoLoadTimeline() {
 
 const _TOOL_LABELS = {
   process: 'Forge', normalize: 'Normalize', organize: 'Organize',
-  rename: 'Rename', prune: 'Prune', convert: 'Convert',
+  rename: 'Rename', prune: 'De-Duplicate', convert: 'Convert',
   import: 'Import', relocate: 'Relocate', dedupe: 'Dedup',
   audit: 'Audit', pipeline: 'Pipeline',
 };

@@ -342,8 +342,8 @@ function runDuplicates() {
   _saveToolCkpt('duplicates', { paths, scanMode, matchMode });
   document.getElementById('step-duplicates')?.querySelector('.tool-resume-banner')?.remove();
   const title = scanMode === 'quick'
-    ? 'Find Duplicates — Quick (exact copies)'
-    : 'Find Duplicates — Deep (acoustic fingerprint)';
+    ? 'De-Duplicate — Scan: Quick (exact copies)'
+    : 'De-Duplicate — Scan: Deep (acoustic fingerprint)';
   runCommand(`/api/run/duplicates?${p}`, title, (exitCode) => {
     if (exitCode === 0) {
       _clearToolCkpt('duplicates');
@@ -398,8 +398,8 @@ const PIPE_STEPS = {
   audit:      { name: 'Library Audit',      icon: '/static/icon-settings.png',          desc: 'DB snapshot + physical filesystem inventory' },
   process:    { name: 'Forge',         icon: '/static/icon-track-tagger.png',   desc: 'Iron finds BPM and Key; Anvil tags the file; the database is updated' },
   rename:     { name: 'Rename Files',       icon: '/static/icon-renamer.png',        desc: 'Clean filenames using embedded metadata' },
-  duplicates: { name: 'Find Duplicates',    icon: '/static/icon-deduper.png',        desc: 'Scan for files that are the same recording' },
-  prune:      { name: 'Prune Duplicates',   icon: '/static/icon-deduper.png',          desc: 'Remove copies found by Find Duplicates' },
+  duplicates: { name: 'De-Duplicate: Scan',    icon: '/static/icon-deduper.png',        desc: 'Scan for files that are the same recording' },
+  prune:      { name: 'De-Duplicate: Remove',   icon: '/static/icon-deduper.png',          desc: 'Move the copies found by the Scan to the Duplicates folder' },
   relocate:   { name: 'Fix Broken Paths',   icon: '/static/icon-settings.png',           desc: 'Update RekordBox after files have moved' },
   import:     { name: 'Import Tracks',      icon: '/static/icon-queue.png',         desc: 'Add new audio files to RekordBox database' },
   link:       { name: 'Link Playlists',     icon: '/static/icon-settings.png',           desc: 'Connect tracks to playlists by folder name' },

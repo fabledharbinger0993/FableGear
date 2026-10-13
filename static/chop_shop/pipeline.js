@@ -436,7 +436,7 @@ function _pipeWizConfigHTML(step, saved) {
 
     case 'prune':
       return `<p class="pipe-cfg-note" style="color:var(--text-muted);font-size:.84rem;">
-        Prune reads the duplicate report produced by the Find Duplicates step above.
+        Remove reads the report produced by the De-Duplicate Scan step above.
         No additional configuration needed — the report path is passed automatically.
       </p>`;
 
@@ -771,11 +771,11 @@ function _clearPipeCheckpoint() {
 }
 
 function pipelineAddStep(type) {
-  // Prune requires a preceding Find Duplicates step — it has no CSV without one
+  // Remove requires a preceding De-Duplicate Scan step — it has no CSV without one
   if (type === 'prune') {
     const hasDuplicates = pipelineSteps.some(s => s.type === 'duplicates');
     if (!hasDuplicates) {
-      showToast('Add a "Find Duplicates" step first — Prune reads its report.', 'warning');
+      showToast('Add a "De-Duplicate: Scan" step first — Remove reads its report.', 'warning');
       // Pulse the duplicates button to guide the user
       const dupBtn = [...document.querySelectorAll('#pipe-wiz-p1 .pipe-action-btn')]
         .find(b => (b.getAttribute('onclick') || '').includes("'duplicates'"));

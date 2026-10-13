@@ -18,6 +18,7 @@ for sub in ("", "chop_shop"):
         sys.path.insert(0, p)
 
 import pruner
+
 from config import DUPLICATES_DIR_NAME, SKIP_DIRS
 from fablegear_database.database import ContentRecord, DatabaseConfig, FableGearDatabase
 

@@ -1,10 +1,10 @@
-    <!-- ── Duplicate Tracks — unified scan + review + prune ─────────────── -->
+    <!-- ── De-Duplicate — one card, two steps: Scan, then Remove ─────────── -->
   <div class="card" id="step-duplicates">
     <div class="card-head">
-      <div class="card-icon safe"><img src="/static/icon-deduper.png" alt="Duplicate Tracks"></div>
+      <div class="card-icon safe"><img src="/static/icon-deduper.png" alt="De-Duplicate"></div>
       <div class="card-meta">
-        <div class="card-title">Duplicate Tracks</div>
-        <div class="card-blurb">Acoustic fingerprinting finds identical recordings regardless of filename, format, or bitrate. Scan, review, and prune in one panel.</div>
+        <div class="card-title">De-Duplicate</div>
+        <div class="card-blurb">Step 1 finds identical recordings regardless of filename, format, or bitrate. Step 2 moves the extra copies into a "FableGear Duplicates" folder beside your library and removes them from the FableGear database. Nothing is deleted, and Rekordbox is never touched.</div>
       </div>
       <span class="risk-badge safe" id="dupes-risk-badge">Read-Only Scan</span>
     </div>
@@ -175,14 +175,9 @@
       <!-- Action bar -->
       <div class="prune-action-bar">
         <span class="prune-selected-count" id="prune-selected-summary">Select files above to continue.</span>
-        <label class="prune-action-label">
-          <input type="checkbox" id="prune-permanent-cb"
-               onchange="document.getElementById('btn-prune-start').textContent = this.checked ? 'Delete Permanently →' : 'Move to Trash →'">
-          Delete permanently
-        </label>
         <button type="button" class="btn btn-prune-start" id="btn-prune-start"
                 onclick="executePrune()">
-          Move to Trash →
+          Move to Duplicates folder →
         </button>
       </div>
 
