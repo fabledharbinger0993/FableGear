@@ -4,7 +4,7 @@
       <div class="card-icon caution"><img src="/static/icon-track-tagger.png" alt="Forge"></div>
       <div class="card-meta">
         <div class="card-title">Forge — Detect BPM &amp; Musical Key</div>
-        <div class="card-blurb">Iron finds each track's BPM and musical key; Anvil writes them into the file's tags, and FableGear keeps a copy in its database for your Pioneer USB export. Skips files that already have tags — won't overwrite your Mix In Key work unless you ask it to.</div>
+        <div class="card-blurb">Iron finds each track's BPM and musical key; Anvil writes them into the file's tags, and FableGear keeps a copy in its database. Skips files that already have tags — won't overwrite your Mix In Key work unless you ask it to.</div>
       </div>
       <span class="risk-badge caution">Writes Tags</span>
     </div>
@@ -18,7 +18,7 @@
             Keys are written in Camelot notation. If Iron can't answer for a file, librosa (and essentia, if installed) step in
             as logged fallbacks.</p>
           <p><strong>Anvil</strong>, FableGear's tag reader and writer, saves the results into the file's tags and reads
-            them back to verify. A copy also goes into the FableGear database, which feeds the Pioneer USB export.</p>
+            them back to verify. A copy also goes into the FableGear database. (Carrying BPM and key onto a Pioneer USB is still being built: the Record Room export doesn't pass them yet.)</p>
           <p>Files that already have a BPM or key tag are <strong>skipped by default</strong>. Use the
             <em>Re-detect</em> toggles only if you want to replace existing values.</p>
           <p>Optional <strong>MusicBrainz enrichment</strong> fingerprints each track via AcoustID and fills in missing title, artist, and album tags from the MusicBrainz database. Requires an AcoustID API key in settings.</p>

@@ -399,7 +399,7 @@ function _pipeWizConfigHTML(step, saved) {
             </select>
           </div>
           <div class="pipe-cfg-field">
-            <label class="pipe-cfg-label">Normalize mode</label>
+            <label class="pipe-cfg-label">Quench mode</label>
             <select class="pipe-cfg-input" data-cfg="normalize_mode">
               <option value="off" ${normalizeMode === 'off' ? 'selected' : ''}>Off</option>
               <option value="passive" ${normalizeMode === 'passive' ? 'selected' : ''}>Passive</option>
@@ -692,6 +692,9 @@ function _resumeNormalize(ckpt) {
   set('process-normalize-mode', 'passive');
   if (ckpt.workers) set('process-workers', ckpt.workers);
   quenchModeChanged();
+  // The run is now a Forge run with its own checkpoint, so retire the old Normalize one,
+  // or its banner would come back on the next page load and offer to rerun the same job.
+  _clearToolCkpt('normalize');
   document.getElementById('step-process')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   runProcess(true); // _skipConfirm = true
 }

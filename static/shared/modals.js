@@ -136,7 +136,7 @@ function _populateErrorActions(scanTitle) {
     hasAny = true;
     const b = document.createElement('button');
     b.className = 'rmod-ea-btn convert';
-    b.textContent = `${s.decode_failed.length} need conversion first — open Convert tool`;
+    b.textContent = `${s.decode_failed.length} need conversion first — open Re-Factor`;
     b.onclick = () => {
       closeReportModal(false);
       document.getElementById('step-convert')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
