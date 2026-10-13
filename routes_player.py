@@ -1546,6 +1546,8 @@ def api_library_analyze_track(track_id):
     bpm = tempo[0] if tempo else None
     confidence = tempo[1] if tempo else None
     if bpm is None and key is None:
+        fg.log_operation("analyze_iron", file_path=rec.file_path, status="error",
+                         error_message="Iron could not analyse this track")
         return jsonify({"error": "Iron could not analyse this track"}), 422
 
     fg.bulk_set_analysis([(rec.file_path, bpm, key, path.stat().st_size)])
