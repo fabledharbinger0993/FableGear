@@ -121,6 +121,16 @@ body[data-theme="booth"] {
   --accent2-rgb:       224, 74, 48;
   --cyan-deep-rgb:     180, 60, 30;
   --cyan-blue-rgb:     120, 50, 30;
+  --titlebar-edge-rgb:      180, 60, 30;
+  --titlebar-highlight-rgb: 255, 122, 80;
+  --drop-active-fill-rgb:   180, 60, 30;
+  --folder-zone-fill-rgb:   180, 60, 30;
+  --folder-pill-fill-rgb:   180, 60, 30;
+  --rkb-dialog-shadow-rgb:  224, 74, 48;
+  --library-backdrop-start-rgb: 8, 2, 3;
+  --library-backdrop-mid-rgb:   18, 6, 7;
+  --library-backdrop-end-rgb:   28, 12, 10;
+  --lf-select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23e04a30' fill-opacity='0.5'/%3E%3C/svg%3E");
   --steel-cyan-rgb:    140, 95, 75;
   --panel-tint-rgb:    22, 8, 6;
   --panel-deep-rgb:    12, 4, 3;
