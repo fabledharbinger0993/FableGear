@@ -1538,7 +1538,12 @@ function importSelectedSources() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paths: picked }),
-      }).then(function(r) { return r.json(); });
+      }).then(function(r) {
+        return r.json().then(function(d) {
+          if (!r.ok && !d.error) throw new Error(r.statusText || 'could not start import');
+          return d;
+        });
+      });
     })
     .then(function(d) {
       if (d.error) throw new Error(d.error);
