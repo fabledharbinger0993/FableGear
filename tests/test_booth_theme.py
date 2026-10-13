@@ -88,3 +88,34 @@ def test_images_keep_the_red_tint_even_where_a_rule_adds_a_glow():
     for selector in (".step-tab.active .step-icon", "#nav-btn-pipeline-wizard .step-icon"):
         rule = re.search(r'body\[data-theme="booth"\][^{]*' + re.escape(selector) + r"[^{]*\{([^}]*)\}", EXT)
         assert rule and "var(--img-tint)" in rule.group(1), selector
+
+
+# Every rule that puts its own `filter` on an image-like element. A rule more specific than the
+# booth image rule silently drops the red tint (this is how hovering a card brought colour back).
+# A new one must get a booth counterpart that keeps `var(--img-tint)`, then be listed here.
+_IMAGE_FILTER_RULES = {
+    ".brand-logo", ".lp-logo img", ".lp-btn:hover .lp-icon, .lp-btn.active .lp-icon",
+    ".step-tab.active .step-icon, .step-tab:hover .step-icon", "#nav-btn-pipeline-wizard .step-icon",
+    ".card-icon img", ".card:hover .card-icon img", ".audit-panel-icon",
+    ".db-tool-btn.permission-locked:hover img", ".icon-sm-invert", ".icon-btn-sm-invert",
+}
+_NEEDS_BOOTH_COUNTERPART = (
+    ".lp-btn:hover .lp-icon", ".step-tab.active .step-icon", "#nav-btn-pipeline-wizard .step-icon",
+    ".card:hover .card-icon img", ".db-tool-btn.permission-locked:hover img", ".icon-sm-invert",
+)
+
+
+def test_no_image_filter_rule_escapes_the_booth_tint():
+    stripped = re.sub(r"/\*.*?\*/", "", CSS, flags=re.S)
+    found = set()
+    for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", stripped):
+        selector, body = " ".join(m.group(1).split()), m.group(2)
+        if re.search(r"(?<![-\w])filter\s*:", body) and re.search(
+                r"img|icon|art|logo|thumb|cover|mark|avatar|video|svg|waveform|spin", selector, re.I):
+            found.add(selector)
+    assert found <= _IMAGE_FILTER_RULES, (
+        f"new image filter rule(s) {sorted(found - _IMAGE_FILTER_RULES)}: add a booth rule in "
+        "ui_extras.css that keeps var(--img-tint), then list it in _IMAGE_FILTER_RULES")
+    for selector in _NEEDS_BOOTH_COUNTERPART:
+        rules = re.findall(r'body\[data-theme="booth"\][^{]*' + re.escape(selector) + r"[^{]*\{([^}]*)\}", EXT)
+        assert rules and all("var(--img-tint)" in r for r in rules), selector

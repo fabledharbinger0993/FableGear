@@ -200,6 +200,14 @@ body[data-theme="booth"] video { filter: var(--img-tint); }
 body[data-theme="booth"] .step-tab.active .step-icon,
 body[data-theme="booth"] .step-tab:hover .step-icon { filter: var(--img-tint) drop-shadow(0 0 9px rgba(var(--room-accent-rgb), .45)); }
 body[data-theme="booth"] #nav-btn-pipeline-wizard .step-icon { filter: var(--img-tint) drop-shadow(0 0 8px rgba(var(--accent-rgb), .28)); }
+/* Hover/active states that set their own filter (card icons, the left-rail icons) and the
+   locked-tool hover and white-icon helpers: same rule, tint first, effect after. */
+body[data-theme="booth"] .card:hover .card-icon img { filter: var(--img-tint) brightness(1.25) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5)); }
+body[data-theme="booth"] .lp-btn:hover .lp-icon,
+body[data-theme="booth"] .lp-btn.active .lp-icon { filter: var(--img-tint) drop-shadow(0 0 8px rgba(var(--room-accent-rgb), .4)); }
+body[data-theme="booth"] .db-tool-btn.permission-locked:hover img { filter: var(--img-tint) grayscale(30%); }
+body[data-theme="booth"] .icon-sm-invert,
+body[data-theme="booth"] .icon-btn-sm-invert { filter: brightness(0) invert(1) var(--img-tint); }
 body[data-theme="booth"] .cam-badge { filter: sepia(0.35) hue-rotate(-15deg); }
 
 /* The startup room picker (.fgwin) is styled with its own blues, violets and cyans, so it gets
