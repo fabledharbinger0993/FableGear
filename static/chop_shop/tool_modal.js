@@ -753,13 +753,17 @@ async function leLoadLibrary() {
 // Unlike leLoadLibrary() it shows no loading placeholder, does not reset the
 // selection or the active playlist, and does not rebuild the playlist tree.
 let _leLiveRefreshBusy = false;
+let _leLiveRefreshPending = false;
 async function leRefreshLibraryLive() {
-  if (_leLiveRefreshBusy) return;
   // Only refresh a library the Record Room has already loaded: a first load
   // belongs to leLoadLibrary(), which also fetches playlists.
   if (!_leTracksLoaded) return;
   if (_leGetState('_leMode', 'db') !== 'db') return;
   if (_leGetState('_leDbSource', 'fablegear') !== 'fablegear') return;
+  if (_leLiveRefreshBusy) {
+    _leLiveRefreshPending = true;
+    return;
+  }
   _leLiveRefreshBusy = true;
   try {
     const res = await fetch('/api/library/tracks?db=fablegear');
@@ -780,6 +784,10 @@ async function leRefreshLibraryLive() {
     // Transient; the next tick or a manual Reload will catch up.
   } finally {
     _leLiveRefreshBusy = false;
+    if (_leLiveRefreshPending) {
+      _leLiveRefreshPending = false;
+      leRefreshLibraryLive();
+    }
   }
 }
 window.leRefreshLibraryLive = leRefreshLibraryLive;

@@ -1520,7 +1520,7 @@ function importSelectedSources() {
   startBtn.disabled = true;
   startBtn.textContent = 'Importing…';
   _obImportBackgrounded = false;
-  document.getElementById('import-background-btn').style.display = '';
+  document.getElementById('import-background-btn').style.display = 'none';
   document.getElementById('import-progress-card').style.display = '';
   var label = document.getElementById('import-progress-label');
   var count = document.getElementById('import-progress-count');
@@ -1542,6 +1542,7 @@ function importSelectedSources() {
     })
     .then(function(d) {
       if (d.error) throw new Error(d.error);
+      document.getElementById('import-background-btn').style.display = '';
       _obImportPoll = setInterval(function() {
         fetch('/api/onboarding/import-sources/status')
           .then(function(r) { return r.json(); })
@@ -1591,6 +1592,10 @@ function importSelectedSources() {
       }, 700);
     })
     .catch(function(e) {
+      _obImportBackgrounded = false;
+      confirmedPaths._imported_summary = '';
+      document.getElementById('import-background-btn').style.display = 'none';
+      _buildSetupSummary();
       startBtn.disabled = false;
       startBtn.textContent = 'Import selected →';
       obNotice('Import failed: ' + e.message, 'error');
