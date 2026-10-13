@@ -144,7 +144,9 @@ function _fgCtxTrackMenu(x, y, row) {
     { label: 'Analyse BPM & key (Iron)', disabled: !fg, title: fgOnly, onClick: async () => {
         let done = 0;
         for (const id of ids) {
-          const d = await _fgCtxFetch(`/api/library/tracks/${encodeURIComponent(id)}/analyze?${_fgCtxQ()}`, { method: 'POST' }, 'Could not analyse track.');
+          const d = await _fgCtxFetch(`/api/library/tracks/${encodeURIComponent(id)}/analyze?${_fgCtxQ()}`, {
+            method: 'POST', headers: { 'X-FableGear-Request': 'record-room' },
+          }, 'Could not analyse track.');
           if (d) done++;
         }
         if (done) { _fgCtxToast(`Analysed ${done} track${done === 1 ? '' : 's'}.`, 'success'); _leTracksLoaded = false; await leLoadLibrary(); }
@@ -152,7 +154,9 @@ function _fgCtxTrackMenu(x, y, row) {
     { label: 'Write BPM & key to file tags', disabled: !fg, title: fg ? 'Changes the audio file’s tags' : fgOnly, onClick: async () => {
         let done = 0;
         for (const id of ids) {
-          const d = await _fgCtxFetch(`/api/library/tracks/${encodeURIComponent(id)}/tags?${_fgCtxQ()}`, { method: 'POST' }, 'Could not write tags.');
+          const d = await _fgCtxFetch(`/api/library/tracks/${encodeURIComponent(id)}/tags?${_fgCtxQ()}`, {
+            method: 'POST', headers: { 'X-FableGear-Request': 'record-room' },
+          }, 'Could not write tags.');
           if (d) done++;
         }
         if (done) _fgCtxToast(`Wrote tags for ${done} track${done === 1 ? '' : 's'}.`, 'success');

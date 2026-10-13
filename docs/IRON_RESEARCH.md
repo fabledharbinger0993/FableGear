@@ -34,7 +34,7 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 
 ---
 
-## 1. Current status (callouts dated up to 2026-10-12; body text from 2026-08-27)
+## 1. Current status (callouts dated up to 2026-10-13; body text from 2026-08-27)
 
 > **2026-10-13 (Record Room integration):** Iron (analyse) and Anvil (tag write) are now
 > Record Room track actions, persisting to the FableGear DB. USB export still does not carry
