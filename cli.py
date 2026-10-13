@@ -2388,7 +2388,13 @@ def cmd_process(args: argparse.Namespace) -> None:
     """
     import json as _json
 
-    from audio_processor import is_corrupt, process_directory, process_file, quarantine_file
+    from audio_processor import (
+        ProcessResult,
+        is_corrupt,
+        process_directory,
+        process_file,
+        quarantine_file,
+    )
 
     paths_file = getattr(args, "paths_file", None)
     bpm_mode = _resolve_effect_mode(
@@ -2590,6 +2596,7 @@ def cmd_process(args: argparse.Namespace) -> None:
 
         from scanner import scan_directory
         pending: list[Path] = []
+        skipped_results: list[ProcessResult] = []
         pending_per_root: dict[Path, int] = {}
         total_scanned = 0
         skipped_complete = 0
@@ -2604,6 +2611,11 @@ def cmd_process(args: argparse.Namespace) -> None:
                     root_pending += 1
                 else:
                     skipped_complete += 1
+                    skipped_results.append(ProcessResult(
+                        path=track.path,
+                        bpm_existing=track.bpm if detect_bpm else None,
+                        key_existing=track.key if detect_key else None,
+                    ))
                 print(
                     "FABLEGEAR_PROGRESS: " + _json.dumps({"scanned": total_scanned}),
                     flush=True,
@@ -2613,6 +2625,7 @@ def cmd_process(args: argparse.Namespace) -> None:
             "Smart Skip: %d/%d file(s) need work; %d already complete and skipped.",
             len(pending), total_scanned, skipped_complete,
         )
+        _persist_process_results(skipped_results, archive)
         if not pending:
             print("Smart Skip: all files already tagged — nothing to do.")
             return

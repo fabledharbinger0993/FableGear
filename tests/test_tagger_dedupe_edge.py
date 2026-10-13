@@ -92,6 +92,53 @@ def test_forge_records_existing_tags_for_skipped_files(archive, tmp_path):
     assert rec is not None and rec.bpm == 126.0 and rec.key == "4A"
 
 
+@pytest.mark.parametrize(
+    ("bpm_mode", "key_mode", "expected_bpm", "expected_key"),
+    [
+        ("passive", "passive", 126.0, "4A"),
+        ("passive", "off", 126.0, None),
+    ],
+)
+def test_smart_skip_persists_existing_tags_for_complete_files(
+    archive, tmp_path, monkeypatch, bpm_mode, key_mode, expected_bpm, expected_key,
+):
+    from argparse import Namespace
+    from types import SimpleNamespace
+
+    import cli
+    import scanner
+
+    path = _make_file(tmp_path, "complete.mp3")
+    track = SimpleNamespace(path=path, bpm=126.0, key="4A")
+    monkeypatch.setattr(cli, "_archive", lambda: archive)
+    monkeypatch.setattr(cli, "_guard_or_exit", lambda *args: None)
+    monkeypatch.setattr(scanner, "scan_directory", lambda root: iter([track]))
+
+    cli.cmd_process(Namespace(
+        path=str(tmp_path),
+        also_scan=[],
+        bpm_mode=bpm_mode,
+        key_mode=key_mode,
+        normalize_mode="off",
+        enrich_mode="off",
+        rename_mode="off",
+        force=False,
+        force_bpm=False,
+        force_key=False,
+        force_normalize=False,
+        enrich_tags=False,
+        force_enrich=False,
+        no_bpm=False,
+        no_key=False,
+        no_normalize=False,
+        dry_run=False,
+        smart_skip=True,
+    ))
+
+    rec = archive.get_content_by_path(str(path))
+    assert rec is not None and rec.bpm == expected_bpm and rec.key == expected_key
+
+
 def test_forge_existing_tags_never_overwrite_database_values(archive, tmp_path):
     from audio_processor import ProcessResult
     from cli import _persist_process_results
