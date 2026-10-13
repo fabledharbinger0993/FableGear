@@ -138,7 +138,7 @@ These tools work on your physical audio files, not the Rekordbox database.
 
 | Tool | What it does |
 |---|---|
-| **Forge** | Analyzes your audio with FableGear's own detectors (Iron finds BPM, key and beat positions; Anvil reads and writes the tags) and saves BPM and musical key both into the file's metadata and into the FableGear database (the source for the Pioneer USB export). This means the info survives even if you rebuild your Rekordbox database or use the files outside Rekordbox. |
+| **Forge** | Analyzes your audio with FableGear's own detectors (Iron finds BPM and key; Anvil reads and writes the tags) and saves BPM and musical key both into the file's metadata and into the FableGear database (the source for the Pioneer USB export). This means the info survives even if you rebuild your Rekordbox database or use the files outside Rekordbox. |
 | **Find and Prune Duplicates** | Uses acoustic fingerprinting to detect the same recording even when the filenames, formats, or bitrates are different. Not just a filename check -- it listens to the audio. |
 | **Rename Files** | Batch rename files using patterns or learned rules from example pairs. Shows you a preview before anything changes. |
 | **Organize Library** | Rebuilds your folder structure based on embedded metadata (artist, album, etc.). Handles album artist intelligently so featured artists don't create extra folders. |
