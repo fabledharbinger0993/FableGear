@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from flask import Blueprint, Response, jsonify, request, send_file
@@ -30,7 +31,6 @@ from helpers import (
     CLI_PATH,
     _evict_old_jobs,
     _get_library_root,
-    _rb_is_running,
     _require_rb_closed,
     _sse_done,
     _sse_response,
@@ -152,13 +152,14 @@ def _load_duplicate_cache(csv_path: Path, *, include_db: bool = True) -> dict:
     db_warning = None
     if include_db:
         try:
-            from config import DEVICE_DB as _DB
-            from db_connection import read_db
-            with read_db(_DB) as db:
-                groups = load_report(csv_path, db)
+            from helpers import get_archive
+            archive = get_archive()
+            groups = load_report(csv_path, archive)
+            if archive is None:
+                db_warning = "FableGear database unavailable while loading duplicates"
         except Exception as db_exc:
             groups = load_report(csv_path, None)
-            db_warning = f"Rekordbox DB unavailable while loading duplicates: {db_exc}"
+            db_warning = f"FableGear database unavailable while loading duplicates: {db_exc}"
     else:
         groups = load_report(csv_path, None)
 
@@ -221,7 +222,7 @@ def _cleanup_preview_tmp() -> None:
         pass
 
 
-# ── Process (Tag Tracks) ──────────────────────────────────────────────────────
+# ── Process (Forge) ──────────────────────────────────────────────────────
 
 @bp.route("/api/run/process")
 def api_process():
@@ -376,13 +377,25 @@ def api_pipeline():
     if not raw_steps:
         return jsonify({"error": "steps list is required"}), 400
 
-    _WRITE_STEP_TYPES = {"import", "link", "relocate", "prune", "rename"}
+    # prune (De-Duplicate Remove) is absent on purpose: it only touches FableGear's own
+    # database and files, never Rekordbox's, so Rekordbox may stay open.
+    _WRITE_STEP_TYPES = {"import", "link", "relocate", "rename"}
     if not dry_run and any(s.get("type") in _WRITE_STEP_TYPES for s in raw_steps):
         err = _require_rb_closed()
         if err:
             return err
 
     built: list[dict] = []
+
+    # The folder the pipeline's Scan step covers is the library De-Duplicate Remove works on.
+    _scan_root = ""
+    for s in raw_steps:
+        if s.get("type") == "duplicates":
+            _cfg = s.get("config", {})
+            _paths = _cfg.get("paths") or [_cfg.get("path", "")]
+            _paths = [_paths] if isinstance(_paths, str) else _paths
+            _scan_root = next((p for p in _paths if p), "")
+            break
 
     for s in raw_steps:
         stype = s.get("type", "")
@@ -493,6 +506,9 @@ def api_pipeline():
             cmd = [sys.executable, str(CLI_PATH), "prune"]
             if not dry_run:
                 cmd.append("--no-dry-run")
+            _root = str(cfg.get("library_root", "")).strip() or _scan_root
+            if _root:
+                cmd += ["--library-root", _root]
             # CSV path: gated (one-step-per-request) mode sends it explicitly as
             # config.csv; AUTO mode omits it and _stream_pipeline appends the
             # report path captured from the preceding duplicates step.
@@ -952,7 +968,7 @@ def api_duplicates():
 @bp.route("/api/prune/stage", methods=["POST"])
 def api_prune_stage():
     """
-    Accept a JSON body {"paths": [...], "permanent": false, "csv_path": "..."} and
+    Accept a JSON body {"paths": [...], "csv_path": "...", "library_root": "..."} and
     return a single-use token consumed by GET /api/run/prune?token=<uuid>.
     """
     try:
@@ -977,8 +993,8 @@ def api_prune_stage():
             _evict_old_jobs(_prune_token_store, _MAX_PRUNE_TOKENS)
             _prune_token_store[token] = {
                 "paths":      paths,
-                "permanent":  bool(data.get("permanent", False)),
                 "keeper_map": keeper_map,
+                "library_root": str(data.get("library_root", "") or ""),
                 "csv_path":   str(csv_path) if csv_path.exists() else "",
                 "_issued_at": time.time(),
             }
@@ -1084,6 +1100,21 @@ def api_open_file():
         return api_error_from_exc(exc)
 
 
+def _write_prune_report(lines: list[str]) -> Path | None:
+    """Save a De-Duplicate Remove run to Archive/Reports/Prune/prune_<time>.txt, like the CLI does.
+    Returns the file, or None when the Archive is unavailable (never fails the run)."""
+    try:
+        import config
+        folder = Path(config.REPORTS_DIR) / "Prune"
+        folder.mkdir(parents=True, exist_ok=True)
+        out = folder / f"prune_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return out
+    except Exception as exc:
+        log.warning("Could not write the De-Duplicate report: %s", exc)
+        return None
+
+
 @bp.route("/api/run/prune")
 def api_run_prune():
     """
@@ -1121,7 +1152,6 @@ def api_run_prune():
             "Re-stage the prune list and try again.",
         ], exit_code=1)
     paths: list[str] = staged.get("paths", [])
-    permanent: bool = staged.get("permanent", False)
     keeper_map: dict = staged.get("keeper_map", {})
 
     with _prune_state_lock:
@@ -1143,11 +1173,6 @@ def api_run_prune():
                 log_q.put(("done", 130))
                 return
 
-            if _rb_is_running():
-                log_q.put(("line", "[ERROR] Rekordbox is open — close it before pruning."))
-                log_q.put(("done", 1))
-                return
-
             if not paths:
                 log_q.put(("line", "[ERROR] No files were passed to the prune endpoint."))
                 log_q.put(("done", 1))
@@ -1166,30 +1191,33 @@ def api_run_prune():
                     log_q.put(("line", "Resolve the rescue report before pruning again."))
                     log_q.put(("done", 1))
                     return
-            from config import DEVICE_DB as _DEVICE_DB
-            from config import LOCAL_DB as _LOCAL_DB
-            from db_connection import write_db
-
-            # Use the device DB (Pioneer drive) when it's mounted — that's where
-            # the actual library lives. Fall back to LOCAL_DB only if DEVICE_DB is absent.
-            _prune_db_path = _DEVICE_DB if (_DEVICE_DB and _DEVICE_DB.exists()) else _LOCAL_DB
-
+            # De-Duplicate works on FableGear's own database only. Rekordbox's
+            # master.db is never opened, so Rekordbox can stay open.
             from helpers import get_archive, get_archive_error
             _fg_archive = get_archive()
             if _fg_archive is None:
-                log_q.put(("line", f"[WARN] FableGear archive unavailable — this prune will not be recorded ({get_archive_error() or 'unknown'})"))
+                log_q.put(("line", f"[ERROR] FableGear database unavailable — nothing was changed ({get_archive_error() or 'unknown'})"))
+                log_q.put(("done", 1))
+                return
 
-            summary = {}
-            with write_db(_prune_db_path) as db:
-                summary = prune_files(
-                    paths,
-                    db,
-                    log=lambda m: log_q.put(("line", m)),
-                    permanent=permanent,
-                    keeper_map=keeper_map,
-                    should_cancel=_PRUNE_CANCEL_EVENT.is_set,
-                    archive=_fg_archive,
-                )
+            report_lines: list[str] = []
+
+            def _log_line(m: str) -> None:
+                report_lines.append(m)
+                log_q.put(("line", m))
+
+            summary = prune_files(
+                paths,
+                archive=_fg_archive,
+                log=_log_line,
+                keeper_map=keeper_map,
+                should_cancel=_PRUNE_CANCEL_EVENT.is_set,
+                library_root=staged.get("library_root") or None,
+            )
+
+            _report_file = _write_prune_report(report_lines)
+            if _report_file:
+                log_q.put(("line", f"Report saved to: {_report_file}"))
 
             if summary.get("cancelled"):
                 log_q.put(("line", "[ERROR] Prune cancelled before completion."))

@@ -41,20 +41,20 @@
             <span class="pipe-action-text"><strong>Library Audit</strong><span>DB snapshot + physical filesystem inventory</span></span>
           </button>
           <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('process')" title="Write BPM and Key tags into every file">
-            <img src="/static/icon-track-tagger.png" class="pipe-action-icon" alt="Tag Tracks">
-            <span class="pipe-action-text"><strong>Tag Tracks</strong><span>Writes BPM and musical key into each file</span></span>
+            <img src="/static/icon-track-tagger.png" class="pipe-action-icon" alt="Forge">
+            <span class="pipe-action-text"><strong>Forge</strong><span>Iron finds BPM and key; Anvil tags the file and the database is updated</span></span>
           </button>
           <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('rename')" title="Clean filenames using embedded track metadata">
             <img src="/static/icon-renamer.png" class="pipe-action-icon" alt="Rename Files">
             <span class="pipe-action-text"><strong>Rename Files</strong><span>Cleans file names from metadata tags</span></span>
           </button>
           <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('duplicates')" title="Find identical recordings no matter how they're named">
-            <img src="/static/icon-deduper.png" class="pipe-action-icon" alt="Find Duplicates">
-            <span class="pipe-action-text"><strong>Find Duplicates</strong><span>Scans for files that are the same recording</span></span>
+            <img src="/static/icon-deduper.png" class="pipe-action-icon" alt="De-Duplicate: Scan">
+            <span class="pipe-action-text"><strong>De-Duplicate: Scan</strong><span>Scans for files that are the same recording</span></span>
           </button>
-          <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('prune')" title="Remove the copies confirmed in Find Duplicates">
-            <img src="/static/icon-deduper.png" class="pipe-action-icon" alt="Prune Duplicates">
-            <span class="pipe-action-text"><strong>Prune Duplicates</strong><span>Remove copies found by Find Duplicates</span></span>
+          <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('prune')" title="Move the copies confirmed in the De-Duplicate Scan to the Duplicates folder">
+            <img src="/static/icon-deduper.png" class="pipe-action-icon" alt="De-Duplicate: Remove">
+            <span class="pipe-action-text"><strong>De-Duplicate: Remove</strong><span>Move the copies found by the Scan to the Duplicates folder</span></span>
           </button>
           <button type="button" class="pipe-action-btn" onclick="pipelineAddStep('relocate')" title="Update RekordBox after files have moved">
             <img src="/static/icon-settings.png" class="pipe-action-icon" alt="Fix Broken Paths">

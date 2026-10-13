@@ -563,8 +563,8 @@
     <div class="ob-card">
       <div class="ob-card-title">Tools unlocked with read access</div>
       <div class="dep-row"><span class="dep-icon">▣</span><span class="dep-name">Library Audit</span><span class="dep-hint">Maps your full library, flags broken paths and orphaned entries</span></div>
-      <div class="dep-row"><span class="dep-icon">🏷</span><span class="dep-name">Tag Tracks</span><span class="dep-hint">Cross-references the database when prioritising files for analysis</span></div>
-      <div class="dep-row"><span class="dep-icon">🔎</span><span class="dep-name">Find Duplicates</span><span class="dep-hint">Uses DB metadata for smart pre-filtering before fingerprinting</span></div>
+      <div class="dep-row"><span class="dep-icon">🏷</span><span class="dep-name">Forge</span><span class="dep-hint">Cross-references the database when prioritising files for analysis</span></div>
+      <div class="dep-row"><span class="dep-icon">🔎</span><span class="dep-name">De-Duplicate: Scan</span><span class="dep-hint">Uses DB metadata for smart pre-filtering before fingerprinting</span></div>
     </div>
 
     <div class="ob-actions">
@@ -588,7 +588,7 @@
       <div class="dep-row"><span class="dep-icon">📍</span><span class="dep-name">Fix Broken Paths</span><span class="dep-hint">Updates file paths in the database after a drive rename or move</span></div>
       <div class="dep-row"><span class="dep-icon">＋</span><span class="dep-name">Import Tracks</span><span class="dep-hint">Adds new audio files to your Rekordbox library</span></div>
       <div class="dep-row"><span class="dep-icon">🔗</span><span class="dep-name">Link Playlists</span><span class="dep-hint">Associates imported tracks to playlists based on folder structure</span></div>
-      <div class="dep-row"><span class="dep-icon">✂</span><span class="dep-name">Prune Duplicates</span><span class="dep-hint">Removes confirmed duplicates from the database and optionally the disk</span></div>
+      <div class="dep-row"><span class="dep-icon">✂</span><span class="dep-name">De-Duplicate: Remove</span><span class="dep-hint">Moves confirmed duplicates to a Duplicates folder beside your library and removes them from the FableGear database</span></div>
     </div>
 
     <div class="ob-card" style="background:rgba(0,212,232,.04);border-color:rgba(0,212,232,.18)">
@@ -820,6 +820,7 @@
     <div class="ob-actions" id="import-actions">
       <button class="ob-btn ob-btn-secondary" onclick="goToStep(5)">← Back</button>
       <button class="ob-btn ob-btn-ghost" onclick="goToStep(7)">Skip for now →</button>
+      <button class="ob-btn ob-btn-secondary" id="import-background-btn" style="display:none" onclick="continueImportInBackground()">Continue in background →</button>
       <button class="ob-btn ob-btn-primary" id="import-start-btn" onclick="importSelectedSources()">Import selected →</button>
     </div>
   </section>
@@ -1498,6 +1499,15 @@ function prepareImportStep() {
 }
 
 var _obImportPoll = null;
+// Set once the user leaves the wizard while an import is still writing. The
+// import itself is a detached server-side thread; this only changes what the
+// wizard does when it finishes (no longer pulls the user back to step 7).
+var _obImportBackgrounded = false;
+
+function continueImportInBackground() {
+  _obImportBackgrounded = true;
+  goToStep(7);
+}
 
 function importSelectedSources() {
   var picked = Array.prototype.map.call(
@@ -1509,6 +1519,8 @@ function importSelectedSources() {
   var startBtn = document.getElementById('import-start-btn');
   startBtn.disabled = true;
   startBtn.textContent = 'Importing…';
+  _obImportBackgrounded = false;
+  document.getElementById('import-background-btn').style.display = '';
   document.getElementById('import-progress-card').style.display = '';
   var label = document.getElementById('import-progress-label');
   var count = document.getElementById('import-progress-count');
@@ -1548,6 +1560,7 @@ function importSelectedSources() {
               return;
             }
             clearInterval(_obImportPoll);
+            document.getElementById('import-background-btn').style.display = 'none';
             if (s.error) {
               track.classList.remove('is-indeterminate');
               fill.style.width = '100%';
@@ -1555,6 +1568,7 @@ function importSelectedSources() {
               count.textContent = s.error;
               startBtn.disabled = false;
               startBtn.textContent = 'Retry import →';
+              if (_obImportBackgrounded) obNotice('Background import failed: ' + s.error, 'error');
               return;
             }
             var r = s.result || {};
@@ -1566,7 +1580,12 @@ function importSelectedSources() {
             label.textContent = '✓ Done';
             count.textContent = confirmedPaths._imported_summary;
             startBtn.style.display = 'none';
-            setTimeout(function() { goToStep(7); }, 1200);
+            if (_obImportBackgrounded) {
+              // Already on the room chooser; just refresh its summary line.
+              _buildSetupSummary();
+            } else {
+              setTimeout(function() { goToStep(7); }, 1200);
+            }
           })
           .catch(function() {});
       }, 700);
@@ -1597,6 +1616,8 @@ function _buildSetupSummary() {
   }
   if (confirmedPaths._imported_summary) {
     msg += ' FableGear library seeded: ' + confirmedPaths._imported_summary + '.';
+  } else if (_obImportBackgrounded) {
+    msg += ' Your library is still importing in the background. Tracks will appear in the Record Room as they land.';
   }
   document.getElementById('setup-summary').textContent = msg;
 }

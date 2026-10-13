@@ -88,6 +88,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ── Background onboarding import awareness ─────────────────────────────── */
 let _bgImportPoll = null;
+let _bgImportLastDone = -1;
+let _bgImportLastRefresh = 0;
 
 function _renderBgImportPill(label) {
   const container = document.getElementById('session-pills-container');
@@ -111,11 +113,19 @@ function _pollBackgroundImport() {
           ? `Importing ${s.done.toLocaleString()}/${s.total.toLocaleString()}`
           : 'Scanning library…';
         _renderBgImportPill(label);
+        // Live library: pull the Record Room list as batches land, at most every few seconds.
+        if (s.phase === 'importing' && s.done !== _bgImportLastDone && Date.now() - _bgImportLastRefresh > 4000) {
+          _bgImportLastDone = s.done;
+          _bgImportLastRefresh = Date.now();
+          window.leRefreshLibraryLive?.();
+        }
         return;
       }
       clearInterval(_bgImportPoll);
       _bgImportPoll = null;
+      _bgImportLastDone = -1;
       document.getElementById('bg-import-pill')?.remove();
+      window.leRefreshLibraryLive?.();  // pick up the final batch
       if (s.error) {
         if (typeof showToast === 'function') showToast(`Background import failed: ${s.error}`, 'error');
         return;

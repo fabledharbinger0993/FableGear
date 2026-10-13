@@ -32,7 +32,7 @@ Two-phase to keep Chromaprint calls to a minimum:
     OR shares a normalized filename with a destination track. Only a track
     with NEITHER kind of match is flagged novel without fingerprinting.
     The filename fallback matters when scan_index.json hasn't been built
-    yet (fresh install, or files never run through Tag Tracks) — without
+    yet (fresh install, or files never run through Forge) — without
     it, BPM/key/duration are unknown on both sides for every comparison,
     Phase 1 finds nothing, and Phase 2 never runs at all: a literal
     drive-to-drive copy of the destination would be re-copied as "novel"

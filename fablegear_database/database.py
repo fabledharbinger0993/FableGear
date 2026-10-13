@@ -435,6 +435,69 @@ class FableGearDatabase:
             conn.executemany(sql, rows)
         return len(rows)
 
+    def snapshot(self, dest_dir: Path, label: str, keep: int = 10) -> Path:
+        """Write a consistent copy of this database into dest_dir before a bulk change.
+
+        Uses SQLite's online backup, so it is safe while the app has the database open
+        (WAL included). Only the newest ``keep`` snapshots with the same label are kept.
+        Raises if the copy can't be made or doesn't open as a database.
+        """
+        dest_dir = Path(dest_dir)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        dest = dest_dir / f"fablegear.backup_{stamp}_{label}.db"
+        src = sqlite3.connect(self.config.db_path)
+        try:
+            dst = sqlite3.connect(dest)
+            try:
+                src.backup(dst)
+                if dst.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise RuntimeError("snapshot failed its integrity check")
+            finally:
+                dst.close()
+        except Exception:
+            dest.unlink(missing_ok=True)
+            raise
+        finally:
+            src.close()
+        for old in sorted(dest_dir.glob(f"fablegear.backup_*_{label}.db"))[:-keep]:
+            old.unlink(missing_ok=True)
+        return dest
+
+    def known_paths(self) -> set[str]:
+        """Every file_path currently tracked in fg_content."""
+        with self.connection() as conn:
+            return {row[0] for row in conn.execute("SELECT file_path FROM fg_content")}
+
+    def bulk_fill_analysis(
+        self, entries: list[tuple[str, float | None, str | None, int]]
+    ) -> int:
+        """
+        Record BPM / key that were already in the files' tags, where the database
+        has none. Unlike bulk_set_analysis, a value already in fg_content wins:
+        these are other tools' tags, not a fresh Iron measurement.
+
+        entries: (file_path, bpm, key, file_size).
+        """
+        if not entries:
+            return 0
+        sql = (
+            "INSERT INTO fg_content (file_path, file_name, file_size, bpm, key) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(file_path) DO UPDATE SET "
+            "  bpm = COALESCE(bpm, excluded.bpm), "
+            "  key = COALESCE(key, excluded.key), "
+            "  file_size = excluded.file_size, "
+            "  updated_at = datetime('now', 'localtime')"
+        )
+        rows = [
+            (path, Path(path).name, file_size, bpm, key)
+            for path, bpm, key, file_size in entries
+        ]
+        with self.transaction() as conn:
+            conn.executemany(sql, rows)
+        return len(rows)
+
     def delete_content(self, record_id: int) -> bool:
         """
         Delete a content record by ID.

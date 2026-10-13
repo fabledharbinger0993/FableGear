@@ -11,7 +11,7 @@ ENTIRE file fails to execute — silently undefining every function in it.
 This actually happened: a merge reintroduced `let renamePreflightState` in
 static/chop_shop/runners.js while it was already declared in
 static/shared/state.js. The whole runners.js slice died, so every Chop Shop
-tool (Tag Tracks, Normalize, Rename, Dedupe, Import, ...) stopped firing with
+tool (Forge, Normalize, Rename, Dedupe, Import, ...) stopped firing with
 no console/terminal feedback.
 
 Run from the repo root:

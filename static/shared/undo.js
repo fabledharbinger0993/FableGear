@@ -110,6 +110,7 @@ const _UNDO_OP_LABELS = {
   rename: 'Rename — files renamed',
   novelty_copy: 'Novelty — tracks copied in',
   convert: 'Convert — files re-encoded',
+  prune: 'De-Duplicate — files moved to the Duplicates folder',
 };
 
 async function undoLoadOperations() {
@@ -239,8 +240,8 @@ async function undoLoadTimeline() {
 }
 
 const _TOOL_LABELS = {
-  process: 'Tag Tracks', normalize: 'Normalize', organize: 'Organize',
-  rename: 'Rename', prune: 'Prune', convert: 'Convert',
+  process: 'Forge', normalize: 'Normalize', organize: 'Organize',
+  rename: 'Rename', prune: 'De-Duplicate', convert: 'Convert',
   import: 'Import', relocate: 'Relocate', dedupe: 'Dedup',
   audit: 'Audit', pipeline: 'Pipeline',
 };
