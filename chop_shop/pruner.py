@@ -416,11 +416,14 @@ def _move_verified(src: Path, dest: Path) -> None:
         return
     except OSError:
         pass  # different filesystem
-    shutil.copy2(src, dest)
-    if dest.stat().st_size != src.stat().st_size:
+    try:
+        shutil.copy2(src, dest)
+        if dest.stat().st_size != src.stat().st_size:
+            raise OSError(f"copy of {src.name} did not match the original size; original left in place")
+        src.unlink()
+    except Exception:
         dest.unlink(missing_ok=True)
-        raise OSError(f"copy of {src.name} did not match the original size; original left in place")
-    src.unlink()
+        raise
 
 
 # ── Moving a duplicate's data onto the track that is kept ────────────────────
