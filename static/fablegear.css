@@ -47,6 +47,24 @@
   --cyan-blue-rgb:    0, 120, 180;
   --steel-cyan-rgb:   109, 184, 212;
   --panel-tint-rgb:   5, 13, 22;
+  /* Chop Shop panel surfaces and accents that were written straight into rules. They are
+     tokens so the Studio Lighting (booth) theme in shared/ui_extras.css can red-shift them. */
+  --chop-panel-top-rgb:    13, 20, 32;
+  --chop-panel-bottom-rgb: 7, 10, 18;
+  --chop-card-rgb:         12, 18, 30;
+  --log-bg:                #050508;
+  --violet-rgb:            190, 130, 255;
+  --health-bg-rgb:         30, 24, 48;
+  --health-border-rgb:     180, 130, 255;
+  --pill-text:         #a9eff8;
+  --pill-text-hi:      #d9fbff;
+  --pill-on-top-rgb:   5, 50, 66;
+  --pill-on-bottom-rgb:4, 30, 43;
+  --pill-top-rgb:          4, 34, 46;
+  --pill-bottom-rgb:       3, 20, 30;
+  --quenched-text:         #86efac;
+  --text-pale:             #d5f4f8;
+  --tl-green:              #28c840;
   --panel-deep-rgb:   2, 8, 14;
   --cyan-hot-rgb:     0, 194, 255;
   --cyan-glow-rgb:    0, 243, 255;
@@ -305,7 +323,7 @@ input[type="range"] { -webkit-app-region: no-drag; }
 .tl:hover    { filter: brightness(1.2); }
 .tl-red      { background: #ff5f57; }
 .tl-yellow   { background: #febc2e; }
-.tl-green    { background: #28c840; }
+.tl-green    { background: var(--tl-green); }
 .tl::after {
   opacity: 0; position: absolute;
   font-size: 7px; font-weight: 900; color: rgba(0,0,0,.65);
@@ -1523,7 +1541,7 @@ body.log-open #scan-bar { bottom: var(--log-h); }
 #log-panel {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
   height: var(--log-h);
-  background: #050508;
+  background: var(--log-bg);
   border-top: 1px solid var(--border-hi);
   display: flex; flex-direction: column;
   transform: translateY(100%);
@@ -3516,7 +3534,7 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 .folder-zone-hint strong {
   display: block;
   font-size: .8rem;
-  color: rgba(190, 130, 255, 0.95);
+  color: rgba(var(--violet-rgb), 0.95);
   margin-bottom: 2px;
   letter-spacing: .02em;
 }
@@ -3933,7 +3951,7 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   border: 1px solid rgba(var(--accent-rgb), 0.30);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.03);
-  color: #a9eff8;
+  color: var(--pill-text);
   padding: 0 14px;
   font-size: .74rem;
   font-weight: 700;
@@ -3946,8 +3964,8 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
 .undo-tab-btn:hover,
 .undo-tab-btn.active {
   border-color: rgba(var(--cyan-bright-rgb), 0.62);
-  background: linear-gradient(180deg, rgba(5, 50, 66, 0.86), rgba(4, 30, 43, 0.86));
-  color: #d9fbff;
+  background: linear-gradient(180deg, rgba(var(--pill-on-top-rgb), 0.86), rgba(var(--pill-on-bottom-rgb), 0.86));
+  color: var(--pill-text-hi);
   box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.2);
 }
 
@@ -3971,7 +3989,7 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   border-radius: 999px;
   border: 1px solid rgba(var(--accent-rgb), 0.30);
   background: rgba(255, 255, 255, 0.03);
-  color: #d5f4f8;
+  color: var(--text-pale);
   padding: 0 12px;
   font-size: .74rem;
 }
@@ -4146,7 +4164,7 @@ body.has-drag .drop-wrap:not(.drop-active)::after {
   flex-shrink: 0;
 }
 .norm-sample-tag { font-size: .68rem; color: var(--text-dim); letter-spacing: .03em; }
-.norm-sample-tag--norm { color: #86efac; }
+.norm-sample-tag--norm { color: var(--quenched-text); }
 
 .norm-sample-player {
   display: flex;
@@ -4337,7 +4355,7 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
   background: rgba(255,255,255,.04);
   border: 1px solid rgba(var(--cyan-deep-rgb), 0.3);
   border-radius: 8px;
-  color: #d5f4f8;
+  color: var(--text-pale);
   padding: 6px 14px;
   font-size: .82rem;
   transition: border-color .15s, box-shadow .15s;
@@ -4354,9 +4372,9 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, rgba(4, 34, 46, 0.86), rgba(3, 20, 30, 0.86));
+  background: linear-gradient(180deg, rgba(var(--pill-top-rgb), 0.86), rgba(var(--pill-bottom-rgb), 0.86));
   border: 1px solid rgba(var(--accent-rgb), 0.40);
-  color: #a9eff8;
+  color: var(--pill-text);
   border-radius: 999px;
   padding: 0 14px;
   min-width: 0;            /* size to content — five 122px pills overflowed the row */
@@ -4369,9 +4387,9 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
   transition: background .15s, box-shadow .15s, border-color .15s, color .15s;
 }
 .le-header-btn:hover {
-  background: linear-gradient(180deg, rgba(5, 50, 66, 0.92), rgba(4, 30, 43, 0.92));
+  background: linear-gradient(180deg, rgba(var(--pill-on-top-rgb), 0.92), rgba(var(--pill-on-bottom-rgb), 0.92));
   border-color: rgba(var(--cyan-bright-rgb), 0.6);
-  color: #d9fbff;
+  color: var(--pill-text-hi);
   box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.2);
 }
 
@@ -4406,7 +4424,7 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
   background: rgba(255,255,255,.04);
   border: 1px solid rgba(var(--cyan-deep-rgb), 0.3);
   border-radius: 8px;
-  color: #d5f4f8;
+  color: var(--text-pale);
   padding: 7px 12px;
   font-size: .8rem;
   font-family: var(--mono);
@@ -4594,7 +4612,7 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
 }
 .le-track-row:hover {
   background: rgba(var(--accent2-rgb), 0.10);
-  color: #d5f4f8;
+  color: var(--text-pale);
 }
 .le-track-row.selected {
   background: rgba(var(--accent2-rgb), 0.16);
@@ -5163,7 +5181,7 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
   background: rgba(255, 255, 255, .04);
   border: 1px solid rgba(var(--cyan-deep-rgb), 0.28);
   border-radius: 5px;
-  color: #d5f4f8;
+  color: var(--text-pale);
   padding: 3px 7px;
   font-size: .74rem;
   width: 58px;
@@ -5176,7 +5194,7 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
   background: rgba(3, 6, 10, 0.9);
   border: 1px solid rgba(var(--cyan-deep-rgb), 0.28);
   border-radius: 5px;
-  color: #d5f4f8;
+  color: var(--text-pale);
   padding: 3px 8px;
   font-size: .74rem;
   max-width: 130px;
@@ -5856,8 +5874,8 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
 
 /* ── Health hazard panel ─────────────────────────────────────────────────── */
 .health-panel {
-  background: rgba(30, 24, 48, .6);
-  border: 1px solid rgba(180,130,255,.18);
+  background: rgba(var(--health-bg-rgb), .6);
+  border: 1px solid rgba(var(--health-border-rgb), .18);
   border-radius: 7px;
   padding: 9px 14px;
   font-size: .77rem;
@@ -7882,7 +7900,7 @@ body.fg-space-chop #tool-float-modal,
 body.fg-space-chop #log-panel,
 body.fg-space-chop #chop-readout {
   background:
-    linear-gradient(135deg, rgba(13, 20, 32, .92), rgba(7, 10, 18, .96)),
+    linear-gradient(135deg, rgba(var(--chop-panel-top-rgb), .92), rgba(var(--chop-panel-bottom-rgb), .96)),
     radial-gradient(circle at 82% 16%, rgba(var(--room-accent-rgb), .12), transparent 32%);
   border-color: rgba(var(--room-accent-rgb), .28);
   box-shadow: 0 0 34px rgba(0,0,0,.26);
@@ -7908,7 +7926,7 @@ body.fg-space-chop #chop-prog-fill {
 
 body.fg-space-chop .card,
 body.fg-space-chop #tool-float-modal-body .card {
-  background: rgba(12, 18, 30, .82);
+  background: rgba(var(--chop-card-rgb), .82);
   border-color: rgba(var(--room-accent-rgb), .20);
 }
 
