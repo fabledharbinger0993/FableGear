@@ -1105,7 +1105,7 @@ def scan_duplicates(
         )
     else:
         files = all_files
-        log.info("No scan index found — fingerprinting all files (run Tag Tracks first to speed this up)")
+        log.info("No scan index found — fingerprinting all files (run Forge first to speed this up)")
 
     # Emit the match mode for the frontend SSE stream
     print(f"FABLEGEAR_MATCH_MODE: {match_mode}", flush=True)

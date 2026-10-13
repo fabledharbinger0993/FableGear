@@ -5,7 +5,7 @@
    Original source lines: 2133-2425
    ──────────────────────────────────────────────────────────────────────── */
 
-// ── Error summary from last Tag Tracks / Normalize run ──────────────────────
+// ── Error summary from last Forge / Normalize run ──────────────────────
 let _lastErrorSummary = null;   // populated by FABLEGEAR_ERROR_SUMMARY line
 
 function _retryErroredCount() {
@@ -132,7 +132,7 @@ function _doRunProcess(paths) {
     enrichMode === 'off' &&
     renameMode === 'off'
   ) {
-    showToast('All Tag Tracks modes are Off — enable at least one effect.', 'warning');
+    showToast('All Forge modes are Off — enable at least one effect.', 'warning');
     return;
   }
 
@@ -154,12 +154,12 @@ function _doRunProcess(paths) {
     rename_mode: renameMode,
   });
   document.getElementById('step-process')?.querySelector('.tool-resume-banner')?.remove();
-  runCommand(`/api/run/process?${p}`, 'Tag Tracks — BPM & Key Detection',
+  runCommand(`/api/run/process?${p}`, 'Forge — BPM & Key Detection',
     ec => { if (ec === 0) _clearToolCkpt('process'); }, true, false);
 }
 
 function _runProcessRetry(body) {
-  const label = `Tag Tracks — Retry ${body.paths.length} errored track${body.paths.length === 1 ? '' : 's'}`;
+  const label = `Forge — Retry ${body.paths.length} errored track${body.paths.length === 1 ? '' : 's'}`;
   if (isRunning) return;
   initLog(label);
   showScanBar(label);
@@ -342,8 +342,8 @@ function runDuplicates() {
   _saveToolCkpt('duplicates', { paths, scanMode, matchMode });
   document.getElementById('step-duplicates')?.querySelector('.tool-resume-banner')?.remove();
   const title = scanMode === 'quick'
-    ? 'Find Duplicates — Quick (exact copies)'
-    : 'Find Duplicates — Deep (acoustic fingerprint)';
+    ? 'De-Duplicate — Scan: Quick (exact copies)'
+    : 'De-Duplicate — Scan: Deep (acoustic fingerprint)';
   runCommand(`/api/run/duplicates?${p}`, title, (exitCode) => {
     if (exitCode === 0) {
       _clearToolCkpt('duplicates');
@@ -396,10 +396,10 @@ function runConvert() {
 
 const PIPE_STEPS = {
   audit:      { name: 'Library Audit',      icon: '/static/icon-settings.png',          desc: 'DB snapshot + physical filesystem inventory' },
-  process:    { name: 'Tag Tracks',         icon: '/static/icon-track-tagger.png',   desc: 'Write BPM and Key into each file' },
+  process:    { name: 'Forge',         icon: '/static/icon-track-tagger.png',   desc: 'Iron finds BPM and Key; Anvil tags the file; the database is updated' },
   rename:     { name: 'Rename Files',       icon: '/static/icon-renamer.png',        desc: 'Clean filenames using embedded metadata' },
-  duplicates: { name: 'Find Duplicates',    icon: '/static/icon-deduper.png',        desc: 'Scan for files that are the same recording' },
-  prune:      { name: 'Prune Duplicates',   icon: '/static/icon-deduper.png',          desc: 'Remove copies found by Find Duplicates' },
+  duplicates: { name: 'De-Duplicate: Scan',    icon: '/static/icon-deduper.png',        desc: 'Scan for files that are the same recording' },
+  prune:      { name: 'De-Duplicate: Remove',   icon: '/static/icon-deduper.png',          desc: 'Move the copies found by the Scan to the Duplicates folder' },
   relocate:   { name: 'Fix Broken Paths',   icon: '/static/icon-settings.png',           desc: 'Update RekordBox after files have moved' },
   import:     { name: 'Import Tracks',      icon: '/static/icon-queue.png',         desc: 'Add new audio files to RekordBox database' },
   link:       { name: 'Link Playlists',     icon: '/static/icon-settings.png',           desc: 'Connect tracks to playlists by folder name' },

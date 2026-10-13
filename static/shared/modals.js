@@ -12,12 +12,13 @@ const sessionReports = {};
 const STEP_PILL_LABELS = {
   'Audit — Library Health Check':                 'Step 1 Summary',
   'Audit — Database + Physical Scan':             'Step 1 Summary',
-  'Tag Tracks — BPM & Key Detection':             'Step 2 Summary',
+  'Forge — BPM & Key Detection':             'Step 2 Summary',
   'Preview Import — Dry Run':                     'Step 3 Preview',
   'Import — Writing Tracks to Database':          'Step 3 Summary',
   'Link Playlists — Matching Tracks to Folders':  'Step 4 Summary',
   'Normalize — Loudness to −8.0 LUFS':            'Step 5 Summary',
-  'Find Duplicates — Acoustic Fingerprinting':    'Duplicates Summary',
+  'De-Duplicate — Scan: Quick (exact copies)':     'De-Duplicate Scan',
+  'De-Duplicate — Scan: Deep (acoustic fingerprint)': 'De-Duplicate Scan',
   'Relocate — Updating File Paths in Database':   'Relocate Summary',
 };
 
@@ -27,7 +28,7 @@ function _pillLabel(title) {
   if (title.startsWith('Organize —'))      return 'Organize Summary';
   if (title.startsWith('Converting '))     return 'Convert Summary';
   if (title.startsWith('Novelty Scan —'))  return 'Novelty Summary';
-  if (title.startsWith('Prune —'))         return 'Prune Summary';
+  if (title.startsWith('De-Duplicate — Remove')) return 'De-Duplicate Remove';
   if (title.startsWith('Running Pipeline') || title.startsWith('Pipeline —')) return 'Pipeline Summary';
   if (title.startsWith('Homebrew —'))      return 'Brew Update';
   // Generic fallback

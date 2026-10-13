@@ -1,13 +1,16 @@
 """
 fablegear / audio_processor.py
 
-Analyses and normalises audio files in-place. No database interaction.
+Forge's engine: analyses and normalises audio files in-place. It touches only
+files and returns ProcessResult objects; cli.py's _persist_process_results saves
+the BPM/key of those results into the FableGear database (fg_content).
 
 Operations per file (each independently skippable):
 1. BPM detection via Iron (FableGear's own detector, iron/), falling back to
    essentia RhythmExtractor2013 if present, then librosa beat tracking;
-   written to TBPM tag
-2. Key detection via librosa chroma + Krumhansl-Schmuckler, written to TKEY (Camelot)
+   written via Anvil (TBPM and equivalents)
+2. Key detection via Iron (same pass as BPM), falling back to librosa chroma +
+   Krumhansl-Schmuckler; written via Anvil as Camelot (TKEY and equivalents)
 3. Loudness + true-peak check via ffmpeg's loudnorm filter (EBU R128 measurement)
 4. Normalisation via ffmpeg volume filter if outside tolerance, gain capped so
    true peak can't cross TRUE_PEAK_CEILING_DBTP, in-place replacement
@@ -100,6 +103,10 @@ class ProcessResult:
     key_detected: str | None = None
     key_written: bool = False
     key_source: str = ""             # "iron" | "librosa" | "" (not run)
+    # Values already in the file's tags when detection was skipped for them. Not a
+    # measurement of ours: cli.py saves them to the database only where it has none.
+    bpm_existing: float | None = None
+    key_existing: str | None = None
     tag_backend: str = ""            # "anvil" | "mutagen" (fallback for containers Anvil refuses)
     loudness_before: float | None = None
     loudness_after: float | None = None
@@ -1100,6 +1107,10 @@ def process_file(
     _force_key = force or force_key
     needs_bpm = detect_bpm and not (_existing("bpm") and not _force_bpm)
     needs_key = detect_key and not (_existing("initial_key") and not _force_key)
+    if detect_bpm and not needs_bpm and _existing("bpm"):
+        result.bpm_existing = float(existing.bpm)
+    if detect_key and not needs_key and _existing("initial_key"):
+        result.key_existing = str(existing.initial_key).strip()
     # Detector order: Iron (ours) -> essentia (optional) -> librosa. Iron and
     # essentia each read the file themselves, so try them before deciding whether
     # the shared 90 s decode is needed at all. Whichever result (or failure)

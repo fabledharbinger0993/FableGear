@@ -102,7 +102,7 @@ async function runMigrateDb() {
 }
 
 
-/* ── Prune Duplicates ──────────────────────────────────────────────────────── */
+/* ── De-Duplicate: Remove step ──────────────────────────────────────────────────────── */
 let pruneGroups        = [];          // current page's groups
 let pruneSelected      = new Set();   // file_paths checked for removal
 let saState            = null;        // 'best' | 'lower' | null
@@ -371,13 +371,6 @@ async function executePrune() {
     return;
   }
 
-  // Live RB check
-  await refreshStatus();
-  if (rbRunning) {
-    showToast('Close RekordBox before pruning.', 'warning');
-    return;
-  }
-
   // Guard: another operation is already in progress
   if (isRunning) {
     _showPruneStatus('⚠ Another operation is still running. Wait for it to finish, then try again.', true);
@@ -389,7 +382,9 @@ async function executePrune() {
   if (statusEl) statusEl.style.display = 'none';
 
   const paths   = [...pruneSelected];
-  const permanent = document.getElementById('prune-permanent-cb').checked;
+  // The duplicates folder is created beside the first folder that was scanned.
+  const scanned = typeof getFolderPaths === 'function' ? getFolderPaths('dupes-pills') : [];
+  const libraryRoot = scanned.length ? scanned[0] : '';
 
   // Stage the paths server-side to avoid blowing the 256 KB header limit
   // when passing thousands of file paths as a query string.
@@ -398,28 +393,26 @@ async function executePrune() {
     const res = await fetch('/api/prune/stage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paths, permanent, csv_path: pruneCsvPath }),
+      body: JSON.stringify({ paths, csv_path: pruneCsvPath, library_root: libraryRoot }),
     });
     const data = await res.json();
     if (!res.ok || !data.token) throw new Error(data.error || 'stage failed');
     token = data.token;
   } catch (e) {
-    _showPruneStatus(`✗ Could not stage prune — ${e.message}`, true);
+    _showPruneStatus(`✗ Could not stage the removal — ${e.message}`, true);
     return;
   }
 
-  const verb   = permanent ? 'deleted permanently' : 'moved to Trash';
-  const label  = permanent ? 'deleted' : 'moved to Trash';
   const url    = `/api/run/prune?token=${encodeURIComponent(token)}`;
-  runCommand(url, `Prune — ${paths.length} duplicate${paths.length > 1 ? 's' : ''} ${verb}`, (exitCode) => {
+  runCommand(url, `De-Duplicate — Remove: ${paths.length} duplicate${paths.length > 1 ? 's' : ''} moved aside`, (exitCode) => {
     if (exitCode === 0) {
       pruneSelected.clear();
       _updatePruneSummary();
-      _showPruneStatus(`✓ Prune complete — ${paths.length} file${paths.length > 1 ? 's' : ''} ${label}. Check the report for details.`, false);
+      _showPruneStatus('✓ De-Duplicate finished. Check View Output for moved and skipped files; completed moves are in the Duplicates folder of your FableGear Archive. Nothing was deleted, and Undo can put them back.', false);
     } else if (exitCode === 130) {
-      _showPruneStatus('⚠ Prune cancelled. Re-open the report and re-stage if you still want to apply removals.', true);
+      _showPruneStatus('⚠ Cancelled. Files already moved are in the Duplicates folder; re-open the report to continue.', true);
     } else {
-      _showPruneStatus('✗ Prune failed — see the log panel (View Output) for details.', true);
+      _showPruneStatus('✗ De-Duplicate failed — see the log panel (View Output) for details.', true);
     }
   });
 }

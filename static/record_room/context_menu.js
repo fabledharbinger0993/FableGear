@@ -141,6 +141,23 @@ function _fgCtxTrackMenu(x, y, row) {
         if (made) { _fgCtxToast(`Created ${made} duplicate${made === 1 ? '' : 's'}.`, 'success'); _leTracksLoaded = false; await leLoadLibrary(); }
       } },
     { sep: true },
+    { label: 'Analyse BPM & key (Iron)', disabled: !fg, title: fgOnly, onClick: async () => {
+        let done = 0;
+        for (const id of ids) {
+          const d = await _fgCtxFetch(`/api/library/tracks/${encodeURIComponent(id)}/analyze?${_fgCtxQ()}`, { method: 'POST' }, 'Could not analyse track.');
+          if (d) done++;
+        }
+        if (done) { _fgCtxToast(`Analysed ${done} track${done === 1 ? '' : 's'}.`, 'success'); _leTracksLoaded = false; await leLoadLibrary(); }
+      } },
+    { label: 'Write BPM & key to file tags', disabled: !fg, title: fg ? 'Changes the audio file’s tags' : fgOnly, onClick: async () => {
+        let done = 0;
+        for (const id of ids) {
+          const d = await _fgCtxFetch(`/api/library/tracks/${encodeURIComponent(id)}/tags?${_fgCtxQ()}`, { method: 'POST' }, 'Could not write tags.');
+          if (d) done++;
+        }
+        if (done) _fgCtxToast(`Wrote tags for ${done} track${done === 1 ? '' : 's'}.`, 'success');
+      } },
+    { sep: true },
     { label: 'Remove from database', danger: true, disabled: !fg, title: fg ? 'The audio file stays on disk' : fgOnly, onClick: async () => {
         if (!confirm(`Remove ${plural} from the FableGear database?\n\nThe audio file${n === 1 ? '' : 's'} stay on disk.`)) return;
         let removed = 0;

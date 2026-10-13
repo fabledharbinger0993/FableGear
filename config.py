@@ -86,6 +86,7 @@ LOGS_DIR       = ARCHIVE_ROOT / "Logs"
 
 LOG_DIRS: dict[str, Path] = {
     "Audit":       LOGS_DIR / "Audit",
+    # Forge's reports; the folder keeps its original name so existing history stays put.
     "Tag Tracks":  LOGS_DIR / "Tag Tracks",
     "Import":      LOGS_DIR / "Import",
     "Normalize":   LOGS_DIR / "Normalize",
@@ -191,6 +192,8 @@ MIN_FILE_BYTES: int = 8
 # Covers Pioneer system folders, macOS internals, and common non-music app data.
 # Note: dotfile-style dirs (.git, .venv, .tox, etc.) are already skipped by callers
 # via `not d.startswith(".")`, so only non-dotfile dirs need to be listed here.
+DUPLICATES_DIR_NAME = "FableGear Duplicates"
+
 SKIP_DIRS: set[str] = {
     # Pioneer / DJ system
     "PIONEER", "PIONEER REC",
@@ -199,6 +202,8 @@ SKIP_DIRS: set[str] = {
     ".TemporaryItems", ".Trashes",
     # FableGear's own archive tree — never rescan what we wrote
     "FableGear Archive",
+    # Duplicates moved aside by De-Duplicate (sits beside the library; skipped if it ever lands inside)
+    "FableGear Duplicates",
     # Processing artifacts left by FableGear or other tools
     "PROCESSING_CACHE", "POST_PROCESS_ARCHIVE",
     # Source-control, language toolchains, and build outputs that may sit inside
@@ -208,6 +213,9 @@ SKIP_DIRS: set[str] = {
     "dist", "build", "target",
     "site-packages",
 }
+
+# A custom Archive folder may have any name; never scan it either.
+SKIP_DIRS.add(ARCHIVE_ROOT.name)
 
 # Merge in any user-specified exclusions from config.json ("excluded_dirs" key)
 _user_excluded: list = _cfg.get("excluded_dirs", [])

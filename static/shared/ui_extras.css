@@ -119,6 +119,15 @@ body[data-theme="booth"] {
   --accent-text:       #ffc9a8;
   --accent-text-dim:   #f0a880;
   --accent2-rgb:       224, 74, 48;
+  --cyan-deep-rgb:     180, 60, 30;
+  --cyan-blue-rgb:     120, 50, 30;
+  --steel-cyan-rgb:    140, 95, 75;
+  --panel-tint-rgb:    22, 8, 6;
+  --panel-deep-rgb:    12, 4, 3;
+  --cyan-hot-rgb:      255, 120, 70;
+  --cyan-glow-rgb:     255, 140, 90;
+  --cyan-bright-rgb:   255, 150, 100;
+  --cyan-pale-rgb:     240, 130, 90;
   --accent2-deep-rgb:  200, 66, 42;
 
   --safe-rgb:          201, 122, 42;

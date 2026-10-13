@@ -963,7 +963,7 @@ def _sse_smart_skip_process(
     cleanup_on_done: list[Path] | None = None,
 ) -> Response:
     """
-    SSE response for the Tag Tracks smart-skip path.
+    SSE response for the Forge smart-skip path.
 
     Passes --smart-skip to the CLI subprocess so the scan runs inside the
     process that is registered in _active_procs — making it cancellable and

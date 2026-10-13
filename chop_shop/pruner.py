@@ -1,38 +1,51 @@
 """
-FableGear / pruner.py
+FableGear / pruner.py -- the Remove step of De-Duplicate.
 
 Loads a duplicate_report.csv, enriches entries with live file metadata,
-and executes confirmed prune operations:
+and executes confirmed removals:
 
-  1. Removes selected tracks from DjmdContent (with DB backup via write_db)
-  2. Moves selected files to ~/Trash/FableGear_Pruned_[timestamp]/
-     — NOT a permanent delete. The folder stays in Trash until the user
-       empties it on their own schedule.
+  1. Moves each duplicate file into the Duplicates folder of the FableGear
+     Archive, which sits NEXT TO the music library (never inside it, so later
+     scans skip it). The file keeps its path relative to the library, so it is
+     easy to find and put back. Nothing is deleted.
+  2. Removes the duplicate's row from the FableGear database (fg_content),
+     after moving its playlist memberships, cues, beat grid and any metadata
+     the kept track is missing onto the kept track.
 
-Called from app.py. Never called directly by the user.
+Before the first change, the FableGear database is snapshotted into the
+Archive's Savepoints folder. Every move is journaled in the Archive log in the
+shape the Undo screen reverts (file moved back, track entry re-added).
+
+Rekordbox's own database is never opened or written.
+
+Called from routes_tools.py and cli.py. Never called directly by the user.
 
 Trash rescue gate:
-  Before any prune can execute, trash_rescue_preflight(csv_path) must be
+  Before any removal can execute, trash_rescue_preflight(csv_path) must be
   called and return an empty issues list. If the companion rescue report
   has unresolved items, or the CSV contains keep_in_trash=YES rows, the
-  preflight raises TrashRescueRequired. The prune will not proceed until
+  preflight raises TrashRescueRequired. The removal will not proceed until
   the user has reviewed and cleared those items. FableGear does not offer
-  an automated rescue step — the user must act manually.
+  an automated rescue step -- the user must act manually.
 
 Public interface:
   trash_rescue_preflight(csv_path) -> None   (raises TrashRescueRequired)
-  load_report(csv_path, db=None) -> list[DupeGroup]
-  prune_files(file_paths, db, log=None) -> dict
+  load_report(csv_path, archive=None) -> list[DupeGroup]
+  duplicates_folder(library_root, sample_path) -> Path
+  prune_files(file_paths, archive, ...) -> dict
 """
 
 import csv
+import json
 import logging
+import os
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import text
+import config as _config
+from config import DUPLICATES_DIR_NAME
 
 _log = logging.getLogger(__name__)
 
@@ -290,19 +303,19 @@ def dedupe_sort_key(path: Path, rank: str) -> tuple:
 
 # ── Public: load report ───────────────────────────────────────────────────────
 
-def load_report(csv_path: Path, db=None) -> list[DupeGroup]:
+def load_report(csv_path: Path, archive=None) -> list[DupeGroup]:
     """
     Read a duplicate_report.csv, enrich each entry with live disk and DB data,
     re-rank within each group by quality, and return the structured groups.
 
-    db is an optional read-only database connection used to flag which files
-    are currently referenced in DjmdContent.
+    archive is an optional FableGear database, used to flag which files are
+    currently tracked in fg_content.
     """
     # Build a lookup of paths that exist in the database
     db_paths: set[str] = set()
-    if db is not None:
+    if archive is not None:
         try:
-            db_paths = {row.FolderPath for row in db.get_content()}
+            db_paths = archive.known_paths()
         except Exception:
             pass  # DB unavailable — just skip in_db flagging
 
@@ -357,583 +370,427 @@ def load_report(csv_path: Path, db=None) -> list[DupeGroup]:
     return [g for g in groups.values() if len(g.entries) > 1]
 
 
-# ── Public: prune files ───────────────────────────────────────────────────────
+# ── Where duplicates go ──────────────────────────────────────────────────────
+
+def effective_library_root(library_root: Path | str | None, sample_path: Path | str | None = None) -> Path:
+    """The library a removal belongs to: the root it was given; else the drive the files
+    are on (/Volumes/<name>); else the configured music folder."""
+    if library_root:
+        return Path(library_root)
+    if sample_path is not None:
+        parts = Path(sample_path).parts
+        if len(parts) >= 3 and parts[1] == "Volumes":
+            return Path(*parts[:3])
+    return Path(_config.MUSIC_ROOT)
 
 
-# ── Metadata backfill ─────────────────────────────────────────────────────────
-# Field-level DjmdContent columns eligible for gap-filling from a duplicate
-# before it's deleted. Deliberately excludes file-identity / operational
-# columns (ID, FolderPath, FileType, DeviceID, rb_file_id, etc.) — only
-# descriptive track data that a DJ would notice missing.
-_BACKFILL_FIELDS = [
-    "ArtistID", "AlbumID", "GenreID", "BPM", "Commnt", "Rating",
-    "KeyID", "LabelID", "ComposerID", "RemixerID", "ReleaseYear", "ISRC",
-]
+def duplicates_folder(library_root: Path | None, sample_path: Path | None = None) -> Path:
+    """Where this library's duplicates go: ``<FableGear Archive>/Duplicates``.
 
-
-def _backfill_metadata(remove_content, keeper_content, emit) -> int:
+    The Archive already sits next to the library and every scanner skips it by name,
+    so duplicates are out of the library, out of future scans, and in the same place
+    as everything else FableGear keeps (savepoints, logs, undone copies).
+    With the Archive switched off there is no such folder, so a "FableGear Duplicates"
+    folder is used beside the library instead, which scanners also skip by name. A
+    library that is a whole drive (a mount point, or a folder directly under /Volumes),
+    or that sits directly under "/" (no writable parent), keeps it inside, as
+    archive_root_for_music_root does for the Archive itself.
     """
-    Copy descriptive track-data fields from a duplicate onto the keeper,
-    but only into fields where the keeper is empty/null. The keeper's own
-    non-empty values always win — this never overwrites populated data.
+    root = effective_library_root(library_root, sample_path)
+    music_root = Path(_config.MUSIC_ROOT)
 
-    Returns the number of fields filled.
-    """
-    filled = 0
-    for field_name in _BACKFILL_FIELDS:
-        keeper_value = getattr(keeper_content, field_name, None)
-        if keeper_value not in (None, ""):
-            continue
-        dup_value = getattr(remove_content, field_name, None)
-        if dup_value in (None, ""):
-            continue
-        setattr(keeper_content, field_name, dup_value)
-        filled += 1
-    if filled:
-        emit(f"      ↪  {filled} metadata field(s) backfilled onto keeper")
-    return filled
+    if _config.ARCHIVE_ENABLED:
+        if root == music_root:
+            return Path(_config.ARCHIVE_ROOT) / "Duplicates"
+        from user_config import archive_root_for_music_root
+        return archive_root_for_music_root(root) / "Duplicates"
+
+    parent = root.parent
+    is_drive_root = os.path.ismount(root) or parent in (Path("/"), Path("/Volumes"))
+    return (root if is_drive_root else parent) / DUPLICATES_DIR_NAME
 
 
-# ── Association re-threading ────────────────────────────────────────────────
-# Before a duplicate content row is hard-deleted, every other table that
-# references its ContentID must be re-pointed to the keeper or it becomes a
-# silent orphan (pyrekordbox declares no cascade on these relationships, and
-# Rekordbox itself never surfaces orphaned rows again). Three shapes of table:
+def _archive_destination(src: Path, library_root: Path | None, dup_dir: Path) -> Path:
+    """Where src goes: its path relative to the library root when it has one, so the
+    original location is obvious and same-named files from different folders never collide."""
+    rel = None
+    if library_root:
+        try:
+            rel = src.relative_to(library_root)
+        except ValueError:
+            rel = None
+    base = dup_dir / (Path(library_root).name if library_root and rel else "") / (rel or src.name)
+    dest = base
+    n = 2
+    while dest.exists():
+        dest = base.with_name(f"{base.stem} ({n}){base.suffix}")
+        n += 1
+    return dest
+
+
+def _append_move_log(dup_dir: Path, entry: dict) -> None:
+    """Append one line to the Duplicates folder's moves.jsonl and flush it to disk."""
+    dup_dir.mkdir(parents=True, exist_ok=True)
+    with open(dup_dir / "moves.jsonl", "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+
+
+def _move_verified(src: Path, dest: Path) -> None:
+    """Move src to dest. Same drive: an instant rename. Another drive: copy, check
+    the size, and only then remove the original, so an interrupted move never loses audio."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.rename(src, dest)
+        return
+    except OSError:
+        pass  # different filesystem
+    try:
+        shutil.copy2(src, dest)
+        if dest.stat().st_size != src.stat().st_size:
+            raise OSError(f"copy of {src.name} did not match the original size; original left in place")
+        src.unlink()
+    except Exception:
+        dest.unlink(missing_ok=True)
+        raise
+
+
+# ── Moving a duplicate's data onto the track that is kept ────────────────────
+# Before a duplicate's fg_content row is removed, everything that points at it
+# is moved to the kept track or it would be lost (the tables cascade on delete).
 #
-#   "group"  — a join table with its own list/group id (playlist, my-tag,
-#              history, sampler, related-tracks, hot-cue-banklist): if the
-#              keeper is already a member of that same group, drop the
-#              duplicate's slot; otherwise re-point ContentID in place.
-#   "simple" — one attribute row per track with no group concept (mixer
-#              param, active censor, tag list): copy over only if the keeper
-#              has no row of its own; otherwise the keeper's existing row
-#              wins and the duplicate's is dropped.
-#   cues     — special-cased below; hot cues are slotted by Kind, memory
-#              cues are positional and simply accumulate.
+#   playlists   a track in a playlist the keeper is already in: drop the duplicate's slot,
+#               otherwise re-point it to the keeper.
+#   cues        hot cues are slotted (kind 1, slot N): the keeper's cue wins a slot
+#               conflict. Memory cues and loops have no slot: kept unless the keeper
+#               already has one at the same position (and kind).
+#   beat grid   the keeper's grid wins; the duplicate's is copied only if the keeper has none.
+#   metadata    only fields the keeper has empty are filled in. The keeper's own
+#               values always win.
 
-_GROUP_TABLES = [
-    # (getter name on db, group id field, label)
-    ("get_playlist_songs",         "PlaylistID",        "playlist"),
-    ("get_history_songs",          "HistoryID",          "history"),
-    ("get_my_tag_songs",           "MyTagID",            "my tag"),
-    ("get_sampler_songs",          "SamplerID",          "sampler"),
-    ("get_related_tracks_songs",   "RelatedTracksID",    "related tracks"),
-    ("get_hot_cue_banklist_songs", "HotCueBanklistID",   "hot cue banklist"),
-]
-
-_SIMPLE_TABLES = [
-    # (getter name on db, label)
-    ("get_mixer_param",   "mixer params"),
-    ("get_active_censor", "active censors"),
-    ("get_tag_list_songs","tag list entries"),
-]
+_BACKFILL_COLUMNS = (
+    "artist", "album", "genre", "label", "year", "comment", "bpm", "key", "title",
+    "track_number", "disc_number", "rating",
+)
 
 
-def _rethread_group_table(db, getter_name: str, group_field: str, remove_id: str, keeper_id: str) -> tuple[int, int]:
-    """
-    Generic re-threader for join-style tables (group id + ContentID + TrackNo).
-    Same rule as playlists: drop the duplicate's slot if the keeper is already
-    a member of that same group, otherwise re-point ContentID to the keeper.
+def _empty(value) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip()) or value == 0
 
-    Returns (rethreaded, dropped).
-    """
-    getter = getattr(db, getter_name)
-    rows = getter(ContentID=remove_id).all()
-    if not rows:
-        return 0, 0
-    rethreaded = 0
-    dropped = 0
-    for row in rows:
-        group_id = getattr(row, group_field)
-        already_there = getter(ContentID=keeper_id, **{group_field: group_id}).all()
-        if already_there:
-            db.session.delete(row)
+
+def _backfill_metadata(cur, remove_id: int, keeper_id: int, emit) -> int:
+    cols = ", ".join(_BACKFILL_COLUMNS)
+    dup = cur.execute(f"SELECT {cols} FROM fg_content WHERE id = ?", (remove_id,)).fetchone()
+    keep = cur.execute(f"SELECT {cols} FROM fg_content WHERE id = ?", (keeper_id,)).fetchone()
+    if dup is None or keep is None:
+        return 0
+    updates = {}
+    for name, dup_value, keep_value in zip(_BACKFILL_COLUMNS, dup, keep):
+        if _empty(keep_value) and not _empty(dup_value):
+            updates[name] = dup_value
+    if updates:
+        assignments = ", ".join(f"{name} = ?" for name in updates)
+        cur.execute(
+            f"UPDATE fg_content SET {assignments}, updated_at = datetime('now', 'localtime') WHERE id = ?",
+            (*updates.values(), keeper_id),
+        )
+        emit(f"      ↪  {len(updates)} metadata field(s) backfilled onto keeper")
+    return len(updates)
+
+
+def _rethread_playlists(cur, remove_id: int, keeper_id: int) -> tuple[int, int, set[int]]:
+    """Returns (re-pointed, dropped, ids of the playlists touched)."""
+    rows = cur.execute(
+        "SELECT id, playlist_id FROM fg_playlist_song WHERE content_id = ?", (remove_id,)
+    ).fetchall()
+    moved = dropped = 0
+    touched: set[int] = set()
+    for row_id, playlist_id in rows:
+        touched.add(playlist_id)
+        already = cur.execute(
+            "SELECT 1 FROM fg_playlist_song WHERE content_id = ? AND playlist_id = ?",
+            (keeper_id, playlist_id),
+        ).fetchone()
+        if already:
+            cur.execute("DELETE FROM fg_playlist_song WHERE id = ?", (row_id,))
             dropped += 1
         else:
-            row.ContentID = keeper_id
-            rethreaded += 1
-    return rethreaded, dropped
+            cur.execute("UPDATE fg_playlist_song SET content_id = ? WHERE id = ?", (keeper_id, row_id))
+            moved += 1
+    return moved, dropped, touched
 
 
-def _copy_or_drop_simple(db, getter_name: str, remove_id: str, keeper_id: str) -> tuple[int, int]:
-    """
-    Generic handler for groupless singleton-style tables. If the keeper has
-    no row of its own, the duplicate's row(s) are re-pointed over; otherwise
-    the keeper's existing row wins and the duplicate's is dropped.
-
-    Returns (copied, dropped).
-    """
-    getter = getattr(db, getter_name)
-    dup_rows = getter(ContentID=remove_id).all()
-    if not dup_rows:
+def _rethread_cues(cur, remove_id: int, keeper_id: int) -> tuple[int, int]:
+    """Returns (copied, dropped). Keeper wins any conflict."""
+    dup = cur.execute("SELECT id, kind, slot, in_msec FROM fg_cue WHERE content_id = ?", (remove_id,)).fetchall()
+    if not dup:
         return 0, 0
-    keeper_rows = getter(ContentID=keeper_id).all()
-    if keeper_rows:
-        for row in dup_rows:
-            db.session.delete(row)
-        return 0, len(dup_rows)
-    for row in dup_rows:
-        row.ContentID = keeper_id
-    return len(dup_rows), 0
-
-
-def _rethread_cues(db, remove_id: str, keeper_id: str) -> tuple[int, int]:
-    """
-    Hot cues are slotted by djmdCue.Kind (0 = memory cue; a nonzero Kind is
-    the hot cue pad number, e.g. 1=A, 2=B, ... — a CDJ has one physical pad
-    per Kind value, so two cues sharing a Kind genuinely conflict).
-    Memory cues have no slot concept and just accumulate along the timeline;
-    they're deduped by exact position (InMsec) to avoid literal duplicates.
-
-    Conflict rule (same slot occupied on both sides): keeper's cue wins,
-    duplicate's is dropped — the same gap-filling-only philosophy used for
-    track metadata, extended to cues.
-
-    Returns (copied, dropped).
-    """
-    dup_cues = db.get_cue(ContentID=remove_id).all()
-    if not dup_cues:
-        return 0, 0
-    keeper_cues = db.get_cue(ContentID=keeper_id).all()
-    keeper_hot_kinds = {c.Kind for c in keeper_cues if c.Kind}
-    keeper_memory_positions = {c.InMsec for c in keeper_cues if not c.Kind}
-
-    copied = 0
-    dropped = 0
-    for cue in dup_cues:
-        if cue.Kind:  # hot cue — Kind is the slot
-            if cue.Kind in keeper_hot_kinds:
-                db.session.delete(cue)
-                dropped += 1
-            else:
-                cue.ContentID = keeper_id
-                keeper_hot_kinds.add(cue.Kind)
-                copied += 1
-        else:  # memory cue — positional, not slotted
-            if cue.InMsec in keeper_memory_positions:
-                db.session.delete(cue)
-                dropped += 1
-            else:
-                cue.ContentID = keeper_id
-                keeper_memory_positions.add(cue.InMsec)
-                copied += 1
+    keep = cur.execute("SELECT kind, slot, in_msec FROM fg_cue WHERE content_id = ?", (keeper_id,)).fetchall()
+    used_slots = {slot for kind, slot, _ in keep if kind == 1 and slot is not None}
+    used_positions = {(kind, in_msec) for kind, _slot, in_msec in keep if kind != 1}
+    copied = dropped = 0
+    for cue_id, kind, slot, in_msec in dup:
+        if kind == 1 and slot is not None:  # hot cue: the slot is the pad number
+            conflict = slot in used_slots
+            used_slots.add(slot)
+        else:
+            conflict = (kind, in_msec) in used_positions
+            used_positions.add((kind, in_msec))
+        if conflict:
+            cur.execute("DELETE FROM fg_cue WHERE id = ?", (cue_id,))
+            dropped += 1
+        else:
+            cur.execute("UPDATE fg_cue SET content_id = ? WHERE id = ?", (keeper_id, cue_id))
+            copied += 1
     return copied, dropped
 
 
-def _rethread_cloud_export_playlists(db, remove_id: str, keeper_id: str) -> tuple[int, int]:
-    """
-    djmdCloudExportSongPlaylist has no pyrekordbox ORM model (as of 0.4.4),
-    so this is handled with parameterized raw SQL instead of the ORM. Same
-    group-membership rule as _rethread_group_table, keyed on
-    CloudExportPlaylistID.
-    """
-    rows = db.session.execute(
-        text("SELECT ID, CloudExportPlaylistID FROM djmdCloudExportSongPlaylist WHERE ContentID = :cid"),
-        {"cid": remove_id},
-    ).fetchall()
-    if not rows:
-        return 0, 0
-    rethreaded = 0
-    dropped = 0
-    for row_id, playlist_id in rows:
-        already_there = db.session.execute(
-            text(
-                "SELECT 1 FROM djmdCloudExportSongPlaylist "
-                "WHERE ContentID = :kid AND CloudExportPlaylistID = :pid"
-            ),
-            {"kid": keeper_id, "pid": playlist_id},
-        ).fetchone()
-        if already_there:
-            db.session.execute(
-                text("DELETE FROM djmdCloudExportSongPlaylist WHERE ID = :id"), {"id": row_id}
-            )
-            dropped += 1
-        else:
-            db.session.execute(
-                text("UPDATE djmdCloudExportSongPlaylist SET ContentID = :kid WHERE ID = :id"),
-                {"kid": keeper_id, "id": row_id},
-            )
-            rethreaded += 1
-    return rethreaded, dropped
+def _rethread_beatgrid(cur, remove_id: int, keeper_id: int) -> int:
+    """Move the duplicate's beat grid over only if the keeper has none. Returns rows moved."""
+    if cur.execute("SELECT 1 FROM fg_beatgrid WHERE content_id = ? LIMIT 1", (keeper_id,)).fetchone():
+        return 0
+    cur.execute("UPDATE fg_beatgrid SET content_id = ? WHERE content_id = ?", (keeper_id, remove_id))
+    return cur.rowcount
 
 
-def _rethread_recommend_likes(db, remove_id: str, keeper_id: str) -> tuple[int, int]:
-    """
-    djmdRecommendLike has no pyrekordbox ORM model (as of 0.4.4), so this is
-    handled with parameterized raw SQL. Unlike the other FK tables it's a
-    pairwise relation (ContentID1, ContentID2), not a track → group link, so
-    it needs its own logic: re-point whichever column referenced the
-    duplicate, unless that would create a self-pair (keeper recommended to
-    itself) or duplicate an existing pair in either column order — both
-    cases drop the row instead.
-    """
-    rethreaded = 0
-    dropped = 0
-    for col_self, col_other in (("ContentID1", "ContentID2"), ("ContentID2", "ContentID1")):
-        rows = db.session.execute(
-            text(f"SELECT ID, {col_other} FROM djmdRecommendLike WHERE {col_self} = :rid"),
-            {"rid": remove_id},
-        ).fetchall()
-        for row_id, other_id in rows:
-            if other_id == keeper_id:
-                db.session.execute(text("DELETE FROM djmdRecommendLike WHERE ID = :id"), {"id": row_id})
-                dropped += 1
-                continue
-            existing_pair = db.session.execute(
-                text(
-                    "SELECT 1 FROM djmdRecommendLike WHERE "
-                    "(ContentID1 = :a AND ContentID2 = :b) OR (ContentID1 = :b AND ContentID2 = :a)"
-                ),
-                {"a": keeper_id, "b": other_id},
-            ).fetchone()
-            if existing_pair:
-                db.session.execute(text("DELETE FROM djmdRecommendLike WHERE ID = :id"), {"id": row_id})
-                dropped += 1
-            else:
-                db.session.execute(
-                    text(f"UPDATE djmdRecommendLike SET {col_self} = :kid WHERE ID = :id"),
-                    {"kid": keeper_id, "id": row_id},
-                )
-                rethreaded += 1
-    return rethreaded, dropped
+def _content_row_dict(cur, content_id: int) -> dict | None:
+    """The fg_content row as a plain dict, for the journal (so Undo can put it back)."""
+    cur.execute("SELECT * FROM fg_content WHERE id = ?", (content_id,))
+    row = cur.fetchone()
+    if row is None:
+        return None
+    names = [d[0] for d in cur.description]
+    return {k: v for k, v in zip(names, row) if v is not None and k not in ("id", "created_at", "updated_at")}
 
 
-def _rethread_associations(remove_content, keeper_path: str, db, emit) -> dict:
-    """
-    Before a duplicate content row is deleted: backfill any descriptive
-    metadata the keeper is missing, then re-thread every other
-    ContentID-referencing table (playlists, cues, mixer params, my tags,
-    history, sampler, related tracks, hot cue banklists, active censors, tag
-    list, cloud export playlists, recommend-likes) so nothing becomes a
-    silent orphan.
+def _has_associations(cur, content_id: int) -> bool:
+    for table in ("fg_playlist_song", "fg_cue", "fg_beatgrid"):
+        if cur.execute(f"SELECT 1 FROM {table} WHERE content_id = ? LIMIT 1", (content_id,)).fetchone():
+            return True
+    return False
 
-    Returns a dict of counts, including "playlists_rethreaded" (kept as its
-    own key for backward compatibility with existing callers) and
-    "associations_rethreaded" (total across every other table).
-    """
-    keeper_rows = db.get_content(FolderPath=keeper_path).all()
-    if not keeper_rows:
-        emit(f"      ⚠  Keeper not in DB ({Path(keeper_path).name}) — associations left intact")
-        return {"playlists_rethreaded": 0, "associations_rethreaded": 0, "metadata_backfilled": 0}
 
-    keeper_content = keeper_rows[0]
-    remove_id = remove_content.ID
-    keeper_id = keeper_content.ID
+def _refresh_playlist_counts(archive, cur, playlist_ids) -> None:
+    for playlist_id in playlist_ids:
+        archive._refresh_playlist_count(cur, playlist_id)
 
-    metadata_backfilled = _backfill_metadata(remove_content, keeper_content, emit)
 
-    playlists_rethreaded = 0
-    associations_rethreaded = 0
-
-    for getter_name, group_field, label in _GROUP_TABLES:
-        rethreaded, dropped = _rethread_group_table(db, getter_name, group_field, remove_id, keeper_id)
-        if getter_name == "get_playlist_songs":
-            playlists_rethreaded += rethreaded
-        elif rethreaded or dropped:
-            associations_rethreaded += rethreaded
-            emit(f"      ↪  {label}: {rethreaded} re-threaded, {dropped} dropped (keeper already present)")
-
-    for getter_name, label in _SIMPLE_TABLES:
-        copied, dropped = _copy_or_drop_simple(db, getter_name, remove_id, keeper_id)
-        if copied or dropped:
-            associations_rethreaded += copied
-            emit(f"      ↪  {label}: {copied} copied, {dropped} dropped (keeper already has one)")
-
-    cue_copied, cue_dropped = _rethread_cues(db, remove_id, keeper_id)
-    if cue_copied or cue_dropped:
-        associations_rethreaded += cue_copied
-        emit(f"      ↪  cues: {cue_copied} copied, {cue_dropped} dropped (slot conflict, keeper wins)")
-
-    cloud_rethreaded, cloud_dropped = _rethread_cloud_export_playlists(db, remove_id, keeper_id)
-    if cloud_rethreaded or cloud_dropped:
-        associations_rethreaded += cloud_rethreaded
-        emit(f"      ↪  cloud export playlists: {cloud_rethreaded} re-threaded, {cloud_dropped} dropped")
-
-    like_rethreaded, like_dropped = _rethread_recommend_likes(db, remove_id, keeper_id)
-    if like_rethreaded or like_dropped:
-        associations_rethreaded += like_rethreaded
-        emit(f"      ↪  recommend-likes: {like_rethreaded} re-threaded, {like_dropped} dropped")
-
-    return {
-        "playlists_rethreaded": playlists_rethreaded,
-        "associations_rethreaded": associations_rethreaded,
-        "metadata_backfilled": metadata_backfilled,
-    }
-
+# ── Public: remove duplicates ────────────────────────────────────────────────
 
 def prune_files(
     file_paths: list[str],
-    db,
+    archive,
     log=None,
-    permanent: bool = False,
     keeper_map: dict[str, str] | None = None,
     should_cancel=None,
-    archive=None,
+    library_root: str | Path | None = None,
 ) -> dict:
     """
-    Remove file_paths from DjmdContent and move them to a timestamped
-    recovery folder inside ~/Trash/.
+    Move each duplicate file into the FableGear Duplicates folder beside the
+    library and remove its row from the FableGear database.
 
-    keeper_map (optional): {remove_path → keeper_path}
-      When provided, every other table that references the duplicate's
-      ContentID (playlists, cues, mixer params, my tags, history, sampler,
-      related tracks, hot cue banklists, active censors, tag list, cloud
-      export playlists, recommend-likes) is re-threaded to point at the
-      keeper *before* the duplicate row is deleted, and any descriptive
-      metadata (BPM, key, genre, artist, album, comment, rating, etc.) the
-      keeper is missing is backfilled from the duplicate first. The keeper's
-      own non-empty values always win — nothing populated is ever overwritten.
+    archive: the FableGear database (fablegear_database.FableGearDatabase).
+    keeper_map (optional): {duplicate_path -> kept_path}. When given, the
+      duplicate's playlist memberships, cues, beat grid and any metadata the
+      kept track is missing are moved onto the kept track before the row is
+      removed. The keeper's own values always win. Without a keeper, a track
+      that is in a playlist or has cues or a beat grid is protected: it is left exactly where
+      it is, and nothing is removed.
 
-    Order of operations:
-      1. Create recovery folder in Trash.
-      2. Backfill metadata and re-thread associations for each duplicate
-         that has a keeper.
-      3. Remove DB entries (with the backup already created by write_db).
-      4. Move files to recovery folder.
+    For each file, the file is moved first and the database changed second, in
+    one transaction. If the database step fails the file is moved back, so a file
+    and its row never disagree.
 
-    Returns a summary dict:
-      { db_removed, files_moved, skipped, errors, trash_dir,
-        playlists_rethreaded, associations_rethreaded, metadata_backfilled }
+    Returns { db_removed, files_moved, skipped, errors, duplicates_dir,
+              playlists_rethreaded, associations_rethreaded, metadata_backfilled,
+              cancelled }
     """
 
     def emit(msg: str) -> None:
         if log:
             log(msg)
+        else:
+            _log.info(msg)
 
-    def _cancel_requested() -> bool:
-        if not should_cancel:
-            return False
+    def cancelled() -> bool:
+        return bool(should_cancel and should_cancel())
+
+    root = effective_library_root(library_root, file_paths[0] if file_paths else None)
+    dup_dir = duplicates_folder(root)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    emit(f"Duplicates folder → {dup_dir}")
+
+    # A savepoint before anything changes: the Archive's "backup before every write".
+    # If it can't be made, nothing is touched.
+    if file_paths:
         try:
-            return bool(should_cancel())
+            snap = archive.snapshot(Path(_config.SAVEPOINTS_DIR) / "FableGear Library", "deduplicate")
+            emit(f"Savepoint of the FableGear database → {snap}")
         except Exception as exc:
-            # A broken cancel-check must never abort or hang the prune — default
-            # to "not cancelled" — but log it so a flaky should_cancel() is visible.
-            _log.warning("should_cancel() raised — treating as not cancelled: %s", exc)
-            return False
-
-    stamp     = datetime.now().strftime("%Y%m%d_%H%M%S")
-    if permanent:
-        trash_dir = None
-        emit("⚠  Permanent delete mode — files will NOT be recoverable")
-    else:
-        trash_dir = Path.home() / ".Trash" / f"FableGear_Pruned_{stamp}"
-        trash_dir.mkdir(parents=True, exist_ok=True)
-        emit(f"Recovery folder → {trash_dir}")
-    emit("")
-
-    db_removed = 0
-    files_moved = 0
-    skipped    = 0
-    playlists_rethreaded = 0
-    associations_rethreaded = 0
-    metadata_backfilled = 0
-    errors: list[str] = []
-    protected_paths: set[str] = set()
-
-    # ── Step 1: Remove from database (with association re-threading) ──────
-    emit("  Removing from RekordBox database…")
-    for path in file_paths:
-        if _cancel_requested():
-            emit("    ⚠  Cancel requested — rolling back pending database changes.")
-            try:
-                db.rollback()
-            except Exception as exc:
-                # Caller's cancelled-path only prints a generic message and never
-                # inspects `errors` for this early return, so a silent append here
-                # would hide the failure entirely — emit it too.
-                msg = f"Rollback failed after cancel request: {exc}"
-                errors.append(msg)
-                emit(f"    ⚠  {msg}")
-            emit("  Prune cancelled before commit. No files were moved.")
+            msg = f"Could not take a savepoint of the FableGear database, so nothing was changed: {exc}"
+            emit(f"  ✗ {msg}")
             return {
-                "db_removed":              0,
-                "files_moved":             0,
-                "skipped":                 0,
-                "errors":                  errors,
-                "trash_dir":               str(trash_dir) if trash_dir is not None else None,
-                "playlists_rethreaded":    0,
-                "associations_rethreaded": 0,
-                "metadata_backfilled":     0,
-                "cancelled":               True,
+                "db_removed": 0, "files_moved": 0, "skipped": 0, "errors": [msg],
+                "duplicates_dir": str(dup_dir), "playlists_rethreaded": 0,
+                "associations_rethreaded": 0, "metadata_backfilled": 0, "cancelled": False,
             }
+
+    db_removed = files_moved = skipped = 0
+    playlists_rethreaded = associations_rethreaded = metadata_backfilled = 0
+    errors: list[str] = []
+
+    for path in file_paths:
+        if cancelled():
+            emit("  ⚠  Cancel requested — stopping. Files already moved stay in the Duplicates folder.")
+            break
+        src = Path(path)
+        name = src.name
+        keeper_path = (keeper_map or {}).get(path)
+
+        def _row(cur, p: str):
+            return cur.execute("SELECT id FROM fg_content WHERE file_path = ?", (p,)).fetchone()
+
+        # Safety gate, before anything moves: a track that is in a playlist or has cues or a beat grid
+        # needs a kept track to receive them.
         try:
-            # SAVEPOINT-scoped: if re-threading a row succeeds but deleting it
-            # (or a later row for this same path) then fails, the whole block
-            # rolls back to this savepoint on the way out — not just this row,
-            # but not the rest of the batch either. Without this, a partial
-            # rethread could ride along uncommitted-but-staged into whatever
-            # the final db.commit() below picks up from earlier, successful
-            # paths in this same run.
-            # Accumulated locally and only merged into the outer running totals
-            # after the nested block below completes without raising — if a
-            # later row for this same path fails, the savepoint rolls back the
-            # DB-side changes, but Python variable increments aren't
-            # transactional, so accumulating straight into the outer counters
-            # would let a rolled-back row's stats survive in the summary.
-            path_playlists_rethreaded = 0
-            path_associations_rethreaded = 0
-            path_metadata_backfilled = 0
-            path_deleted = 0
-
-            with db.session.begin_nested():
-                rows = db.get_content(FolderPath=path).all()
-                if rows:
-                    for row in rows:
-                        # Re-thread associations (playlists, cues, tags, etc.) before
-                        # deleting the content row
-                        keeper_path = (keeper_map or {}).get(path)
-                        song_rows = db.get_playlist_songs(ContentID=row.ID).all()
-                        if keeper_path:
-                            result = _rethread_associations(row, keeper_path, db, emit)
-                            path_playlists_rethreaded += result["playlists_rethreaded"]
-                            path_associations_rethreaded += result["associations_rethreaded"]
-                            path_metadata_backfilled += result["metadata_backfilled"]
-                            if result["playlists_rethreaded"]:
-                                emit(f"      ↪  {result['playlists_rethreaded']} playlist slot(s) re-threaded to keeper")
-                        elif song_rows:
-                            protected_paths.add(path)
-                            skipped += 1
-                            emit(
-                                "      ⚠  Protected — track is in playlist(s) but no keeper mapping was provided; skipping delete"
-                            )
-                            continue
-                        db.session.delete(row)
-                        path_deleted += 1
-                    if path_deleted > 0:
-                        emit(f"    DB ✓  {Path(path).name}")
-                    else:
-                        emit(f"    DB —  {Path(path).name}  (protected; no rows deleted)")
-                else:
-                    emit(f"    DB —  {Path(path).name}  (not in database — file only)")
-
-            # Reached only if the nested block above didn't raise — safe to
-            # fold this path's stats into the run-wide totals now.
-            playlists_rethreaded += path_playlists_rethreaded
-            associations_rethreaded += path_associations_rethreaded
-            metadata_backfilled += path_metadata_backfilled
-            db_removed += path_deleted
+            with archive.connection() as conn:
+                cur = conn.cursor()
+                dup_row = _row(cur, path)
+                keeper_row = _row(cur, keeper_path) if keeper_path else None
+                if dup_row is not None and keeper_row is None and _has_associations(cur, dup_row[0]):
+                    skipped += 1
+                    emit(f"    Skip — {name} is in playlists or has cues or a beat grid, and its kept "
+                         f"copy isn't in the database. Nothing was changed.")
+                    continue
         except Exception as exc:
-            msg = f"DB error for {Path(path).name}: {exc}"
-            errors.append(msg)
-            emit(f"    DB ✗  {msg}")
+            errors.append(f"Database check failed for {name}: {exc}")
+            emit(f"    ✗  {errors[-1]}")
+            continue
 
-    # Commit all session.delete() calls — session.close() does NOT commit.
-    try:
-        db.commit()
-        emit(f"  Database commit OK ({db_removed} row(s) removed)")
-    except Exception as exc:
-        msg = f"Database commit failed — no files will be moved: {exc}"
-        errors.append(msg)
-        emit(f"  ✗ {msg}")
-        return {
-            "db_removed":              0,
-            "files_moved":             0,
-            "skipped":                 skipped,
-            "errors":                  errors,
-            "trash_dir":               str(trash_dir) if trash_dir is not None else None,
-            "playlists_rethreaded":    playlists_rethreaded,
-            "associations_rethreaded": associations_rethreaded,
-            "metadata_backfilled":     metadata_backfilled,
-            "cancelled":               False,
-        }
+        if not src.exists():
+            skipped += 1
+            emit(f"    Skip — not found on disk: {name}")
+            continue
+
+        dest = _archive_destination(src, root, dup_dir)
+        try:
+            _move_verified(src, dest)
+        except Exception as exc:
+            errors.append(f"Could not move {name}: {exc}")
+            emit(f"    Move ✗  {errors[-1]}")
+            continue
+
+        # Database step, one transaction. Any failure puts the file back.
+        try:
+            path_playlists = path_assoc = path_meta = 0
+            removed = False
+            row_snapshot = None
+            with archive.transaction() as conn:
+                cur = conn.cursor()
+                dup_row = _row(cur, path)
+                keeper_row = _row(cur, keeper_path) if keeper_path else None
+                if dup_row is not None:
+                    remove_id = dup_row[0]
+                    row_snapshot = _content_row_dict(cur, remove_id)
+                    touched: set[int] = set()
+                    if keeper_row is not None:
+                        keeper_id = keeper_row[0]
+                        path_meta = _backfill_metadata(cur, remove_id, keeper_id, emit)
+                        moved, _dropped, touched = _rethread_playlists(cur, remove_id, keeper_id)
+                        path_playlists = moved
+                        cue_copied, cue_dropped = _rethread_cues(cur, remove_id, keeper_id)
+                        grid_moved = _rethread_beatgrid(cur, remove_id, keeper_id)
+                        path_assoc = cue_copied + (1 if grid_moved else 0)
+                        if cue_copied or cue_dropped:
+                            emit(f"      ↪  cues: {cue_copied} copied, {cue_dropped} dropped (keeper wins)")
+                        if grid_moved:
+                            emit("      ↪  beat grid copied (keeper had none)")
+                    cur.execute("DELETE FROM fg_content WHERE id = ?", (remove_id,))
+                    removed = cur.rowcount > 0
+                    _refresh_playlist_counts(archive, cur, touched)
+            if removed:
+                db_removed += 1
+                emit(f"    DB ✓  {name}")
+            else:
+                emit(f"    DB —  {name}  (not in database — file only)")
+        except Exception as exc:
+            try:
+                _move_verified(dest, src)
+                back = "The file was put back where it was."
+            except Exception as back_exc:  # pragma: no cover - last-resort message
+                back = f"The file could not be put back ({back_exc}); it is at {dest}."
+            errors.append(f"Database error for {name}: {exc}. {back}")
+            emit(f"    DB ✗  {errors[-1]}")
+            continue
+
+        playlists_rethreaded += path_playlists
+        associations_rethreaded += path_assoc
+        metadata_backfilled += path_meta
+        files_moved += 1
+        # The restore record is written the moment the move is complete, not at the end of
+        # the batch, so an interrupted run still leaves a line for every file it moved.
+        try:
+            _append_move_log(dup_dir, {
+                "when": stamp, "original": str(src), "moved_to": str(dest),
+                "kept": keeper_path, "in_database": removed,
+            })
+        except OSError as exc:
+            errors.append(f"Could not write the moves log for {name}: {exc}")
+        emit(f"    Moved ✓  {name}")
+        try:
+            # Same shape as Organize/Rename: file_path is where the file is NOW, "from" is
+            # where it came from, so the Undo screen can move it back. "row" lets Undo
+            # re-add the track entry. Playlist slots, cues and grids stay with the kept track.
+            archive.log_operation(
+                "prune", str(dest), status="ok",
+                metadata={"from": str(src), "kept": keeper_path, "row": row_snapshot},
+            )
+        except Exception as exc:
+            _log.warning("Archive journal failed for %s: %s", path, exc)
 
     emit("")
+    emit("═══ DE-DUPLICATE SUMMARY ═══")
+    emit(f"  Database entries removed        : {db_removed}")
+    if playlists_rethreaded:
+        emit(f"  Playlist slots moved to keeper  : {playlists_rethreaded}")
+    if associations_rethreaded:
+        emit(f"  Cues / grids moved to keeper    : {associations_rethreaded}")
+    if metadata_backfilled:
+        emit(f"  Metadata fields backfilled      : {metadata_backfilled}")
+    emit(f"  Files moved to Duplicates folder: {files_moved}")
+    if skipped:
+        emit(f"  Skipped                         : {skipped}")
+    if errors:
+        emit(f"  Errors                          : {len(errors)}")
+        for err in errors:
+            emit(f"    ⚠  {err}")
+    emit(f"  Duplicates folder               : {dup_dir}")
+    emit("════════════════════════════")
 
-    # ── Step 2: Move/delete files ──────────────────────────────────────────
-    if _cancel_requested():
-        emit("  ⚠  Cancel requested after database commit — finishing file operations to keep DB and filesystem in sync.")
-
-    def _journal_prune(src_path: str, dest) -> None:
-        """Journal each removal the moment it happens — an interrupted prune
-        must still leave a record of every file it moved or deleted."""
-        if archive is None:
-            return
+    if files_moved > 0:
         try:
-            rec = archive.get_content_by_path(src_path)
-            if rec and rec.id is not None:
-                archive.delete_content(rec.id)
             archive.log_operation(
-                "prune", src_path, status="ok",
+                "prune_batch",
                 metadata={
-                    "permanent": permanent,
-                    "moved_to": str(dest) if dest else None,
-                    "trash_dir": str(trash_dir) if trash_dir else None,
+                    "db_removed": db_removed, "files_moved": files_moved,
+                    "playlists_rethreaded": playlists_rethreaded,
+                    "associations_rethreaded": associations_rethreaded,
+                    "metadata_backfilled": metadata_backfilled,
+                    "duplicates_dir": str(dup_dir),
                 },
             )
         except Exception as exc:
-            _log.warning("Archive update failed for prune %s: %s", src_path, exc)
-
-    action_label = "Permanently deleting" if permanent else "Moving files to recovery folder"
-    emit(f"  {action_label}…")
-    for path in file_paths:
-        if path in protected_paths:
-            emit(f"    Skip — protected by playlist safety gate: {Path(path).name}")
-            continue
-        p = Path(path)
-        if not p.exists():
-            emit(f"    Skip — not found on disk: {p.name}")
-            skipped += 1
-            continue
-        try:
-            if permanent:
-                p.unlink()
-                files_moved += 1
-                emit(f"    Deleted ✓  {p.name}")
-                _journal_prune(path, dest=None)
-            else:
-                dest = trash_dir / p.name
-                # Handle name collisions within the recovery folder
-                if dest.exists():
-                    dest = trash_dir / f"{p.stem}__{p.parent.name}{p.suffix}"
-                shutil.move(str(p), str(dest))
-                files_moved += 1
-                emit(f"    Moved ✓  {p.name}")
-                _journal_prune(path, dest=dest)
-        except Exception as exc:
-            msg = f"Could not {'delete' if permanent else 'move'} {p.name}: {exc}"
-            errors.append(msg)
-            emit(f"    {'Delete' if permanent else 'Move'} ✗  {msg}")
-
-    emit("")
-    emit("═══ PRUNE SUMMARY ═══")
-    emit(f"  Database entries removed        : {db_removed}")
-    if playlists_rethreaded:
-        emit(f"  Playlist slots re-threaded     : {playlists_rethreaded}")
-    if associations_rethreaded:
-        emit(f"  Other associations re-threaded : {associations_rethreaded}")
-    if metadata_backfilled:
-        emit(f"  Metadata fields backfilled     : {metadata_backfilled}")
-    emit(f"  Files {'permanently deleted' if permanent else 'moved to recovery'} : {files_moved}")
-    if skipped:
-        emit(f"  Skipped (not on disk)    : {skipped}")
-    if errors:
-        emit(f"  Errors                   : {len(errors)}")
-        for err in errors:
-            emit(f"    ⚠  {err}")
-    emit(f"  Recovery folder          : {trash_dir}")
-    emit("═════════════════════")
-
-    if archive is not None and files_moved > 0:
-        archive.log_operation(
-            "prune_batch",
-            metadata={
-                "db_removed": db_removed,
-                "files_moved": files_moved,
-                "permanent": permanent,
-                "playlists_rethreaded": playlists_rethreaded,
-                "associations_rethreaded": associations_rethreaded,
-                "metadata_backfilled": metadata_backfilled,
-            },
-        )
+            _log.warning("Archive batch journal failed: %s", exc)
 
     return {
-        "db_removed":              db_removed,
-        "files_moved":             files_moved,
-        "skipped":                 skipped,
-        "errors":                  errors,
-        "trash_dir":               str(trash_dir) if trash_dir is not None else None,
-        "playlists_rethreaded":    playlists_rethreaded,
+        "db_removed": db_removed,
+        "files_moved": files_moved,
+        "skipped": skipped,
+        "errors": errors,
+        "duplicates_dir": str(dup_dir),
+        "playlists_rethreaded": playlists_rethreaded,
         "associations_rethreaded": associations_rethreaded,
-        "metadata_backfilled":     metadata_backfilled,
-        "cancelled":               False,
+        "metadata_backfilled": metadata_backfilled,
+        "cancelled": cancelled(),
     }

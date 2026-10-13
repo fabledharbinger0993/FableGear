@@ -487,7 +487,7 @@ function _deckKeyMatch(fromId, toId) {
   const dstSt = _CAMELOT_TO_ST[dst.meta.key];
   if (srcSt === undefined || dstSt === undefined) {
     if (typeof showToast === 'function') {
-      showToast('Key match needs Camelot keys on both decks — run Tag Tracks first.', 'warning');
+      showToast('Key match needs Camelot keys on both decks — run Forge first.', 'warning');
     }
     return;
   }

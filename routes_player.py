@@ -1513,6 +1513,85 @@ def api_library_remove_track(track_id):
     return jsonify({"ok": True, "id": str(tid), "status": "removed"})
 
 
+def _track_file_on_disk(rec):
+    """The track's audio file as a Path, or None when the record has no file on disk."""
+    if rec is None or not rec.file_path:
+        return None
+    path = Path(rec.file_path)
+    return path if path.is_file() else None
+
+
+@bp.route("/api/library/tracks/<track_id>/analyze", methods=["POST"])
+def api_library_analyze_track(track_id):
+    """Run Iron (BPM + key) on one track and persist the result to the FableGear database.
+
+    Reads the audio file, never writes it. A value Iron does not return leaves the
+    stored value as it was. Writing the result into the file's tags is a separate
+    action: POST /api/library/tracks/<id>/tags.
+    """
+    from audio_processor import _analyze_iron
+
+    fg, err = _fg_only_db()
+    if err:
+        return err
+    tid = _parse_id(track_id)
+    rec = fg.get_content_by_id(tid) if tid is not None else None
+    if rec is None:
+        return jsonify({"error": "Track not found"}), 404
+    path = _track_file_on_disk(rec)
+    if path is None:
+        return jsonify({"error": "The audio file is missing on disk"}), 409
+
+    tempo, key = _analyze_iron(path, bpm=True, key=True)
+    bpm = tempo[0] if tempo else None
+    confidence = tempo[1] if tempo else None
+    if bpm is None and key is None:
+        return jsonify({"error": "Iron could not analyse this track"}), 422
+
+    fg.bulk_set_analysis([(rec.file_path, bpm, key, path.stat().st_size)])
+    fg.log_operation("analyze_iron", file_path=rec.file_path, status="ok",
+                     metadata={"bpm": bpm, "key": key, "bpm_confidence": confidence})
+    return jsonify({"ok": True, "id": str(tid), "bpm": bpm, "key": key,
+                    "bpm_confidence": confidence})
+
+
+@bp.route("/api/library/tracks/<track_id>/tags", methods=["POST"])
+def api_library_write_track_tags(track_id):
+    """Write the track's BPM and key from the FableGear database into the file's tags (Anvil).
+
+    The one Record Room action that changes an audio file, and it is explicit: only
+    the fields the database holds are written, and a track with neither is refused.
+    """
+    from audio_processor import _write_tags
+
+    fg, err = _fg_only_db()
+    if err:
+        return err
+    tid = _parse_id(track_id)
+    rec = fg.get_content_by_id(tid) if tid is not None else None
+    if rec is None:
+        return jsonify({"error": "Track not found"}), 404
+    path = _track_file_on_disk(rec)
+    if path is None:
+        return jsonify({"error": "The audio file is missing on disk"}), 409
+
+    bpm = float(rec.bpm) if rec.bpm else None
+    key = rec.key or None
+    if bpm is None and key is None:
+        return jsonify({"error": "Nothing to write: analyse the track first"}), 409
+
+    try:
+        backend = _write_tags(path, bpm=bpm, key=key)
+    except Exception as exc:
+        log.warning("Tag write failed for %s: %s", path.name, exc)
+        fg.log_operation("write_tags", file_path=rec.file_path, status="error",
+                         error_message=str(exc))
+        return jsonify({"error": f"Could not write tags: {exc}"}), 500
+    fg.log_operation("write_tags", file_path=rec.file_path, status="ok",
+                     metadata={"bpm": bpm, "key": key, "backend": backend})
+    return jsonify({"ok": True, "id": str(tid), "bpm": bpm, "key": key, "backend": backend})
+
+
 def _reserve_copy_destination(src: Path) -> Path:
     """Atomically claim a not-yet-existing "<name> (copy[ N])<ext>" beside ``src``.
 

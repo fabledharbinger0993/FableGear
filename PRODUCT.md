@@ -29,7 +29,7 @@ Everything runs on the user's Mac: no cloud service, no account/login, no teleme
 
 ## Capabilities and Constraints
 
-- Confirmed tool set: Library Browser + Player, Library Audit, Consolidate Duplicates, Import Tracks, Fix Broken Paths, Link Playlists, Playlist Management, Pioneer USB Export (Record Room); Tag Tracks, Find and Prune Duplicates, Rename Files, Organize Library, Normalize Loudness (EBU R128), Convert Format, Novelty Scanner (Chop Shop).
+- Confirmed tool set: Library Browser + Player, Library Audit, Consolidate Duplicates, Import Tracks, Fix Broken Paths, Link Playlists, Playlist Management, Pioneer USB Export (Record Room); Forge (Iron + Anvil analysis), Find and Prune Duplicates, Rename Files, Organize Library, Normalize Loudness (EBU R128), Convert Format, Novelty Scanner (Chop Shop).
 - Safety constraints are product-level requirements, not optional polish: explicit confirmation before writes, dry-run/preview where practical, automatic pre-write backups, and a rule that no database record is ever removed until every playlist referencing it has been re-wired.
 - Terminology: "Record Room" = database-layer work; "Chop Shop" = file-layer work. This split is a deliberate architectural and UX boundary, not just a folder name — keep it consistent in UI copy and navigation.
 - Open source (MIT), free, no account system — any future UI work should not assume or design toward login/paywall/account patterns.
