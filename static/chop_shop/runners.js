@@ -82,7 +82,7 @@ function _flashNeedsInput(targetId) {
   setTimeout(() => zone.classList.remove('zone-error'), 2500);
 }
 
-function runProcess() {
+function runProcess(_skipConfirm = false) {
   const paths = getFolderPaths('process-pills');
   if (!paths.length) { _flashNeedsInput('process-pills'); showToast('Add at least one music folder first.', 'warning'); return; }
 
@@ -92,14 +92,24 @@ function runProcess() {
       if (!cfg.acoustid_api_key_configured) {
         showToast('AcoustID API key not set — enrichment will be skipped. Add it in Settings.', 'warning');
       }
-      _doRunProcess(paths);
-    }).catch(() => _doRunProcess(paths));
+      _doRunProcess(paths, _skipConfirm);
+    }).catch(() => _doRunProcess(paths, _skipConfirm));
     return;
   }
-  _doRunProcess(paths);
+  _doRunProcess(paths, _skipConfirm);
 }
 
-function _doRunProcess(paths) {
+/* Quench (loudness) lives inside the Forge card. Show the audio-rewrite warning whenever it
+   is on, and move the worker count to the 4 that suits ffmpeg when it was left at 1. */
+function quenchModeChanged() {
+  const mode = document.getElementById('process-normalize-mode')?.value || 'off';
+  const warn = document.getElementById('quench-warning');
+  if (warn) warn.style.display = mode === 'off' ? 'none' : '';
+  const workers = document.getElementById('process-workers');
+  if (workers && mode !== 'off' && workers.value === '1') workers.value = '4';
+}
+
+function _doRunProcess(paths, _skipConfirm = false) {
   const retryOnly = document.getElementById('process-retry-errored')?.checked;
   if (retryOnly && _lastErrorSummary) {
     const retryPaths = [
@@ -136,8 +146,21 @@ function _doRunProcess(paths) {
     return;
   }
 
+  // Quench rewrites audio files: confirm once, exactly as the old Normalize card did.
+  if (normalizeMode !== 'off' && !_skipConfirm) {
+    const confirmed = confirm(
+      'Quench will rewrite audio files.\n\n' +
+      'Originals are renamed .bak during the operation and deleted only after the new file is verified.\n\n' +
+      'Make sure you have an independent backup of your drive before proceeding.\n\n' +
+      'Continue?'
+    );
+    if (!confirmed) return;
+  }
+
+  const workers = document.getElementById('process-workers')?.value || '1';
   const p = new URLSearchParams();
   paths.forEach(path => p.append('path', path));
+  if (parseInt(workers) > 1) p.set('workers', workers);
   p.set('bpm_mode', bpmMode);
   p.set('key_mode', keyMode);
   p.set('normalize_mode', normalizeMode);
@@ -152,9 +175,14 @@ function _doRunProcess(paths) {
     normalize_mode: normalizeMode,
     enrich_mode: enrichMode,
     rename_mode: renameMode,
+    workers,
   });
   document.getElementById('step-process')?.querySelector('.tool-resume-banner')?.remove();
-  runCommand(`/api/run/process?${p}`, 'Forge — BPM & Key Detection',
+  // A run that only levels loudness gets its own title, so its report is labelled Quench.
+  const quenchOnly = normalizeMode !== 'off' && bpmMode === 'off' && keyMode === 'off' &&
+                     enrichMode === 'off' && renameMode === 'off';
+  const runTitle = quenchOnly ? 'Forge — Quench (loudness to −8.0 LUFS)' : 'Forge — BPM & Key Detection';
+  runCommand(`/api/run/process?${p}`, runTitle,
     ec => { if (ec === 0) _clearToolCkpt('process'); }, true, false);
 }
 
@@ -223,30 +251,6 @@ function _runProcessRetry(body) {
     isRunning = false; setSpinner(false); setAllButtons(false); finishScanBar();
     appendLog(`[Connection error] ${err.message}`, 'error');
   });
-}
-
-function runNormalize(_skipConfirm = false) {
-  const paths = getFolderPaths('normalize-pills');
-  if (!paths.length) { _flashNeedsInput('normalize-pills'); showToast('Add at least one music folder first.', 'warning'); return; }
-  if (!_skipConfirm) {
-    const confirmed = confirm(
-      'This will rewrite audio files.\n\n' +
-      'Originals are renamed .bak during the operation and deleted only after the new file is verified.\n\n' +
-      'Make sure you have an independent backup of your drive before proceeding.\n\n' +
-      'Continue?'
-    );
-    if (!confirmed) return;
-  }
-  const workers = document.getElementById('normalize-workers')?.value || '4';
-  const p = new URLSearchParams({ no_bpm: '1', no_key: '1' });
-  paths.forEach(path => p.append('path', path));
-  if (parseInt(workers) > 1) p.set('workers', workers);
-  const el = document.getElementById('normalize-result');
-  if (el) el.classList.add('hidden');
-  _saveToolCkpt('normalize', { paths, workers });
-  document.getElementById('step-normalize')?.querySelector('.tool-resume-banner')?.remove();
-  runCommand(`/api/run/process?${p}`, 'Normalize — Loudness to −8.0 LUFS',
-    ec => { if (ec === 0) _clearToolCkpt('normalize'); }, true, false);
 }
 
 /* ── Import target (rekordbox / both / fablegear) ─────────────────────────── */
@@ -388,7 +392,7 @@ function runConvert() {
   if (parseInt(workers) > 1) p.set('workers', workers);
   _saveToolCkpt('convert', { paths, format, workers });
   document.getElementById('step-convert')?.querySelector('.tool-resume-banner')?.remove();
-  runCommand(`/api/run/convert?${p}`, `Converting Audio Files to ${format.toUpperCase()}`,
+  runCommand(`/api/run/convert?${p}`, `Re-Factor — Converting audio files to ${format.toUpperCase()}`,
     ec => { if (ec === 0) _clearToolCkpt('convert'); });
 }
 
@@ -397,15 +401,15 @@ function runConvert() {
 const PIPE_STEPS = {
   audit:      { name: 'Library Audit',      icon: '/static/icon-settings.png',          desc: 'DB snapshot + physical filesystem inventory' },
   process:    { name: 'Forge',         icon: '/static/icon-track-tagger.png',   desc: 'Iron finds BPM and Key; Anvil tags the file; the database is updated' },
-  rename:     { name: 'Rename Files',       icon: '/static/icon-renamer.png',        desc: 'Clean filenames using embedded metadata' },
+  rename:     { name: 'Re-Name',       icon: '/static/icon-renamer.png',        desc: 'Clean filenames using embedded metadata' },
   duplicates: { name: 'De-Duplicate: Scan',    icon: '/static/icon-deduper.png',        desc: 'Scan for files that are the same recording' },
   prune:      { name: 'De-Duplicate: Remove',   icon: '/static/icon-deduper.png',          desc: 'Move the copies found by the Scan to the Duplicates folder' },
   relocate:   { name: 'Fix Broken Paths',   icon: '/static/icon-settings.png',           desc: 'Update RekordBox after files have moved' },
   import:     { name: 'Import Tracks',      icon: '/static/icon-queue.png',         desc: 'Add new audio files to RekordBox database' },
   link:       { name: 'Link Playlists',     icon: '/static/icon-settings.png',           desc: 'Connect tracks to playlists by folder name' },
-  normalize:  { name: 'Balance Loudness',   icon: '/static/icon-normalizer.png',     desc: 'Bring every track to the same volume' },
-  convert:    { name: 'Convert Format',     icon: '/static/icon-converter.png',      desc: 'Change files to AIFF, MP3, WAV, or FLAC' },
-  organize:   { name: 'Organize Library',   icon: '/static/icon-organizer.png',      desc: 'Move files into Artist / Album / Track' },
+  normalize:  { name: 'Forge: Quench',   icon: '/static/icon-normalizer.png',     desc: 'Bring every track to the same volume' },
+  convert:    { name: 'Re-Factor',     icon: '/static/icon-converter.png',      desc: 'Change files to AIFF, MP3, WAV, or FLAC' },
+  organize:   { name: 'Re-Organize',   icon: '/static/icon-organizer.png',      desc: 'Move files into Artist / Album / Track' },
   novelty:    { name: 'Novelty Scan',       icon: '/static/icon-novelty.png',        desc: 'Copy unique tracks from source to home library' },
 };
 
@@ -453,7 +457,7 @@ function runNovelty() {
     ec => { if (ec === 0) _clearToolCkpt('novelty'); });
 }
 
-/* ── Rename Files ─────────────────────────────────────────────────────────── */
+/* ── Re-Name ─────────────────────────────────────────────────────────── */
 
 // renamePreflightState is declared in shared/state.js (these slices share one
 // global scope). Re-declaring it here with `let` is a parse-time SyntaxError
@@ -488,8 +492,8 @@ function _executeRename(pathOrPaths, dryRun) {
   if (!dryRun) p.set('no_dry_run', '1');
   const pathLabel = paths.length > 1 ? ` (${paths.length} folders)` : '';
   const label = dryRun
-    ? `Rename Files — Dry Run${pathLabel} (preview only)`
-    : `Rename Files — Cleaning file names${pathLabel}`;
+    ? `Re-Name — Dry Run${pathLabel} (preview only)`
+    : `Re-Name — Cleaning file names${pathLabel}`;
   if (!dryRun) {
     _saveToolCkpt('rename', { path: paths[0], paths, dryRun: false });
     document.getElementById('step-rename')?.querySelector('.tool-resume-banner')?.remove();
@@ -514,7 +518,7 @@ async function runRenameWithPreflight(path) {
     data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Probe failed');
   } catch (err) {
-    showToast('Rename preflight failed — ' + (err.message || err), 'error');
+    showToast('Re-Name preflight failed — ' + (err.message || err), 'error');
     return;
   }
   const candidates = Array.isArray(data.candidates) ? data.candidates : [];
@@ -669,7 +673,7 @@ async function applyRenamePreflightAndRun() {
   }
 
   openReportModal(
-    'Rename Probe — Decisions Saved',
+    'Re-Name Probe — Decisions Saved',
     [
       `Saved decisions for ${entries.length} probe item${entries.length === 1 ? '' : 's'}.`,
       '',
@@ -695,13 +699,13 @@ async function runRenameProbe() {
     data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Probe failed');
   } catch (err) {
-    showToast('Rename probe failed — ' + (err.message || err), 'error');
+    showToast('Re-Name probe failed — ' + (err.message || err), 'error');
     return;
   }
 
   if (!data.candidates || data.candidates.length === 0) {
     openReportModal(
-      'Rename Probe — Most Ambiguous',
+      'Re-Name Probe — Most Ambiguous',
       [
         `Probe sample: ${data.sample_size} files`,
         `Top candidates shown: ${data.top_n}`,

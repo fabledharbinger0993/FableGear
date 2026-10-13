@@ -106,10 +106,10 @@ async function undoLoadDatabase() {
 
 /* ── Operations (archive journal) ─────────────────────────────────────── */
 const _UNDO_OP_LABELS = {
-  organize: 'Organize — files moved',
-  rename: 'Rename — files renamed',
+  organize: 'Re-Organize — files moved',
+  rename: 'Re-Name — files renamed',
   novelty_copy: 'Novelty — tracks copied in',
-  convert: 'Convert — files re-encoded',
+  convert: 'Re-Factor — files re-encoded',
   prune: 'De-Duplicate — files moved to the Duplicates folder',
 };
 
@@ -240,8 +240,8 @@ async function undoLoadTimeline() {
 }
 
 const _TOOL_LABELS = {
-  process: 'Forge', normalize: 'Normalize', organize: 'Organize',
-  rename: 'Rename', prune: 'De-Duplicate', convert: 'Convert',
+  process: 'Forge', normalize: 'Forge (Quench)', organize: 'Re-Organize',
+  rename: 'Re-Name', prune: 'De-Duplicate', convert: 'Re-Factor',
   import: 'Import', relocate: 'Relocate', dedupe: 'Dedup',
   audit: 'Audit', pipeline: 'Pipeline',
 };

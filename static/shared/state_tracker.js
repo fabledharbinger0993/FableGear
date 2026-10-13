@@ -11,7 +11,7 @@
 const STATE_STEP_MAP = {
   audit:'rail-btn-audit', process:'step-process', duplicates:'step-duplicates',
   prune:'step-duplicates', relocate:'rail-btn-relocate', import:'rail-btn-import',
-  link:'rail-btn-link', normalize:'step-normalize', convert:'step-convert',
+  link:'rail-btn-link', convert:'step-convert',
   organize:'step-organize', novelty:'step-novelty',
 };
 async function loadState(libraryRoot) {

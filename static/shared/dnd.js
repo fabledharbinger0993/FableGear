@@ -225,7 +225,6 @@ function setupFolderZone(zoneId, pillsId, textId) {
 function auditZoneAdd()     { const t = document.getElementById('audit-zone-text');     if (t?.value.trim()) { addFolderPill('audit-pills',     t.value.trim()); t.value = ''; } }
 function processZoneAdd()   { const t = document.getElementById('process-zone-text');   if (t?.value.trim()) { addFolderPill('process-pills',   t.value.trim()); t.value = ''; } }
 function dupesZoneAdd()     { const t = document.getElementById('dupes-zone-text');     if (t?.value.trim()) { addFolderPill('dupes-pills',     t.value.trim()); t.value = ''; } }
-function normalizeZoneAdd() { const t = document.getElementById('normalize-zone-text'); if (t?.value.trim()) { addFolderPill('normalize-pills', t.value.trim()); t.value = ''; } }
 function convertZoneAdd()   { const t = document.getElementById('convert-zone-text');   if (t?.value.trim()) { addFolderPill('convert-pills',   t.value.trim()); t.value = ''; } }
 function importZoneAdd()    { const t = document.getElementById('import-zone-text');    if (t?.value.trim()) { addFolderPill('import-pills',    t.value.trim()); t.value = ''; } }
 function organizeZoneAdd()  { const t = document.getElementById('organize-zone-text');  if (t?.value.trim()) { addFolderPill('organize-source-pills', t.value.trim()); t.value = ''; } }
@@ -307,7 +306,7 @@ function addLibraryPill(pillsId, path) {
 }
 
 function _refreshLibraryPills(newRoot) {
-  ['process-pills','dupes-pills','normalize-pills','convert-pills',
+  ['process-pills','dupes-pills','convert-pills',
    'import-pills','link-pills','organize-source-pills'].forEach(id => addLibraryPill(id, newRoot));
 }
 
