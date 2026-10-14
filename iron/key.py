@@ -11,10 +11,11 @@ templates learned from a music corpus (rather than classical-listener profiles) 
 published method family for electronic dance music key estimation (Faraldo et al., ECIR 2016,
 read only at abstract level); no code or profile values were taken from that work or its repos
 (edmkey has no licence; its Essentia fork is AGPL). The model weights are numbers fitted by
-this repo's own code on the owner's library (docs/IRON_RESEARCH.md SS27); no third-party model
+this repo's own code on the owner's library (docs/IRON_RESEARCH.md SS27, SS28); no third-party model
 or weight file is used.
 
-`detect_key` is the model of SS27. `detect_key_profile` is the SS18 detector it replaced
+`detect_key` is the model of SS27, refitted on whole-track chroma in SS28 (the caller, iron.api, passes
+it the whole track rather than the tempo body window). `detect_key_profile` is the SS18 detector it replaced
 (Pearson correlation against two learned profiles on one whitened view), kept as the baseline
 for A/B benchmarks. See SS18 and SS27 for how each step was chosen and measured.
 """
@@ -51,38 +52,39 @@ _HARMONIC_DECAY = 0.6   # ... with weight 0.6 ** (h - 1)
 # 54% -> 42%. Owner's call, 2026-10-10 (docs/IRON_RESEARCH.md SS18.5).
 _MINOR_BIAS = 0.08
 
-# Model of docs/IRON_RESEARCH.md SS27: score(tonic t, mode m) = sum over views g of
+# Model of docs/IRON_RESEARCH.md SS27/SS28: score(tonic t, mode m) = sum over views g of
 # _MODEL_W[m, g] . roll(chroma_g, -t) + _MODEL_B[m] (+ _MINOR_SHIFT for minor), each view's
 # chroma first made zero-mean and unit-norm; confidence = softmax probability of the winner.
-# Fitted by L2-regularised softmax regression (lam = 0.03) on 2,795 tracks of the owner's
-# library labelled by Rekordbox 7's own analysis (Analysed != 0 only), disjoint from every
-# evaluation set. The view set, lam and _MINOR_SHIFT were chosen by 5-fold cross-validation on
-# those tracks only. Rebuild: scripts/experiments/key_lab_extract.py + key_lab_logit.py.
+# Fitted by L2-regularised softmax regression (lam = 0.03) on 5,297 tracks of the owner's
+# library labelled by Rekordbox 7's own analysis (Analysed != 0 only), using chroma from the
+# WHOLE track (SS28), disjoint from every evaluation set. lam and _MINOR_SHIFT were chosen by
+# 5-fold cross-validation on those tracks only. Rebuild: scripts/experiments/key_lab_extract.py
+# (--window whole) + key_lab_logit.py.
 _VIEW_ENVELOPES = (1.0, 0.5, 2.0)  # octaves of the whitening envelope; one more view is the raw magnitude
 _MODEL_W = np.array([
     [  # major
         # whitened, 1-octave envelope
-        [ 0.8354,  0.5701,  0.3936, -0.6093,  0.3412, -0.4198, -0.4528,  1.1829,  0.4892, -0.7474, -0.4579, -1.1254],
+        [ 0.7861,  0.5688,  0.5165, -0.4029,  0.0086, -0.5419, -0.8008,  1.1537, -0.0310, -1.0209,  0.0261, -0.2624],
         # whitened, 0.5-octave envelope
-        [ 2.3534,  0.1294, -1.6094, -1.3410,  2.0795, -0.2402, -0.3402,  0.1468, -0.8075, -0.3087, -0.3704,  0.3083],
+        [ 2.4342, -0.1070, -1.6696, -0.8741,  2.0129,  0.3348,  0.1989, -0.1364, -0.7826, -0.6615, -0.5009, -0.2486],
         # whitened, 2-octave envelope
-        [ 0.7559, -0.5259,  1.0232, -0.9430,  0.2903,  0.5528, -0.0418,  0.1761, -0.3698, -1.0687,  0.0962,  0.0547],
+        [ 1.3483, -0.4446,  0.3259, -1.2415,  1.1059,  0.0929, -0.0720,  0.6917, -0.3298, -0.4995, -0.4934, -0.4839],
         # raw magnitude
-        [ 1.3611, -1.4692,  0.2123, -0.2935,  2.1008, -0.6841, -0.1044,  0.6920, -1.5906,  0.8755, -0.4957, -0.6041],
+        [ 0.8720, -1.2743,  0.7749, -0.8859,  2.0042, -0.3392, -0.4744,  0.9150, -1.4990,  0.8263, -0.5924, -0.3272],
     ],
     [  # minor
         # whitened, 1-octave envelope
-        [ 1.2817, -0.6687, -0.1590,  0.3023, -0.8604, -0.9885,  0.1555, -0.7772,  0.5829,  0.1953,  0.2701,  0.6660],
+        [ 1.3427, -0.5460, -0.7879,  0.3690, -1.0366, -0.7735, -0.4649, -0.6645,  0.3043,  0.6820,  0.4468,  1.1285],
         # whitened, 0.5-octave envelope
-        [ 1.5925, -0.0303, -0.8546,  0.1565,  0.4935, -0.5826,  0.0997,  2.1419, -0.9935, -0.9297, -0.4046, -0.6888],
+        [ 1.4562,  0.0805, -0.7731,  0.0736,  0.3079, -1.1019,  0.6309,  1.7914, -0.7319, -1.0240, -0.2004, -0.5091],
         # whitened, 2-octave envelope
-        [ 0.1366,  0.9969,  0.4069,  0.6688,  0.4524,  0.4480, -0.5625, -0.1458, -0.5119, -0.3971, -0.7632, -0.7291],
+        [ 0.4919,  0.6007,  0.9052,  1.1585,  0.1178,  0.5784, -0.6026,  0.0755, -0.5625, -0.6782, -1.1084, -0.9764],
         # raw magnitude
-        [ 1.3210, -1.4348, -0.0199,  1.0862, -1.0933,  0.4923, -0.1688,  0.6307, -0.4193, -0.4353,  0.3211, -0.2799],
+        [ 1.2847, -1.3054, -0.2147,  0.6637, -0.5789,  0.4825, -0.2590,  0.7324, -0.4017, -0.3595,  0.5338, -0.5781],
     ],
 ])
-_MODEL_B = np.array([-1.5017, 1.5017])  # major, minor
-_MINOR_SHIFT = -0.25  # added to the minor logits; picked by CV so the minor share tracks the library
+_MODEL_B = np.array([-1.6412, 1.6412])  # major, minor
+_MINOR_SHIFT = 0.00  # added to the minor logits; CV picked 0 once the model was fitted on whole tracks
 
 # Camelot wheel notation, keyed by "<Note>maj"/"<Note>min".
 CAMELOT: dict[str, str] = {
@@ -152,8 +154,8 @@ def detect_key(y: np.ndarray, sr: int) -> tuple[str, float] | None:
     tonal energy (silence, pure noise).
 
     `confidence` is the model's softmax probability for the winning key (0..1). On held-out
-    Rekordbox-analysed tracks the winner is right about 25% of the time below 0.3, about 70%
-    at 0.5-0.7 and above 80% at 0.7+ (SS27), so it is a usable "is this key trustworthy" signal;
+    Rekordbox-analysed tracks the winner is right about 22% of the time below 0.3, about 67%
+    at 0.5-0.7 and about 86% at 0.7-0.9 (SS28), so it is a usable "is this key trustworthy" signal;
     a short or quiet clip can still score high by coincidence, so a caller enforcing a quality
     bar should weight this alongside clip length/energy, not trust it alone.
     """

@@ -36,6 +36,12 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 
 ## 1. Current status (callouts dated up to 2026-10-14; body text from 2026-08-27)
 
+> **2026-10-14 (key window, later):** the key is now read from the WHOLE track (up to 10 min) instead of the
+> tempo body window, with weights refitted on whole-track chroma: **60.8% -> 62.2% exact** on 1,998
+> untouched tracks (120 fixed, 92 broken, p = 0.063, so borderline alone), and +1.8 points out-of-fold on
+> 5,295 training tracks (p = 7e-5). Costs about 0.3 s per track. Octave-aware views, time-segment views and a
+> nonlinear scorer added at most about one point and were not shipped. See SS28.
+>
 > **2026-10-14 (key model):** key detection is now a multi-view learned model (`iron.key.detect_key`),
 > **60.4% exact vs 55.3%** for the SS18 profile detector on an untouched 998-track Rekordbox-analysed set
 > (fixes 111, breaks 60, McNemar p = 0.0001); +3.9 points on a second 999-track set and +3.0 / +2.7 on
@@ -533,6 +539,13 @@ findings).
   (SS27.4 sensitivity B), the four-view model is ahead on every held-out set. Do not cite SS23.2 alone
   as a reason not to train key weights; do not use a single view.
 
+- **Key: octave-band chroma views, first/second-half and thirds chroma views, and a nonlinear
+  (24-hidden-unit, rotation-equivariant) scorer -- SS28.2.** All CV-selected on 2,795-5,295 tracks: octave
+  and segment views add 0-0.6 points (inside noise); the net adds about 1 point for about 1.3k parameters
+  per copy, and 0.2 on the untouched set. Not shipped; a *beat-aligned* segment version is untested.
+- **Key: reading only the tempo body window -- SS28.3.** The whole track agrees with Rekordbox 1.8 points
+  more often out-of-fold (5,295 tracks, p = 7e-5). SS10's "no gain from whole-track decoding" was about
+  tempo; do not carry it over to key.
 ---
 
 ## 6. Tools available for continuing this work
@@ -578,7 +591,7 @@ findings).
 - `scripts/experiments/key_lab_extract.py` / `key_lab.py` / `key_lab_exp.py` / `key_lab_logit.py` /
   `key_lab_live.py` -- the SS27 key lab: cache bin-resolved spectra once, then run chroma / profile /
   model experiments offline (seconds), and check the production detectors on the same audio. Usage in
-  each file's docstring; reproduce block in SS27.9.
+  each file's docstring; reproduce blocks in SS27.9 and SS28.8 (`key_lab_extract.py --window whole`).
 
 All `--seed`-taking scripts default to `--seed 42` for reproducibility, except
 `scripts/experiments/key_lab_extract.py` (SS27), which defaults to `--seed 20261014`: that is the seed that
@@ -2836,6 +2849,147 @@ python scripts/experiments/key_lab_live.py --manifest D/confirm.json --out D/liv
 
 Aggregate results: `docs/iron/benchmarks/2026-10-14_key_model_vs_profiles.json`. Per-track files stay in
 `~/FableGearTestbed/keylab/` (outside the repo).
+
+## 28. Key: read the whole track, and what else was tried (2026-10-14)
+
+Task (from Marshall): after the SS27 model, mix and match options from the Mixed In Key / Platinum Notes
+research and find a direction that improves the status quo. Labels: **demonstrated** = measured here on
+the named set; **inferred** = a reading of the numbers; **unknown** = not tested.
+
+**Outcome in one line.** The one lever that moved the numbers is *how much of the track the key is read
+from*: the whole track (up to 10 minutes) instead of the tempo body window agrees with Rekordbox's key
+about 1.4-1.8 points more often. Everything else tried (octave-aware views, time-segment views, a
+nonlinear scorer) added at most about a point and was not shipped. The gain is real but small, and on the
+untouched sets alone it is borderline (p = 0.06); the stronger evidence is out-of-fold (SS28.3).
+
+### 28.1 Where the idea came from (and what the Platinum Notes research did not give us)
+
+Platinum Notes (Mixed In Key's file-repair tool) is not a key detector: public sources describe loudness
+levelling, clipped-peak repair (peaks above -0.1 dB), a limiter and a pitch correction of about 3-10
+cents per lossless file (batch totals in the 2013 DJ TechTools review; 0 for MP3). Its catalog entry is in
+`docs/IRON_TEMPO_RESEARCH.md`. 288 of the 1,997 fresh tracks used here are `_PN` files; Iron's key
+accuracy on them is 58.3% against 59.3% for the rest (SS27 model, body window; demonstrated, within noise),
+so pitch-corrected files are not a problem for Iron. Nothing in the tool tells us how to detect keys. The
+whole-track idea is our own inference from two facts: Rekordbox (the reference) analyses whole files, and
+Mixed In Key's key detector reportedly moved from one global chroma to beat-aligned segments (v5) and a
+full-range "piano roll" (v6) (vendor coverage, unverified). The inference that Rekordbox keys the whole
+file is **unknown**: it was not checked against Rekordbox itself.
+
+### 28.2 Mix and match on the cached spectra (all CV on train + train2, n = 2,795; baseline 58.4%)
+
+| idea | best CV exact | verdict |
+|---|---|---|
+| octave-band chromas as extra views (3 bands, 6 bands, bands only) | 58.4-58.9% (6 bands: 58.6; w1 + 6 bands only: 57.9) | no gain (SE about 0.9) |
+| first-half / second-half and thirds chromas as extra views | 58.1-58.4% | no gain |
+| bands + halves together | 59.0% | +0.6, inside noise |
+| rotation-equivariant 1-hidden-layer net (24 hidden units, linear skip) | 60.0% | +1.6 at n = 2,795 |
+| same net, 48 / 96 hidden units | 59.6 / 59.3% (lighter regularisation: 58.2 / 57.6%) | overfits beyond about 24 units |
+| same comparison at n = 5,295: linear 59.1%, net 59.8-60.1%, 3-seed net average 60.2% | | edge shrinks to about +1 |
+
+The net is rotation-equivariant (twelve tonics share weights) and has about 1.3k parameters per copy, so
+shipping it would mean thousands of constants or a data file for about one point. On the untouched set it
+beat the linear model by only +0.2 (SS28.4). **Not shipped.** Octave-aware and segment views are cheap to
+reproduce with the lab and look closed for a linear model; a *beat-aligned* segment version (Mixed In Key
+v5) is untested, it needs a new extraction with the beat grid.
+
+### 28.3 The window experiment (demonstrated)
+
+Whole-track spectra were extracted for every set (the lab's `--window whole`, from 0:00, up to 600 s;
+`window` in `key_lab_extract.py`). Because each cache keeps 8 time segments, other windows can be emulated
+offline. Same frozen four-view linear model, trained on 800 tracks per window, exact match % on rb200 /
+mixed150 / rbfresh / pooled (1,349 tracks):
+
+| window | rb200 | mixed150 | rbfresh | pooled |
+|---|---|---|---|---|
+| whole track (0-8 of 8) | 66.0 | 60.7 | 61.1 | **61.7** |
+| no intro (1-8) | 70.0 | 60.7 | 60.2 | 61.7 |
+| no outro (0-7) | 69.0 | 60.0 | 59.6 | 61.0 |
+| middle (2-6) | 67.0 | 62.0 | 57.2 | 59.2 |
+| body-like (3-7) | 67.0 | 60.7 | 56.9 | 58.8 |
+| first half / second half | 63.5 / 66.5 | 58.0 / 58.7 | 57.0 / 57.1 | 58.0 / 58.6 |
+| first third / last third | 57.0 / 62.5 | 55.3 / 55.3 | 57.1 / 55.1 | 56.9 / 56.2 |
+
+Accuracy rises with the amount of audio, whichever part is used (inferred: more frames average out
+the chord changes and drum-only passages). This table was the exploration that found the idea, so it is
+**not** an independent test. The independent evidence: on all 5,295 training tracks, same tracks and same
+five folds (window was not tuned on these folds), out-of-fold exact match is **59.1% (body) -> 60.9%
+(whole)**, 326 fixed / 231 broken, McNemar p = 6.6e-5.
+
+Cost (indicative, the Mac was busy): decode + spectra + fold is about 0.68 s per track for the whole track
+against 0.38 s for the body window. Decoding at 11 kHz gives chroma identical to 22 kHz (correlation
+1.0000) and saves little (0.61 s), so it was not adopted.
+
+### 28.4 Held-out results through the production code
+
+`scripts/experiments/key_lab_live.py`: SS18 detector and the SS27 model (frozen weights,
+`docs/iron/benchmarks/key_model_ss27_weights.json`) on the tempo body window, and the new production path
+`iron.analyze` (whole-track key window, refitted weights). All arms are scored over every row, an
+undetected key counting as a miss. Exact match %, SS27 -> now (SS18 for context):
+
+| set | n | role | SS18 | SS27 -> now | fifth | relative | parallel | whole-tone-up minor | weighted MIREX | fixed / broke (p) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| confirm2 | 998 | untouched | 57.0 | 60.7 -> **62.0** | 132 -> 126 | 38 -> 34 | 32 -> 31 | 19 -> 21 | 0.691 -> 0.700 | 56 / 43 (0.23) |
+| confirm3 | 1,000 | untouched | 55.0 | 60.8 -> **62.3** | 112 -> 109 | 46 -> 44 | 26 -> 29 | 22 -> 23 | 0.683 -> 0.697 | 64 / 49 (0.19) |
+| **pooled untouched** | 1,998 | | | 60.8 -> **62.2** | 244 -> 235 | 84 -> 78 | 58 -> 60 | 41 -> 44 | 0.687 -> 0.698 | **120 / 92 (0.063)** |
+| rbfresh | 999 | seen (idea found here) | 54.1 | 58.0 -> 62.1 | 116 -> 114 | 47 -> 36 | 33 -> 32 | 31 -> 27 | 0.658 -> 0.695 | 68 / 27 (3e-5) |
+| rb200 | 200 | seen | 65.0 | 68.0 -> 66.0 | 20 -> 22 | 2 -> 0 | 3 -> 5 | 7 -> 11 | 0.736 -> 0.720 | 8 / 12 (0.50) |
+| mixed150 | 150 | seen, weaker reference | 56.7 | 59.3 -> 59.3 | 21 -> 20 | 6 -> 7 | 6 -> 8 | 4 -> 3 | 0.683 -> 0.685 | 10 / 10 (1.0) |
+| all held-out | 3,347 | | | 60.3 -> 62.2 | 401 -> 391 | 139 -> 121 | 100 -> 105 | 83 -> 85 | 0.681 -> 0.698 | 206 / 141 (0.0006) |
+
+Bootstrap 95% interval on the exact-match gain: untouched pooled [0.0, +2.8] points; all held-out
+[+0.8, +3.0]. `confirm2` and `confirm3` were drawn after the configuration was frozen from CV and were not
+looked at before; `rbfresh`, `rb200`, `mixed150` were all seen while exploring, so only the first two are
+a clean test. The untouched gain (+1.4) is consistent in both sets but not significant at 5% on its own.
+rb200 moves the wrong way by 2 points (4 net tracks of 200; inferred noise, not shown to be). Retraining
+helps a little beyond the window: refitting the weights on whole-track chroma is worth about +0.2 over
+re-using the SS27 weights on whole tracks (evaluated offline: 62.1 against 61.5 on confirm2, 62.4 against
+62.7 on confirm3; no real difference). Confidence (probability) on the untouched sets, accuracy by bin:
+22% below 0.3 (n = 148), 46% at 0.3-0.5 (661), 67% at 0.5-0.7 (620), 86% at 0.7-0.9 (510), 88% above 0.9 (59).
+
+### 28.5 What changed in the code
+
+- `iron/api.py`: the key is decoded separately from 0:00, up to `_KEY_MAX_SECONDS` = 600 s, the same way the
+  beat grid already decodes its own window. Tempo and the beat grid keep the body window. A key-only call
+  now skips the body decode. A failed key decode is recorded as an error and does not lose the tempo.
+- `iron/key.py`: weights refitted on 5,297 whole-track Rekordbox-analysed tracks (lam = 0.03, minor shift
+  0.0, both chosen by 5-fold CV); same four views and scoring as SS27.
+- Lab: `key_lab_extract.py --window whole`, `key_lab_logit.py --suffix _whole --confirm ...` (regenerates the
+  shipped weights exactly, checked), `key_lab_live.py` with the three arms.
+- Tests: four `api.analyze` decode tests (whole track from 0:00, 10-minute cap, tempo keeps the body
+  window, a key decode failure keeps the tempo); the 24-key triad test passes on the new weights.
+
+### 28.6 What this does NOT show
+
+- It does not show closer-to-the-music keys, only closer to Rekordbox's. Still no ear-checked set.
+- The untouched evidence alone is borderline (p = 0.063, interval touches 0). Treat +1.4 points as the
+  expectation, +1.8 (out-of-fold) as supporting, and 0 as not excluded.
+- Tracks longer than 10 minutes use their first 10 minutes only (a DJ mix would still be best handled
+  separately); a track shorter than the body window behaves as before.
+- A model fit on whole-track chroma depends on the library mix. One library, one reference.
+- Cost: about +0.3 s per track for the key decode (indicative).
+
+### 28.7 Still open
+
+1. Beat-aligned segment evidence (Mixed In Key v5): needs the beat grid in the extraction.
+2. The nonlinear net: +1 point at 1.3k parameters per copy; revisit only with a cheap way to ship weights.
+3. Check the assumption that Rekordbox keys the whole file (e.g. by feeding it excerpts), and an ear check
+   of about 30 disagreements (list given in chat on 2026-10-14).
+4. Retrain on whole tracks when more of the library is Rekordbox-analysed.
+
+### 28.8 Reproduce
+
+```
+export PYTHONPATH=<worktree>
+python scripts/experiments/key_lab_extract.py extra train3 --out-dir D --n 2500     # likewise confirm2, confirm3 (1000)
+for s in train train2 train3 rb200 mixed150 rbfresh confirm2 confirm3; do
+  python scripts/experiments/key_lab_extract.py extract --manifest D/$s.json --out D/$s.npz --workers 4
+  python scripts/experiments/key_lab_extract.py extract --manifest D/$s.json --out D/${s}_whole.npz --workers 4 --window whole; done
+python scripts/experiments/key_lab_logit.py --lab D --out D/logit_whole.json --train train,train2,train3 \
+    --suffix _whole --only "S3" --confirm confirm2,confirm3 --export D/model_whole.json
+python scripts/experiments/key_lab_live.py --manifest D/confirm2.json --out D/live2_confirm2.json
+```
+
+Aggregate results: `docs/iron/benchmarks/2026-10-14_key_whole_track.json`.
 
 ## How to add to this doc
 

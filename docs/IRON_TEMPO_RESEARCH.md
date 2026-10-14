@@ -41,6 +41,7 @@ full reasoning. Every entry below was evaluated with that same constraint in min
 | [madmom](#madmom) | Python | Code permissive; **models CC-BY-NC-SA** | Blocked — same class of problem as essentia's AGPL |
 | [edmkey](#edmkey) (key, not tempo) | Python 2 | **None** (all rights reserved); depends on an AGPL Essentia fork | Blocked as code; ideas only — `iron/key.py` uses the general method family with its own code and its own learned profiles |
 | [VisualSynth](#visualsynth) | TypeScript | `package.json` says MIT; **no LICENSE file**; bundles third-party code/presets | Not pursued — realtime VJ visuals; its tempo is live spectral flux + octave fold, which Iron already surpasses; no key |
+| [Mixed In Key / Platinum Notes](#mixed-in-key--platinum-notes) (key, not tempo) | closed-source commercial (Windows/macOS) | **Proprietary** (paid licence; not obtained, not run) | Not pursued as code; public descriptions only. Platinum Notes is a loudness/clipping/tuning repair tool, not a key detector; its key-detector sibling is the thing to compare against |
 
 ---
 
@@ -202,6 +203,25 @@ full reasoning. Every entry below was evaluated with that same constraint in min
   method is the simple flux + range-fold family that Iron's rebuilt tempo (multi-onset +
   tempo prior, §16) already surpasses, and §14.3 already documents why a blind range fold
   misleads. Only conceivable reuse is the song-change idea for splitting recorded DJ sets.
+
+### Mixed In Key / Platinum Notes
+- **Repo**: none (closed source). mixedinkey.com -- Mixed In Key (key + energy analysis, current
+  version 10/11) and Platinum Notes 10 (audio repair), sold separately.
+- **License**: proprietary commercial software (confirmed from the vendor's product and FAQ pages,
+  2026-10-14). Not purchased, installed or run for this entry; nothing was reverse-engineered. Platinum
+  Notes 10 uses Kilohearts audio-processing technology (per MusicTech), also third-party licensed.
+- **Algorithm** (all from public pages; vendor claims are unverified): Platinum Notes decodes to WAV,
+  levels loudness by the drums (consistent kick/snare level), repairs clipped peaks (> -0.1 dB) with a
+  Kilohearts multiband processor plus a custom repair, applies one of three "warmth" settings, then a
+  Kilohearts limiter; "any pitch problems are fixed" too. Review batch totals suggest sub-semitone tuning
+  fixes of about 3-10 cents per lossless file and none for MP3. Mixed In Key's key detector is said to
+  have moved from one global chroma to beat-aligned segments (v5), a full-range "piano roll" rather than
+  12 folded pitch classes (v6) and a machine-learning model (v10, "+10%"). Community tests (2019-2021,
+  relative major/minor counted correct, self-chosen ground truth) rank it first among DJ software.
+- **Verdict**: not pursued as code (closed). Ideas only, and only as hypotheses: see docs/IRON_RESEARCH.md
+  SS28 for what was tested from this list (octave-aware views, time segments: no gain; whole-track
+  window: small real gain). Open: beat-aligned segments. A clipped-peak/loudness analysis field could be
+  built clean-room from public definitions; the processing side depends on licensed tech and is not ours.
 
 ### edmkey
 - **Repo**: github.com/angelfaraldo/edmkey (mirror: github.com/EQ4/edmkey). Key estimation

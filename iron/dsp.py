@@ -15,6 +15,9 @@ from __future__ import annotations
 import numpy as np
 
 
+_SPECTROGRAM_CHUNK_FRAMES = 64
+
+
 def hann_window(n: int) -> np.ndarray:
     """Periodic Hann window (the convention STFT analysis expects -- a symmetric window
     introduces a small spectral bias at frame boundaries that the periodic form avoids)."""
@@ -752,8 +755,8 @@ def whitened_log_spectra(
     """
     n_log = int(bins_per_octave * n_octaves)
     n_views = len(envelope_octaves) + int(include_raw)
-    mag = magnitude_spectrogram(y, n_fft=n_fft, hop_length=hop_length)
-    if n_views == 0 or mag.shape[0] == 0:
+    frames = frame_signal(y, n_fft, hop_length)
+    if n_views == 0 or frames.shape[0] == 0:
         return np.zeros((n_views, n_log), dtype=np.float64)
 
     freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
@@ -766,19 +769,23 @@ def whitened_log_spectra(
         keep = b < n_log
         np.add.at(weights, (rows[keep], b[keep]), w[keep])
 
-    with np.errstate(all="ignore"):  # Accelerate BLAS can raise spurious matmul flags
-        logmag = mag @ weights
-    logmag = np.nan_to_num(logmag)
+    window = hann_window(n_fft)
+    views = np.zeros((n_views, n_log), dtype=np.float64)
+    for start in range(0, frames.shape[0], _SPECTROGRAM_CHUNK_FRAMES):
+        chunk = frames[start : start + _SPECTROGRAM_CHUNK_FRAMES]
+        mag = np.abs(np.fft.rfft(chunk * window, axis=-1))
+        with np.errstate(all="ignore"):  # Accelerate BLAS can raise spurious matmul flags
+            logmag = mag @ weights
+        logmag = np.nan_to_num(logmag)
 
-    views = []
-    for octaves in envelope_octaves:
-        width = max(round(bins_per_octave * octaves), 1)
-        kernel = np.ones(width) / width
-        envelope = np.stack([np.convolve(row, kernel, mode="same") for row in logmag]) + 1e-9
-        views.append(np.maximum(logmag / envelope - 1.0, 0.0).sum(axis=0))
-    if include_raw:
-        views.append(logmag.sum(axis=0))
-    return np.stack(views)
+        for i, octaves in enumerate(envelope_octaves):
+            width = max(round(bins_per_octave * octaves), 1)
+            kernel = np.ones(width) / width
+            envelope = np.stack([np.convolve(row, kernel, mode="same") for row in logmag]) + 1e-9
+            views[i] += np.maximum(logmag / envelope - 1.0, 0.0).sum(axis=0)
+        if include_raw:
+            views[-1] += logmag.sum(axis=0)
+    return views
 
 
 def whitened_log_spectrum(
