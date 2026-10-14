@@ -1,8 +1,7 @@
 /* ════════════════════════════════════════════════════════════════════════
    FableGear — neon_skin.css
    Visual-language pass: edge-lit frames, lit platform edges on controls,
-   a faint reflective floor, and stage light pooling from the bottom of the
-   window. Additive and token-driven: every light reads --room-accent-rgb,
+   stage light pooling behind the rooms. Additive and token-driven: every light reads --room-accent-rgb,
    so Record Room glows Signal Cyan and Chop Shop glows Chop Magenta, and
    the Booth theme (ui_extras.css) re-tints it automatically.
    Layout, copy, and behaviour are untouched.
@@ -11,36 +10,23 @@
 /* ── Stage light ───────────────────────────────────────────────────────
    Light pooling from the floor, plus a faint violet haze from above.
    The violet is ambient background tint only, never an accent, so the
-   one-room-one-light rule (room accent only) still holds. */
-body {
+   one-room-one-light rule (room accent only) still holds.
+   Targets the room selectors: fablegear.css sets the room background on
+   body.fg-space-record / body.fg-space-chop, which outranks a plain body
+   rule, so this layers the glow onto that base instead. */
+body.fg-space-record,
+body.fg-space-chop {
   background:
     radial-gradient(ellipse 90% 55% at 50% 118%, rgba(var(--room-accent-rgb), .24), transparent 70%),
     radial-gradient(ellipse 70% 40% at 50% -18%, rgba(var(--violet-rgb), .10), transparent 70%),
-    var(--bg);
+    radial-gradient(circle at 18% 12%, rgba(var(--room-accent-rgb), .16), transparent 28vw),
+    radial-gradient(circle at 82% 18%, rgba(var(--room-accent-rgb), .09), transparent 30vw),
+    linear-gradient(135deg, #05070d 0%, #07111a 48%, #090816 100%);
   background-attachment: fixed;
 }
 
-/* ── Reflective floor ──────────────────────────────────────────────────
-   A perspective grid lying along the bottom of the window, faded out
-   toward the horizon. Decorative only. */
-body::after {
-  content: '';
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
-  height: 46vh;
-  background-image:
-    linear-gradient(to right, rgba(var(--room-accent-rgb), .22) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(var(--room-accent-rgb), .22) 1px, transparent 1px);
-  background-size: 64px 40px;
-  background-position: center bottom;
-  transform: perspective(360px) rotateX(58deg);
-  transform-origin: 50% 100%;
-  -webkit-mask-image: linear-gradient(to top, #000 0%, transparent 85%);
-          mask-image: linear-gradient(to top, #000 0%, transparent 85%);
-  opacity: .6;
-  pointer-events: none;
-  z-index: 0;
-}
+/* The room's own ::after already draws the floor grid (fablegear.css,
+   "2026 dashboard cohesion pass"), so this layer doesn't add a second one. */
 
 /* ── Header and rails: lit seams instead of flat rules ─────────────── */
 header {
@@ -63,7 +49,9 @@ header {
     inset 0 1px 0 rgba(var(--room-accent-rgb), .18),
     inset 0 0 0 1px rgba(var(--room-accent-rgb), .04);
 }
-.card:hover {
+/* body-prefixed so it matches body.fg-space-chop .card (0,2,1) and wins on
+   load order; the Chop Shop room rule otherwise pins the border at .20. */
+body .card:hover {
   border-color: rgba(var(--room-accent-rgb), .6);
   box-shadow:
     0 0 26px -4px rgba(var(--room-accent-rgb), .35),
@@ -72,6 +60,12 @@ header {
 }
 
 /* ── Stepped platforms: primary controls sit on a lit ledge ───────── */
+/* The base .btn-primary fill is hard-wired to cyan, so Chop Shop needs the
+   room accent on the surface and border too, or it mixes cyan with magenta. */
+body .btn-primary {
+  background: var(--room-accent);
+  border-color: rgba(var(--room-accent-rgb), .5);
+}
 .btn-primary {
   box-shadow: 0 3px 0 rgba(var(--room-accent-rgb), .45), 0 0 16px -2px rgba(var(--room-accent-rgb), .55);
   transition: opacity .15s, transform .1s, box-shadow .15s;
@@ -98,5 +92,5 @@ header {
 /* ── Reduced motion: keep the static look, drop the transforms ─────── */
 @media (prefers-reduced-motion: reduce) {
   .btn-primary:active:not(:disabled) { transform: none; }
-  .card:hover { transform: none; }
+  body .card:hover { transform: none; }
 }
