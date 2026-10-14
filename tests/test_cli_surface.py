@@ -38,7 +38,7 @@ EXPECTED_COMMANDS = {
     "anlz-read", "audit", "convert", "dead-files", "duplicates", "export-audit",
     "export-onelibrary", "import", "link", "novelty", "organize", "pdb-read",
     "pioneer-settings", "process", "prune", "rekordbox-dedupe", "rekordbox-sync",
-    "relocate", "rename", "setup", "usb-inspect",
+    "relocate", "rename", "rename-folders", "setup", "usb-inspect",
     # Export-parity work (PR #129): playlist recovery, track parsing, and the
     # Rekordbox write-back path. `playlist` is a command group — its handlers
     # live on its children, which test_command_is_wired_to_a_callable_handler

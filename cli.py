@@ -3483,6 +3483,74 @@ def cmd_rename(args: argparse.Namespace) -> None:
         log.warning("%d files had errors — check log above", errors)
 
 
+def cmd_rename_folders(args: argparse.Namespace) -> None:
+    """Give the folders under PATH clean names, moving their files across."""
+    from folder_cleaner import apply_folder_cleanup, plan_folder_cleanup
+
+    from config import SAVEPOINTS_DIR
+    from db_connection import write_db
+
+    root = Path(args.path)
+    if not root.is_dir():
+        log.error("PATH is not a directory: %s", root)
+        sys.exit(1)
+
+    dry_run = not args.no_dry_run
+    if dry_run:
+        log.info("DRY RUN — no folders will be changed. Pass --no-dry-run to execute.")
+    log.info("Planning folder clean-up under %s", root)
+    plan = plan_folder_cleanup(root)
+
+    lines = [
+        "Here's what would change." if dry_run else "Done cleaning folder names.",
+        "",
+        f"{len(plan.changes)} folders {'would be renamed' if dry_run else 'were renamed'} "
+        f"({plan.merges} of them merged into a folder that already had the clean name).",
+        f"{len(plan.moves)} files {'would move' if dry_run else 'in those folders'}; "
+        f"{plan.unchanged} folders already have clean names.",
+    ]
+    if plan.conflicts:
+        lines.append(f"{len(plan.conflicts)} files share a name with one already in the target "
+                     "folder and stay where they are.")
+    lines += ["", "Folder changes:"]
+    shown = plan.changes[:200]
+    for change in shown:
+        tag = "merge " if change.kind == "merge" else ""
+        lines.append(f"  {tag}{change.old.relative_to(root)}  →  {change.new.relative_to(root)}")
+    if len(plan.changes) > len(shown):
+        lines.append(f"  … and {len(plan.changes) - len(shown)} more")
+
+    errors: list[str] = []
+    if not dry_run and plan.moves:
+        archive = _require_archive("rename-folders")
+        try:
+            snap = archive.snapshot(Path(SAVEPOINTS_DIR) / "FableGear Library", "folder-cleanup")
+            log.info("Savepoint of the FableGear database → %s", snap)
+        except Exception as exc:
+            log.error("Could not take a savepoint of the FableGear database, so nothing was changed: %s", exc)
+            sys.exit(1)
+        try:
+            with write_db(LOCAL_DB) as db:
+                result = apply_folder_cleanup(plan, archive=archive, db=db, on_progress=log.info)
+        except Exception:
+            log.exception("Folder clean-up failed")
+            sys.exit(1)
+        errors = result["errors"]
+        lines += ["", f"{result['moved']} files moved; {result['removed_dirs']} emptied folders removed."]
+        if errors:
+            lines.append(f"{len(errors)} files could not be moved:")
+            lines += [f"  {e}" for e in errors[:50]]
+        else:
+            lines.append("No errors.")
+    elif dry_run:
+        lines += ["", "Nothing has been changed. Uncheck \"Dry Run\" and run again to execute."]
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    _emit_report("\n".join(lines), "Rename Folders", f"rename_folders_{timestamp}.txt")
+    if errors:
+        log.warning("%d files had errors — check log above", len(errors))
+
+
 # ─── Argument parser ──────────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -4341,6 +4409,18 @@ Examples:
              "reset: discard the checkpoint and start from the beginning.",
     )
     p_rename.set_defaults(func=cmd_rename)
+
+    # ── rename-folders ──
+    p_rename_folders = sub.add_parser(
+        "rename-folders",
+        help="Give folders clean names (plain punctuation, no repeats), merging look-alike folders",
+    )
+    p_rename_folders.add_argument("path", metavar="PATH", help="Library folder to tidy")
+    p_rename_folders.add_argument(
+        "--no-dry-run", action="store_true", default=False,
+        help="Actually rename and merge folders. Default is dry-run (preview only).",
+    )
+    p_rename_folders.set_defaults(func=cmd_rename_folders)
 
     # ── dead-files ──
     p_dead = sub.add_parser(
