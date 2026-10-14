@@ -3381,6 +3381,7 @@ def cmd_rename(args: argparse.Namespace) -> None:
                 root_results = rename_directory(
                     root, db=None, dry_run=True, max_workers=max_workers, archive=_archive(),
                     skip_paths=ckpt_done_paths or None, on_result=_on_rename_result,
+                    include_album=getattr(args, "include_album", False),
                 )
                 results.extend(root_results)
                 root_renamed = sum(1 for r in root_results if r.action == "renamed")
@@ -3408,6 +3409,7 @@ def cmd_rename(args: argparse.Namespace) -> None:
                     root_results = rename_directory(
                         root, db=db, dry_run=False, max_workers=max_workers, archive=archive,
                         skip_paths=ckpt_done_paths or None, on_result=_on_rename_result,
+                        include_album=getattr(args, "include_album", False),
                     )
                     results.extend(root_results)
                     root_renamed = sum(1 for r in root_results if r.action == "renamed")
@@ -4314,6 +4316,14 @@ Examples:
         action="store_true",
         default=False,
         help="Actually rename files. Default is dry-run (preview only).",
+    )
+    p_rename.add_argument(
+        "--include-album",
+        action="store_true",
+        default=False,
+        dest="include_album",
+        help='Put the album tag in the file name ("Artist - Album - Title"). '
+             'Default is "Artist - Title".',
     )
     p_rename.add_argument(
         "--workers", "-w",

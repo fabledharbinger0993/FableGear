@@ -489,6 +489,8 @@ def api_pipeline():
                     cmd += ["--also-scan", extra]
             if not dry_run:
                 cmd.append("--no-dry-run")
+            if cfg.get("include_album"):
+                cmd.append("--include-album")
             if cfg.get("workers", 1) > 1:
                 cmd += ["--workers", str(cfg["workers"])]
 
@@ -737,6 +739,9 @@ def api_rename():
 
     if live_run:
         cmd.append("--no-dry-run")
+
+    if request.args.get("include_album") == "1":
+        cmd.append("--include-album")
 
     workers = request.args.get("workers", "1").strip()
     if workers.isdigit() and int(workers) > 1:

@@ -490,6 +490,7 @@ function _executeRename(pathOrPaths, dryRun) {
   const p = new URLSearchParams();
   paths.forEach(path => p.append('path', path));
   if (!dryRun) p.set('no_dry_run', '1');
+  if (document.getElementById('rename-include-album')?.checked) p.set('include_album', '1');
   const pathLabel = paths.length > 1 ? ` (${paths.length} folders)` : '';
   const label = dryRun
     ? `Re-Name — Dry Run${pathLabel} (preview only)`
