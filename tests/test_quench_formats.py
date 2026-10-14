@@ -106,6 +106,15 @@ def test_24_bit_wav_keeps_its_bit_depth(tmp_path):
     assert _probe(src)["codec"] == "pcm_s24le"
 
 
+@pytest.mark.parametrize("codec", ["pcm_f32le", "pcm_f64le"])
+def test_floating_point_wav_stays_floating_point(tmp_path, codec):
+    src = _make(tmp_path, "t.wav", ["-c:a", codec], art=False)
+
+    assert _quench(src).normalised
+
+    assert _probe(src)["codec"] == codec
+
+
 def test_m4a_is_left_alone_not_failed(tmp_path):
     """AAC can't be levelled without a lossy re-encode that drops MP4 tags, so Quench
     skips it, and says so, rather than erroring or rewriting it."""

@@ -519,15 +519,18 @@ def _lossless_codec_args(path: Path, target_format: str) -> list[str]:
         # The flac encoder widens 16-bit input to 24-bit unless told otherwise (+75% size).
         args = ["-codec:a", "flac", "-compression_level", "8"]
         return [*args, "-sample_fmt", "s16"] if sub in ("", "PCM_16", "PCM_U8", "PCM_S8") else args
-    if "24" in sub:
+    if "DOUBLE" in sub:
+        width = "f64"  # keep floating point: integer PCM would drop precision and clip > 0 dBFS
+    elif "FLOAT" in sub:
+        width = "f32"
+    elif "24" in sub:
         width = "s24"
-    elif "32" in sub or "FLOAT" in sub or "DOUBLE" in sub:
+    elif "32" in sub:
         width = "s32"
     else:
         width = "s16"
-    if target_format == "aiff":
-        return ["-codec:a", f"pcm_{width}be", "-write_id3v2", "1"]
-    return ["-codec:a", f"pcm_{width}le", "-write_id3v2", "1"]  # wav
+    endian = "be" if target_format == "aiff" else "le"
+    return ["-codec:a", f"pcm_{width}{endian}", "-write_id3v2", "1"]
 
 
 def _get_ffmpeg_codec_args(path: Path) -> list[str] | None:
