@@ -273,6 +273,30 @@ def test_health_warns_when_beat_tracker_degraded(monkeypatch):
     assert health._check_beat_tracker() is None
 
 
+def test_health_says_ffmpeg_missing_instead_of_promising_a_fallback(monkeypatch):
+    """The librosa fallback decodes through ffmpeg too, so with none present nothing runs."""
+    import health
+
+    monkeypatch.setattr(ap, "_iron_available", lambda: False)
+    monkeypatch.setattr(ap, "_FFMPEG", "/definitely/not/ffmpeg")
+    finding = health._check_beat_tracker()
+    assert finding is not None and "ffmpeg is missing" in finding.title
+
+
+def test_health_blames_iron_not_ffmpeg_when_iron_cannot_import(monkeypatch):
+    """A present ffmpeg plus a broken iron package must not be reported as missing ffmpeg."""
+    import sys
+
+    import health
+
+    monkeypatch.setattr(ap, "_FFMPEG", sys.executable)  # any binary that exists
+    for name in [m for m in sys.modules if m == "iron" or m.startswith("iron.")]:
+        monkeypatch.setitem(sys.modules, name, None)  # `import iron...` now raises ImportError
+    monkeypatch.setitem(sys.modules, "iron", None)
+    finding = health._check_beat_tracker()
+    assert finding is not None and "ffmpeg is missing" not in finding.title
+
+
 def test_beat_tracker_check_is_registered():
     """A check that exists but is never run is worse than no check."""
     import inspect

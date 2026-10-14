@@ -167,7 +167,10 @@ def apply_gain(path: Path, gain_db: float) -> None:
             f"({free_bytes / 1_048_576:.1f} MB free, need ~{needed_bytes / 1_048_576:.1f} MB)"
         )
 
-    tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=path.suffix, dir=path.parent)
+    try:
+        tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=path.suffix, dir=path.parent)
+    except OSError as e:  # read-only folder, quota, vanished drive: one file's failure, not the batch's
+        raise RewriteFailed(f"could not create a working file next to {path.name}: {e}") from e
     tmp_path = Path(tmp_path_str)
     os.close(tmp_fd)
     bak = path.with_suffix(path.suffix + ".bak")

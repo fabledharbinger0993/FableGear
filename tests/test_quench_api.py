@@ -139,3 +139,15 @@ def test_apply_gain_failure_leaves_original_intact(tmp_path, monkeypatch):
         quench.apply_gain(f, 3.0)
     assert f.read_bytes() == original
     assert not f.with_suffix(".wav.bak").exists()
+
+
+def test_apply_gain_turns_tempfile_oserror_into_rewritefailed(tmp_path, monkeypatch):
+    """level() promises not to raise for one file; a read-only folder must not abort a batch."""
+    f = tmp_path / "x.wav"
+    f.write_bytes(b"RIFF" + b"\x00" * 60)
+    def boom(*a, **k):
+        raise PermissionError("read-only")
+    monkeypatch.setattr(quench.api.tempfile, "mkstemp", boom)
+    monkeypatch.setattr(quench.api, "has_room_for", lambda p: (True, 0, 0))
+    with pytest.raises(quench.RewriteFailed):
+        quench.apply_gain(f, 3.0)

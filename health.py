@@ -574,21 +574,47 @@ def _check_beat_tracker() -> HealthFinding | None:
         log.debug("beat-tracker health check could not probe Iron: %s", exc)
         return None
 
+    import shutil
+    try:
+        # audio_processor resolves ffmpeg itself, so this works even when iron fails to import.
+        import audio_processor
+        ffmpeg_present = bool(shutil.which(audio_processor._FFMPEG) or Path(audio_processor._FFMPEG).exists())
+    except Exception:
+        ffmpeg_present = False
+
+    if not ffmpeg_present:
+        # The librosa fallback decodes through ffmpeg too, so with no ffmpeg nothing can
+        # detect BPM or key at all. Say that, rather than promising a degraded fallback.
+        return HealthFinding(
+            id="beat_tracker_degraded",
+            severity="warn",
+            title="ffmpeg is missing: BPM and key detection cannot run",
+            detail=(
+                "Iron and the librosa fallback both decode audio through ffmpeg, and "
+                "no ffmpeg binary was found. Forge will not be able to detect BPM or "
+                "key, and Quench cannot measure or level loudness."
+            ),
+            fix_hint=(
+                "Install ffmpeg (`brew install ffmpeg`). If this is a packaged "
+                "build, ffmpeg was not bundled correctly."
+            ),
+        )
+
     return HealthFinding(
         id="beat_tracker_degraded",
         severity="warn",
         title="Beat detection is running in fallback mode",
         detail=(
-            "Iron (needs ffmpeg) could not be loaded, so BPM detection is "
-            "using the less accurate librosa fallback. Beat grids "
+            "Iron could not be loaded even though ffmpeg is present, so BPM "
+            "detection is using the less accurate librosa fallback. Beat grids "
             "will still be written, but agreement with Rekordbox drops sharply — "
             "mostly half/double-time errors — which matters if you export these "
             "grids to a CDJ."
         ),
         fix_hint=(
-            "Install ffmpeg (`brew install ffmpeg`) and reinstall dependencies "
-            "with `pip install -r requirements.txt`. If this is a packaged "
-            "build, ffmpeg was not bundled correctly."
+            "Reinstall dependencies with `pip install -r requirements.txt`, then "
+            "restart FableGear. If this is a packaged build, the iron/ package "
+            "was not bundled correctly."
         ),
     )
 
