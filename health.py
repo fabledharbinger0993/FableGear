@@ -576,8 +576,9 @@ def _check_beat_tracker() -> HealthFinding | None:
 
     import shutil
     try:
-        import iron.api as _iron_api
-        ffmpeg_present = bool(shutil.which(_iron_api._FFMPEG) or Path(_iron_api._FFMPEG).exists())
+        # audio_processor resolves ffmpeg itself, so this works even when iron fails to import.
+        import audio_processor
+        ffmpeg_present = bool(shutil.which(audio_processor._FFMPEG) or Path(audio_processor._FFMPEG).exists())
     except Exception:
         ffmpeg_present = False
 
