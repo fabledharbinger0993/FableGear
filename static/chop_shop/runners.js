@@ -485,6 +485,21 @@ function runRename() {
   _executeRename(paths, dryRun);
 }
 
+function runRenameFolders() {
+  const paths = getFolderPaths('rename-pills');
+  const dryRun = document.getElementById('rename-dry-run').checked;
+  if (!paths.length) { _flashNeedsInput('rename-pills'); showToast('Add a folder to clean folder names in.', 'warning'); return; }
+  if (paths.length > 1) { showToast('Clean folder names works on one folder at a time.', 'warning'); return; }
+  const p = new URLSearchParams();
+  p.append('path', paths[0]);
+  if (!dryRun) p.set('no_dry_run', '1');
+  runCommand(`/api/run/rename-folders?${p}`,
+    dryRun ? 'Re-Name — Folder names, Dry Run (preview only)' : 'Re-Name — Cleaning folder names',
+    ec => {
+      if (ec === 0 && dryRun) showToast('Preview ready — uncheck "Dry Run" and click Clean Folder Names to apply.', 'neutral');
+    });
+}
+
 function _executeRename(pathOrPaths, dryRun) {
   const paths = Array.isArray(pathOrPaths) ? pathOrPaths : [pathOrPaths];
   const p = new URLSearchParams();

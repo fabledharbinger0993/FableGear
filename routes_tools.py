@@ -755,6 +755,24 @@ def api_rename():
     return _sse_response(cmd, library_root=library_root, step_name="rename")
 
 
+@bp.route("/api/run/rename-folders")
+def api_rename_folders():
+    paths = [p.strip() for p in request.args.getlist("path") if p.strip()]
+    if len(paths) != 1:
+        return jsonify({"error": "exactly one folder is required"}), 400
+
+    live_run = request.args.get("no_dry_run") == "1"
+    if live_run:
+        err = _require_rb_closed()
+        if err:
+            return err
+
+    cmd = [sys.executable, str(CLI_PATH), "rename-folders", paths[0]]
+    if live_run:
+        cmd.append("--no-dry-run")
+    return _sse_response(cmd, library_root=paths[0], step_name="rename-folders")
+
+
 @bp.route("/api/rename/probe")
 def api_rename_probe():
     path = request.args.get("path", "").strip()
