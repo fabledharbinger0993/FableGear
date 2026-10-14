@@ -553,13 +553,13 @@ def _check_db_symlink() -> HealthFinding | None:
 # ── Public interface ──────────────────────────────────────────────────────────
 
 def _check_beat_tracker() -> HealthFinding | None:
-    """Warn when neither Iron nor essentia can run, because the fallback is silent.
+    """Warn when Iron cannot run, because the fallback is silent.
 
-    audio_processor tries Iron (our own detector, needs only numpy + ffmpeg),
-    then essentia, then librosa -- deliberately, so a missing dependency never
-    breaks processing. The cost of that graceful failure is that it is
-    invisible: exact BPM agreement with Rekordbox drops from ~91% to ~13% on the
-    librosa path, and the only signal is one INFO log line.
+    audio_processor runs Iron (our own detector, needs only numpy + ffmpeg) and
+    falls back to librosa -- deliberately, so a missing dependency never breaks
+    processing. The cost of that graceful failure is that it is invisible: exact
+    BPM agreement with Rekordbox drops sharply on the librosa path, and the only
+    signal is one INFO log line.
 
     Iron is healthy when it imports and an ffmpeg binary is on hand (it decodes
     through ffmpeg). In a packaged build a missing ffmpeg is the likely failure
@@ -568,10 +568,10 @@ def _check_beat_tracker() -> HealthFinding | None:
     """
     try:
         import audio_processor
-        if audio_processor._iron_available() or audio_processor._essentia_available():
+        if audio_processor._iron_available():
             return None
     except Exception as exc:
-        log.debug("beat-tracker health check could not probe Iron/essentia: %s", exc)
+        log.debug("beat-tracker health check could not probe Iron: %s", exc)
         return None
 
     return HealthFinding(
@@ -579,8 +579,8 @@ def _check_beat_tracker() -> HealthFinding | None:
         severity="warn",
         title="Beat detection is running in fallback mode",
         detail=(
-            "Neither Iron (needs ffmpeg) nor essentia could be loaded, so BPM "
-            "detection is using the less accurate librosa fallback. Beat grids "
+            "Iron (needs ffmpeg) could not be loaded, so BPM detection is "
+            "using the less accurate librosa fallback. Beat grids "
             "will still be written, but agreement with Rekordbox drops sharply — "
             "mostly half/double-time errors — which matters if you export these "
             "grids to a CDJ."

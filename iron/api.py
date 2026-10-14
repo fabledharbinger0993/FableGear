@@ -56,6 +56,13 @@ _BODY_START_FRACTION = 1.0 / 3.0
 _BODY_END_FRACTION = 0.9
 _MAX_BODY_SECONDS = 240.0
 
+# Key is read from the WHOLE track (from 0:00, capped), not the tempo body window. Measured in
+# docs/IRON_RESEARCH.md SS28: on 5,295 tracks (same tracks, same folds) the whole track agrees
+# with Rekordbox's key 1.8 points more often than the body window (326 fixed / 231 broken,
+# p = 7e-5), and a longer window is better whichever part of the track it covers. Costs about
+# 0.3 s more per track. (SS10's "no gain" result was for tempo, which keeps the body window.)
+_KEY_MAX_SECONDS = 600.0
+
 _KNOWN_FIELDS = frozenset({"bpm", "initial_key", "downbeat_offset", "time_signature"})
 
 # Beat counts a long-baseline stability check projects forward to, by default. Chosen as
@@ -222,7 +229,8 @@ def analyze(
     """
     Analyze one file and return whatever candidates were found for the fields in `want`.
 
-    Decodes the track's BODY, not a fixed window from 0:00 -- see _BODY_START_FRACTION.
+    Tempo and beat grid decode the track's BODY, not a fixed window from 0:00 -- see
+    _BODY_START_FRACTION. The key is read from the whole track (up to _KEY_MAX_SECONDS), see there.
     When the duration can't be determined (e.g. ffprobe is missing), the body window is
     taken from the audio itself: up to 2 x _MAX_BODY_SECONDS is decoded once, the real length
     is measured from the samples, and the body slice is cut out of them (so that fallback costs
@@ -266,29 +274,32 @@ def analyze(
     result = IronResult()
 
     duration = _probe_duration(path)
-    try:
-        if duration is None or duration <= 0:
-            # Duration unknown (e.g. ffprobe missing): analysing (0, 90) would hit the
-            # often beatless intro, so decode up to 2x the body cap once, measure the
-            # real length from the samples, and slice the body window out of them.
-            y_all, sr = _decode(path, _MAX_BODY_SECONDS * 2)
-            measured = len(y_all) / sr
-            if measured >= _MAX_BODY_SECONDS * 2 - 1.0:
-                # Decode hit the cap, so the file is at least that long; use its body
-                # span as if that were the whole duration (a lower bound on the body).
-                measured = _MAX_BODY_SECONDS * 2
-            start, window_duration = _pick_body_window(measured)
-            if start <= 0.0:
-                # Too short for a body split: last resort, analyse from the start.
-                y = y_all[: int(window_duration * sr)]
+    start, window_duration = 0.0, 0.0
+    y, sr = np.zeros(0, dtype=np.float64), _ANALYSIS_SR
+    if wanted - {"initial_key"}:  # the key has its own, longer decode below
+        try:
+            if duration is None or duration <= 0:
+                # Duration unknown (e.g. ffprobe missing): analysing (0, 90) would hit the
+                # often beatless intro, so decode up to 2x the body cap once, measure the
+                # real length from the samples, and slice the body window out of them.
+                y_all, sr = _decode(path, _MAX_BODY_SECONDS * 2)
+                measured = len(y_all) / sr
+                if measured >= _MAX_BODY_SECONDS * 2 - 1.0:
+                    # Decode hit the cap, so the file is at least that long; use its body
+                    # span as if that were the whole duration (a lower bound on the body).
+                    measured = _MAX_BODY_SECONDS * 2
+                start, window_duration = _pick_body_window(measured)
+                if start <= 0.0:
+                    # Too short for a body split: last resort, analyse from the start.
+                    y = y_all[: int(window_duration * sr)]
+                else:
+                    y = y_all[int(start * sr): int((start + window_duration) * sr)]
             else:
-                y = y_all[int(start * sr): int((start + window_duration) * sr)]
-        else:
-            start, window_duration = _pick_body_window(duration)
-            y, sr = _decode(path, window_duration, start=start)
-    except DecodeFailed as exc:
-        result.errors.append(str(exc))
-        return result
+                start, window_duration = _pick_body_window(duration)
+                y, sr = _decode(path, window_duration, start=start)
+        except DecodeFailed as exc:
+            result.errors.append(str(exc))
+            return result
 
     if "bpm" in wanted:
         try:
@@ -333,7 +344,14 @@ def analyze(
 
     if "initial_key" in wanted:
         try:
-            outcome = key_detect.detect_key(y, sr)
+            key_span = min(duration, _KEY_MAX_SECONDS) if duration and duration > 0 else _KEY_MAX_SECONDS
+            if wanted - {"initial_key"} and start <= 0.0 and window_duration >= key_span - 0.5:
+                y_key, sr_key = y, sr  # the tempo window already is the whole key window
+            else:
+                y_key, sr_key = _decode(path, key_span, start=0.0)
+            outcome = key_detect.detect_key(y_key, sr_key)
+        except DecodeFailed as exc:
+            result.errors.append(str(exc))
         except Exception as exc:
             result.errors.append(f"key detection failed: {exc}")
         else:

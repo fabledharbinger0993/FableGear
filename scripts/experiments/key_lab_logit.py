@@ -14,6 +14,9 @@ Selection discipline (declared before held-out numbers were read):
 
 Usage:
   PYTHONPATH=<worktree> venv/bin/python scripts/experiments/key_lab_logit.py --lab D --out D/logit.json
+  # SS28 (whole-track features, the shipped fit):
+  ... key_lab_logit.py --lab D --out D/logit_whole.json --train train,train2,train3 --suffix _whole \
+      --only "S3" --confirm confirm2,confirm3 --export D/model_whole.json
 """
 
 from __future__ import annotations
@@ -137,13 +140,17 @@ def main() -> None:
     ap.add_argument("--lab", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--train", default="train,train2", help="comma-separated training sets")
-    ap.add_argument("--confirm", action="store_true", help="also score the untouched `confirm` set")
+    ap.add_argument("--confirm", nargs="?", const="confirm", default="",
+                    help="comma-separated untouched sets to score once, after selection")
+    ap.add_argument("--suffix", default="", help="cache suffix: '' = tempo body window, '_whole' = whole track (SS28)")
     ap.add_argument("--export", type=Path, help="write the selected model's weights as JSON")
     ap.add_argument("--only", help="restrict the search to the view set whose name starts with this (sensitivity runs)")
     a = ap.parse_args()
 
-    names = [*a.train.split(","), *kl.SETS] + (["confirm"] if a.confirm else [])
-    sets = kl.load_sets(a.lab, tuple(dict.fromkeys(names)))
+    confirm = [c for c in a.confirm.split(",") if c]
+    names = tuple(dict.fromkeys([*a.train.split(","), *kl.SETS, *confirm]))
+    loaded = kl.load_sets(a.lab, tuple(n + a.suffix for n in names))
+    sets = {n: loaded[n + a.suffix] for n in names}
     train_parts = a.train.split(",")
     truth = np.concatenate([sets[t].truth for t in train_parts])
     print(f"training tracks: {len(truth)} ({', '.join(train_parts)}); minor {100 * truth[:, 1].mean():.0f}%")
@@ -183,7 +190,7 @@ def main() -> None:
     model = fit(X_of(train_parts, view_names), truth, lam)
 
     report = {"selected": dict(views=list(view_names), lam=lam, shift=shift, cv=cvm), "held_out": {}}
-    held = [*kl.SETS] + (["confirm"] if a.confirm else [])
+    held = [*kl.SETS, *confirm]
     for s in held:
         c = sets[s]
         pred = predict(X_of(s, view_names), model, shift)

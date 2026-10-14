@@ -398,12 +398,12 @@ DEPENDENCIES: list[tuple[str, Callable[[], bool], str, str, str]] = [
         lambda: _has_python_module("librosa"),
         "",
         "pip install librosa",
-        "process (BPM + key detection)",
+        "process (BPM + key fallback when Iron returns nothing)",
     ),
-    # pyloudnorm was dropped: loudness is measured with ffmpeg's loudnorm
-    # filter (audio_processor._measure_lufs), which also yields true peak in
-    # the same pass. Nothing imported pyloudnorm any more, so checking for it
-    # only produced a false "missing dependency".
+    # pyloudnorm was dropped: loudness is measured by Quench (quench/) with
+    # ffmpeg's loudnorm filter, which also yields true peak in the same pass.
+    # Nothing imported pyloudnorm any more, so checking for it only produced a
+    # false "missing dependency".
     (
         "soundfile",
         lambda: _has_python_module("soundfile"),

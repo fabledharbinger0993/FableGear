@@ -175,13 +175,11 @@ def test_normalise_never_drives_true_peak_past_ceiling(tmp_path):
 
 # ── beat-tracker selection and fallback ─────────────────────────────────────
 #
-# essentia is an OPTIONAL dependency that is materially more accurate than the
-# librosa path (exact-BPM agreement with Rekordbox ground truth 13.4% -> 91.4%
-# on a 300-track sample), so it is preferred when importable. But it must never
-# become load-bearing: a missing essentia, or a per-file essentia failure, has
-# to fall back to librosa rather than silently yielding no BPM. The fallback is
-# easy to break by skipping the shared decode too eagerly, which is exactly
-# what these pin.
+# Iron (FableGear's own detector) is the primary BPM/key path. librosa is a
+# logged fallback that must never become load-bearing: when Iron returns
+# nothing for a file, librosa has to run rather than silently yielding no BPM.
+# The fallback is easy to break by skipping the shared decode too eagerly,
+# which is exactly what these pin. (essentia was removed in v1.2.0.)
 
 def _tagless_mp3(tmp_path: Path) -> Path:
     _require_ffmpeg()
@@ -194,11 +192,11 @@ def _tagless_mp3(tmp_path: Path) -> Path:
     return p
 
 
-def test_iron_is_preferred_over_essentia(tmp_path, monkeypatch):
+def test_iron_is_the_primary_detector(tmp_path, monkeypatch):
     f = _tagless_mp3(tmp_path)
     monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: ((126.0, 0.8), None))
-    monkeypatch.setattr(ap, "_essentia_available", lambda: pytest.fail(
-        "essentia must not be consulted when Iron succeeded"))
+    monkeypatch.setattr(ap, "_detect_bpm", lambda *a, **k: pytest.fail(
+        "librosa must not be consulted when Iron succeeded"))
     monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: pytest.fail(
         "shared decode should be skipped when Iron handled BPM and key is off"))
     monkeypatch.setattr(ap, "_write_tags", lambda path, bpm=None, key=None: None)
@@ -210,47 +208,14 @@ def test_iron_is_preferred_over_essentia(tmp_path, monkeypatch):
     assert r.bpm_confidence == 0.8
 
 
-def test_essentia_is_used_when_iron_finds_nothing(tmp_path, monkeypatch):
-    f = _tagless_mp3(tmp_path)
-    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: (None, None))
-    monkeypatch.setattr(ap, "_essentia_available", lambda: True)
-    monkeypatch.setattr(ap, "_detect_bpm_essentia", lambda p: (123.45, 3.2))
-    monkeypatch.setattr(ap, "_detect_bpm", lambda *a, **k: pytest.fail(
-        "librosa must not run when essentia succeeded"))
-    monkeypatch.setattr(ap, "_write_tags", lambda path, bpm=None, key=None: None)
-
-    r = ap.process_file(f, detect_bpm=True, detect_key=False, normalise=False)
-
-    assert r.bpm_detected == 123.45
-    assert r.bpm_source == "essentia"
-    assert r.bpm_confidence == 3.2
-
-
 def test_iron_detector_returns_none_for_unusable_file(tmp_path):
     # A 1 s silent file has no tempo; the wrapper must hand back None (-> fallback), not raise.
     assert ap._detect_bpm_iron(_tagless_mp3(tmp_path)) is None
 
 
-def test_essentia_is_preferred_when_available(tmp_path, monkeypatch):
+def test_falls_back_to_librosa_when_iron_finds_nothing(tmp_path, monkeypatch):
     f = _tagless_mp3(tmp_path)
     monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: (None, None))
-    monkeypatch.setattr(ap, "_essentia_available", lambda: True)
-    monkeypatch.setattr(ap, "_detect_bpm_essentia", lambda p: (123.45, 3.2))
-    monkeypatch.setattr(ap, "_detect_bpm", lambda *a, **k: pytest.fail(
-        "librosa must not run when essentia succeeded"))
-    monkeypatch.setattr(ap, "_write_tags", lambda path, bpm=None, key=None: None)
-
-    r = ap.process_file(f, detect_bpm=True, detect_key=False, normalise=False)
-
-    assert r.bpm_detected == 123.45
-    assert r.bpm_source == "essentia"
-    assert r.bpm_confidence == 3.2
-
-
-def test_falls_back_to_librosa_when_essentia_missing(tmp_path, monkeypatch):
-    f = _tagless_mp3(tmp_path)
-    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: (None, None))
-    monkeypatch.setattr(ap, "_essentia_available", lambda: False)
     monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: ("AUDIO", 44100))
     monkeypatch.setattr(ap, "_detect_bpm", lambda *a, **k: 128.0)
     monkeypatch.setattr(ap, "_write_tags", lambda path, bpm=None, key=None: None)
@@ -262,45 +227,22 @@ def test_falls_back_to_librosa_when_essentia_missing(tmp_path, monkeypatch):
     assert r.bpm_confidence is None
 
 
-def test_falls_back_to_librosa_when_essentia_fails_on_this_file(tmp_path, monkeypatch):
-    """The regression that matters: essentia importable but failing on one file
-    (9/300 in the real evaluation, all undecodable) must still produce a BPM.
-    Skipping the shared decode because 'essentia is available' silently kills
-    this path."""
-    f = _tagless_mp3(tmp_path)
-    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: (None, None))
-    monkeypatch.setattr(ap, "_essentia_available", lambda: True)
-    monkeypatch.setattr(ap, "_detect_bpm_essentia", lambda p: None)   # per-file failure
-    monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: ("AUDIO", 44100))
-    monkeypatch.setattr(ap, "_detect_bpm", lambda *a, **k: 128.0)
-    monkeypatch.setattr(ap, "_write_tags", lambda path, bpm=None, key=None: None)
-
-    r = ap.process_file(f, detect_bpm=True, detect_key=False, normalise=False)
-
-    assert r.bpm_detected == 128.0
-    assert r.bpm_source == "librosa"
-
-
-def test_bpm_only_run_skips_the_shared_decode_when_essentia_succeeds(tmp_path, monkeypatch):
-    """essentia loads the file itself, so a BPM-only run must not also pay for
+def test_bpm_only_run_skips_the_shared_decode_when_iron_succeeds(tmp_path, monkeypatch):
+    """Iron decodes the file itself, so a BPM-only run must not also pay for
     the 90 s ffmpeg decode that nothing would read."""
     f = _tagless_mp3(tmp_path)
-    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: (None, None))
-    monkeypatch.setattr(ap, "_essentia_available", lambda: True)
-    monkeypatch.setattr(ap, "_detect_bpm_essentia", lambda p: (120.0, 3.0))
+    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: ((120.0, 0.9), None))
     monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: pytest.fail(
-        "shared decode should be skipped when essentia handled BPM and key is off"))
+        "shared decode should be skipped when Iron handled BPM and key is off"))
     monkeypatch.setattr(ap, "_write_tags", lambda path, bpm=None, key=None: None)
 
     r = ap.process_file(f, detect_bpm=True, detect_key=False, normalise=False)
     assert r.bpm_detected == 120.0
 
 
-def test_key_still_gets_its_decode_even_when_essentia_handles_bpm(tmp_path, monkeypatch):
+def test_key_still_gets_its_decode_even_when_iron_handles_bpm(tmp_path, monkeypatch):
     f = _tagless_mp3(tmp_path)
-    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: (None, None))
-    monkeypatch.setattr(ap, "_essentia_available", lambda: True)
-    monkeypatch.setattr(ap, "_detect_bpm_essentia", lambda p: (120.0, 3.0))
+    monkeypatch.setattr(ap, "_analyze_iron", lambda p, bpm, key: ((120.0, 0.9), None))
     monkeypatch.setattr(ap, "_load_audio_ffmpeg", lambda path: ("AUDIO", 44100))
     monkeypatch.setattr(ap, "_detect_key", lambda *a, **k: "8A")
     monkeypatch.setattr(ap, "_write_tags", lambda path, bpm=None, key=None: None)
@@ -311,37 +253,22 @@ def test_key_still_gets_its_decode_even_when_essentia_handles_bpm(tmp_path, monk
     assert r.key_detected == "8A"
 
 
-def test_essentia_out_of_range_bpm_is_rejected(tmp_path, monkeypatch):
-    """A 1 s silent fixture makes essentia report ~738 BPM. Out-of-range values
-    must be discarded so they can't reach a tag or a beat grid."""
-    monkeypatch.setattr(ap, "_essentia_available", lambda: True)
-    f = _tagless_mp3(tmp_path)
-    assert ap._detect_bpm_essentia(f) is None
-
-
 # ── packaging guard ─────────────────────────────────────────────────────────
 
 def test_health_warns_when_beat_tracker_degraded(monkeypatch):
-    """The essentia fallback is deliberately silent so a missing optional
-    dependency can't break processing. That makes it invisible — and in a
-    packaged build it is the likely failure mode, since essentia is a C++
-    extension imported inside a function that PyInstaller can miss. The health
-    check is what turns a silent ~91% -> ~13% accuracy regression into a
-    visible warning."""
+    """The librosa fallback is deliberately silent so a missing ffmpeg can't
+    break processing. That makes it invisible — and in a packaged build a
+    missing ffmpeg is the likely failure mode. The health check is what turns
+    a silent accuracy regression into a visible warning."""
     import health
 
     monkeypatch.setattr(ap, "_iron_available", lambda: False)
-    monkeypatch.setattr(ap, "_essentia_available", lambda: False)
     finding = health._check_beat_tracker()
     assert finding is not None
     assert finding.id == "beat_tracker_degraded"
     assert finding.severity == "warn"
 
-    monkeypatch.setattr(ap, "_essentia_available", lambda: True)
-    assert health._check_beat_tracker() is None
-
-    # Iron alone (no essentia) is a healthy beat tracker -- the common install.
-    monkeypatch.setattr(ap, "_essentia_available", lambda: False)
+    # Iron alone is a healthy beat tracker -- the common install.
     monkeypatch.setattr(ap, "_iron_available", lambda: True)
     assert health._check_beat_tracker() is None
 

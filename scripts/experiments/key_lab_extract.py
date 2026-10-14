@@ -1,7 +1,8 @@
 """Key-detection lab, stage 1: decode each track once and cache bin-resolved spectra.
 
-Standalone research script (does not change the detector). Each track is decoded exactly as
-`iron.api.analyze` does for key (probe duration -> body window -> `_decode`), mapped onto 36
+Standalone research script (does not change the detector). Each track is decoded using the
+selected window: `body` reproduces the tempo window and old key path, while `whole` matches
+the current production key path (from 0:00, capped at ten minutes). Audio is mapped onto 36
 log-frequency bins per octave from A0 (the same mapping as `dsp.whitened_log_spectrum`), and
 reduced to a handful of whitening variants. Every variant is summed over frames inside each of
 `N_SEG` equal time segments, so offline experiments can rebuild the whole-clip chroma
@@ -69,10 +70,19 @@ def _env(a: np.ndarray, octaves: float) -> np.ndarray:
     return np.stack([np.convolve(row, k, mode="same") for row in a]) + 1e-9
 
 
-def features(path: str) -> np.ndarray | None:
-    """(len(VARIANTS), N_SEG, N_LOG) float32, or None for a clip with no frames."""
+WHOLE_MAX_SECONDS = 600.0
+
+
+def features(path: str, window: str = "body") -> np.ndarray | None:
+    """(len(VARIANTS), N_SEG, N_LOG) float32, or None for a clip with no frames.
+
+    "body" matches the tempo window and old key path; "whole" matches the production key window."""
     p = Path(path)
-    start, span = api._pick_body_window(api._probe_duration(p))
+    duration = api._probe_duration(p)
+    if window == "whole":
+        start, span = 0.0, min(duration or WHOLE_MAX_SECONDS, WHOLE_MAX_SECONDS)
+    else:
+        start, span = api._pick_body_window(duration)
     y, sr = api._decode(p, span, start=start)
     mag = dsp.magnitude_spectrogram(y, n_fft=N_FFT, hop_length=HOP)
     if mag.shape[0] == 0:
@@ -97,16 +107,24 @@ def features(path: str) -> np.ndarray | None:
     return out
 
 
+_WINDOW = "body"
+
+
+def _init_worker(window: str) -> None:
+    global _WINDOW
+    _WINDOW = window
+
+
 def _one(row: dict) -> tuple[dict, np.ndarray | None, str | None]:
     try:
-        return row, features(row["audio"]), None
+        return row, features(row["audio"], _WINDOW), None
     except Exception as exc:
         return row, None, f"{type(exc).__name__}: {exc}"
 
 
-def extract(manifest: Path, out: Path, workers: int) -> None:
+def extract(manifest: Path, out: Path, workers: int, window: str = "body") -> None:
     rows = json.loads(manifest.read_text())
-    with ProcessPoolExecutor(max_workers=workers) as ex:
+    with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker, initargs=(window,)) as ex:
         results = list(ex.map(_one, rows, chunksize=4))
     good = [(r, f) for r, f, _ in results if f is not None]
     bad = [(r, e) for r, f, e in results if f is None]
@@ -178,7 +196,7 @@ def build_extra(out_dir: Path, name: str, n: int, seed: int) -> None:
     Rekordbox-analysed and disjoint (path and file size) from every set already in `out_dir`.
     Run after `sets`; build `train2` first, then `confirm`."""
     used: set[str] = set()
-    for other in ("train", "rb200", "mixed150", "rbfresh", "train2", "confirm"):
+    for other in ("train", "rb200", "mixed150", "rbfresh", "train2", "confirm", "train3", "confirm2", "confirm3"):
         f = out_dir / f"{other}.json"
         if other != name and f.exists():
             used |= {r["audio"] for r in json.loads(f.read_text())}
@@ -205,7 +223,7 @@ if __name__ == "__main__":
     s.add_argument("--fresh-n", type=int, default=1000)
     s.add_argument("--seed", type=int, default=20261014)
     t2 = sub.add_parser("extra")
-    t2.add_argument("name", choices=["train2", "confirm"])
+    t2.add_argument("name", choices=["train2", "confirm", "train3", "confirm2", "confirm3"])
     t2.add_argument("--out-dir", type=Path, required=True)
     t2.add_argument("--n", type=int, default=2000)
     t2.add_argument("--seed", type=int, default=20261014)
@@ -213,6 +231,7 @@ if __name__ == "__main__":
     e.add_argument("--manifest", type=Path, required=True)
     e.add_argument("--out", type=Path, required=True)
     e.add_argument("--workers", type=int, default=5)
+    e.add_argument("--window", choices=["body", "whole"], default="body")
     c = sub.add_parser("check")
     c.add_argument("--manifest", type=Path, required=True)
     c.add_argument("--n", type=int, default=3)
@@ -222,6 +241,6 @@ if __name__ == "__main__":
     elif a.cmd == "extra":
         build_extra(a.out_dir, a.name, a.n, a.seed)
     elif a.cmd == "extract":
-        extract(a.manifest, a.out, a.workers)
+        extract(a.manifest, a.out, a.workers, a.window)
     else:
         check_against_production(a.manifest, a.n)

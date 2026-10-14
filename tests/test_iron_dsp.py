@@ -374,3 +374,30 @@ def test_whitened_log_spectra_no_views_requested_returns_zero_rows():
     # Nothing to compute is not an error, even on a clip long enough to have frames.
     out = dsp.whitened_log_spectra(_chord_with_drone(), 22050, envelope_octaves=(), include_raw=False)
     assert out.shape == (0, 270)
+
+
+def test_whitened_log_spectra_processes_frames_in_bounded_chunks(monkeypatch):
+    original_rfft = np.fft.rfft
+    frame_counts = []
+
+    def recording_rfft(frames, *args, **kwargs):
+        frame_counts.append(frames.shape[0])
+        return original_rfft(frames, *args, **kwargs)
+
+    monkeypatch.setattr(dsp.np.fft, "rfft", recording_rfft)
+    n_fft, hop_length = 256, 64
+    y = np.sin(2 * np.pi * 440 * np.arange(n_fft + (dsp._SPECTROGRAM_CHUNK_FRAMES + 1) * hop_length) / 22050)
+    out = dsp.whitened_log_spectra(
+        y, 22050, envelope_octaves=(1.0,), include_raw=True, n_fft=n_fft, hop_length=hop_length,
+        fmin=50.0, bins_per_octave=4, n_octaves=4,
+    )
+
+    assert out.shape == (2, 16)
+    assert len(frame_counts) > 1
+    assert max(frame_counts) <= dsp._SPECTROGRAM_CHUNK_FRAMES
+    monkeypatch.setattr(dsp, "_SPECTROGRAM_CHUNK_FRAMES", 1000)
+    reference = dsp.whitened_log_spectra(
+        y, 22050, envelope_octaves=(1.0,), include_raw=True, n_fft=n_fft, hop_length=hop_length,
+        fmin=50.0, bins_per_octave=4, n_octaves=4,
+    )
+    assert np.allclose(out, reference)
