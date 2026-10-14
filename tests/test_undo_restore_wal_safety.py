@@ -21,6 +21,7 @@ instead of an empty placeholder file, since the defect is specifically about
 WAL sidecar handling.
 """
 import json
+import shutil
 import sqlite3
 import sys
 from pathlib import Path
@@ -83,6 +84,32 @@ def _post(client, path, body):
     return client.post(path, json=body, environ_overrides={"REMOTE_ADDR": LOOPBACK})
 
 
+def _leave_unclean(db_path: Path, sql: str) -> None:
+    """Commit *sql*, leaving the write in the -wal sidecar, as after a crash or force-quit.
+
+    `del conn` is not a way to do that: the connection only really closes when the garbage
+    collector gets to it, and closing checkpoints the WAL and deletes -wal/-shm. When that
+    landed in the middle of a backup the sidecar vanished under it (a flaky FileNotFoundError
+    or a savepoint with no sidecar). So take an image of the files while the connection is
+    open, close it cleanly, and put the image back: deterministic, and what a crash leaves.
+    """
+    sidecars = [db_path.with_name(db_path.name + suffix) for suffix in ("-wal", "-shm")]
+    conn = sqlite3.connect(db_path)
+    conn.execute(sql)
+    conn.commit()
+    image = db_path.parent / "crash-image"
+    image.mkdir()
+    for f in (db_path, *sidecars):
+        if f.exists():
+            shutil.copy2(f, image / f.name)
+    conn.close()  # checkpoints and removes the live sidecars
+    for f in sidecars:
+        f.unlink(missing_ok=True)
+    for f in image.iterdir():
+        shutil.copy2(f, db_path.parent / f.name)
+    shutil.rmtree(image)
+
+
 def test_restore_is_not_defeated_by_a_leftover_wal(client, tmp_path, monkeypatch):
     test_client, device_db = client
     import db_connection
@@ -97,10 +124,7 @@ def test_restore_is_not_defeated_by_a_leftover_wal(client, tmp_path, monkeypatch
     # Make the "bad write" the restore exists to undo, and leave it
     # uncheckpointed on disk -- an unclean exit (crash / force-quit), not a
     # normal close.
-    conn = sqlite3.connect(device_db)
-    conn.execute("INSERT INTO t VALUES ('bad-write-still-in-wal')")
-    conn.commit()
-    del conn
+    _leave_unclean(device_db, "INSERT INTO t VALUES ('bad-write-still-in-wal')")
     assert (device_db.parent / (device_db.name + "-wal")).exists(), "fixture must leave a live WAL"
 
     resp = _post(test_client, "/api/undo/savepoint/restore", {"path": str(savepoint_path)})
@@ -129,10 +153,8 @@ def test_restore_replaces_sidecars_when_the_savepoint_has_its_own(client, tmp_pa
 
     # Give the "old" state its own uncheckpointed addition before the
     # savepoint is taken, so the savepoint's backup includes a -wal.
-    conn = sqlite3.connect(device_db)
-    conn.execute("INSERT INTO t VALUES ('old-state-2-in-wal-at-savepoint-time')")
-    conn.commit()
-    del conn  # unclean -- so _backup_db must capture this via the sidecar
+    # Unclean, so _backup_db must capture this via the sidecar.
+    _leave_unclean(device_db, "INSERT INTO t VALUES ('old-state-2-in-wal-at-savepoint-time')")
 
     savepoint_path = db_connection._backup_db(device_db)
     assert Path(str(savepoint_path) + "-wal").exists(), "savepoint must have captured the sidecar"
