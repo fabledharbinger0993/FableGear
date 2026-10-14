@@ -18,6 +18,12 @@ def test_setup_and_launcher_do_not_mutate_homebrew_automatically():
         assert not brew_mutation.search((ROOT / script).read_text())
 
 
+def test_launcher_runs_pip_only_through_the_venv_interpreter():
+    """A bare `pip` resolves through PATH and could install into the system Python."""
+    bare_pip = re.compile(r'(?m)^[^#\n]*(?<!-m )(?<![\w/-])pip\s+install\b')
+    assert not bare_pip.search((ROOT / "launch.sh").read_text())
+
+
 def test_no_phone_companion_or_vpn_code_ships():
     """The FableGo phone companion and Tailscale integration were removed entirely.
 
