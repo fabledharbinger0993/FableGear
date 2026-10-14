@@ -17,9 +17,10 @@ in its documented format, whenever you evaluate a new tempo/beat-tracking tool**
 it first so you don't re-research one already listed.
 
 **Why this matters**: Iron, Anvil and Quench exist specifically to get FableGear off
-essentia (AGPL-3.0, removed in v1.2.0 — do not re-add it), librosa (weak accuracy, kept
-only as a logged fallback and an already-measured baseline), and mutagen (GPL-2.0, kept
-only as a logged fallback) — because FableGear is for-sale, proprietary software, and a
+essentia (AGPL-3.0, removed in v1.2.0 — do not re-add it), librosa (weak accuracy; still a hard
+requirement for the fallback BPM/key path, waveform decoding and the USB first-beat estimate),
+and mutagen (GPL-2.0; still the general metadata reader and Anvil's read fallback). Do not
+remove either without moving those callers first (docs/IRON_RESEARCH.md §29.2) — because FableGear is for-sale, proprietary software, and a
 copyleft or noncommercial license on a runtime dependency is a real commercial risk, not a
 formality. `quench/` (loudness measurement and levelling on ffmpeg, see `quench/README.md`)
 is the third in-house tool; Forge runs all three and each skips what a file already has. **Never add a third-party MIR, beat-tracking, or tag-I/O library as a runtime

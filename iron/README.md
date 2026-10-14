@@ -107,9 +107,10 @@ not ported.
   kind of ground truth (a Rekordbox grid), not on a human-annotated corpus, and the library is
   club music, so the tempo prior is tuned to it; a library of very slow or very fast music
   would score lower. Remaining errors are mostly half-tempo and 4:3. Iron is now
-  the **primary BPM detector** in `audio_processor.process_file` (Iron -> essentia if
-  installed -> librosa); key detection is still librosa, as Iron's key detector has not been
-  benchmarked. essentia and librosa stay in the requirements as fallbacks.
+  the **primary BPM and key detector** in `audio_processor.process_file` (Iron -> librosa,
+  logged). essentia was removed in v1.2.0 (docs/IRON_RESEARCH.md §29); librosa stays in the
+  requirements as the fallback and for the callers listed in §29.2. (This paragraph predates
+  Iron's key detector and the wiring; key accuracy is in docs/IRON_RESEARCH.md §18, §27, §28.)
 - **A near-perfectly-periodic signal is a genuinely hard case.** Autocorrelation-based
   disambiguation relies on real asymmetry in the onset pattern (dynamics, kick/snare
   contrast); an idealized, exactly-regular pulse train is mathematically ambiguous between

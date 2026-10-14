@@ -27,10 +27,13 @@ copyleft licenses that are a real risk for a for-sale, closed-source app. Both p
 independent implementations of published, non-proprietary methods (see each module's
 docstring for citations), not ports of any dependency's internals.
 
-**Neither package is wired into the live app yet.** `audio_processor.py`,
-`waveform_generator.py`, and every other existing caller still use mutagen/essentia/librosa
-exactly as before. This is deliberate — see "Current status" below for what's blocking that
-decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
+**Superseded 2026-10-10 / 2026-10-14:** this paragraph is the original 2026-08 state. Iron
+and Anvil have since been wired in (§16-§17), essentia was removed in v1.2.0 (§29), and
+`waveform_generator.py` still uses librosa. Work on `iron/`/`anvil/` now DOES affect the
+shipping app. The original text follows for history.
+
+*Original:* neither package was wired into the live app; every caller still used
+mutagen/essentia/librosa.
 
 ---
 
@@ -50,9 +53,11 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 >
 > **2026-10-14 (v1.2.0 wiring):** essentia is removed from the app entirely (code, health
 > probe, optional requirement). The old normaliser is now the third in-house tool, **Quench**
-> (`quench/`), and Forge runs Iron, Anvil and Quench by default with Quench in Passive mode
-> (level only files outside the target). librosa and mutagen remain as logged fallbacks only.
-> No detector output changed. See §29.
+> (`quench/`), and Forge runs Iron, Anvil and Quench together, each skipping what the file
+> already carries; Quench's default mode is Passive from PR #217 (it was Off before). librosa
+> and mutagen remain as logged fallbacks for BPM/key and tags, but librosa is also still used
+> for waveform decoding and the USB first-beat estimate, and mutagen is still the general
+> metadata reader (§29.2). No detector output changed. See §29.
 >
 > **2026-10-13 (Record Room integration):** Iron (analyse) and Anvil (tag write) are now
 > Record Room track actions, persisting to the FableGear DB. USB export still does not carry
@@ -3019,7 +3024,7 @@ Plumbing and packaging, not detector accuracy. No Iron tempo, key or beat output
 - **essentia removed**: fallback code, `_essentia_available`, the health-check probe, the
   optional requirement, and the setup/launch/wizard mentions. Detector order is now Iron, then
   librosa (logged) — `bpm_source` is `"iron" | "librosa"`.
-- **Forge runs all three by default**: the Quench mode select defaults to Passive (level only
+- **Forge runs all three by default** (PR #217; before it Quench defaulted to Off): the Quench mode select defaults to Passive (level only
   files outside the target), the same skip-what-exists rule BPM and key already used; the
   rewrite confirm dialog is unchanged. Card and run titles read "Forge — Iron, Anvil & Quench".
 - Tests: `tests/test_quench_api.py` (13) pins the package; the essentia tests became
