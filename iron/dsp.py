@@ -753,7 +753,7 @@ def whitened_log_spectra(
     n_log = int(bins_per_octave * n_octaves)
     n_views = len(envelope_octaves) + int(include_raw)
     mag = magnitude_spectrogram(y, n_fft=n_fft, hop_length=hop_length)
-    if mag.shape[0] == 0:
+    if n_views == 0 or mag.shape[0] == 0:
         return np.zeros((n_views, n_log), dtype=np.float64)
 
     freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)

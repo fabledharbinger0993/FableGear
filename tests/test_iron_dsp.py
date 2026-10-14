@@ -368,3 +368,9 @@ def test_whitened_log_spectra_too_short_returns_zero_rows():
     out = dsp.whitened_log_spectra(np.zeros(100), 22050, envelope_octaves=(1.0, 2.0), include_raw=True)
     assert out.shape == (3, 270)
     assert not out.any()
+
+
+def test_whitened_log_spectra_no_views_requested_returns_zero_rows():
+    # Nothing to compute is not an error, even on a clip long enough to have frames.
+    out = dsp.whitened_log_spectra(_chord_with_drone(), 22050, envelope_octaves=(), include_raw=False)
+    assert out.shape == (0, 270)

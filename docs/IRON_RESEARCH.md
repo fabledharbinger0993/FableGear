@@ -34,7 +34,7 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 
 ---
 
-## 1. Current status (callouts dated up to 2026-10-13; body text from 2026-08-27)
+## 1. Current status (callouts dated up to 2026-10-14; body text from 2026-08-27)
 
 > **2026-10-14 (key model):** key detection is now a multi-view learned model (`iron.key.detect_key`),
 > **60.4% exact vs 55.3%** for the SS18 profile detector on an untouched 998-track Rekordbox-analysed set
@@ -580,7 +580,9 @@ findings).
   model experiments offline (seconds), and check the production detectors on the same audio. Usage in
   each file's docstring; reproduce block in SS27.9.
 
-All `--seed`-taking scripts default to `--seed 42` for reproducibility.
+All `--seed`-taking scripts default to `--seed 42` for reproducibility, except
+`scripts/experiments/key_lab_extract.py` (SS27), which defaults to `--seed 20261014`: that is the seed that
+produced the published SS27 manifests (`rbfresh`, `train2`, `confirm`), so changing it draws different tracks.
 
 ---
 

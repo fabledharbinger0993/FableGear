@@ -64,10 +64,18 @@ def main() -> None:
     errors = [r for r in res if "error" in r]
     print(f"{a.manifest.name}: {len(res)} tracks, {len(errors)} errors")
     summary = {}
+    valid = [r for r in res if "error" not in r and kl.parse_key(r["key"])]  # same denominator for both detectors
     for field, label in (("profile", "SS18 profiles (before)"), ("model", "SS27 model (after) ")):
-        pred, truth = _pairs([r for r in res if "error" not in r], field)
-        summary[field] = kl.metrics(pred, truth)
-        print(f"  {label} {kl.fmt(summary[field])}")
+        pred, truth = _pairs(valid, field)
+        m = kl.metrics(pred, truth)
+        # A detector that returns no key is a miss, not a row to drop: report over every valid row too.
+        m["n_valid"], m["undetected"] = len(valid), len(valid) - len(pred)
+        m["exact_of_total_pct"] = 100.0 * m["exact"] / len(valid)
+        m["mirex_of_total"] = m["mirex"] * len(pred) / len(valid)
+        summary[field] = m
+        print(f"  {label} {kl.fmt(m)}")
+        print(f"  {'':22s} undetected {m['undetected']} of {len(valid)}; exact of all valid rows {m['exact_of_total_pct']:.1f}%, "
+              f"MIREX of all valid rows {m['mirex_of_total']:.3f}")
     both = [r for r in res if "error" not in r and r.get("model") and r.get("profile") and kl.parse_key(r["key"])]
     pm, tm = _pairs(both, "model")
     pp, _ = _pairs(both, "profile")
