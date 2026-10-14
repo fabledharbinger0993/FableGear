@@ -125,6 +125,7 @@ def plan_folder_cleanup(root: Path) -> FolderPlan:
     in them goes. The root itself is never renamed."""
     plan = FolderPlan(root=root)
     # destination folder (case-folded) -> the folder that claimed it, so merges are explicit
+    # value = the destination path that claimed it, so equivalents route to that exact folder
     claimed: dict[str, Path] = {}
     # destination file path (case-folded) -> source, so two files never land on one name
     taken: dict[str, Path] = {}
@@ -146,16 +147,18 @@ def plan_folder_cleanup(root: Path) -> FolderPlan:
             new_name = clean_folder_name(child.name)
             target = dest_dir / new_name
             key = str(target).casefold()
-            if new_name == child.name and key not in claimed:
-                plan.unchanged += 1
-                claimed[key] = child
-                visit(child, target)
-                continue
-            if key in claimed and claimed[key] != child:
+            owner = claimed.get(key)
+            if owner is None:
+                claimed[key] = target
+                if new_name == child.name:
+                    plan.unchanged += 1
+                else:
+                    plan.changes.append(FolderChange(child, target, "rename"))
+            else:
+                # An equivalent folder (same name ignoring case) already owns this slot, so the
+                # files go to that exact folder, whatever case this one was spelled in.
+                target = owner
                 plan.changes.append(FolderChange(child, target, "merge"))
-            elif new_name != child.name:
-                plan.changes.append(FolderChange(child, target, "rename"))
-            claimed.setdefault(key, child)
             visit(child, target)
 
     visit(root, root)
@@ -195,7 +198,22 @@ def apply_folder_cleanup(
             continue
         try:
             _sync_db_path_or_revert(move.src, move.dest, db)
+            if db is not None:
+                # One transaction per move: a failure rolls back only this file, and what has
+                # been reported as moved is already saved in Rekordbox.
+                db.commit()
         except Exception as exc:
+            if db is not None:
+                try:
+                    db.rollback()
+                except Exception:
+                    log.exception("Rekordbox rollback failed")
+            if not move.src.exists() and move.dest.exists():
+                try:
+                    shutil.move(str(move.dest), str(move.src))
+                except OSError as revert_exc:
+                    errors.append(f"{move.src.name}: could not move back after Rekordbox error ({revert_exc})")
+                    continue
             errors.append(f"{move.src.name}: Rekordbox update failed, move undone ({exc})")
             continue
         emptied.add(move.src.parent)

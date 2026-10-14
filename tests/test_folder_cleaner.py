@@ -138,3 +138,56 @@ def test_apply_relinks_and_journals_each_move_as_a_rename(tmp_path):
     dest = tmp_path / "A B" / "t.mp3"
     assert archive.relinked == [(7, str(dest))]
     assert archive.logged == [("rename", str(dest), {"from": str(src), "action": "folder_cleanup"})]
+
+
+def test_equivalent_folders_merge_into_the_exact_folder_that_claimed_the_name(tmp_path):
+    """On a case-sensitive disk "D'ARBY" and "D’Arby" must not spawn a third "D'Arby"."""
+    _touch(tmp_path / "D'ARBY" / "a.mp3")
+    _touch(tmp_path / "D’Arby" / "b.mp3")
+
+    plan = fc.plan_folder_cleanup(tmp_path)
+
+    assert {m.dest.parent for m in plan.moves} <= {tmp_path / "D'ARBY"}
+    assert not any(c.new == tmp_path / "D'Arby" for c in plan.changes)
+
+
+class _FakeRekordbox:
+    def __init__(self):
+        self.commits = 0
+        self.rollbacks = 0
+
+    def get_content(self, **_kw):
+        class Rows:
+            def all(self):
+                return []
+        return Rows()
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
+
+
+def test_every_move_is_committed_to_rekordbox(tmp_path):
+    _touch(tmp_path / "A_B" / "one.mp3")
+    _touch(tmp_path / "A_B" / "two.mp3")
+    db = _FakeRekordbox()
+
+    result = fc.apply_folder_cleanup(fc.plan_folder_cleanup(tmp_path), db=db)
+
+    assert result["moved"] == 2 and db.commits == 2
+
+
+def test_a_failed_rekordbox_commit_puts_the_file_back(tmp_path):
+    src = _touch(tmp_path / "A_B" / "one.mp3")
+    db = _FakeRekordbox()
+
+    def boom():
+        raise RuntimeError("disk full")
+    db.commit = boom  # type: ignore[method-assign]
+
+    result = fc.apply_folder_cleanup(fc.plan_folder_cleanup(tmp_path), db=db)
+
+    assert result["moved"] == 0 and len(result["errors"]) == 1
+    assert src.exists() and db.rollbacks == 1
