@@ -65,6 +65,26 @@ def _pairs(rows: list[dict], field: str) -> tuple[np.ndarray, np.ndarray]:
     return pred, truth
 
 
+def _correctness(rows: list[dict], field: str) -> np.ndarray:
+    return np.array([
+        bool(r.get(field))
+        and _CAMELOT_TO_PAIR.get(r[field][0]) == kl.parse_key(r["key"])
+        for r in rows
+    ])
+
+
+def _mcnemar(a_correct: np.ndarray, b_correct: np.ndarray) -> tuple[int, int, float]:
+    from math import comb
+
+    a_only = int((a_correct & ~b_correct).sum())
+    b_only = int((b_correct & ~a_correct).sum())
+    n = a_only + b_only
+    if n == 0:
+        return a_only, b_only, 1.0
+    p = min(1.0, 2 * sum(comb(n, i) for i in range(min(a_only, b_only) + 1)) / 2**n)
+    return a_only, b_only, p
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", type=Path, required=True)
@@ -89,12 +109,10 @@ def main() -> None:
         print(f"  {label} {kl.fmt(m)}")
         print(f"  {'':22s} undetected {m['undetected']} of {len(valid)}; exact of all valid rows {m['exact_of_total_pct']:.1f}%, "
               f"MIREX of all valid rows {m['mirex_of_total']:.3f}")
-    both = [r for r in valid if r.get("model") and r.get("prev") and r.get("profile")]
-    pm, tm = _pairs(both, "model")
-    pv, _ = _pairs(both, "prev")
-    right_m, right_v = (pm == tm).all(1), (pv == tm).all(1)
-    print(f"  paired current vs SS27: current right/SS27 wrong {int((right_m & ~right_v).sum())}, "
-          f"SS27 right/current wrong {int((right_v & ~right_m).sum())}")
+    right_m, right_v = _correctness(valid, "model"), _correctness(valid, "prev")
+    current_only, previous_only, p = _mcnemar(right_m, right_v)
+    print(f"  paired current vs SS27: current right/SS27 wrong {current_only}, "
+          f"SS27 right/current wrong {previous_only}, McNemar p={p:.4f} (n={len(valid)})")
     a.out.write_text(json.dumps(dict(summary=summary, rows=res), ensure_ascii=False, default=str))
 
 

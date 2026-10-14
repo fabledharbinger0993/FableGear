@@ -140,7 +140,8 @@ def main() -> None:
     ap.add_argument("--lab", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--train", default="train,train2", help="comma-separated training sets")
-    ap.add_argument("--confirm", default="", help="comma-separated untouched sets to score once, after selection")
+    ap.add_argument("--confirm", nargs="?", const="confirm", default="",
+                    help="comma-separated untouched sets to score once, after selection")
     ap.add_argument("--suffix", default="", help="cache suffix: '' = tempo body window, '_whole' = whole track (SS28)")
     ap.add_argument("--export", type=Path, help="write the selected model's weights as JSON")
     ap.add_argument("--only", help="restrict the search to the view set whose name starts with this (sensitivity runs)")

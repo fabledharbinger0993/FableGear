@@ -1,7 +1,8 @@
 """Key-detection lab, stage 1: decode each track once and cache bin-resolved spectra.
 
-Standalone research script (does not change the detector). Each track is decoded exactly as
-`iron.api.analyze` does for key (probe duration -> body window -> `_decode`), mapped onto 36
+Standalone research script (does not change the detector). Each track is decoded using the
+selected window: `body` reproduces the tempo window and old key path, while `whole` matches
+the current production key path (from 0:00, capped at ten minutes). Audio is mapped onto 36
 log-frequency bins per octave from A0 (the same mapping as `dsp.whitened_log_spectrum`), and
 reduced to a handful of whitening variants. Every variant is summed over frames inside each of
 `N_SEG` equal time segments, so offline experiments can rebuild the whole-clip chroma
@@ -75,7 +76,7 @@ WHOLE_MAX_SECONDS = 600.0
 def features(path: str, window: str = "body") -> np.ndarray | None:
     """(len(VARIANTS), N_SEG, N_LOG) float32, or None for a clip with no frames.
 
-    window "body" is what `iron.analyze` decodes; "whole" decodes from 0:00 for up to 10 minutes."""
+    "body" matches the tempo window and old key path; "whole" matches the production key window."""
     p = Path(path)
     duration = api._probe_duration(p)
     if window == "whole":
