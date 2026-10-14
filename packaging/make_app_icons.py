@@ -4,7 +4,8 @@
 Writes static/fablegear-icon-1024.png (square master), static/FableGear.iconset/ (the ten
 sizes Apple's iconutil expects), static/FableGear.icns and static/FableGear.ico.
 
-Needs Pillow, which is NOT a FableGear runtime dependency: run it from any throwaway venv
+Run it on macOS (it calls Apple's `iconutil`) and needs Pillow, which is NOT a FableGear
+runtime dependency: use any throwaway venv
 (`python -m venv /tmp/v && /tmp/v/bin/python -m pip install pillow`), then commit the output.
 
 The art is wide and not square, so it is trimmed to its visible pixels, centred on Apple's
