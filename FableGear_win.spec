@@ -77,7 +77,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,   # no terminal window
-    icon=str(SRC / 'static' / 'fablegear.png'),
+    icon=str(SRC / 'static' / 'FableGear.ico'),
 )
 
 coll = COLLECT(

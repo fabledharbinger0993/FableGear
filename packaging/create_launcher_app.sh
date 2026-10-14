@@ -93,7 +93,7 @@ if [ -x "$APP_DEST/Contents/MacOS/FableGear" ] && [ -f "$APP_DEST/Contents/Info.
   ok "FableGear.app created at $APP_DEST"
 
   # ── Apply icon (sips + iconutil) ────────────────────────────────────────
-  ICON_SRC="$SCRIPT_DIR/static/fablegear.png"
+  ICON_SRC="$SCRIPT_DIR/static/fablegear-icon-1024.png"
   if [ -f "$ICON_SRC" ]; then
     ICONSET="$(mktemp -d)/fg.iconset"
     mkdir -p "$ICONSET"
