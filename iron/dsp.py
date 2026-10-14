@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import numpy as np
 
-
 _SPECTROGRAM_CHUNK_FRAMES = 64
 
 
