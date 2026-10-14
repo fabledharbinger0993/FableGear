@@ -138,11 +138,11 @@ These tools work on your physical audio files, not the Rekordbox database.
 
 | Tool | What it does |
 |---|---|
-| **Forge** | Analyzes your audio with FableGear's own detectors (Iron finds BPM and key; Anvil reads and writes the tags) and saves BPM and musical key both into the file's metadata and into the FableGear database. Carrying BPM and key onto a Pioneer USB is still being built (the Record Room export does not pass them yet). This means the info survives even if you rebuild your Rekordbox database or use the files outside Rekordbox. |
+| **Forge** | Runs FableGear's three in-house tools on a folder in one pass: **Iron** finds BPM and key, **Anvil** writes them into the file's tags, **Quench** levels loudness. Each step skips what the file already carries (existing BPM, existing key, loudness already at target), so a run is safe to repeat. BPM and key also go into the FableGear database. Carrying BPM and key onto a Pioneer USB is still being built (the Record Room export does not pass them yet). This means the info survives even if you rebuild your Rekordbox database or use the files outside Rekordbox. |
 | **De-Duplicate** | Step 1 uses acoustic fingerprinting to detect the same recording even when the filenames, formats, or bitrates are different (not just a filename check -- it listens to the audio). Step 2 moves the extra copies into the `Duplicates` folder of your `FableGear Archive` (beside your library, skipped by every scan) and removes them from the FableGear database, after taking a savepoint of it. Nothing is deleted, the Undo screen can put files and entries back, and Rekordbox's own database is never touched. |
 | **Re-Name** | Batch rename files using patterns or learned rules from example pairs. Shows you a preview before anything changes. |
 | **Re-Organize** | Rebuilds your folder structure based on embedded metadata (artist, album, etc.). Handles album artist intelligently so featured artists don't create extra folders. |
-| **Quench** (inside Forge) | Measures loudness (EBU R128) and re-encodes tracks that fall outside your target level. It is off by default, because it is the one step that rewrites audio. Preview and backup included. |
+| **Quench** (inside Forge) | Measures loudness (EBU R128) and re-encodes tracks that fall outside your target level, keeping container, bit depth, tags and cover art. It is the one Forge step that rewrites audio: Passive mode (the default) levels only files outside the target and asks once before it starts; set it to Off for a tag-only run. Each file is written to a temporary copy and checked before it replaces the original, which is kept as a `.bak` only until that swap succeeds, so keep your own backup of the drive. A preview plays before-and-after samples first. AAC/M4A is left alone. |
 | **Re-Factor** | Re-encodes a folder of audio files into a target format (e.g., FLAC to AIFF, WAV to MP3). |
 | **Novelty Scanner** | Scans another drive for tracks that are not already in your main library, based on acoustic fingerprints. Useful for finding new music across external drives or a friend's collection. |
 
@@ -262,13 +262,13 @@ Audit --> Fix paths --> De-Duplicate --> Forge (tag / quench) --> Re-Organize --
 
 FableGear is a Flask app that runs a local server on port 5001 (on your own Mac only) and opens in a native macOS window via pywebview. The UI is vanilla HTML/CSS/JS -- no frontend framework.
 
-Audio analysis and tag handling are built in-house: **Iron** (`iron/`) detects BPM, key and beat positions, and **Anvil** (`anvil/`) reads and writes tags. The libraries below are used for everything else, and as logged fallbacks if Iron or Anvil can't handle a file.
+Audio analysis, tag handling and loudness are built in-house: **Iron** (`iron/`) detects BPM, key and beat positions, **Anvil** (`anvil/`) reads and writes tags, and **Quench** (`quench/`) measures and levels loudness on ffmpeg. The libraries below are used for everything else: mutagen still reads general metadata and is Anvil's fallback, librosa is still the fallback BPM/key detector and decodes some formats for waveforms. essentia was removed in v1.2.0 and is no longer installed.
 
 | Library | Purpose |
 |---|---|
 | [pyrekordbox](https://github.com/dylanljones/pyrekordbox) | Read/write access to the Rekordbox SQLite database |
 | [Chromaprint / fpcalc](https://acoustid.org/chromaprint) | Acoustic fingerprinting for duplicate detection |
-| [ffmpeg](https://ffmpeg.org) (`loudnorm` filter) | Audio decoding, EBU R128 loudness measurement and normalization |
+| [ffmpeg](https://ffmpeg.org) | Audio decoding for Iron; `loudnorm` measurement and `volume` rewrite for Quench; format conversion for Re-Factor |
 | [mutagen](https://mutagen.readthedocs.io) | Audio metadata (tag) fallback |
 | [librosa](https://librosa.org) | Fallback BPM/key/beat analysis and waveform generation |
 | [Flask](https://flask.palletsprojects.com) + [Waitress](https://docs.pylonsproject.org/projects/waitress) | Local application server |

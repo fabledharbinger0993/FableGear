@@ -27,10 +27,13 @@ copyleft licenses that are a real risk for a for-sale, closed-source app. Both p
 independent implementations of published, non-proprietary methods (see each module's
 docstring for citations), not ports of any dependency's internals.
 
-**Neither package is wired into the live app yet.** `audio_processor.py`,
-`waveform_generator.py`, and every other existing caller still use mutagen/essentia/librosa
-exactly as before. This is deliberate — see "Current status" below for what's blocking that
-decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
+**Superseded 2026-10-10 / 2026-10-14:** this paragraph is the original 2026-08 state. Iron
+and Anvil have since been wired in (§16-§17), essentia was removed in v1.2.0 (§29), and
+`waveform_generator.py` still uses librosa. Work on `iron/`/`anvil/` now DOES affect the
+shipping app. The original text follows for history.
+
+*Original:* neither package was wired into the live app; every caller still used
+mutagen/essentia/librosa.
 
 ---
 
@@ -47,6 +50,14 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 > (fixes 111, breaks 60, McNemar p = 0.0001); +3.9 points on a second 999-track set and +3.0 / +2.7 on
 > rb200 / mixed150. Confidence is now a probability. The SS18 detector stays as `detect_key_profile`.
 > Reference is Rekordbox's analysis, not human truth. See SS27, and note SS27.5 contests part of SS23.2.
+>
+> **2026-10-14 (v1.2.0 wiring):** essentia is removed from the app entirely (code, health
+> probe, optional requirement). The old normaliser is now the third in-house tool, **Quench**
+> (`quench/`), and Forge runs Iron, Anvil and Quench together, each skipping what the file
+> already carries; Quench's default mode is Passive from PR #217 (it was Off before). librosa
+> and mutagen remain as logged fallbacks for BPM/key and tags, but librosa is also still used
+> for waveform decoding and the USB first-beat estimate, and mutagen is still the general
+> metadata reader (§29.2). No detector output changed. See §29.
 >
 > **2026-10-13 (Record Room integration):** Iron (analyse) and Anvil (tag write) are now
 > Record Room track actions, persisting to the FableGear DB. USB export still does not carry
@@ -430,6 +441,10 @@ findings).
 
 ## 5. Things NOT to re-litigate
 
+- essentia as a runtime dependency or fallback (§29, 2026-10-14). It is AGPL-3.0 on a
+  for-sale app, Iron measured better than it on Rekordbox ground truth (§25), and its wheel
+  coverage meant most installs never had it. Removed in v1.2.0; `requirements_optional.txt`
+  says why it must not come back. Benchmark scripts may still import it for comparison runs.
 - Genre-band correction is net-positive on real, genre-diverse data (10.5:1, §3). Don't
   remove or weaken it without a fresh ablation showing net-negative on whatever's actually
   broken.
@@ -2990,6 +3005,40 @@ python scripts/experiments/key_lab_live.py --manifest D/confirm2.json --out D/li
 ```
 
 Aggregate results: `docs/iron/benchmarks/2026-10-14_key_whole_track.json`.
+
+## 29. v1.2.0 wiring: Quench as the third tool, essentia removed, Forge runs all three (2026-10-14)
+
+Plumbing and packaging, not detector accuracy. No Iron tempo, key or beat output changed.
+
+### 29.1 What changed (demonstrated from code; PRs #216, #217)
+
+- **Quench** (`quench/`): the loudness normaliser that lived in `audio_processor.py` is now a
+  package shaped like `iron/` and `anvil/`: `measure()` (ffmpeg loudnorm, EBU R128, optional
+  window), `plan_gain()` (true-peak-capped; a boost is reduced to the headroom that exists and
+  never inverted into a cut), `apply_gain()` (ffmpeg `volume` with per-container recipes in
+  `quench/codecs.py`, output verified by ffprobe, `.bak`-guarded swap) and `level()` (the whole
+  decision for one file, with `skip_reason` in {in_tolerance, no_headroom, unsupported_format}).
+  `audio_processor` keeps its historical private names as delegations; Re-Factor shares the
+  codec recipes. The Normalize preview measures its 20 s windows through `quench.measure`. The
+  MP3 output check moved from mutagen to ffprobe, so Quench has no tag library underneath it.
+- **essentia removed**: fallback code, `_essentia_available`, the health-check probe, the
+  optional requirement, and the setup/launch/wizard mentions. Detector order is now Iron, then
+  librosa (logged) — `bpm_source` is `"iron" | "librosa"`.
+- **Forge runs all three by default** (PR #217; before it Quench defaulted to Off): the Quench mode select defaults to Passive (level only
+  files outside the target), the same skip-what-exists rule BPM and key already used; the
+  rewrite confirm dialog is unchanged. Card and run titles read "Forge — Iron, Anvil & Quench".
+- Tests: `tests/test_quench_api.py` (13) pins the package; the essentia tests became
+  Iron-primary / librosa-fallback tests; `tests/test_quench_wiring.py` pins the Passive default.
+
+### 29.2 Still open (unchanged by this section)
+
+- librosa is still a hard requirement: fallback BPM/key, the waveform generator's decode of
+  non-soundfile formats, and `estimate_first_beat_ms` for the USB export grid (§17: Iron's beat 1
+  measured 54%/75.5% within 25/50 ms vs librosa's 60%/72%, so not swapped). Demoting librosa to
+  optional needs those three callers moved to Iron/ffmpeg first.
+- mutagen is still the general metadata reader (scanner, renamer, organizer, de-duplicator,
+  player routes) and Anvil's read fallback; Anvil has no MP4 cover-art read.
+- §26.3 (USB export carrying key and BPM) is unchanged.
 
 ## How to add to this doc
 
