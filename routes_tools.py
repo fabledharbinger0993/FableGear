@@ -1372,21 +1372,13 @@ def _preview_duration(path: Path) -> "float | None":
 
 
 def _preview_lufs(path: Path, start: float) -> "float | None":
-    """Measure integrated LUFS over _PREVIEW_WINDOW seconds starting at start."""
+    """Integrated LUFS over _PREVIEW_WINDOW seconds starting at start, via Quench."""
     try:
-        r = subprocess.run(
-            [_FFMPEG, "-ss", str(max(0, start)), "-t", str(_PREVIEW_WINDOW),
-             "-i", str(path), "-af", "loudnorm=print_format=json",
-             "-f", "null", "/dev/null"],
-            capture_output=True, text=True, timeout=40,
-        )
-        m = _re.search(r'"input_i"\s*:\s*"(-?\d+\.?\d*)"', r.stderr)
-        if m:
-            val = float(m.group(1))
-            return val if val > -70 else None
+        import quench
+        val = quench.measure(path, start=start, duration=_PREVIEW_WINDOW).integrated_lufs
+        return val if val > -70 else None
     except Exception:
-        pass
-    return None
+        return None
 
 
 def _preview_extract(src: Path, start: float, dest: Path) -> bool:

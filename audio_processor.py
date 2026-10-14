@@ -6,14 +6,19 @@ files and returns ProcessResult objects; cli.py's _persist_process_results saves
 the BPM/key of those results into the FableGear database (fg_content).
 
 Operations per file (each independently skippable):
-1. BPM detection via Iron (FableGear's own detector, iron/), falling back to
-   essentia RhythmExtractor2013 if present, then librosa beat tracking;
-   written via Anvil (TBPM and equivalents)
-2. Key detection via Iron (same pass as BPM), falling back to librosa chroma +
-   Krumhansl-Schmuckler; written via Anvil as Camelot (TKEY and equivalents)
-3. Loudness + true-peak check via ffmpeg's loudnorm filter (EBU R128 measurement)
-4. Normalisation via ffmpeg volume filter if outside tolerance, gain capped so
-   true peak can't cross TRUE_PEAK_CEILING_DBTP, in-place replacement
+1. BPM detection via Iron (FableGear's own detector, iron/); librosa beat
+   tracking stands in, logged, only when Iron returns nothing. Written via
+   Anvil (TBPM and equivalents).
+2. Key detection via Iron (same pass as BPM); librosa chroma + Krumhansl-
+   Schmuckler stands in, logged, only when Iron returns nothing. Written via
+   Anvil as Camelot (TKEY and equivalents).
+3. Loudness + true-peak check via Quench (FableGear's own leveller, quench/,
+   on ffmpeg's loudnorm filter, EBU R128).
+4. Levelling via Quench if outside tolerance, gain capped so true peak can't
+   cross TRUE_PEAK_CEILING_DBTP, verified in-place replacement.
+
+Iron, Anvil and Quench are the primary tools. essentia is gone; librosa and
+mutagen remain only as logged fallbacks for files the in-house tools decline.
 
 Design rules:
 - Existing tags are NEVER overwritten unless force=True (both) or the per-effect
@@ -47,6 +52,7 @@ from mutagen import File as MutagenFile
 from mutagen.id3 import TBPM, TKEY
 
 import anvil
+import quench
 from config import (
     AUDIO_EXTENSIONS,
     BPM_MAX,
@@ -94,12 +100,12 @@ class ProcessResult:
     path: Path
     bpm_detected: float | None = None
     bpm_written: bool = False
-    # Detector confidence. NOT one scale: Iron reports 0-1 (margin over the best
-    # unrelated rival tempo; >= 0.3 was right ~99% of the time), essentia 0-~5
-    # (beat-tracker agreement), librosa None. Interpret it together with
-    # bpm_source. Low values flag grids worth eyeballing before a gig.
+    # Detector confidence. Iron reports 0-1 (margin over the best unrelated
+    # rival tempo; >= 0.3 was right ~99% of the time); the librosa fallback
+    # reports None. Interpret it together with bpm_source. Low values flag
+    # grids worth eyeballing before a gig.
     bpm_confidence: float | None = None
-    bpm_source: str = ""             # "iron" | "essentia" | "librosa" | "" (not run)
+    bpm_source: str = ""             # "iron" | "librosa" | "" (not run)
     key_detected: str | None = None
     key_written: bool = False
     key_source: str = ""             # "iron" | "librosa" | "" (not run)
@@ -186,10 +192,6 @@ def quarantine_file(result: ProcessResult, quarantine_dir: Path) -> bool:
 
 _ANALYSIS_SR: int = 22050  # sample rate used for BPM/key analysis
 
-# Tri-state cache for the optional essentia import: None = not yet probed.
-_ESSENTIA_OK: "bool | None" = None
-
-
 def _analysis_window_start(path: Path, window: float) -> float:
     """
     Offset (seconds) to start the analysis window at, chosen to land in the
@@ -197,10 +199,9 @@ def _analysis_window_start(path: Path, window: float) -> float:
 
     Anchoring at 0:00 means the window disproportionately lands on a track's
     intro — often the least rhythmically confident part of a DJ edit
-    (deliberately beatless or sparse, so it's easy to mix in). essentia
-    doesn't have this problem: it decodes the whole file via MonoLoader with
-    no duration cap. The librosa path only ever sees `window` seconds, so
-    where that window sits matters as much as its length.
+    (deliberately beatless or sparse, so it's easy to mix in). Iron reads the
+    track's body for the same reason. The librosa fallback only ever sees
+    `window` seconds, so where that window sits matters as much as its length.
 
     Falls back to 0.0 (equivalent to a whole-file decode, since -t past EOF
     just stops at EOF) whenever duration can't be read or the track is
@@ -251,10 +252,10 @@ def _fold_octave(bpm: float, lo: float, hi: float) -> float:
     half/double-time octave errors. Only octave (2x) errors are fixable this way;
     non-octave errors (e.g. 4:3 detections) are left as-is.
 
-    Only reachable on the librosa fallback below: when essentia is available it
-    resolves the octave from the signal itself and this heuristic is bypassed.
-    A fixed fold range also can't represent a genuinely slow or fast track,
-    which is part of why essentia is preferred."""
+    Only reachable on the librosa fallback below: Iron resolves the octave from
+    the signal itself and this heuristic is bypassed. A fixed fold range also
+    can't represent a genuinely slow or fast track, which is part of why Iron
+    is the primary path."""
     if bpm <= 0:
         return bpm
     b = bpm
@@ -266,25 +267,6 @@ def _fold_octave(bpm: float, lo: float, hi: float) -> float:
         else:
             break
     return b if lo <= b < hi else bpm  # give up rather than force a bad value
-
-
-def _essentia_available() -> bool:
-    """Whether essentia can be imported. Cached; essentia is an OPTIONAL
-    dependency and every call site falls back to the librosa path without it,
-    so a missing essentia degrades accuracy but never breaks processing."""
-    global _ESSENTIA_OK
-    if _ESSENTIA_OK is None:
-        try:
-            import essentia.standard  # noqa: F401
-            _ESSENTIA_OK = True
-        except Exception as exc:
-            log.info(
-                "essentia not available (%s) — falling back to librosa beat "
-                "tracking. Install essentia for materially better beat grids.",
-                type(exc).__name__,
-            )
-            _ESSENTIA_OK = False
-    return _ESSENTIA_OK
 
 
 def _iron_available() -> bool:
@@ -304,7 +286,7 @@ def _analyze_iron(path: Path, *, bpm: bool, key: bool) -> "tuple[tuple[float, fl
     Iron is FableGear's own analysis package (iron/); asking for BPM and key
     together decodes the file once. Either half comes back None on decode
     failure or no usable answer, and the caller falls back for that half only
-    (BPM: essentia, then librosa; key: librosa).
+    (BPM and key: librosa).
 
     Measured on real tracks against Rekordbox's own analysis (docs/IRON_RESEARCH.md
     §16): tempo 91.3% MIREX / 80.5% exact on a BPM- and genre-stratified set, 100%
@@ -330,40 +312,6 @@ def _analyze_iron(path: Path, *, bpm: bool, key: bool) -> "tuple[tuple[float, fl
 def _detect_bpm_iron(path: Path) -> "tuple[float, float] | None":
     """(bpm, confidence 0-1) from Iron alone -- see _analyze_iron."""
     return _analyze_iron(path, bpm=True, key=False)[0]
-
-
-def _detect_bpm_essentia(path: Path) -> "tuple[float, float] | None":
-    """(bpm, confidence) from essentia's RhythmExtractor2013 multifeature,
-    over the whole track at 44.1 kHz.
-
-    Measured against 12,687 Rekordbox ground-truth beat grids (random 300-track
-    sample of a real library), against the librosa path below:
-
-        exact (within 0.6 BPM)   13.4%  ->  91.4%
-        within 1%                36.8%  ->  94.8%
-        MIREX (within 4%)        90.7%  ->  98.3%
-
-    The exact column is the one that matters. A 4%-tolerant tempo drifts a full
-    beat inside ~25 bars, so MIREX-style accuracy is far too loose to decide
-    whether a grid is safe to put on a CDJ — which is exactly what FableGear
-    now does, since a OneLibrary export carries our grids to the player.
-
-    Returns None on decode or extraction failure so the caller falls back.
-    """
-    try:
-        import essentia.standard as es
-        audio = es.MonoLoader(filename=str(path), sampleRate=44100)()
-        bpm, _beats, conf, _, _ = es.RhythmExtractor2013(method="multifeature")(audio)
-        bpm = float(bpm)
-        if not (BPM_MIN <= bpm <= BPM_MAX):
-            log.warning("essentia BPM %s out of range (%s–%s) for %s",
-                        bpm, BPM_MIN, BPM_MAX, path.name)
-            return None
-        return round(bpm, 2), round(float(conf), 2)
-    except Exception as e:
-        log.warning("essentia beat tracking failed for %s (%s) — falling back to librosa",
-                    path.name, e)
-        return None
 
 
 def _detect_bpm(y: np.ndarray, sr: int, name: str,
@@ -408,57 +356,28 @@ def _detect_key(y: np.ndarray, sr: int, name: str) -> str | None:
         return None
 
 
-# ─── Loudness measurement ─────────────────────────────────────────────────────
+# ─── Loudness: Quench ─────────────────────────────────────────────────────────
+#
+# Measurement, gain planning and the verified in-place rewrite live in quench/
+# (FableGear's own leveller). The names below keep this module's historical
+# surface for callers and tests; Re-Factor shares Quench's codec recipes so
+# AIFF/WAV/FLAC conversions keep bit depth, endianness and tags the same way.
+
+_MIN_GAIN_DB = quench.MIN_GAIN_DB
+_NORMALISABLE_SUFFIXES = quench.NORMALISABLE_SUFFIXES
+_CONVERT_SIZE_RATIO = quench.codecs.CONVERT_SIZE_RATIO
+_lossless_codec_args = quench.lossless_codec_args
+_get_ffmpeg_codec_args = quench.codec_args
+_has_room_for = quench.has_room_for
+
 
 def _measure_lufs(path: Path) -> tuple[float, float | None] | None:
-    """
-    Measure integrated loudness and true peak via ffmpeg's loudnorm filter
-    (EBU R128), in one subprocess pass. loudnorm's analysis already computes
-    true peak (`input_tp`) alongside integrated loudness at no extra cost —
-    reading it here is what lets the caller cap normalisation gain instead of
-    silently clipping. Uses a subprocess so memory use is bounded regardless
-    of file size, and avoids the scipy circular-import problem on Python 3.12+.
-
-    Returns (lufs, true_peak_dbtp), where true_peak_dbtp is None if loudnorm's
-    JSON didn't include a usable value (older ffmpeg builds, edge-case input).
-    """
+    """(lufs, true_peak_dbtp) via Quench, or None on failure (logged, never raised)."""
     try:
-        cmd = [
-            _FFMPEG, "-hide_banner",
-            "-i", str(path),
-            "-af", "loudnorm=print_format=json",
-            "-f", "null", "-",
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        # loudnorm prints its JSON summary to stderr after the last '{'
-        idx = result.stderr.rfind("{")
-        if idx == -1:
-            log.warning("No loudnorm JSON in ffmpeg output for %s", path.name)
-            return None
-        end = result.stderr.rfind("}")
-        if end == -1 or end < idx:
-            return None
-        data = json.loads(result.stderr[idx : end + 1])
-        lufs = float(data["input_i"])
-        if not np.isfinite(lufs):
-            log.warning("Non-finite LUFS for %s (silent file?)", path.name)
-            return None
-        true_peak = None
-        try:
-            tp = float(data["input_tp"])
-            if np.isfinite(tp):
-                true_peak = round(tp, 2)
-        except (KeyError, TypeError, ValueError):
-            pass
-        return round(lufs, 2), true_peak
-    except Exception as e:
+        return quench.measure(path).as_tuple()
+    except quench.MeasureFailed as e:
         log.error("Loudness measurement failed for %s: %s", path.name, e)
         return None
-
-
-# Below this, applying gain isn't worth a full re-encode: the change is
-# inaudible, and on a lossy format the rewrite costs a generation of quality.
-_MIN_GAIN_DB: float = 0.1
 
 
 def _capped_gain_db(
@@ -467,200 +386,18 @@ def _capped_gain_db(
     target: float = TARGET_LUFS,
     ceiling: float = TRUE_PEAK_CEILING_DBTP,
 ) -> float:
-    """
-    dB of gain to reach *target* LUFS, capped so the true peak can never cross
-    *ceiling*. Falls back to the uncapped gain when true_peak is unknown,
-    rather than blocking normalisation outright.
-
-    A requested boost is clamped to [0, want]: it may be reduced to whatever
-    headroom exists, but it must never invert into an attenuation. Most
-    commercial masters already peak above a -1.0 dBTP ceiling, so an
-    unclamped `min(want, ceiling - true_peak)` would go negative and quietly
-    turn "make this louder" into "make this quieter, and re-encode it" —
-    lossy generation loss for no benefit. When there is no headroom the
-    honest answer is 0.0 (nothing safe to do), and the caller skips the
-    rewrite entirely.
-
-    An attenuation (want < 0) passes through unchanged — lowering level can't
-    push a peak up.
-    """
-    want = target - lufs
-    if true_peak is None or want <= 0:
-        return want
-    return max(0.0, min(want, ceiling - true_peak))
-
-
-# ─── Normalisation ────────────────────────────────────────────────────────────
-
-# Formats Quench can rewrite without losing anything it can't put back. AAC/M4A is left
-# alone: re-encoding is lossy, and ffmpeg's MP4 writer drops freeform atoms (cue and beat-grid
-# markers, MusicBrainz ids), so a "levelled" m4a would quietly lose DJ metadata.
-_NORMALISABLE_SUFFIXES = frozenset({".mp3", ".aiff", ".aif", ".wav", ".flac"})
-
-
-def _source_subtype(path: Path) -> str:
-    """soundfile's sample format of *path* ('PCM_16', 'PCM_24', ...), or '' if unreadable."""
-    try:
-        return sf.info(str(path)).subtype or ""
-    except Exception as e:
-        log.warning("sf.info failed for %s, assuming 16-bit. Err: %s", path.name, e)
-        return ""
-
-
-def _lossless_codec_args(path: Path, target_format: str) -> list[str]:
-    """ffmpeg args that write *target_format* at the bit depth of the source *path*.
-
-    AIFF is written big-endian: pcm_*le inside .aiff makes ffmpeg emit AIFF-C 'sowt', which
-    not every player reads. AIFF and WAV also need -write_id3v2, or ffmpeg keeps only a
-    handful of text chunks and drops artist, album, key, BPM and the rest.
-    """
-    sub = _source_subtype(path)
-    if target_format == "flac":
-        # The flac encoder widens 16-bit input to 24-bit unless told otherwise (+75% size).
-        args = ["-codec:a", "flac", "-compression_level", "8"]
-        return [*args, "-sample_fmt", "s16"] if sub in ("", "PCM_16", "PCM_U8", "PCM_S8") else args
-    if "DOUBLE" in sub:
-        width = "f64"  # keep floating point: integer PCM would drop precision and clip > 0 dBFS
-    elif "FLOAT" in sub:
-        width = "f32"
-    elif "24" in sub:
-        width = "s24"
-    elif "32" in sub:
-        width = "s32"
-    else:
-        width = "s16"
-    endian = "be" if target_format == "aiff" else "le"
-    return ["-codec:a", f"pcm_{width}{endian}", "-write_id3v2", "1"]
-
-
-def _get_ffmpeg_codec_args(path: Path) -> list[str] | None:
-    """Return ffmpeg codec args matching the file format and source bit depth.
-
-    None means Quench has no safe way to rewrite this format (see _NORMALISABLE_SUFFIXES).
-    """
-    ext = path.suffix.lower()
-    if ext == ".mp3":
-        return ["-codec:a", "libmp3lame", "-b:a", "320k"]
-    if ext in (".aiff", ".aif"):
-        return _lossless_codec_args(path, "aiff")
-    if ext == ".wav":
-        return _lossless_codec_args(path, "wav")
-    if ext == ".flac":
-        return _lossless_codec_args(path, "flac")
-    return None
-
-
-# Rough output/source size ratios by target format, used to size the disk
-# preflight check realistically instead of always assuming worst-case (source
-# size again). mp3 in particular is drastically smaller than any lossless
-# source, so sizing its margin off the source file wrongly skips conversions
-# that would easily fit. flac compresses moderately; wav/aiff are ~1:1 with
-# a lossless source (or larger, if going from a lower bit depth up).
-_CONVERT_SIZE_RATIO = {"mp3": 0.35, "flac": 0.75, "wav": 1.3, "aiff": 1.3}
-
-
-def _has_room_for(path: Path, *, multiplier: float = 1.5) -> tuple[bool, int, int]:
-    """
-    Check whether path.parent's filesystem has enough free space to hold a
-    working copy of *path* before we start writing one.
-
-    Every in-place transform here (normalise, convert) already keeps overhead
-    to a single file at a time: it writes one temp file, then swaps it in with
-    shutil.move() — a same-filesystem rename, not a copy, so the original's
-    space is reclaimed the instant .bak is deleted. It never duplicates the
-    whole library. But a batch job still needs *at least one file's worth* of
-    real headroom to start that swap, and on a full disk retrying that per
-    file just produces a wall of ffmpeg ENOSPC errors. Check up front instead.
-
-    multiplier=1.5 is a safety margin: a re-encode (e.g. AIFF→WAV, or a
-    normalise pass) isn't guaranteed to be smaller than the source.
-
-    Returns (has_room, free_bytes, needed_bytes).
-    """
-    try:
-        free_bytes = shutil.disk_usage(path.parent).free
-    except OSError:
-        return True, 0, 0  # can't check — don't block on a stat failure
-    needed_bytes = int(path.stat().st_size * multiplier)
-    return free_bytes >= needed_bytes, free_bytes, needed_bytes
+    """See quench.capped_gain_db; defaults come from the app's config."""
+    return quench.capped_gain_db(lufs, true_peak, target, ceiling)
 
 
 def _normalise_file(path: Path, gain_db: float) -> bool:
-    """
-    Apply gain_db to path using ffmpeg volume filter.
-    Write → verify → move original to .bak → move temp to path → delete .bak.
-    Restores from .bak if the final move fails. Logs CRITICAL if restore fails.
-    """
-    has_room, free_bytes, needed_bytes = _has_room_for(path)
-    if not has_room:
-        log.error(
-            "Skipping %s — not enough free space on %s (%.1f MB free, need ~%.1f MB)",
-            path.name, path.parent, free_bytes / 1_048_576, needed_bytes / 1_048_576,
-        )
-        return False
-
-    suffix = path.suffix
-    tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=suffix, dir=path.parent)
-    tmp_path = Path(tmp_path_str)
-    os.close(tmp_fd)
-
-    bak = path.with_suffix(path.suffix + ".bak")
-    original_moved = False
-
+    """Apply gain_db in place via Quench. False (logged) on any failure; never half-replaces a file."""
     try:
-        codec_args = _get_ffmpeg_codec_args(path)
-        if codec_args is None:
-            log.error("No safe loudness rewrite for %s files: %s", path.suffix, path.name)
-            return False
-        cmd = [
-            _FFMPEG, "-y", "-i", str(path),
-            "-af", f"volume={gain_db:.4f}dB",
-            *codec_args,
-            "-c:v", "copy",  # keep cover art as-is; ffmpeg would re-encode it (h264 for MP4)
-            "-map_metadata", "0",
-            "-id3v2_version", "3",
-            str(tmp_path),
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-        if result.returncode != 0:
-            log.error("ffmpeg failed for %s:\n%s", path.name, result.stderr[-500:])
-            return False
-
-        # Verify output. soundfile can't open MP3s, so use mutagen for those.
-        try:
-            if tmp_path.suffix.lower() == ".mp3":
-                mf = MutagenFile(str(tmp_path))
-                if mf is None or mf.info.length == 0:
-                    raise ValueError("empty or unreadable MP3")
-            else:
-                verify_info = sf.info(str(tmp_path))
-                if verify_info.frames == 0:
-                    raise ValueError("zero frames in output")
-        except Exception as verify_err:
-            log.error("Could not verify ffmpeg output for %s: %s", path.name, verify_err)
-            return False
-
-        shutil.move(str(path), str(bak))
-        original_moved = True
-        shutil.move(str(tmp_path), str(path))
-        bak.unlink()
+        quench.apply_gain(path, gain_db)
         return True
-
-    except Exception as e:
+    except quench.QuenchError as e:
         log.error("Normalisation failed for %s: %s", path.name, e)
-        if original_moved and not path.exists() and bak.exists():
-            try:
-                shutil.move(str(bak), str(path))
-                log.warning("Restored original from .bak: %s", path.name)
-            except Exception as restore_err:
-                log.critical(
-                    "RESTORE FAILED for %s — original is at %s: %s",
-                    path.name, bak, restore_err,
-                )
         return False
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink()
 
 
 # ─── Format Conversion ────────────────────────────────────────────────────────────
@@ -1143,29 +880,20 @@ def process_file(
         result.bpm_existing = float(existing.bpm)
     if detect_key and not needs_key and _existing("initial_key"):
         result.key_existing = str(existing.initial_key).strip()
-    # Detector order: Iron (ours) -> essentia (optional) -> librosa. Iron and
-    # essentia each read the file themselves, so try them before deciding whether
-    # the shared 90 s decode is needed at all. Whichever result (or failure)
-    # comes back determines whether a fallback still has to run.
-    # One Iron pass covers BPM and key together (a single decode).
+    # Detector order: Iron (ours) -> librosa (logged fallback). Iron reads the
+    # file itself, so run it before deciding whether the shared 90 s decode is
+    # needed at all. One Iron pass covers BPM and key together (a single decode).
     iron_tempo, iron_key = _analyze_iron(path, bpm=needs_bpm, key=needs_key)
-    _es_bpm: float | None = None
-    if needs_bpm:
-        got = iron_tempo
-        if got is not None:
-            result.bpm_source = "iron"
-        elif _essentia_available():
-            got = _detect_bpm_essentia(path)
-            if got is not None:
-                result.bpm_source = "essentia"
-        if got is not None:
-            _es_bpm, result.bpm_confidence = got
+    _iron_bpm: float | None = None
+    if needs_bpm and iron_tempo is not None:
+        result.bpm_source = "iron"
+        _iron_bpm, result.bpm_confidence = iron_tempo
 
     # The shared decode feeds only the librosa fallbacks: key when Iron found
-    # none, BPM when Iron and essentia both came back empty. When Iron answered
-    # everything that was asked, nothing decodes twice.
+    # none, BPM when Iron came back empty. When Iron answered everything that
+    # was asked, nothing decodes twice.
     _audio: tuple[np.ndarray, int] | None = None
-    if (needs_key and iron_key is None) or (needs_bpm and _es_bpm is None):
+    if (needs_key and iron_key is None) or (needs_bpm and _iron_bpm is None):
         _audio = _load_audio_ffmpeg(path)
         if _audio is None:
             result.errors.append("audio decode failed — BPM/key analysis skipped")
@@ -1175,16 +903,17 @@ def process_file(
         if not needs_bpm:
             result.skipped_bpm = True
         else:
-            # Iron/essentia already ran above (they decide whether _audio was
-            # even loaded); librosa stands in when both are absent or came back
-            # empty, so a per-file failure still yields a BPM.
-            # --fix-octaves only reaches the librosa path: Iron and essentia
-            # resolve the octave from the signal, so folding their answer would
-            # be a heuristic overriding a better measurement.
-            bpm = _es_bpm
+            # Iron already ran above (it decides whether _audio was even
+            # loaded); librosa stands in when Iron came back empty, so a
+            # per-file failure still yields a BPM.
+            # --fix-octaves only reaches the librosa path: Iron resolves the
+            # octave from the signal, so folding its answer would be a
+            # heuristic overriding a better measurement.
+            bpm = _iron_bpm
             if bpm is None and _audio is not None:
                 bpm = _detect_bpm(*_audio, path.name, fix_octaves=fix_octaves)
                 if bpm is not None:
+                    log.info("Iron found no tempo for %s; librosa fallback used", path.name)
                     result.bpm_source = "librosa"
 
             result.bpm_detected = bpm
@@ -1210,6 +939,7 @@ def process_file(
             elif _audio is not None:
                 key = _detect_key(*_audio, path.name)
                 if key is not None:
+                    log.info("Iron found no key for %s; librosa fallback used", path.name)
                     result.key_source = "librosa"
             result.key_detected = key
             if key is not None:
@@ -1220,52 +950,49 @@ def process_file(
                 except Exception as e:
                     result.errors.append(f"KEY tag write failed: {e}")
 
-    # ── Loudness ──
-    if normalise and path.suffix.lower() not in _NORMALISABLE_SUFFIXES:
-        result.skipped_loudness = True
-        log.info(
-            "Quench leaves %s alone: %s files can't be levelled without a lossy re-encode "
-            "that drops tags.", path.name, path.suffix.lower(),
+    # ── Loudness (Quench) ──
+    if normalise:
+        q = quench.level(
+            path, target=TARGET_LUFS, tolerance=LUFS_TOLERANCE,
+            ceiling=TRUE_PEAK_CEILING_DBTP, force=force_normalize,
         )
-    elif normalise:
-        measured = _measure_lufs(path)
-        lufs, true_peak = measured if measured is not None else (None, None)
-        result.loudness_before = lufs
-        if lufs is None:
-            result.errors.append("loudness measurement failed")
-        elif (not force_normalize) and abs(lufs - TARGET_LUFS) <= LUFS_TOLERANCE:
-            result.skipped_loudness = True
-        else:
-            gain_db = _capped_gain_db(lufs, true_peak)
-            requested_db = TARGET_LUFS - lufs
-            if gain_db != requested_db:
+        result.loudness_before = q.before.integrated_lufs if q.before else None
+        result.loudness_after = q.after.integrated_lufs if q.after else None
+        result.normalised = q.levelled
+        result.skipped_loudness = q.skipped
+        if q.skip_reason == "unsupported_format":
+            log.info(
+                "Quench leaves %s alone: %s files can't be levelled without a lossy re-encode "
+                "that drops tags.", path.name, path.suffix.lower(),
+            )
+        elif q.skip_reason == "no_headroom" and q.before and q.plan:
+            # No headroom to move into. Rewriting the file to apply ~0 dB
+            # would re-encode it (lossy generation loss on MP3) for no
+            # audible change, so leave it alone and say why.
+            log.info(
+                "Loudness unchanged for %s: at %.1f LUFS it needs %+.1f dB to "
+                "reach %.1f, but true peak is already %.1f dBTP — no headroom "
+                "under the %.1f dBTP ceiling. Needs a limiter to go louder.",
+                path.name, q.before.integrated_lufs, q.plan.requested_db, TARGET_LUFS,
+                q.before.true_peak_dbtp if q.before.true_peak_dbtp is not None else float("nan"),
+                TRUE_PEAK_CEILING_DBTP,
+            )
+        elif q.error:
+            if q.before is None:
+                result.errors.append("loudness measurement failed")
+            else:
+                result.errors.append("normalisation failed")
+            log.error("Quench: %s", q.error)
+        elif q.levelled and q.before and q.plan:
+            if q.plan.capped:
                 log.info(
                     "Gain capped %+.1f → %+.1f dB for %s to keep true peak "
                     "under %.1f dBTP (measured %.1f dBTP)",
-                    requested_db, gain_db, path.name, TRUE_PEAK_CEILING_DBTP, true_peak,
+                    q.plan.requested_db, q.plan.applied_db, path.name, TRUE_PEAK_CEILING_DBTP,
+                    q.before.true_peak_dbtp if q.before.true_peak_dbtp is not None else float("nan"),
                 )
-            if abs(gain_db) < _MIN_GAIN_DB:
-                # No headroom to move into. Rewriting the file to apply ~0 dB
-                # would re-encode it (lossy generation loss on MP3) for no
-                # audible change, so leave it alone and say why.
-                result.skipped_loudness = True
-                log.info(
-                    "Loudness unchanged for %s: at %.1f LUFS it needs %+.1f dB to "
-                    "reach %.1f, but true peak is already %.1f dBTP — no headroom "
-                    "under the %.1f dBTP ceiling. Needs a limiter to go louder.",
-                    path.name, lufs, requested_db, TARGET_LUFS,
-                    true_peak if true_peak is not None else float("nan"),
-                    TRUE_PEAK_CEILING_DBTP,
-                )
-            else:
-                log.info("Normalising %s: %.1f LUFS → %.1f (gain: %+.1f dB)",
-                         path.name, lufs, TARGET_LUFS, gain_db)
-                if _normalise_file(path, gain_db):
-                    after = _measure_lufs(path)
-                    result.loudness_after = after[0] if after is not None else None
-                    result.normalised = True
-                else:
-                    result.errors.append("normalisation failed")
+            log.info("Levelled %s: %.1f LUFS → %.1f (gain: %+.1f dB)",
+                     path.name, q.before.integrated_lufs, TARGET_LUFS, q.plan.applied_db)
 
     # ── MusicBrainz enrichment ──
     if enrich_tags:
