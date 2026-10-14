@@ -19,9 +19,20 @@ def test_setup_and_launcher_do_not_mutate_homebrew_automatically():
 
 
 def test_launcher_runs_pip_only_through_the_venv_interpreter():
-    """A bare `pip` resolves through PATH and could install into the system Python."""
-    bare_pip = re.compile(r'(?m)^[^#\n]*(?<!-m )(?<![\w/-])pip\s+install\b')
-    assert not bare_pip.search((ROOT / "launch.sh").read_text())
+    """Every executable pip-install line must use the venv's own interpreter.
+
+    A bare `pip` or `python3 -m pip` resolves through PATH and could install into the
+    system or Homebrew Python.
+    """
+    venv_pip = '"$VENV/bin/python" -m pip install'
+    offenders = [
+        line.strip()
+        for line in (ROOT / "launch.sh").read_text().splitlines()
+        if not line.lstrip().startswith("#")
+        and re.search(r"\bpip\s+install\b", line)
+        and venv_pip not in line
+    ]
+    assert not offenders, offenders
 
 
 def test_no_phone_companion_or_vpn_code_ships():
