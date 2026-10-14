@@ -1,0 +1,257 @@
+{
+ "description": "Iron key detector, SS27 learned model vs SS18 profile detector, run through the production code (iron.key.detect_key vs iron.key.detect_key_profile) on the same decoded audio. Reference keys: Rekordbox 7 analysis (rb200, rbfresh, confirm) or the older Passport master.db tag keys (mixed150). Agreement with a reference, not human-verified truth.",
+ "date": "2026-10-14",
+ "metric_definitions": {
+  "exact": "Camelot key identical",
+  "fifth": "same mode, tonic a fifth/fourth away",
+  "relative": "relative major/minor",
+  "parallel": "same tonic, other mode",
+  "wt_up_minor": "both minor, detected tonic 2 semitones above the reference (counted inside 'other')",
+  "mirex": "weighted score: exact 1, fifth 0.5, relative 0.3, parallel 0.2"
+ },
+ "sets": {
+  "rb200": {
+   "profiles_ss18": {
+    "n": 200,
+    "exact": 130,
+    "exact_pct": 65.0,
+    "fifth": 20,
+    "fifth_pct": 10.0,
+    "relative": 4,
+    "relative_pct": 2.0,
+    "parallel": 2,
+    "parallel_pct": 1.0,
+    "wt_up_minor": 6,
+    "wt_up_minor_pct": 3.0,
+    "wt_down_minor": 1,
+    "wt_down_minor_pct": 0.5,
+    "other": 44,
+    "other_pct": 22.0,
+    "mirex": 0.708,
+    "pred_minor_pct": 91.0,
+    "true_minor_pct": 91.0
+   },
+   "model_ss27": {
+    "n": 200,
+    "exact": 136,
+    "exact_pct": 68.0,
+    "fifth": 20,
+    "fifth_pct": 10.0,
+    "relative": 2,
+    "relative_pct": 1.0,
+    "parallel": 3,
+    "parallel_pct": 1.5,
+    "wt_up_minor": 7,
+    "wt_up_minor_pct": 3.5,
+    "wt_down_minor": 1,
+    "wt_down_minor_pct": 0.5,
+    "other": 39,
+    "other_pct": 19.5,
+    "mirex": 0.736,
+    "pred_minor_pct": 93.5,
+    "true_minor_pct": 91.0
+   },
+   "paired": {
+    "n": 200,
+    "gain_pts": 3.0,
+    "ci95": [
+     0.0,
+     6.5
+    ],
+    "fixed": 9,
+    "broke": 3,
+    "p": 0.14599609375
+   }
+  },
+  "mixed150": {
+   "profiles_ss18": {
+    "n": 150,
+    "exact": 85,
+    "exact_pct": 56.666666666666664,
+    "fifth": 23,
+    "fifth_pct": 15.333333333333334,
+    "relative": 8,
+    "relative_pct": 5.333333333333333,
+    "parallel": 9,
+    "parallel_pct": 6.0,
+    "wt_up_minor": 2,
+    "wt_up_minor_pct": 1.3333333333333333,
+    "wt_down_minor": 1,
+    "wt_down_minor_pct": 0.6666666666666666,
+    "other": 25,
+    "other_pct": 16.666666666666668,
+    "mirex": 0.6713333333333334,
+    "pred_minor_pct": 79.33333333333333,
+    "true_minor_pct": 84.0
+   },
+   "model_ss27": {
+    "n": 150,
+    "exact": 89,
+    "exact_pct": 59.333333333333336,
+    "fifth": 21,
+    "fifth_pct": 14.0,
+    "relative": 6,
+    "relative_pct": 4.0,
+    "parallel": 6,
+    "parallel_pct": 4.0,
+    "wt_up_minor": 4,
+    "wt_up_minor_pct": 2.6666666666666665,
+    "wt_down_minor": 3,
+    "wt_down_minor_pct": 2.0,
+    "other": 28,
+    "other_pct": 18.666666666666668,
+    "mirex": 0.6833333333333333,
+    "pred_minor_pct": 82.66666666666667,
+    "true_minor_pct": 84.0
+   },
+   "paired": {
+    "n": 150,
+    "gain_pts": 2.666666666666667,
+    "ci95": [
+     -3.3333333333333335,
+     8.666666666666668
+    ],
+    "fixed": 13,
+    "broke": 9,
+    "p": 0.5234670639038086
+   }
+  },
+  "rbfresh": {
+   "profiles_ss18": {
+    "n": 999,
+    "exact": 540,
+    "exact_pct": 54.054054054054056,
+    "fifth": 150,
+    "fifth_pct": 15.015015015015015,
+    "relative": 54,
+    "relative_pct": 5.405405405405405,
+    "parallel": 38,
+    "parallel_pct": 3.803803803803804,
+    "wt_up_minor": 21,
+    "wt_up_minor_pct": 2.1021021021021022,
+    "wt_down_minor": 16,
+    "wt_down_minor_pct": 1.6016016016016017,
+    "other": 217,
+    "other_pct": 21.72172172172172,
+    "mirex": 0.6394394394394394,
+    "pred_minor_pct": 81.38138138138137,
+    "true_minor_pct": 84.78478478478479
+   },
+   "model_ss27": {
+    "n": 999,
+    "exact": 579,
+    "exact_pct": 57.95795795795796,
+    "fifth": 116,
+    "fifth_pct": 11.611611611611611,
+    "relative": 47,
+    "relative_pct": 4.704704704704705,
+    "parallel": 33,
+    "parallel_pct": 3.3033033033033035,
+    "wt_up_minor": 31,
+    "wt_up_minor_pct": 3.103103103103103,
+    "wt_down_minor": 23,
+    "wt_down_minor_pct": 2.3023023023023024,
+    "other": 224,
+    "other_pct": 22.42242242242242,
+    "mirex": 0.6583583583583584,
+    "pred_minor_pct": 86.08608608608608,
+    "true_minor_pct": 84.78478478478479
+   },
+   "paired": {
+    "n": 999,
+    "gain_pts": 3.903903903903904,
+    "ci95": [
+     1.5015015015015014,
+     6.206206206206207
+    ],
+    "fixed": 90,
+    "broke": 51,
+    "p": 0.0012903133799520034
+   }
+  },
+  "confirm": {
+   "profiles_ss18": {
+    "n": 998,
+    "exact": 552,
+    "exact_pct": 55.31062124248497,
+    "fifth": 153,
+    "fifth_pct": 15.330661322645291,
+    "relative": 58,
+    "relative_pct": 5.811623246492986,
+    "parallel": 36,
+    "parallel_pct": 3.6072144288577155,
+    "wt_up_minor": 18,
+    "wt_up_minor_pct": 1.8036072144288577,
+    "wt_down_minor": 10,
+    "wt_down_minor_pct": 1.002004008016032,
+    "other": 199,
+    "other_pct": 19.939879759519037,
+    "mirex": 0.6544088176352706,
+    "pred_minor_pct": 79.15831663326654,
+    "true_minor_pct": 85.57114228456913
+   },
+   "model_ss27": {
+    "n": 998,
+    "exact": 603,
+    "exact_pct": 60.42084168336673,
+    "fifth": 139,
+    "fifth_pct": 13.927855711422845,
+    "relative": 43,
+    "relative_pct": 4.3086172344689375,
+    "parallel": 33,
+    "parallel_pct": 3.306613226452906,
+    "wt_up_minor": 19,
+    "wt_up_minor_pct": 1.9038076152304608,
+    "wt_down_minor": 16,
+    "wt_down_minor_pct": 1.6032064128256514,
+    "other": 180,
+    "other_pct": 18.03607214428858,
+    "mirex": 0.6933867735470942,
+    "pred_minor_pct": 87.6753507014028,
+    "true_minor_pct": 85.57114228456913
+   },
+   "paired": {
+    "n": 998,
+    "gain_pts": 5.110220440881764,
+    "ci95": [
+     2.6052104208416833,
+     7.615230460921844
+    ],
+    "fixed": 111,
+    "broke": 60,
+    "p": 0.00011821832487370965
+   }
+  }
+ },
+ "selection": {
+  "views": [
+   "w1",
+   "w05",
+   "w2",
+   "mag"
+  ],
+  "lam": 0.03,
+  "minor_logit_shift": -0.25,
+  "train_cv": {
+   "n": 2795,
+   "exact": 1633,
+   "exact_pct": 58.425760286225405,
+   "fifth": 348,
+   "fifth_pct": 12.450805008944544,
+   "relative": 135,
+   "relative_pct": 4.83005366726297,
+   "parallel": 108,
+   "parallel_pct": 3.8640429338103757,
+   "wt_up_minor": 72,
+   "wt_up_minor_pct": 2.5760286225402504,
+   "wt_down_minor": 44,
+   "wt_down_minor_pct": 1.5742397137745976,
+   "other": 571,
+   "other_pct": 20.42933810375671,
+   "mirex": 0.6687298747763863,
+   "pred_minor_pct": 85.22361359570661,
+   "true_minor_pct": 82.43291592128801
+  },
+  "train_sets": "train (798) + train2 (1,997) Rekordbox-analysed tracks, 5-fold CV"
+ }
+}

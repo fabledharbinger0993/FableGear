@@ -36,6 +36,12 @@ decision. Nothing about working on `iron/`/`anvil/` risks the shipping app.
 
 ## 1. Current status (callouts dated up to 2026-10-13; body text from 2026-08-27)
 
+> **2026-10-14 (key model):** key detection is now a multi-view learned model (`iron.key.detect_key`),
+> **60.4% exact vs 55.3%** for the SS18 profile detector on an untouched 998-track Rekordbox-analysed set
+> (fixes 111, breaks 60, McNemar p = 0.0001); +3.9 points on a second 999-track set and +3.0 / +2.7 on
+> rb200 / mixed150. Confidence is now a probability. The SS18 detector stays as `detect_key_profile`.
+> Reference is Rekordbox's analysis, not human truth. See SS27, and note SS27.5 contests part of SS23.2.
+>
 > **2026-10-13 (Record Room integration):** Iron (analyse) and Anvil (tag write) are now
 > Record Room track actions, persisting to the FableGear DB. USB export still does not carry
 > key/BPM to Pioneer hardware: a decision is pending (§26.3).
@@ -517,6 +523,16 @@ findings).
   measured against file-tag keys, none Rekordbox-analysed, with a Camelot/letter-name
   comparison bug. Re-measure before drawing any conclusion.
 
+- **Key: single-view tweaks to the SS18 detector -- SS27.3.** Whitening-variant swaps (envelope width,
+  threshold, compression), a bass-band chroma blended into the score, k sub-profiles per mode, and a
+  bass-energy tie-break between fifth-related candidates were all run with the choice made by
+  training-set CV; none of the CV-selected configurations beat the shipped detector on held-out data.
+  The bass pitch class names the reference tonic only 33-39% of the time (full detector 54-65%).
+- **Key: CONTESTED -- SS23.2 rejected "a discriminatively trained profile model"; SS27.4-27.5 show the
+  multi-view version of it works.** Both are true: the single-view model reproduces SS23.2's pattern
+  (SS27.4 sensitivity B), the four-view model is ahead on every held-out set. Do not cite SS23.2 alone
+  as a reason not to train key weights; do not use a single view.
+
 ---
 
 ## 6. Tools available for continuing this work
@@ -558,6 +574,11 @@ findings).
   rather than walking an entire library; per-track analysis has an overall timeout
   (`--out` writes results incrementally, so a run that times out or gets killed doesn't lose
   completed work). §8's 996-track before/after numbers came from this script.
+
+- `scripts/experiments/key_lab_extract.py` / `key_lab.py` / `key_lab_exp.py` / `key_lab_logit.py` /
+  `key_lab_live.py` -- the SS27 key lab: cache bin-resolved spectra once, then run chroma / profile /
+  model experiments offline (seconds), and check the production detectors on the same audio. Usage in
+  each file's docstring; reproduce block in SS27.9.
 
 All `--seed`-taking scripts default to `--seed 42` for reproducibility.
 
@@ -2624,6 +2645,195 @@ Workflow and plumbing, not detector accuracy. No Iron tempo or key output change
 ### 26.3 Still open (decision needed, not implemented)
 
 - **USB export carrying key and BPM.** The options are (a) route the Record Room export through `OneLibraryWriter` (`fablegear_database/onelibrary_writer.py`, which writes `bpmx100` and key, plus ANLZ via `PioneerExporter.export_track_anlz`), which is the CLI `export-onelibrary` path, or (b) pass BPM and key into `add_content` on the `master.db` layout. Option (a) is recommended. Hardware readability of either is not verified by any test in this repo.
+
+## 27. Key: a multi-view learned model replaces the profile detector (2026-10-14)
+
+Task (from the coordinator, branch `iron-key-profiles`): improve and measure Iron's key accuracy, with
+the Faraldo et al. 2016 EDM profiles as the suggested direction. Labels: **demonstrated** = measured in
+this section on the named set; **inferred** = a reading of the numbers; **unknown** = not tested.
+
+**Conflict with the brief, flagged.** The brief names Faraldo-style corpus profiles as the candidate. SS17.4
+planned that and SS18 already did it (profiles learned from the owner's Rekordbox-analysed library, the
+paper's own "profiles from corpus analysis" idea). The paper's full text is still behind the repository's
+access wall (a fetch of the UPF record returned "Access Denied"; I did not try to get around it), so no
+profile values came from it, and `edmkey` was not opened. The work below starts from the SS18 detector as
+the thing to beat.
+
+### 27.1 Data, labels and the selection rule
+
+| set | n | label source | role |
+|---|---|---|---|
+| `train` | 798 | Rekordbox 7 analysis (`Analysed != 0`) | the SS18 training set |
+| `train2` | 1,997 | same | extra training data (added in this section) |
+| `rb200` | 200 | Rekordbox 7 analysis | held-out (SS16/18/23) |
+| `mixed150` | 150 | older Passport `master.db` tag keys (SS18.2) | held-out; a different, weaker reference |
+| `rbfresh` | 999 | Rekordbox 7 analysis | held-out; new, seeded, disjoint from all of the above |
+| `confirm` | 998 | Rekordbox 7 analysis | **untouched until the configuration was frozen** |
+
+`train2`, `rbfresh` and `confirm` were drawn (seeded) from the 20,096-track Rekordbox-analysed population
+of SS21, excluding any track whose path, or file size, appears in another set, and one copy per
+(size, length). Up to three files per set (none in rb200 or mixed150) failed to decode and are excluded. **Ground truth is
+Rekordbox's own key, not a human label** (mixed150: older tag keys). Everything below measures agreement
+with those references, and the model is fitted to agree with Rekordbox 7 on this library.
+
+Rule: view set, regularisation and minor shift are chosen by 5-fold CV on the training sets only; held-out
+sets are scored for the CV-selected configuration of each family; `confirm` is scored once, after freezing.
+
+**Disclosure:** the multi-view idea (27.4) was first tried in a one-off probe on the 798-track set, and that
+probe printed held-out numbers for its CV-selected configuration (rb200 66.5%, mixed150 58.0%, rbfresh
+58.7%) before the search grid below was fixed. I then widened the grid, added `train2`, and created
+`confirm` precisely so that the headline number does not depend on sets I had already looked at.
+
+Checks that the lab measures the real detector (demonstrated): the cached log-frequency spectra equal
+`dsp.whitened_log_spectrum` to 6e-8; the offline replica of the then-shipped detector (now
+`detect_key_profile`) agrees with the live code on 80 of 80 tracks; relearning the SS18 profiles from `train` returns the shipped
+constants to four decimals; and, at the end, the production `iron.key.detect_key` reproduces the offline
+model's counts exactly on all four held-out sets.
+
+### 27.2 Baseline, same session (SS18 profile detector, production code, `detect_key_profile`)
+
+| set | n | exact | fifth | relative | parallel | whole-tone-up minor | weighted MIREX |
+|---|---|---|---|---|---|---|---|
+| rb200 | 200 | 130 (65.0%) | 20 (10.0%) | 4 (2.0%) | 2 (1.0%) | 6 (3.0%) | 0.708 |
+| mixed150 | 150 | 85 (56.7%) | 23 (15.3%) | 8 (5.3%) | 9 (6.0%) | 2 (1.3%) | 0.671 |
+| rbfresh | 999 | 540 (54.1%) | 150 (15.0%) | 54 (5.4%) | 38 (3.8%) | 21 (2.1%) | 0.639 |
+| confirm | 998 | 552 (55.3%) | 153 (15.3%) | 58 (5.8%) | 36 (3.6%) | 18 (1.8%) | 0.654 |
+
+"Fifth" = same mode, tonic a fifth or fourth away (both directions, as in SS18.1); "whole-tone-up minor" =
+both minor, detected tonic two semitones above the reference, counted inside "other". The SS18 numbers
+reproduce (65.0% / 56.7%). Detector accuracy on its own training set is 54.8% and on `train2`, which its
+profiles never saw, 54.9%: the shipped detector is not overfit, it has reached the ceiling of its
+feature family.
+
+Error structure on `rbfresh` (demonstrated): the reference key is the detector's top choice 54.1% of the
+time, top two 71.3%, top three 78.3%. The largest single class is minor-to-minor with the tonic a fourth or
+fifth away (140 of 999: the i/iv/v confusion), where the two keys differ by one note of the scale.
+Confidence carries signal (66% exact at >= 0.8, 26-37% below 0.7).
+
+### 27.3 Mechanisms tried on the single-view chroma (all rejected; SS23-style discipline)
+
+Families were declared first, each with a CV grid on `train` (n = 798); held-out numbers are for the
+CV-selected configuration only (exact: rb200 / mixed150 / rbfresh; baseline 65.0 / 56.7 / 54.1):
+
+| family | CV-selected | train CV (baseline 54.1) | held-out |
+|---|---|---|---|
+| whitening variants (envelope 0.5/1/2 oct, threshold, sqrt/square, no whitening) | 1-oct, threshold 0.25, minor bias 0.12 | 55.3 | 57.0 / 53.3 / 54.3 |
+| bass-band chroma blended into the score (3 bands, 3 weights) | 55-400 Hz, weight 0.25 | 53.9 | 60.0 / 52.7 / 54.1 |
+| k sub-profiles per mode (k = 1..4) | k = 1 (= baseline) | 54.1 | 65.0 / 56.7 / 54.1 |
+| bass-energy tie-break between fifth-related top-2 candidates | margin 0.02, 55-260 Hz | 54.0 | 64.5 / 54.7 / 54.5 |
+
+None beats the baseline on held-out data. Larger bass weights make fifth errors *worse*. Direct check: the
+strongest bass pitch class equals the reference tonic only 33-39% of the time (rbfresh 37.5% in
+55-165 Hz, 38.8% in 55-260 Hz), against 54-65% for the full detector, so bass is a weak, only partly
+independent cue (demonstrated). k = 3 sub-profiles lowers fifth errors (14.5% to 13.3% CV) but not exact
+matches. Kept in the code base: nothing; the lab scripts reproduce each row.
+
+### 27.4 What worked: a tonic-equivariant linear model over several whitening views
+
+Score of (tonic t, mode m) = sum over views g of `W[m, g] . roll(chroma_g, -t)` + `b[m]`, each view's
+12-bin chroma made zero-mean and unit-norm, one shared weight vector per mode, softmax over the 24 keys,
+fitted by L2-regularised cross-entropy (L-BFGS). Parameters: 2 x 12 x views + 2 (98 for four views).
+Views searched (5 view sets, 4 regularisation strengths, 4 minor-logit shifts) by 5-fold CV on
+`train + train2` (n = 2,795):
+
+| view set | best CV exact |
+|---|---|
+| `w1` (the SS18 view only) | 57.2% |
+| `w1, w05, w2` (whitening envelopes 1, 0.5, 2 octaves) | 58.2% |
+| **`w1, w05, w2, mag` (+ raw magnitude), lam 0.03, minor shift -0.25** | **58.4% (selected)** |
+| + bass band | 58.0% |
+| + two more whitening variants | 58.2% |
+
+Frozen configuration: four views, lam 0.03, minor shift -0.25. **Held-out results, run through the
+production code** (`scripts/experiments/key_lab_live.py`; before = `detect_key_profile`, after =
+`detect_key`):
+
+| set | n | exact before -> after | fifth | relative | parallel | whole-tone-up minor | weighted MIREX | fixed / broke, McNemar p |
+|---|---|---|---|---|---|---|---|---|
+| rb200 | 200 | 65.0% -> **68.0%** | 20 -> 20 | 4 -> 2 | 2 -> 3 | 6 -> 7 | 0.708 -> 0.736 | 9 / 3, p = 0.15 |
+| mixed150 | 150 | 56.7% -> **59.3%** | 23 -> 21 | 8 -> 6 | 9 -> 6 | 2 -> 4 | 0.671 -> 0.683 | 13 / 9, p = 0.52 |
+| rbfresh | 999 | 54.1% -> **58.0%** | 150 -> 116 | 54 -> 47 | 38 -> 33 | 21 -> 31 | 0.639 -> 0.658 | 90 / 51, p = 0.0013 |
+| **confirm** | 998 | 55.3% -> **60.4%** | 153 -> 139 | 58 -> 43 | 36 -> 33 | 18 -> 19 | 0.654 -> 0.693 | **111 / 60, p = 0.0001** |
+| pooled | 2,347 | 55.7% -> 59.9% | | | | | | 223 / 123, p = 8e-8 |
+
+Bootstrap 95% intervals on the exact-match gain: rb200 +3.0 [0.0, +6.5], mixed150 +2.7 [-3.3, +8.7],
+rbfresh +3.9 [+1.5, +6.2], confirm +5.1 [+2.6, +7.6]. The two small sets are not significant alone; all
+four move the same way. The predicted-minor share is 94 / 83 / 86 / 88% against a true 91 / 84 / 85 / 86%.
+The one class that grows is whole-tone-up minor on `rbfresh` (21 -> 31); on `confirm` it is flat
+(18 -> 19), so I read it as noise plus a small trade, not a new failure mode (inferred).
+
+**Sensitivity runs, post hoc and labelled as such (the selection above was already frozen):**
+
+- A. Same search, trained on the original 798 tracks only: selected the same view set; rbfresh 57.6%
+  (p = 0.0055), rb200 67.5%, mixed150 60.0%. The gain does not need the extra training data.
+- B. Single view (`w1` only) on `train + train2`: rbfresh 57.7% (p = 0.0030) but **rb200 62.5% and
+  mixed150 54.7%, both below the baseline**. The extra views are what make the gain hold across sets.
+
+### 27.5 CONTESTED FINDING: SS23.2 rejected a discriminatively trained key model
+
+SS23.2 trained the same kind of model on one chroma view (798 tracks, a learned mode bias) and it lost
+on held-out sets (rb200 64.0% vs 65.0%, mixed150 50.7% vs 56.7%). Sensitivity B reproduces that pattern
+for one view: it gains on the in-distribution `rbfresh` and loses on the two small sets. The four-view
+model does not. The point of conflict is therefore *single view* versus *several whitening views*, plus a
+minor shift chosen by CV rather than learned freely; it is not "discriminative training fails". SS23.2's
+conclusion stands for what it tested. (Inferred: the extra views add information about which spectral
+peaks are narrow and which are broad that one whitening width throws away. Not isolated further.)
+
+### 27.6 What changed in the code
+
+- `iron/dsp.py`: new `whitened_log_spectra` (one STFT and log-frequency map, a row per whitening envelope
+  width plus optionally the raw magnitude); `whitened_log_spectrum` is now its one-octave row and is
+  unchanged in output.
+- `iron/key.py`: `detect_key` is the model; the weights are 98 numbers in the file (fitted by this repo's
+  own code on the owner's library). `detect_key_profile` is the SS18 detector, kept for A/B
+  benchmarks. **Confidence is now the winning key's softmax probability** (0..1), not a Pearson
+  correlation: on `confirm`, accuracy is 23% below p = 0.3 (n = 86), 48% at 0.3-0.5 (369), 69% at 0.5-0.7
+  (328), 83% at 0.7-0.9 (198), 88% above 0.9 (17). Nothing in the app thresholds on it (checked).
+- `scripts/benchmark_iron_key.py`: its "old detector" arm now routes to `detect_key_profile`; without that
+  it would have silently compared the new model with itself.
+- Tests: a 24-key synthetic triad test (every major and minor triad must come back as exactly that key;
+  mutation-checked: a one-semitone rotation or a major/minor swap fails 24 of 24), dsp tests for the new
+  function, and baseline/probability/shape tests. Runtime is about 0.14 s per 240 s clip against 0.13 s
+  (indicative: other jobs were running).
+
+### 27.7 What this does NOT show
+
+- It does not show the model is closer to the music. Both detectors are scored against Rekordbox's key,
+  and the model is fitted to agree with Rekordbox 7 on this library. There is still no ear-checked key
+  set; collecting about 30 tracks where the two detectors disagree would be the next step.
+- **Decision for the owner:** the training labels are Rekordbox 7's key output on the owner's own library
+  (as in SS18). No Rekordbox code or weights are used. If that is not acceptable for the for-sale app, the
+  labels can be replaced by ear-checked keys; the lab rebuilds in minutes.
+- One library, one reference, one seed per set. rb200 and mixed150 are too small to confirm the gain by
+  themselves. The regularisation optimum (0.03) is at the edge of the grid searched.
+- Detection of modal or ambiguous-tonic music (the i/iv/v group) improved but did not go away: fifth errors
+  are still 10-14% of tracks.
+
+### 27.8 Still open
+
+1. Ear-check ~30 detector disagreements to split model errors from reference errors.
+2. Per-segment or chord-sequence evidence for the i/iv/v confusion (global chroma cannot see which chord is
+   "home"); SS23.3's segment vote failed on the old detector, a model-level version is untested.
+3. Retrain when Rekordbox's analysis of the remaining ~50,000 tracks finishes; re-run `key_lab_logit.py`.
+4. The beat-timing session (`fabledharbinger-fd`) works in `iron/beats.py`; this change does not touch it.
+
+### 27.9 Reproduce
+
+```
+export PYTHONPATH=<worktree>   # iron is not installed in the venv
+python scripts/experiments/key_lab_extract.py sets  --out-dir D            # manifests: train, rb200, mixed150, rbfresh
+python scripts/experiments/key_lab_extract.py extra train2  --out-dir D --n 2000
+python scripts/experiments/key_lab_extract.py extra confirm --out-dir D --n 1000
+for s in train rb200 mixed150 rbfresh train2 confirm; do
+  python scripts/experiments/key_lab_extract.py extract --manifest D/$s.json --out D/$s.npz --workers 5; done
+python scripts/experiments/key_lab.py baseline --lab D                     # offline replica + live check
+python scripts/experiments/key_lab_exp.py --lab D --out D/exp.json         # SS27.3 families
+python scripts/experiments/key_lab_logit.py --lab D --out D/logit.json --confirm --export D/model.json
+python scripts/experiments/key_lab_live.py --manifest D/confirm.json --out D/live_confirm.json
+```
+
+Aggregate results: `docs/iron/benchmarks/2026-10-14_key_model_vs_profiles.json`. Per-track files stay in
+`~/FableGearTestbed/keylab/` (outside the repo).
 
 ## How to add to this doc
 

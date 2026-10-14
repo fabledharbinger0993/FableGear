@@ -92,3 +92,49 @@ def test_whitening_keeps_loud_bass_from_outvoting_the_harmony():
     vec = key._chroma(triad + drone, SR)
     top3 = {key.NOTES[i] for i in np.argsort(vec)[-4:]}
     assert {"G", "B", "D"} <= top3
+
+
+_ALL_KEYS = [(n, mode) for n in _NOTE_FREQ for mode in ("maj", "min")]
+
+
+@pytest.mark.parametrize(("note", "mode"), _ALL_KEYS)
+def test_detect_key_recovers_every_major_and_minor_triad(note, mode):
+    # A triad (two octaves of each tone) in each of the 24 keys must come back as exactly that
+    # key. This pins the tonic rotation and the mode of the model: a one-semitone indexing slip,
+    # or a major/minor weight swap, fails 12-24 of these at once.
+    intervals = (0, 4, 7) if mode == "maj" else (0, 3, 7)
+    freqs = [_NOTE_FREQ[note] * 2 ** (i / 12) * octave for i in intervals for octave in (0.5, 1.0)]
+    result = key.detect_key(_chord(freqs), SR)
+    assert result is not None
+    assert result[0] == key.CAMELOT[note + mode]
+
+
+def test_detect_key_confidence_is_a_probability_and_clearer_audio_scores_higher():
+    triad = _chord([_NOTE_FREQ[n] * o for n in ("A", "C", "E") for o in (0.5, 1.0)])
+    rng = np.random.default_rng(0)
+    noisy = triad + 1.2 * rng.standard_normal(triad.size)
+    clear = key.detect_key(triad, SR)
+    muddy = key.detect_key(noisy, SR)
+    assert clear is not None and muddy is not None
+    assert 0.0 < muddy[1] < clear[1] <= 1.0
+
+
+def test_view_chromas_are_one_zero_mean_unit_norm_row_per_view():
+    views = key._view_chromas(_chord([_NOTE_FREQ[n] for n in ("D", "F", "A")]), SR)
+    assert views.shape == (1 + len(key._VIEW_ENVELOPES), 12)
+    assert np.allclose(views.mean(axis=1), 0.0, atol=1e-9)
+    assert np.allclose(np.linalg.norm(views, axis=1), 1.0)
+
+
+def test_model_weights_have_one_row_per_view():
+    assert key._MODEL_W.shape == (2, 1 + len(key._VIEW_ENVELOPES), 12)
+    assert key._MODEL_B.shape == (2,)
+
+
+def test_detect_key_profile_baseline_still_finds_the_root():
+    # The SS18 detector is kept for A/B benchmarks; it must stay callable and sensible.
+    y = _chord([_NOTE_FREQ[n] for n in ("A", "C", "E")])
+    result = key.detect_key_profile(y, SR)
+    assert result is not None
+    assert result[0] in ("8A", "11B")
+    assert key.detect_key_profile(np.zeros(SR * 2), SR) is None
