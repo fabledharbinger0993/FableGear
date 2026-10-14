@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="/static/fablegear.css?v={{ cb }}">
 <link rel="stylesheet" href="/static/shared/ui_extras.css?v={{ cb }}">
 <link rel="stylesheet" href="/static/shared/neon_skin.css?v={{ cb }}">
+<link rel="stylesheet" href="/static/chop_shop/tiles.css?v={{ cb }}">
 <link rel="icon" type="image/png" href="/static/icon-logo-fablegear.png">
 <style>
 
@@ -60,23 +61,23 @@
 
 <!-- ══ Chop Shop tool rail ═══════════════════════════════════════════════════ -->
 <nav class="workflow-rail" id="workflow-rail">
-  <button type="button" class="step-tab active" data-target="step-process">
-    <img class="step-icon" src="/static/icon-track-tagger.png" alt="Forge">
+  <button type="button" class="step-tab step-tile active" data-target="step-process">
+    <img class="step-icon step-tile-art" src="/static/chop_shop/tiles/forge.png" alt="Forge — Iron, Anvil &amp; Quench" width="330" height="260"><span class="step-tile-caption" aria-hidden="true">Tag · Level · Key · BPM</span>
   </button>
-  <button type="button" class="step-tab" data-target="step-rename">
-    <img class="step-icon" src="/static/icon-renamer.png" alt="Re-Name">
+  <button type="button" class="step-tab step-tile" data-target="step-rename">
+    <img class="step-icon step-tile-art" src="/static/chop_shop/tiles/rename.png" alt="Re-Name" width="330" height="260">
   </button>
-  <button type="button" class="step-tab" data-target="step-convert">
-    <img class="step-icon" src="/static/icon-converter.png" alt="Re-Factor">
+  <button type="button" class="step-tab step-tile" data-target="step-convert">
+    <img class="step-icon step-tile-art" src="/static/chop_shop/tiles/refactor.png" alt="Re-Factor" width="330" height="260">
   </button>
-  <button type="button" class="step-tab" data-target="step-organize">
-    <img class="step-icon" src="/static/icon-organizer.png" alt="Re-Organize">
+  <button type="button" class="step-tab step-tile" data-target="step-organize">
+    <img class="step-icon step-tile-art" src="/static/chop_shop/tiles/reorganize.png" alt="Re-Organize" width="330" height="260">
   </button>
-  <button type="button" class="step-tab" data-target="step-duplicates">
-    <img class="step-icon" src="/static/icon-deduper.png" alt="De-Duplicate">
+  <button type="button" class="step-tab step-tile" data-target="step-duplicates">
+    <img class="step-icon step-tile-art" src="/static/chop_shop/tiles/dedupe.png" alt="De-Duplicate" width="330" height="260">
   </button>
-  <button type="button" class="step-tab" data-target="step-novelty">
-    <img class="step-icon" src="/static/icon-novelty.png" alt="Novelty">
+  <button type="button" class="step-tab step-tile" data-target="step-novelty">
+    <img class="step-icon step-tile-art" src="/static/chop_shop/tiles/novelty.png" alt="Novelty" width="330" height="260">
   </button>
 
   <button type="button" class="step-tab step-tab-entry" id="nav-btn-pipeline-wizard" onclick="openPipelineWizard()" title="Pipeline Wizard" aria-label="Pipeline Wizard">

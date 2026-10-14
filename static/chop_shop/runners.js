@@ -181,7 +181,7 @@ function _doRunProcess(paths, _skipConfirm = false) {
   // A run that only levels loudness gets its own title, so its report is labelled Quench.
   const quenchOnly = normalizeMode !== 'off' && bpmMode === 'off' && keyMode === 'off' &&
                      enrichMode === 'off' && renameMode === 'off';
-  const runTitle = quenchOnly ? 'Forge — Quench (loudness to −8.0 LUFS)' : 'Forge — BPM & Key Detection';
+  const runTitle = quenchOnly ? 'Forge — Quench (loudness to −8.0 LUFS)' : 'Forge — Iron, Anvil & Quench';
   runCommand(`/api/run/process?${p}`, runTitle,
     ec => { if (ec === 0) _clearToolCkpt('process'); }, true, false);
 }

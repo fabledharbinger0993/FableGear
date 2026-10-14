@@ -23,11 +23,15 @@ def test_forge_card_has_every_id_the_quench_code_reads():
     assert needed <= _ids(FORGE_CARD)
 
 
-def test_quench_mode_select_offers_off_passive_aggressive_and_defaults_to_off():
+def test_quench_mode_select_offers_passive_off_aggressive_and_defaults_to_passive():
+    """Forge runs Iron, Anvil and Quench together; each skips what the file already
+    carries. Passive is that skip rule for loudness (level only files outside the
+    target), so it is the default, like the BPM and key modes. The confirm dialog in
+    runners.js still guards the rewrite."""
     select = re.search(r'<select id="process-normalize-mode".*?</select>', FORGE_CARD, re.S).group(0)
     values = re.findall(r'<option value="(\w+)"( selected)?', select)
-    assert [v for v, _ in values] == ["off", "passive", "aggressive"]
-    assert [v for v, sel in values if sel] == ["off"]          # tag-only runs stay safe by default
+    assert [v for v, _ in values] == ["passive", "off", "aggressive"]
+    assert [v for v, sel in values if sel] == ["passive"]
 
 
 def test_the_preview_is_a_button_not_automatic():
