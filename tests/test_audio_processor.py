@@ -289,10 +289,10 @@ def test_health_blames_iron_not_ffmpeg_when_iron_cannot_import(monkeypatch):
 
     import health
 
-    monkeypatch.setattr(ap, "_iron_available", lambda: False)
     monkeypatch.setattr(ap, "_FFMPEG", sys.executable)  # any binary that exists
     for name in [m for m in sys.modules if m == "iron" or m.startswith("iron.")]:
         monkeypatch.setitem(sys.modules, name, None)  # `import iron...` now raises ImportError
+    monkeypatch.setitem(sys.modules, "iron", None)
     finding = health._check_beat_tracker()
     assert finding is not None and "ffmpeg is missing" not in finding.title
 
