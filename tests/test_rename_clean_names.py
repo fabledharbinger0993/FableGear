@@ -67,6 +67,11 @@ def test_generated_filename_has_no_typographic_characters():
     # ordinary tags are left exactly as they were
     ("Terry Lee Brown Jr", "Plastic Passion", ("Terry Lee Brown Jr", "Plastic Passion")),
     ("Duran Duran", "Rio", ("Duran Duran", "Rio")),
+    # disc-track prefix with no separator after it
+    ("The Crashers", "2-07 Flight to Jamaica", ("The Crashers", "Flight to Jamaica")),
+    # a title that merely starts with a number is not a track number
+    ("Prince", "1999", ("Prince", "1999")),
+    ("Nena", "99 Luftballons", ("Nena", "99 Luftballons")),
 ])
 def test_corrupt_tags_are_repaired_and_clean_ones_untouched(artist, title, expected):
     assert renamer._tidy_artist_and_title(artist, title) == expected
@@ -114,3 +119,15 @@ def test_cli_exposes_include_album_off_by_default():
     parser = cli.build_parser()
     assert parser.parse_args(["rename", "/x"]).include_album is False
     assert parser.parse_args(["rename", "/x", "--include-album"]).include_album is True
+
+
+def test_probe_previews_the_same_names_the_run_will_use(tmp_path):
+    """The preflight probe has to propose album-less names by default and album names when the
+    box is ticked, or applying a probe decision would override the run's naming."""
+    _tagged_mp3(tmp_path)
+    plain = renamer.probe_ambiguous(tmp_path, top_n=5, sample_size=10)
+    with_album = renamer.probe_ambiguous(tmp_path, top_n=5, sample_size=10, include_album=True)
+    names = {c.proposed_filename for c in plain}
+    names_album = {c.proposed_filename for c in with_album}
+    assert names == {"Terror Fabulous - Action.mp3"}
+    assert names_album == {"Terror Fabulous - Dancehall Flavaz - Volume 1 - Action.mp3"}

@@ -496,7 +496,7 @@ function _executeRename(pathOrPaths, dryRun) {
     ? `Re-Name — Dry Run${pathLabel} (preview only)`
     : `Re-Name — Cleaning file names${pathLabel}`;
   if (!dryRun) {
-    _saveToolCkpt('rename', { path: paths[0], paths, dryRun: false });
+    _saveToolCkpt('rename', { path: paths[0], paths, dryRun: false, includeAlbum: !!document.getElementById('rename-include-album')?.checked });
     document.getElementById('step-rename')?.querySelector('.tool-resume-banner')?.remove();
   }
   runCommand(`/api/run/rename?${p}`, label,
@@ -514,6 +514,7 @@ async function runRenameWithPreflight(path) {
   p.set('path', path);
   p.set('top_n', '5');
   p.set('sample_size', '100');
+  if (document.getElementById('rename-include-album')?.checked) p.set('include_album', '1');
   try {
     const res = await fetch(`/api/rename/probe?${p}`);
     data = await res.json();
@@ -693,6 +694,7 @@ async function runRenameProbe() {
   p.set('path', paths[0]);
   p.set('top_n', '5');
   p.set('sample_size', '100');
+  if (document.getElementById('rename-include-album')?.checked) p.set('include_album', '1');
 
   let data;
   try {

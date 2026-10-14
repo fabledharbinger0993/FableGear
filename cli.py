@@ -3353,7 +3353,7 @@ def cmd_rename(args: argparse.Namespace) -> None:
     ckpt = None
     ckpt_done_paths: set[str] = set()
     if not dry_run:
-        ckpt = _get_checkpoint("rename", roots, args, {})
+        ckpt = _get_checkpoint("rename", roots, args, {"include_album": bool(getattr(args, "include_album", False))})
         if ckpt is not None:
             saved = ckpt.load()
             if saved:

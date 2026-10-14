@@ -815,7 +815,7 @@ def _sanitize_filename(text: str, max_len: int = 200) -> str:
 
 
 # A track-number prefix a ripper or tagger left in the title: "07 07 - ", "12. ", "2-07 ".
-_TITLE_TRACK_PREFIX = re.compile(r'^\d{1,3}(?:[\s.-]+\d{1,3})?\s*[-.]\s+')
+_TITLE_TRACK_PREFIX = re.compile(r'^(?:\d{1,2}-\d{2}\s+|\d{1,3}(?:[\s.-]+\d{1,3})?\s*[-.]\s+)')
 
 
 def _tidy_artist_and_title(artist: str, title: str) -> tuple[str, str]:

@@ -426,7 +426,13 @@ function _pipeWizConfigHTML(step, saved) {
     }
 
     case 'rename':
-      return multiPathRow('paths', 'Folders to rename', 'Choose or enter a music folder') + workersRow(1);
+      return multiPathRow('paths', 'Folders to rename', 'Choose or enter a music folder') + workersRow(1) + `
+        <div class="pipe-cfg-field">
+          <label class="pipe-cfg-label" style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" data-cfg="include_album" ${v('include_album', false) ? 'checked' : ''}>
+            Include the album in the file name (default: "Artist - Title")
+          </label>
+        </div>`;
 
     case 'normalize':
       return multiPathRow('paths', 'Music folders', 'Choose or enter a music folder') + workersRow(4);
@@ -533,7 +539,8 @@ function _pipeWizReadDraft(step) {
       break;
     case 'rename':
       draft.paths   = getLines('paths');
-      draft.workers = getN('workers', 1); break;
+      draft.workers = getN('workers', 1);
+      draft.include_album = getChecked('include_album'); break;
     case 'normalize':
       draft.paths   = getLines('paths');
       draft.workers = getN('workers', 1); break;
@@ -751,6 +758,8 @@ function _resumeRename(ckpt) {
   _populatePills('rename-pills', ckpt.paths || (ckpt.path ? [ckpt.path] : []));
   const dr = document.getElementById('rename-dry-run');
   if (dr) dr.checked = !!ckpt.dryRun;
+  const ia = document.getElementById('rename-include-album');
+  if (ia) ia.checked = !!ckpt.includeAlbum;
   document.getElementById('step-rename')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   runRename();
 }

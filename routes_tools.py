@@ -775,7 +775,10 @@ def api_rename_probe():
 
     from renamer import probe_ambiguous
 
-    candidates = probe_ambiguous(root, top_n=top_n_int, sample_size=sample_size_int)
+    candidates = probe_ambiguous(
+        root, top_n=top_n_int, sample_size=sample_size_int,
+        include_album=request.args.get("include_album") == "1",
+    )
     return jsonify({
         "path": str(root),
         "top_n": top_n_int,
