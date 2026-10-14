@@ -21,7 +21,7 @@ Design rules:
 - Original files are never deleted until the replacement is verified
 - All failures are logged and returned in ProcessResult; nothing crashes the batch
 - MP3s are re-encoded at 320kbps CBR if normalisation is applied
-- AIFFs are re-encoded losslessly (pcm_s16le or pcm_s24le, matching source bit depth)
+- AIFFs are re-encoded losslessly (big-endian PCM matching the source bit depth)
 
 Target loudness: -8.0 LUFS (DJ standard)
 Tolerance: 0.5 LUFS (skip normalisation if within this window)
@@ -492,25 +492,62 @@ def _capped_gain_db(
 
 # ─── Normalisation ────────────────────────────────────────────────────────────
 
-def _get_ffmpeg_codec_args(path: Path) -> list[str]:
-    """Return ffmpeg codec args matching the file format and source bit depth."""
+# Formats Quench can rewrite without losing anything it can't put back. AAC/M4A is left
+# alone: re-encoding is lossy, and ffmpeg's MP4 writer drops freeform atoms (cue and beat-grid
+# markers, MusicBrainz ids), so a "levelled" m4a would quietly lose DJ metadata.
+_NORMALISABLE_SUFFIXES = frozenset({".mp3", ".aiff", ".aif", ".wav", ".flac"})
+
+
+def _source_subtype(path: Path) -> str:
+    """soundfile's sample format of *path* ('PCM_16', 'PCM_24', ...), or '' if unreadable."""
+    try:
+        return sf.info(str(path)).subtype or ""
+    except Exception as e:
+        log.warning("sf.info failed for %s, assuming 16-bit. Err: %s", path.name, e)
+        return ""
+
+
+def _lossless_codec_args(path: Path, target_format: str) -> list[str]:
+    """ffmpeg args that write *target_format* at the bit depth of the source *path*.
+
+    AIFF is written big-endian: pcm_*le inside .aiff makes ffmpeg emit AIFF-C 'sowt', which
+    not every player reads. AIFF and WAV also need -write_id3v2, or ffmpeg keeps only a
+    handful of text chunks and drops artist, album, key, BPM and the rest.
+    """
+    sub = _source_subtype(path)
+    if target_format == "flac":
+        # The flac encoder widens 16-bit input to 24-bit unless told otherwise (+75% size).
+        args = ["-codec:a", "flac", "-compression_level", "8"]
+        return [*args, "-sample_fmt", "s16"] if sub in ("", "PCM_16", "PCM_U8", "PCM_S8") else args
+    if "DOUBLE" in sub:
+        width = "f64"  # keep floating point: integer PCM would drop precision and clip > 0 dBFS
+    elif "FLOAT" in sub:
+        width = "f32"
+    elif "24" in sub:
+        width = "s24"
+    elif "32" in sub:
+        width = "s32"
+    else:
+        width = "s16"
+    endian = "be" if target_format == "aiff" else "le"
+    return ["-codec:a", f"pcm_{width}{endian}", "-write_id3v2", "1"]
+
+
+def _get_ffmpeg_codec_args(path: Path) -> list[str] | None:
+    """Return ffmpeg codec args matching the file format and source bit depth.
+
+    None means Quench has no safe way to rewrite this format (see _NORMALISABLE_SUFFIXES).
+    """
     ext = path.suffix.lower()
     if ext == ".mp3":
         return ["-codec:a", "libmp3lame", "-b:a", "320k"]
-    elif ext in (".aiff", ".aif"):
-        try:
-            info = sf.info(str(path))
-            codec = "pcm_s24le" if "24" in info.subtype else "pcm_s16le"
-        except Exception as e:
-            log.warning("sf.info failed for %s, falling back to pcm_s16le. Err: %s", path.name, e)
-            codec = "pcm_s16le"
-        return ["-codec:a", codec]
-    elif ext == ".wav":
-        return ["-codec:a", "pcm_s16le"]
-    elif ext == ".flac":
-        return ["-codec:a", "flac", "-compression_level", "8"]
-    else:
-        return ["-codec:a", "copy"]
+    if ext in (".aiff", ".aif"):
+        return _lossless_codec_args(path, "aiff")
+    if ext == ".wav":
+        return _lossless_codec_args(path, "wav")
+    if ext == ".flac":
+        return _lossless_codec_args(path, "flac")
+    return None
 
 
 # Rough output/source size ratios by target format, used to size the disk
@@ -572,10 +609,14 @@ def _normalise_file(path: Path, gain_db: float) -> bool:
 
     try:
         codec_args = _get_ffmpeg_codec_args(path)
+        if codec_args is None:
+            log.error("No safe loudness rewrite for %s files: %s", path.suffix, path.name)
+            return False
         cmd = [
             _FFMPEG, "-y", "-i", str(path),
             "-af", f"volume={gain_db:.4f}dB",
             *codec_args,
+            "-c:v", "copy",  # keep cover art as-is; ffmpeg would re-encode it (h264 for MP4)
             "-map_metadata", "0",
             "-id3v2_version", "3",
             str(tmp_path),
@@ -679,22 +720,13 @@ def _convert_file(path: Path, target_format: str) -> tuple[bool, str]:
         # Determine codec args for target format
         if target_format == "mp3":
             codec_args = ["-codec:a", "libmp3lame", "-b:a", "320k"]
-        elif target_format == "aiff":
-            try:
-                info = sf.info(str(path))
-                codec = "pcm_s24le" if "24" in info.subtype else "pcm_s16le"
-            except Exception as e:
-                log.warning("sf.info failed for %s, falling back to pcm_s16le. Err: %s", path.name, e)
-                codec = "pcm_s16le"
-            codec_args = ["-codec:a", codec]
-        elif target_format == "wav":
-            codec_args = ["-codec:a", "pcm_s16le"]
-        elif target_format == "flac":
-            codec_args = ["-codec:a", "flac", "-compression_level", "8"]
+        else:
+            codec_args = _lossless_codec_args(path, target_format)
 
         cmd = [
             _FFMPEG, "-y", "-i", str(path),
             *codec_args,
+            "-c:v", "copy",
             "-map_metadata", "0",
             "-id3v2_version", "3",
             str(tmp_path),
@@ -1189,7 +1221,13 @@ def process_file(
                     result.errors.append(f"KEY tag write failed: {e}")
 
     # ── Loudness ──
-    if normalise:
+    if normalise and path.suffix.lower() not in _NORMALISABLE_SUFFIXES:
+        result.skipped_loudness = True
+        log.info(
+            "Quench leaves %s alone: %s files can't be levelled without a lossy re-encode "
+            "that drops tags.", path.name, path.suffix.lower(),
+        )
+    elif normalise:
         measured = _measure_lufs(path)
         lufs, true_peak = measured if measured is not None else (None, None)
         result.loudness_before = lufs
