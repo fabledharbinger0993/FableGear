@@ -56,9 +56,11 @@ _KEY_PREFIX = re.compile(r'^(?:\d{1,2}[ABab]\s+)*\d{1,2}[ABab]\s*[-–]\s*')
 # Dual import so this works whether loaded as `library_organizer` (chop_shop on
 # sys.path) or as `chop_shop.library_organizer`.
 try:
-    from tag_cleaning import clean_artist, clean_value
+    from tag_cleaning import clean_artist, clean_value, normalize_punctuation
+    from tag_cleaning import collapse_repeats as _collapse_repeats
 except ImportError:  # pragma: no cover
-    from chop_shop.tag_cleaning import clean_artist, clean_value
+    from chop_shop.tag_cleaning import clean_artist, clean_value, normalize_punctuation
+    from chop_shop.tag_cleaning import collapse_repeats as _collapse_repeats
 
 # Grouping keys the Organize tool can build a folder hierarchy from, and the
 # default (backward-compatible) Artist / Album layout. "playlist" is special:
@@ -124,7 +126,7 @@ def _sha256_file(path: Path) -> str | None:
 
 def _sanitize_folder(name: str, max_len: int = 100) -> str:
     """Strip filesystem-unsafe characters and return a clean folder name."""
-    name = _UNSAFE_CHARS.sub(" ", name)
+    name = _UNSAFE_CHARS.sub(" ", normalize_punctuation(name))
     name = _MULTI_SPACE.sub(" ", name).strip().strip(".")
     return (name[:max_len] if name else "Unknown")
 
@@ -159,7 +161,7 @@ def _sanitize_filename(name: str) -> str:
     """
     p = Path(name)
     stem, suffix = p.stem, p.suffix
-    stem = _UNSAFE_CHARS.sub(" ", stem)
+    stem = _UNSAFE_CHARS.sub(" ", normalize_punctuation(stem))
     stem = _MULTI_SPACE.sub(" ", stem).strip()
 
     budget = max(_MAX_NAME_BYTES - len(suffix.encode("utf-8")) - 4, 1)
@@ -173,27 +175,6 @@ def _sanitize_filename(name: str) -> str:
         stem = _cap_bytes(stem, budget)
 
     return (stem + suffix) if stem else ("untitled" + suffix)
-
-
-def _collapse_repeats(text: str) -> str:
-    """
-    Collapse an artist string that is one phrase repeated back-to-back down to a
-    single copy — handles exact repeats and a dangling partial final repeat:
-      "the timewriter the timewriter the timewriter the" -> "the timewriter"
-
-    Requires 3+ repeats so legitimate doubles (e.g. "Duran Duran") are preserved.
-    """
-    tokens = text.split()
-    n = len(tokens)
-    for unit_len in range(1, (n // 3) + 1):
-        unit = tokens[:unit_len]
-        reps = 0
-        while tokens[reps * unit_len:(reps + 1) * unit_len] == unit:
-            reps += 1
-        remainder = tokens[reps * unit_len:]
-        if reps >= 3 and remainder == unit[:len(remainder)]:
-            return " ".join(unit)
-    return text
 
 
 def _normalize_artist(name: str) -> str:

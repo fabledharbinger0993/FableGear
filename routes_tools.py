@@ -489,6 +489,8 @@ def api_pipeline():
                     cmd += ["--also-scan", extra]
             if not dry_run:
                 cmd.append("--no-dry-run")
+            if cfg.get("include_album"):
+                cmd.append("--include-album")
             if cfg.get("workers", 1) > 1:
                 cmd += ["--workers", str(cfg["workers"])]
 
@@ -738,6 +740,9 @@ def api_rename():
     if live_run:
         cmd.append("--no-dry-run")
 
+    if request.args.get("include_album") == "1":
+        cmd.append("--include-album")
+
     workers = request.args.get("workers", "1").strip()
     if workers.isdigit() and int(workers) > 1:
         cmd += ["--workers", workers]
@@ -770,7 +775,10 @@ def api_rename_probe():
 
     from renamer import probe_ambiguous
 
-    candidates = probe_ambiguous(root, top_n=top_n_int, sample_size=sample_size_int)
+    candidates = probe_ambiguous(
+        root, top_n=top_n_int, sample_size=sample_size_int,
+        include_album=request.args.get("include_album") == "1",
+    )
     return jsonify({
         "path": str(root),
         "top_n": top_n_int,

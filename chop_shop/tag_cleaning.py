@@ -56,6 +56,60 @@ GENRE_WORDS = {
 _CAMELOT = {f"{n}{side}" for n in range(1, 13) for side in ("A", "B")}
 
 
+# Typographic characters that show up in tags and folder names copied from the web or from
+# streaming metadata. Players and car/CDJ displays often can't draw them, and they split one
+# artist into two folders ("D'Arby" / "D’Arby"), so names built for the disk get plain ASCII
+# for these. Letters (é, ø, ...) are left alone.
+_PUNCT_MAP = str.maketrans({
+    "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'", "\u02bc": "'", "\u2032": "'",
+    "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"', "\u2033": '"',
+    "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-", "\u2015": "-",
+    "\u2212": "-",
+    "\u2026": "...",
+    "\u00a0": " ", "\u2002": " ", "\u2003": " ", "\u2009": " ", "\u202f": " ", "\u3000": " ",
+    "\u200b": None, "\u200c": None, "\u200d": None, "\ufeff": None,
+})
+
+
+def normalize_punctuation(text: str) -> str:
+    """Replace typographic quotes, dashes, ellipsis and odd spaces with plain ASCII.
+
+    Used when a name is built for the file system (file and folder names), never on the
+    tag values themselves.
+    """
+    return text.translate(_PUNCT_MAP)
+
+
+def collapse_repeats(text: str) -> str:
+    """
+    Collapse an artist string that is one phrase repeated back-to-back down to a
+    single copy — handles exact repeats and a dangling partial final repeat:
+      "the timewriter the timewriter the timewriter the" -> "the timewriter"
+
+    Requires 3+ repeats so legitimate doubles (e.g. "Duran Duran") are preserved.
+    """
+    tokens = text.split()
+    n = len(tokens)
+    for unit_len in range(1, (n // 3) + 1):
+        unit = tokens[:unit_len]
+        reps = 0
+        while tokens[reps * unit_len:(reps + 1) * unit_len] == unit:
+            reps += 1
+        remainder = tokens[reps * unit_len:]
+        if reps >= 3 and remainder == unit[:len(remainder)]:
+            return " ".join(unit)
+    # A token that occurs 3+ times is the same corruption in a looser form
+    # ("TG037 TG037 TG037 TG037 Aback TG037"): keep each word's first occurrence.
+    counts: dict[str, int] = {}
+    for tok in tokens:
+        counts[tok.casefold()] = counts.get(tok.casefold(), 0) + 1
+    if any(c >= 3 for c in counts.values()):
+        seen: set[str] = set()
+        kept = [t for t in tokens if not (t.casefold() in seen or seen.add(t.casefold()))]
+        return " ".join(kept)
+    return text
+
+
 def _base_clean(raw) -> str | None:
     """Common first pass: stringify, strip, drop empty/junk sentinels."""
     if raw is None:

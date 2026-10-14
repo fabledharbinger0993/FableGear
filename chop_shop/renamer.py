@@ -67,6 +67,13 @@ try:
 except ImportError:  # imported via the chop_shop package
     from chop_shop.path_guard import guard_sources as _guard_sources
 
+try:
+    from tag_cleaning import collapse_repeats as _collapse_repeats
+    from tag_cleaning import normalize_punctuation as _normalize_punctuation
+except ImportError:  # imported via the chop_shop package
+    from chop_shop.tag_cleaning import collapse_repeats as _collapse_repeats
+    from chop_shop.tag_cleaning import normalize_punctuation as _normalize_punctuation
+
 log = logging.getLogger(__name__)
 
 # Patterns to detect and clean from filenames
@@ -600,6 +607,7 @@ def probe_ambiguous(
     top_n: int = 5,
     sample_size: int = 100,
     rules: "_learned.LearnedRules | None" = None,
+    include_album: bool = False,
 ) -> list[ProbeCandidate]:
     if rules is None:
         rules = _learned.load()
@@ -640,7 +648,7 @@ def probe_ambiguous(
             mix_annotation,
             label_artist_hints,
         )
-        album = getattr(metadata, "album", None)
+        album = getattr(metadata, "album", None) if include_album else None
         proposed = _generate_filename(artist, title, file_path.suffix, copy_suffix, album=album)
         if mix_annotation:
             proposed = _generate_filename(
@@ -800,10 +808,43 @@ def _sanitize_filename(text: str, max_len: int = 200) -> str:
     Removes filesystem-unsafe characters, collapses spaces, strips dots.
     max_len is a byte budget (UTF-8), not a character count.
     """
-    text = _UNSAFE_CHARS.sub(" ", text)
+    text = _UNSAFE_CHARS.sub(" ", _normalize_punctuation(text))
     text = _MULTI_SPACE.sub(" ", text).strip().strip(".")
     text = _truncate_utf8_safe(text, max_len).strip().strip(".")
     return text if text else "Unknown"
+
+
+# A track-number prefix a ripper or tagger left in the title: "07 07 - ", "12. ", "2-07 ".
+_TITLE_TRACK_PREFIX = re.compile(r'^(?:\d{1,2}-\d{2}\s+|\d{1,3}(?:[\s.-]+\d{1,3})?\s*[-.]\s+)')
+
+
+def _tidy_artist_and_title(artist: str, title: str) -> tuple[str, str]:
+    """Repair the common ways tags arrive polluted, before the name is assembled.
+
+    - an artist that is one phrase repeated ("TG039 Jamar Hughes TG039 Jamar Hughes ...")
+    - a leftover track number or "_PN" marker in the title
+    - a title that starts with "Artist - " where the artist tag is that same text cut off
+      or run on into the title ("The Salsoul Orchestra - Ooh I")
+    """
+    artist = _collapse_repeats(_MULTI_SPACE.sub(" ", artist.replace("_", " ")).strip()) or artist
+    artist = artist.strip(" -\u2013:;|/") or artist
+    title = _MULTI_SPACE.sub(" ", title.replace("_", " ")).strip()
+    title = _PN_SUFFIX.sub("", _TITLE_TRACK_PREFIX.sub("", title)).strip() or title
+    m = re.match(r"^(?P<a>.+?)\s+-\s+(?P<b>.+)$", title)
+    if m:
+        lead, rest = m.group("a").strip(), m.group("b").strip()
+        head = artist.split(" - ")[0].strip()
+        if _canon(lead) == _canon(head) and head != artist:
+            artist, title = lead, rest          # artist tag ran on into the title
+        elif _canon(artist) != _canon(lead) and _canon(lead).startswith(_canon(artist)) and len(_canon(artist)) >= 4:
+            artist, title = lead, rest          # artist tag was cut short
+    # Leading "A - B - rest" pieces made only of words already in the artist are repeats of it.
+    artist_words = {w.casefold() for w in artist.split()}
+    pieces = title.split(" - ")
+    while len(pieces) > 1 and pieces[0].strip() and all(w.casefold() in artist_words for w in pieces[0].split()):
+        pieces.pop(0)
+    title = " - ".join(pieces)
+    return artist, title
 
 
 def _generate_filename(
@@ -816,8 +857,8 @@ def _generate_filename(
     """
     Generate a clean filename with artist, optional album/release, title, and
     optional copy suffix.
-    Format: "Artist - Album - Title.ext"  (album segment included only when
-    present and non-junk) or "Artist - Title.ext" / "Artist - Title (2).ext".
+    Format: "Artist - Title.ext" / "Artist - Title (2).ext"; "Artist - Album - Title.ext"
+    when the caller passes an album (Re-Name only does that when "include album" is on).
 
     Artist, album, and title come from the file's tags — which by this point
     already carry whatever the Forge / AcoustID enrichment step wrote — so
@@ -835,6 +876,7 @@ def _generate_filename(
     """
     artist = _sanitize_filename(artist or "Unknown")
     title = _sanitize_filename(title or "Unknown")
+    artist, title = _tidy_artist_and_title(artist, title)
     title = _strip_leading_artist_from_title(artist, title)
 
     # Album is optional: omit the segment entirely when missing or junk rather
@@ -984,6 +1026,7 @@ def _rename_one(
     label_artist_hints: dict[str, str] | None = None,
     library_root: Path | None = None,
     archive=None,
+    include_album: bool = False,
 ) -> RenameResult:
     """
     Rename a single audio file based on its metadata.
@@ -1064,7 +1107,7 @@ def _rename_one(
                 reason="Moved unresolved file to No-Name tracks for Tagging",
                 db_rows_updated=db_rows_updated,
             )
-        album = getattr(metadata, "album", None)
+        album = getattr(metadata, "album", None) if include_album else None
         new_name = _generate_filename(artist, title, ext, copy_suffix, album=album)
     new_path = path.parent / new_name
 
@@ -1237,6 +1280,7 @@ def rename_directory(
     archive=None,
     skip_paths: "set[str] | None" = None,
     on_result=None,
+    include_album: bool = False,
 ) -> list[RenameResult]:
     """
     Batch-rename all audio files in a directory based on their metadata.
@@ -1261,6 +1305,9 @@ def rename_directory(
     on_result : Callable[[RenameResult], None] | None
         Invoked once per file right after tallying, so the caller can persist
         a checkpoint incrementally.
+    include_album : bool
+        False (default) names files "Artist - Title". True adds the album tag between
+        them ("Artist - Album - Title"), which tends to read as noise on compilations.
 
     Returns
     -------
@@ -1319,6 +1366,7 @@ def rename_directory(
             label_artist_hints=label_artist_hints,
             library_root=root,
             archive=archive,
+            include_album=include_album,
         )
         results.append(result)
 
