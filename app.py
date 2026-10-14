@@ -1520,7 +1520,7 @@ def api_onboarding_install_app():
         if not app_path.exists() and system_app.exists():
             app_path = system_app
     launch_sh = REPO_ROOT / "launch.sh"
-    icon_src = REPO_ROOT / "static" / "icon-app-dock.png"
+    icon_src = REPO_ROOT / "static" / "fablegear.png"
 
     if app_path.parent == install_dir:
         install_dir.mkdir(parents=True, exist_ok=True)

@@ -114,11 +114,11 @@ echo "  ✓ Info.plist written"
 
 # ── Apply FableGear icon ───────────────────────────────────────────────────────
 # Prefer new branded icon, fall back to legacy logo
-ICON_SRC="$SCRIPT_DIR/static/icon-app-dock.png"
+ICON_SRC="$SCRIPT_DIR/static/fablegear.png"
 [[ ! -f "$ICON_SRC" ]] && ICON_SRC="$SCRIPT_DIR/static/RB_LOGO.png"
 
 if [[ -f "$ICON_SRC" ]]; then
-  ICONSET_DIR="$BUILD_DIR/fablegear.iconset"
+  ICONSET_DIR="$BUILD_DIR/fablegear.png"
   mkdir -p "$ICONSET_DIR"
   for size in 16 32 64 128 256 512; do
     sips -z $size $size "$ICON_SRC" --out "$ICONSET_DIR/icon_${size}x${size}.png" &>/dev/null
