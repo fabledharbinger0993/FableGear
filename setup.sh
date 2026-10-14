@@ -154,18 +154,16 @@ info "Installing library packages..."
 pip install -r "$SCRIPT_DIR/requirements.txt" \
   || { echo "  ✗  Library package install failed — see the errors above."; fail; }
 
-# Optional packages are installed best-effort and MUST NOT abort setup. essentia
-# in particular has narrow wheel coverage (no cp313 wheel below macOS 15), and
-# as a hard requirement a missing wheel would take the whole install down with
-# it. Without it, beat detection falls back to librosa and health.py raises a
-# `beat_tracker_degraded` warning — degraded, not broken.
-info "Installing optional packages (better beat detection)..."
+# Optional packages are installed best-effort and MUST NOT abort setup: a
+# package without a wheel for this Python/macOS combination degrades one
+# feature instead of taking the whole install down. (The file is empty of
+# analysis libraries now that Iron, Anvil and Quench are FableGear's own.)
+info "Installing optional packages..."
 if pip install -r "$SCRIPT_DIR/requirements_optional.txt"; then
   ok "Optional packages installed"
 else
   echo "  !  Optional packages unavailable for this Python/macOS combination."
-  echo "     FableGear will run, using less accurate beat detection."
-  echo "     The Health panel will show this as 'beat detection in fallback mode'."
+  echo "     FableGear will run without them."
 fi
 
 ok "All Python packages installed"

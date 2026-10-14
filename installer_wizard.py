@@ -411,9 +411,9 @@ def optional_install_command() -> list[str] | None:
 def stream_python_install() -> Iterator[str]:
     """
     Required packages first (any failure stops everything), then the optional group,
-    which can never fail the install: setup.sh treats it the same way, because
-    essentia has narrow wheel coverage and a missing wheel must degrade beat
-    detection, not take the whole install down.
+    which can never fail the install: setup.sh treats it the same way, because a
+    package without a wheel for this platform must degrade a feature, not take the
+    whole install down.
     """
     if not (VENV_DIR / "bin" / "python").exists():
         # Never fall back to the system interpreter: that would pip-install FableGear's
