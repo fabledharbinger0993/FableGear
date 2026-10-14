@@ -326,3 +326,51 @@ def test_chroma_cqt_resolves_bass_register_better_than_linear_chroma():
     y = 0.5 * np.sin(2 * np.pi * 55.0 * t)
     vec = dsp.chroma_cqt(y, SR)
     assert int(np.argmax(vec)) == 9  # "A" -- A1 is still an A
+
+
+def _chord_with_drone(sr: int = 22050, seconds: float = 3.0) -> np.ndarray:
+    t = np.arange(int(sr * seconds)) / sr
+    triad = sum(0.2 * np.sin(2 * np.pi * f * t) for f in (392.0, 493.88, 587.33))  # G B D
+    return triad + 1.5 * np.sin(2 * np.pi * 65.41 * t)  # a much louder C2 drone
+
+
+def test_whitened_log_spectra_one_row_per_view_and_raw_last():
+    y = _chord_with_drone()
+    one = dsp.whitened_log_spectra(y, 22050, envelope_octaves=(1.0,))
+    three_raw = dsp.whitened_log_spectra(y, 22050, envelope_octaves=(1.0, 0.5, 2.0), include_raw=True)
+    assert one.shape == (1, 270)
+    assert three_raw.shape == (4, 270)
+    assert np.allclose(three_raw[0], one[0])  # views do not depend on which other views are asked for
+    assert (three_raw[:3] >= 0).all()  # whitened views keep only what stands above the envelope
+    assert not np.allclose(three_raw[1], three_raw[0])  # a different envelope width is a different view
+    assert not np.allclose(three_raw[2], three_raw[0])
+
+
+def test_whitened_log_spectra_raw_view_is_the_unwhitened_sum():
+    # The drone dominates the raw spectrum; whitening must shrink it relative to the triad.
+    y = _chord_with_drone()
+    spectra = dsp.whitened_log_spectra(y, 22050, envelope_octaves=(1.0,), include_raw=True)
+    bins = 36 * np.log2(np.array([65.41, 392.0]) / 27.5)
+    drone_bin, triad_bin = (round(b) for b in bins)
+    raw_ratio = spectra[1][drone_bin] / spectra[1][triad_bin]
+    white_ratio = spectra[0][drone_bin] / spectra[0][triad_bin]
+    assert raw_ratio > 3 * white_ratio
+
+
+def test_whitened_log_spectrum_is_the_one_octave_view():
+    y = _chord_with_drone()
+    assert np.array_equal(
+        dsp.whitened_log_spectrum(y, 22050), dsp.whitened_log_spectra(y, 22050, envelope_octaves=(1.0,))[0]
+    )
+
+
+def test_whitened_log_spectra_too_short_returns_zero_rows():
+    out = dsp.whitened_log_spectra(np.zeros(100), 22050, envelope_octaves=(1.0, 2.0), include_raw=True)
+    assert out.shape == (3, 270)
+    assert not out.any()
+
+
+def test_whitened_log_spectra_no_views_requested_returns_zero_rows():
+    # Nothing to compute is not an error, even on a clip long enough to have frames.
+    out = dsp.whitened_log_spectra(_chord_with_drone(), 22050, envelope_octaves=(), include_raw=False)
+    assert out.shape == (0, 270)

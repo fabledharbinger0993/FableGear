@@ -720,10 +720,12 @@ def chroma(
     return vec
 
 
-def whitened_log_spectrum(
+def whitened_log_spectra(
     y: np.ndarray,
     sr: int,
     *,
+    envelope_octaves: tuple[float, ...] = (1.0,),
+    include_raw: bool = False,
     n_fft: int = 16384,
     hop_length: int = 4096,
     fmin: float = 27.5,
@@ -731,24 +733,28 @@ def whitened_log_spectrum(
     n_octaves: float = 7.5,
 ) -> np.ndarray:
     """
-    Whole-clip, spectrally whitened log-frequency spectrum: one value per log-frequency bin
-    (bin b centred on fmin * 2**(b / bins_per_octave)), summed over frames.
+    Whole-clip, spectrally whitened log-frequency spectra: one row per view, one value per
+    log-frequency bin (bin b centred on fmin * 2**(b / bins_per_octave)), summed over frames.
 
     Each frame's magnitude is mapped onto log-frequency bins (triangular interpolation, as in
-    `chroma_cqt()`), then divided by its own local spectral envelope -- a one-octave moving
-    average -- and only the part standing above that envelope is kept. That is spectral
-    whitening: a loud kick/bass region or a bright mix can no longer outvote quieter tonal
-    peaks just by carrying more energy, which on real music was the single largest key-accuracy
-    gain measured (docs/IRON_RESEARCH.md SS18). Original numpy implementation of the general
-    technique, not a port of any library's code.
+    `chroma_cqt()`), then divided by its own local spectral envelope -- a moving average over
+    `envelope_octaves` octaves -- and only the part standing above that envelope is kept. That
+    is spectral whitening: a loud kick/bass region or a bright mix can no longer outvote
+    quieter tonal peaks just by carrying more energy, which on real music was the single
+    largest key-accuracy gain measured (docs/IRON_RESEARCH.md SS18). One view per entry of
+    `envelope_octaves` (a narrow envelope keeps only sharp peaks, a wide one also keeps broad
+    tonal bands), then, if `include_raw`, the unwhitened summed magnitude as a last row.
+    All views share one STFT and one log-frequency mapping. Original numpy implementation of
+    the general technique, not a port of any library's code.
 
     At the defaults (27.5 Hz = A0, 36 bins/octave) semitone centres fall on every third bin,
     so key.py can estimate tuning from which sub-semitone phase carries the energy.
     """
     n_log = int(bins_per_octave * n_octaves)
+    n_views = len(envelope_octaves) + int(include_raw)
     mag = magnitude_spectrogram(y, n_fft=n_fft, hop_length=hop_length)
-    if mag.shape[0] == 0:
-        return np.zeros(n_log, dtype=np.float64)
+    if n_views == 0 or mag.shape[0] == 0:
+        return np.zeros((n_views, n_log), dtype=np.float64)
 
     freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
     rows = np.nonzero(freqs >= fmin)[0]
@@ -763,6 +769,30 @@ def whitened_log_spectrum(
     with np.errstate(all="ignore"):  # Accelerate BLAS can raise spurious matmul flags
         logmag = mag @ weights
     logmag = np.nan_to_num(logmag)
-    kernel = np.ones(bins_per_octave) / bins_per_octave
-    envelope = np.stack([np.convolve(row, kernel, mode="same") for row in logmag]) + 1e-9
-    return np.maximum(logmag / envelope - 1.0, 0.0).sum(axis=0)
+
+    views = []
+    for octaves in envelope_octaves:
+        width = max(round(bins_per_octave * octaves), 1)
+        kernel = np.ones(width) / width
+        envelope = np.stack([np.convolve(row, kernel, mode="same") for row in logmag]) + 1e-9
+        views.append(np.maximum(logmag / envelope - 1.0, 0.0).sum(axis=0))
+    if include_raw:
+        views.append(logmag.sum(axis=0))
+    return np.stack(views)
+
+
+def whitened_log_spectrum(
+    y: np.ndarray,
+    sr: int,
+    *,
+    n_fft: int = 16384,
+    hop_length: int = 4096,
+    fmin: float = 27.5,
+    bins_per_octave: int = 36,
+    n_octaves: float = 7.5,
+) -> np.ndarray:
+    """The one-octave-envelope view of `whitened_log_spectra` (the original single-view form)."""
+    return whitened_log_spectra(
+        y, sr, envelope_octaves=(1.0,), n_fft=n_fft, hop_length=hop_length, fmin=fmin,
+        bins_per_octave=bins_per_octave, n_octaves=n_octaves,
+    )[0]

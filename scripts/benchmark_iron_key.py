@@ -114,8 +114,10 @@ def main(argv: list[str] | None = None) -> int:
             new_key = None
             print(f"  error on {path.name}: {e}", file=sys.stderr)
 
-        # The pre-§18 detector: power CQT chroma + Krumhansl-Kessler profiles.
-        with mock.patch.multiple(key, _chroma=key.dsp.chroma_cqt,
+        # The pre-§18 detector: power CQT chroma + Krumhansl-Kessler profiles. `detect_key` is
+        # pointed at the profile-correlation detector (`detect_key_profile`) because since §27
+        # the default `detect_key` is the learned model, which does not read these constants.
+        with mock.patch.multiple(key, _chroma=key.dsp.chroma_cqt, detect_key=key.detect_key_profile,
                                  PROFILE_MAJOR=_KS_MAJOR, PROFILE_MINOR=_KS_MINOR):
             try:
                 old_result = iron.analyze(path, want=("initial_key",))
