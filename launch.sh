@@ -81,19 +81,21 @@ exec > /dev/null 2>&1
 
 # ── Activate venv ─────────────────────────────────────────────────────────
 source "$VENV/bin/activate"
+# pip is always run as "$VENV/bin/python" -m pip below, never a bare `pip`: a bare
+# one resolves through PATH and could install into the system or Homebrew Python.
 
 # ── Ensure core dependencies are installed ────────────────────────────────
 # setup.sh handles first-run, but cloned repos or manual venv resets can
 # leave the venv without packages. Reinstall BOTH the UI deps (Flask, Waitress,
 # pywebview — without which no window ever appears) and the library deps.
 # Quick no-op when everything is current.
-pip install --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1
-pip install --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
+"$VENV/bin/python" -m pip install --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1
+"$VENV/bin/python" -m pip install --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
 # Best-effort: a platform without an essentia wheel must not fail the launch.
 # `|| true` keeps the non-zero exit from leaking out of this block regardless
 # of how the caller invokes the script. Beat detection degrades to librosa and
 # the Health panel reports it.
-pip install --quiet -r "$SCRIPT_DIR/requirements_optional.txt" >> "$LOG" 2>&1 || true
+"$VENV/bin/python" -m pip install --quiet -r "$SCRIPT_DIR/requirements_optional.txt" >> "$LOG" 2>&1 || true
 
 # ── Update to the latest RELEASE (skip in dev mode) ──────────────────────
 # Release-gated: tracks GitHub's "latest release" tag, same endpoint the
@@ -117,8 +119,8 @@ if [ ! -f "$SCRIPT_DIR/.dev" ] && [ -d "$SCRIPT_DIR/.git" ]; then
       echo "FableGear: updating ${CURRENT_TAG:-untagged} -> $LATEST_TAG" >> "$LOG"
       PREV_HEAD=$(git rev-parse HEAD)
       if git merge --ff-only "$LATEST_TAG" >> "$LOG" 2>&1; then
-        if pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1 \
-          && pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1; then
+        if "$VENV/bin/python" -m pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1 \
+          && "$VENV/bin/python" -m pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1; then
           :
         else
           echo "FableGear: dependency install failed after update; rolling back" >> "$LOG"
@@ -148,8 +150,8 @@ if [ ! -f "$SCRIPT_DIR/.dev" ] && [ -d "$SCRIPT_DIR/.git" ]; then
         git stash push -u -m "fablegear-auto-$(git rev-parse --short HEAD)" >> "$LOG" 2>&1 || true
       fi
       if git reset --hard "$LATEST_TAG" >> "$LOG" 2>&1; then
-        pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1
-        pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
+        "$VENV/bin/python" -m pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1
+        "$VENV/bin/python" -m pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
         echo "FableGear: realigned to $LATEST_TAG" >> "$LOG"
       else
         echo "FableGear: could not realign to $LATEST_TAG; staying on ${CURRENT_TAG:-current}" >> "$LOG"

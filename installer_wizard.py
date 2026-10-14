@@ -9,9 +9,12 @@ progress, create the launcher app, and hand off to FableGear.
 What it does NOT do, on purpose: install or change system software. No Homebrew,
 no Python, no ffmpeg, no Chromaprint. Those are yours -- if one is missing the wizard
 says exactly what is needed and waits while you install it. This is the same contract
-setup.sh follows. Everything it installs goes into the private venv inside the
-FableGear folder. The one thing it writes outside that folder is the launcher app:
-at the very end it (re)creates ~/Applications/FableGear.app via
+setup.sh follows. Every package goes into the private venv, and pip is only ever run
+as that venv's own interpreter (`venv/bin/python -m pip`). Where the venv lives depends
+on the run mode: inside the FableGear folder when run in place, or inside the install
+target (~/Library/Application Support/FableGear/app from the installer app). The one
+thing it writes outside that folder is the launcher app: at the very end it (re)creates
+FableGear.app in /Applications (or ~/Applications when that isn't writable) via
 packaging/create_launcher_app.sh, best-effort and never fatal.
 
 Deliberately standalone, and stdlib-only. It imports nothing from the rest of
