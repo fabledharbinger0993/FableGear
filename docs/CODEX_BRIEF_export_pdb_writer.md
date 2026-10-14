@@ -30,14 +30,18 @@ Start from `chop_shop/devicesql_reader.py` (the read-only parser) and its tests
 `chop_shop/devicesql_writer.py`); keep the reader read-only. Prefer extending the reader's
 structures over duplicating them.
 
-Reference data (real Rekordbox output, do not modify):
-- `tests/fixtures/rekordbox_21track_export/PIONEER/` (21 tracks; the primary reference; read its
-  README for the post-deck caveat)
+Reference data (do not modify):
+- `tests/fixtures/rekordbox_21track_export/PIONEER/` (21 tracks; the primary reference). It is a
+  **post-deck working-stick capture**, not raw Rekordbox output: the CDJ rewrote both files after
+  Rekordbox exported them (`export.pdb` grew from 229,376 to 241,664 bytes). So any layout you see
+  may come from the deck, and a byte difference from our output is not proof of a Rekordbox
+  convention. Read its README.
 - `tests/fixtures/rekordbox_ground_truth_export/` (more material; see its `GAP_ANALYSIS.md`,
   `WATCH_ANALYSIS_FINDINGS.md`, `parsed/`)
 
 Page layout facts already established (demonstrated, see the doc section 3): 4,096-byte pages;
-header with `page_size`, `num_tables`=20, `next_unused_page`; table pointer array; rows in a page
+header with `page_size`, `num_tables`, `next_unused_page` (`export.pdb` has 20 tables; `exportExt.pdb`
+has 9 with a different schema, see `devicesql_reader.py`, so do not assume one table layout for both); table pointer array; rows in a page
 heap from offset 0x28; row groups of 36 bytes at the page end (16 reversed u16 offsets, u16 presence
 bitmask, u16 unknown); short ASCII strings use header byte `((len+1) << 1) | 1`. The keys table
 rows are `id:u32, id2:u32, name`, with `id2 == id`.
@@ -47,9 +51,9 @@ columns from Iron, playlists UI, artwork, USB export wiring, anything touching t
 
 ## Done means
 
-1. A round-trip test on the real 21-track capture: parse -> serialise -> parse gives an equal
+1. A round-trip test on the 21-track capture: parse -> serialise -> parse gives an equal
    model, for `export.pdb` and `exportExt.pdb`.
-2. A byte-level comparison against the original with an explicit, reviewed list of differences. If
+2. A byte-level comparison against the captured file (remembering it is post-deck) with an explicit, reviewed list of differences. If
    the output is byte-identical, say so; if not, each difference is named and explained or marked
    **unknown** (never guessed).
 3. Fields we do not understand are carried through verbatim, not dropped or defaulted.
