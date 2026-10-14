@@ -273,6 +273,17 @@ def test_health_warns_when_beat_tracker_degraded(monkeypatch):
     assert health._check_beat_tracker() is None
 
 
+def test_health_says_ffmpeg_missing_instead_of_promising_a_fallback(monkeypatch):
+    """The librosa fallback decodes through ffmpeg too, so with none present nothing runs."""
+    import health
+    import iron.api
+
+    monkeypatch.setattr(ap, "_iron_available", lambda: False)
+    monkeypatch.setattr(iron.api, "_FFMPEG", "/definitely/not/ffmpeg")
+    finding = health._check_beat_tracker()
+    assert finding is not None and "ffmpeg is missing" in finding.title
+
+
 def test_beat_tracker_check_is_registered():
     """A check that exists but is never run is worse than no check."""
     import inspect
