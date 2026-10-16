@@ -219,7 +219,9 @@ The same safety contract applies as everywhere else: write tools check that Reko
 
 **Updating:** download the newest FableGear.zip and run its installer again. It replaces FableGear's program files and keeps your library, settings and private environment.
 
-**Installing from source?** After cloning the repository, run `python3 installer_wizard.py` in the FableGear folder (or `bash setup.sh` for a Terminal install). It does the same checks and builds the private environment inside the clone, with no files copied elsewhere.
+**Installing from source?** After cloning the repository, run `python3 fablegear/installer_wizard.py` (or `bash fablegear/setup.sh` for a Terminal install). It does the same checks and builds the private environment at the root of the clone, with no files copied elsewhere.
+
+**Repository layout.** `fablegear/` is the app and the only folder the installer ships. `dev/` holds tests, research docs, benchmark scripts and build inputs; none of it is installed. Run the tests with `python -m pytest dev/tests` after `pip install -r dev/requirements-dev.txt`.
 
 ---
 
@@ -262,7 +264,7 @@ Audit --> Fix paths --> De-Duplicate --> Forge (tag / quench) --> Re-Organize --
 
 FableGear is a Flask app that runs a local server on port 5001 (on your own Mac only) and opens in a native macOS window via pywebview. The UI is vanilla HTML/CSS/JS -- no frontend framework.
 
-Audio analysis, tag handling and loudness are built in-house: **Iron** (`iron/`) detects BPM, key and beat positions, **Anvil** (`anvil/`) reads and writes tags, and **Quench** (`quench/`) measures and levels loudness on ffmpeg. The libraries below are used for everything else: mutagen still reads general metadata and is Anvil's fallback, librosa is still the fallback BPM/key detector and decodes some formats for waveforms. essentia was removed in v1.2.0 and is no longer installed.
+Audio analysis, tag handling and loudness are built in-house: **Iron** (`fablegear/iron/`) detects BPM, key and beat positions, **Anvil** (`fablegear/anvil/`) reads and writes tags, and **Quench** (`fablegear/quench/`) measures and levels loudness on ffmpeg. The libraries below are used for everything else: mutagen still reads general metadata and is Anvil's fallback, librosa is still the fallback BPM/key detector and decodes some formats for waveforms. essentia was removed in v1.2.0 and is no longer installed.
 
 | Library | Purpose |
 |---|---|

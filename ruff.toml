@@ -12,6 +12,10 @@
 line-length = 120
 target-version = "py311"
 
+# First-party code lives in fablegear/, not at the
+# repo root, so import sorting must be told where to find it.
+src = ["fablegear", "."]
+
 [lint]
 select = [
     "E",    # pycodestyle errors
@@ -60,14 +64,14 @@ ignore = [
 # Entry-point modules mutate sys.path BEFORE importing so bare-name imports
 # resolve into chop_shop/ in both dev and PyInstaller bundles. E402 is
 # intentional there.
-"app.py" = ["E402"]
-"main.py" = ["E402"]
-"cli.py" = ["E402"]
-"helpers.py" = ["E402"]
-"routes_player.py" = ["E402"]
-"routes_tools.py" = ["E402"]
-"routes_rekordbox.py" = ["E402"]
+"fablegear/app.py" = ["E402"]
+"fablegear/main.py" = ["E402"]
+"fablegear/cli.py" = ["E402"]
+"fablegear/helpers.py" = ["E402"]
+"fablegear/routes_player.py" = ["E402"]
+"fablegear/routes_tools.py" = ["E402"]
+"fablegear/routes_rekordbox.py" = ["E402"]
 
 # Every test inserts REPO_ROOT into sys.path before importing the module under
 # test — the same deliberate pattern as the entry points above.
-"tests/*" = ["E402"]
+"dev/tests/*" = ["E402"]

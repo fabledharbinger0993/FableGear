@@ -52,15 +52,11 @@ if [ -n "$(git -C "$SCRIPT_DIR" status --porcelain --untracked-files=no 2>/dev/n
 fi
 COMMIT="$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
-# What the installed app does not need: tests, docs, dev scripts, CI config, source-only extras.
-# Git pathspec excludes are exact repo-root paths, unlike tar patterns, which match a name at any depth
-# and would silently strip any future static/docs or library/scripts folder the app needs.
-EXCLUDES=(tests docs scripts .github fg-logo.png FableGear.spec FableGear_win.spec requirements-dev.txt
-          requirements_build.txt MARKETING.md IMPLEMENTATION_COMPLETE.md DESIGN.md PRODUCT.md install.sh
-          start_remote.sh build_release.sh ruff.toml pyrightconfig.json)
-PATHSPEC=(.)
-for ex in "${EXCLUDES[@]}"; do PATHSPEC+=(":(exclude)$ex"); done
-git -C "$SCRIPT_DIR" archive HEAD -- "${PATHSPEC[@]}" | tar -x -C "$PAYLOAD"
+# The payload is fablegear/ and nothing else: every runtime file lives there, and everything
+# that is development, research, testing or build tooling lives in dev/ or at the repo root.
+# `git archive HEAD:fablegear` writes that folder's committed contents at the payload root, so
+# the installed layout (main.py, launch.sh, static/ at the top) is unchanged for users.
+git -C "$SCRIPT_DIR" archive "HEAD:fablegear" | tar -x -C "$PAYLOAD"
 
 # Stamp the build. A release gets the clean tag; a local build says so, so it can never be
 # mistaken for the published release.
@@ -72,7 +68,7 @@ fi
 PAYLOAD_MB="$(du -sm "$PAYLOAD" | cut -f1)"
 echo "  ✓ Payload: committed HEAD ${COMMIT}, ${PAYLOAD_MB} MB"
 
-cp "$SCRIPT_DIR/packaging/installer_launcher.sh" "$APP_PATH/Contents/MacOS/Install FableGear"
+cp "$SCRIPT_DIR/fablegear/packaging/installer_launcher.sh" "$APP_PATH/Contents/MacOS/Install FableGear"
 chmod +x "$APP_PATH/Contents/MacOS/Install FableGear"
 echo "  ✓ Launcher script written"
 
@@ -114,8 +110,7 @@ echo "  ✓ Info.plist written"
 
 # ── Apply FableGear icon ───────────────────────────────────────────────────────
 # Prefer new branded icon, fall back to legacy logo
-ICON_SRC="$SCRIPT_DIR/static/fablegear-icon-1024.png"
-[[ ! -f "$ICON_SRC" ]] && ICON_SRC="$SCRIPT_DIR/static/RB_LOGO.png"
+ICON_SRC="$SCRIPT_DIR/fablegear/static/fablegear-icon-1024.png"
 
 if [[ -f "$ICON_SRC" ]]; then
   ICONSET_DIR="$BUILD_DIR/fablegear.iconset"

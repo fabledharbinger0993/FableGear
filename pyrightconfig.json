@@ -3,7 +3,7 @@
     "pyright ran with no configuration and reported 431 diagnostics, so the",
     "type-check job was permanently red and could not signal a new problem.",
     "81 of those were reportMissingImports for FIRST-PARTY modules that live",
-    "in chop_shop/ and are imported by bare name, because the entry points",
+    "in fablegear/chop_shop/ and are imported by bare name, because the entry points",
     "insert that directory into sys.path at runtime. That is the same",
     "deliberate pattern the E402 per-file-ignores in ruff.toml document.",
     "pyright cannot see a runtime sys.path mutation, so it needs extraPaths.",
@@ -18,14 +18,15 @@
     "**/node_modules",
     ".git",
     "audit_*",
-    "scripts/live_bridge/research",
-    "tests/fixtures/**/tools"
+    "dev/scripts/live_bridge/research",
+    "dev/tests/fixtures/**/tools",
+    "dev/legacy"
   ],
   "venvPath": ".",
   "venv": "venv",
   "extraPaths": [
-    ".",
-    "chop_shop"
+    "fablegear",
+    "fablegear/chop_shop"
   ],
   "pythonVersion": "3.13",
   "typeCheckingMode": "basic",

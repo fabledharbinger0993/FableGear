@@ -1,0 +1,194 @@
+#!/bin/bash
+# FableGear launcher
+# Run directly: bash launch.sh
+# Or wrap in Automator > Application > Run Shell Script for a dock icon
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# A source checkout keeps the app in <repo>/fablegear/ and its venv, sentinels and log at
+# the repo root (where they always lived); a release install keeps them beside the code.
+STATE_DIR="$SCRIPT_DIR"
+[ -d "$SCRIPT_DIR/../.git" ] && STATE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+VENV="$STATE_DIR/venv"
+SENTINEL="$STATE_DIR/.fablegear_ready"
+FAILED="$STATE_DIR/.fablegear_failed"
+LOG="$STATE_DIR/fablegear.log"
+
+# Finder-launched apps may not inherit Homebrew's usual PATH.
+for p in /opt/homebrew/bin /usr/local/bin; do
+  case ":$PATH:" in
+    *":$p:"*) ;;
+    *) [ -d "$p" ] && PATH="$p:$PATH" ;;
+  esac
+done
+export PATH
+
+# ── Single-launcher lock ──────────────────────────────────────────────────
+# The .app hands off to this script detached, so an impatient double-click
+# could start two launchers racing through pip installs and git updates at
+# once. mkdir is atomic: second instance bails out silently. A lock older
+# than 30 minutes is from a dead launcher — take it over.
+LOCK_DIR="$SCRIPT_DIR/.launch_lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  if [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then
+    rmdir "$LOCK_DIR" 2>/dev/null
+    mkdir "$LOCK_DIR" 2>/dev/null || exit 0
+  else
+    exit 0
+  fi
+fi
+trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT
+
+# ── Determine whether first-run setup is needed ───────────────────────────
+_setup_needed() {
+  command -v ffmpeg >/dev/null 2>&1 || return 0
+  command -v fpcalc >/dev/null 2>&1 || return 0
+  # Python venv missing or broken (hollow venv has no activate)?
+  [ ! -d "$VENV" ] && return 0
+  [ ! -f "$VENV/bin/activate" ] && return 0
+  # Sentinel not yet written by setup.sh?
+  [ ! -f "$SENTINEL" ] && return 0
+  return 1
+}
+
+# ── First-run setup ───────────────────────────────────────────────────────
+# Must happen before exec > /dev/null so Automator doesn't see it as an
+# error, yet users still need a visible window for password prompts and
+# progress. Solution: open a new Terminal window running setup.sh and poll
+# for the sentinel file before proceeding.
+if _setup_needed; then
+  rm -f "$SENTINEL" "$FAILED"   # clear any stale sentinels from a prior run
+  # open -a Terminal runs the script via Launch Services — no Automation
+  # permission required (unlike osascript "tell application Terminal do script")
+  open -a Terminal "$SCRIPT_DIR/setup.sh"
+  # Wait for setup.sh to touch the ready sentinel (max 40 min, polls every 2 s).
+  # setup.sh writes the FAILED sentinel on any error exit so we can bail
+  # immediately instead of hanging out the full 40-minute timeout.
+  _waited=0
+  until [ -f "$SENTINEL" ]; do
+    if [ -f "$FAILED" ]; then
+      echo "FableGear: setup failed — see the setup window for details" >&2
+      exit 1
+    fi
+    sleep 2
+    _waited=$((_waited + 2))
+    if [ $_waited -ge 2400 ]; then
+      echo "FableGear: setup timed out — check the setup window for errors" >&2
+      exit 1
+    fi
+  done
+  unset _waited
+fi
+
+# ── Silence all output — Automator treats any stdout as an error ──────────
+exec > /dev/null 2>&1
+
+
+# ── Activate venv ─────────────────────────────────────────────────────────
+source "$VENV/bin/activate"
+# pip is always run as "$VENV/bin/python" -m pip below, never a bare `pip`: a bare
+# one resolves through PATH and could install into the system or Homebrew Python.
+
+# ── Ensure core dependencies are installed ────────────────────────────────
+# setup.sh handles first-run, but cloned repos or manual venv resets can
+# leave the venv without packages. Reinstall BOTH the UI deps (Flask, Waitress,
+# pywebview — without which no window ever appears) and the library deps.
+# Quick no-op when everything is current.
+"$VENV/bin/python" -m pip install --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1
+"$VENV/bin/python" -m pip install --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
+# Best-effort: a platform without a wheel for an optional package must not
+# fail the launch. `|| true` keeps the non-zero exit from leaking out of this
+# block regardless of how the caller invokes the script.
+"$VENV/bin/python" -m pip install --quiet -r "$SCRIPT_DIR/requirements_optional.txt" >> "$LOG" 2>&1 || true
+
+# ── Update to the latest RELEASE (skip in dev mode) ──────────────────────
+# Release-gated: tracks GitHub's "latest release" tag, same endpoint the
+# in-app update_checker.py uses, so the launcher and the UI always agree.
+# Devs working from source opt out by touching a .dev sentinel in the repo root
+# (or in fablegear/).
+# Offline-safe: if the API is unreachable, the app launches on current code.
+cd "$SCRIPT_DIR"
+# An installed copy (made by the installer app) is a snapshot with no .git: it is updated by running
+# a newer installer, so skip the git-based update entirely.
+# In a source checkout this script lives in <repo>/fablegear/, so .git and the .dev
+# sentinel sit one level up; a release install has neither.
+REPO_TOP="$STATE_DIR"
+if [ ! -f "$REPO_TOP/.dev" ] && [ ! -f "$SCRIPT_DIR/.dev" ] && [ -d "$REPO_TOP/.git" ]; then
+  git fetch origin --tags --quiet >> "$LOG" 2>&1
+  LATEST_TAG=$(curl -fsSL --max-time 10 \
+    "https://api.github.com/repos/fabledharbinger0993/FableGear/releases/latest" 2>/dev/null \
+    | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
+  CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+  if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "$CURRENT_TAG" ]; then
+    # Best-effort heads-up: an update can take minutes and everything below
+    # is silenced, so without this the only user feedback is a missing window.
+    osascript -e "display notification \"Updating to $LATEST_TAG — the window will open when ready\" with title \"FableGear\"" >/dev/null 2>&1 &
+    if git merge-base --is-ancestor HEAD "$LATEST_TAG" 2>/dev/null; then
+      echo "FableGear: updating ${CURRENT_TAG:-untagged} -> $LATEST_TAG" >> "$LOG"
+      PREV_HEAD=$(git rev-parse HEAD)
+      if git merge --ff-only "$LATEST_TAG" >> "$LOG" 2>&1; then
+        if "$VENV/bin/python" -m pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1 \
+          && "$VENV/bin/python" -m pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1; then
+          :
+        else
+          echo "FableGear: dependency install failed after update; rolling back" >> "$LOG"
+          if git diff --quiet && git diff --cached --quiet; then
+            git reset --hard "$PREV_HEAD" >> "$LOG" 2>&1
+          else
+            echo "FableGear: skipped rollback because local changes are present" >> "$LOG"
+          fi
+        fi
+      else
+        echo "FableGear: fast-forward to $LATEST_TAG failed; staying on ${CURRENT_TAG:-current}" >> "$LOG"
+      fi
+    elif git merge-base --is-ancestor "$LATEST_TAG" HEAD 2>/dev/null; then
+      # HEAD is a DESCENDANT of the latest tag — i.e. ahead of the release
+      # (a dev checkout, or a build not yet tagged). Never downgrade; leave it.
+      echo "FableGear: HEAD is ahead of $LATEST_TAG; staying on current build" >> "$LOG"
+    else
+      # HEAD is neither an ancestor nor a descendant of the latest tag — the
+      # clone has genuinely DIVERGED (left on an old branch, or files edited
+      # outside git), so a fast-forward is impossible and the install would
+      # otherwise be stuck on stale code forever. A release install (no .dev)
+      # must track the release line, so realign hard to the tag. Any local
+      # changes are stashed first (recoverable via `git stash list`), never
+      # silently discarded.
+      echo "FableGear: clone diverged from $LATEST_TAG; realigning to the release" >> "$LOG"
+      if ! git diff --quiet || ! git diff --cached --quiet; then
+        git stash push -u -m "fablegear-auto-$(git rev-parse --short HEAD)" >> "$LOG" 2>&1 || true
+      fi
+      if git reset --hard "$LATEST_TAG" >> "$LOG" 2>&1; then
+        "$VENV/bin/python" -m pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1
+        "$VENV/bin/python" -m pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
+        echo "FableGear: realigned to $LATEST_TAG" >> "$LOG"
+      else
+        echo "FableGear: could not realign to $LATEST_TAG; staying on ${CURRENT_TAG:-current}" >> "$LOG"
+      fi
+    fi
+  fi
+fi
+
+# ── Launch FableGear (arch-aware) ─────────────────────────────────────────
+# Resolve once here so the running app can read it directly (helpers.py /
+# state_tracker.py both check FABLEGEAR_VERSION first, falling back to a
+# `git rev-parse` subprocess call per-request when it's unset).
+if [ -f "$SCRIPT_DIR/VERSION" ]; then
+  FABLEGEAR_VERSION="$(head -n1 "$SCRIPT_DIR/VERSION" | tr -d '[:space:]')"
+else
+  FABLEGEAR_VERSION="$(git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+fi
+export FABLEGEAR_VERSION
+
+# Use 'arch -arm64' only on Apple Silicon; use plain Python on Intel Macs.
+ARCH_NAME=$(uname -m)
+if [ "$ARCH_NAME" = "arm64" ]; then
+  nohup arch -arm64 "$VENV/bin/python" "$SCRIPT_DIR/main.py" >> "$LOG" 2>&1 &
+else
+  nohup "$VENV/bin/python" "$SCRIPT_DIR/main.py" >> "$LOG" 2>&1 &
+fi
+
+# ── Close Terminal window if launched interactively (not via Automator) ───
+# Automator runs via do shell script (no TTY), so this block is skipped there.
+# When run manually from Terminal, close the window so it doesn't linger.
+if [ -t 0 ]; then
+  osascript -e 'tell application "Terminal" to close front window' > /dev/null 2>&1 &
+fi

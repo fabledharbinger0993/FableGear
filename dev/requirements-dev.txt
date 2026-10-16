@@ -1,0 +1,12 @@
+# Development-only dependencies. Not installed by setup.sh or launch.sh.
+#
+#   pip install -r dev/requirements-dev.txt      (from the repo root)
+#   python -m pytest dev/tests
+
+-r ../fablegear/requirements.txt
+
+pytest>=8.0
+# Test runner for the tests/ suite.
+
+ruff>=0.16
+# Lint gate. `ruff check .` must pass — see ruff.toml for the curated rule set.
