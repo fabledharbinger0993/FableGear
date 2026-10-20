@@ -37,6 +37,54 @@ except Exception as e:
     log.warning("Could not patch pyrekordbox construct Struct definitions: %s", e)
 
 
+# Tag order of every ANLZ file in the untouched Rekordbox export (412 of 412 tracks,
+# dev/tests/fixtures/rekordbox_ground_truth_export). Cue lists: hot cues first, then memory.
+_DAT_TAG_ORDER = ("PPTH", "PVBR", "PQTZ", "PWAV", "PWV2", "PCOB")
+_EXT_TAG_ORDER = ("PPTH", "PWV3", "PCOB", "PCO2", "PQT2", "PWV5", "PWV4", "PSSI")
+
+
+def _empty_cue_tag(fourcc: str, kind: str) -> bytes:
+    """An empty PCOB/PCO2 cue list; byte-identical to the ones Rekordbox writes."""
+    if fourcc == "PCOB":
+        return structs.AnlzTag.build({"type": "PCOB", "len_header": 24, "len_tag": 24, "content": {
+            "cue_type": kind, "unk": 0, "count": 0, "memory_count": -1, "entries": []}})
+    return structs.AnlzTag.build({"type": "PCO2", "len_header": 20, "len_tag": 20, "content": {
+        "type": kind, "count": 0, "unknown": 0, "entries": []}})
+
+
+def _reorder_anlz_tags(path: Path, order: tuple[str, ...]) -> None:
+    """Rewrite an ANLZ file with its tags in ``order`` (stable: tags of one kind keep their relative
+    order; kinds not listed keep their place after the listed ones). Hot-cue lists are put before
+    memory lists. A file that does not parse as a PMAI tag chain is left untouched."""
+    data = Path(path).read_bytes()
+    if data[:4] != b"PMAI":
+        return
+    head = int.from_bytes(data[4:8], "big")
+    tags, i = [], head
+    while i + 12 <= len(data):
+        lt = int.from_bytes(data[i + 8:i + 12], "big")
+        if lt < 12 or i + lt > len(data):
+            return
+        tags.append(data[i:i + lt])
+        i += lt
+    if i != len(data):
+        return
+
+    def key(item: tuple[int, bytes]) -> tuple[int, int, int]:
+        pos, blob = item
+        fourcc = blob[:4].decode("ascii", "replace")
+        rank = order.index(fourcc) if fourcc in order else len(order)
+        hot_first = 0
+        if fourcc in ("PCOB", "PCO2") and len(blob) >= 16:
+            hot_first = 0 if int.from_bytes(blob[12:16], "big") == 1 else 1
+        return rank, hot_first, pos
+
+    body = b"".join(blob for _, blob in sorted(enumerate(tags), key=key))
+    out = bytearray(data[:head]) + body
+    out[8:12] = len(out).to_bytes(4, "big")
+    Path(path).write_bytes(bytes(out))
+
+
 class PioneerExporter:
     """
     Exports FableGear database to Pioneer-compatible formats.
@@ -411,6 +459,13 @@ class PioneerExporter:
                 })
                 dat_file.tags.append(PCOBAnlzTag(hc_data))
 
+            # Rekordbox writes both cue lists in every DAT (empty when there are no cues of that
+            # kind), hot cues first; _reorder_anlz_tags puts the lists in that order below.
+            if not hot_cues:
+                dat_file.tags.append(PCOBAnlzTag(_empty_cue_tag("PCOB", "hotcue")))
+            if not memory_cues:
+                dat_file.tags.append(PCOBAnlzTag(_empty_cue_tag("PCOB", "memory")))
+
             dat_file.update_len()
             dat_file.save(dat_path)
 
@@ -433,6 +488,11 @@ class PioneerExporter:
             pth_tag_ext = PPTHAnlzTag(pth_data_ext)
             pth_tag_ext.set(relative_audio_path)
             ext_file.tags.append(pth_tag_ext)
+
+            # Rekordbox's EXT carries both PCOB lists too, empty: the cues live in PCO2 there
+            # (405 of 412 tracks of the ground-truth export).
+            ext_file.tags.append(PCOBAnlzTag(_empty_cue_tag("PCOB", "hotcue")))
+            ext_file.tags.append(PCOBAnlzTag(_empty_cue_tag("PCOB", "memory")))
 
             # B. PCO2 Tags (Memory cues & Hot cues separate)
             if memory_cues:
@@ -534,6 +594,11 @@ class PioneerExporter:
                 })
                 ext_file.tags.append(PCO2AnlzTag(hc2_data))
 
+            if not hot_cues:
+                ext_file.tags.append(PCO2AnlzTag(_empty_cue_tag("PCO2", "hotcue")))
+            if not memory_cues:
+                ext_file.tags.append(PCO2AnlzTag(_empty_cue_tag("PCO2", "memory")))
+
             ext_file.update_len()
             ext_file.save(ext_path)
 
@@ -542,6 +607,8 @@ class PioneerExporter:
             # .2EX). Best-effort: a track whose audio can't be read/analysed still
             # gets a valid ANLZ set (grid + cues), just without waveforms.
             self._inject_waveforms(track, dat_path, ext_path, anlz_dir)
+            _reorder_anlz_tags(dat_path, _DAT_TAG_ORDER)
+            _reorder_anlz_tags(ext_path, _EXT_TAG_ORDER)
 
             log.info("Successfully generated ANLZ files for content %d at %s", content_id, anlz_dir)
             return True

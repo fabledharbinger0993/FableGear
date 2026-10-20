@@ -114,6 +114,37 @@ def test_stick_carries_both_libraries_audio_and_anlz_that_agree(library, tmp_pat
            [("Gigs/Friday", ["Kick One", "Beyoncé Edit"])]
 
 
+def _tag_sequence(path: Path) -> list[str]:
+    """Tags in file order; cue lists marked h (hot) / m (memory)."""
+    data, out = path.read_bytes(), []
+    i = int.from_bytes(data[4:8], "big")
+    while i < len(data):
+        fourcc, lt = data[i:i + 4].decode(), int.from_bytes(data[i + 8:i + 12], "big")
+        out.append(fourcc + ("h" if int.from_bytes(data[i + 12:i + 16], "big") == 1 else "m")
+                   if fourcc in ("PCOB", "PCO2") else fourcc)
+        i += lt
+    return out
+
+
+# Rekordbox's sequence in all 412 tracks of the untouched export (PVBR, PQT2, PSSI not written by FableGear).
+_RB_DAT = ["PPTH", "PVBR", "PQTZ", "PWAV", "PWV2", "PCOBh", "PCOBm"]
+_RB_EXT = ["PPTH", "PWV3", "PCOBh", "PCOBm", "PCO2h", "PCO2m", "PQT2", "PWV5", "PWV4", "PSSI"]
+
+
+def test_anlz_tags_follow_rekordbox_order_with_and_without_cues(library, tmp_path):
+    from fablegear_database.database import CueRecord
+
+    first = library.get_content_with_relations(None)[0]
+    library.bulk_upsert_cues(first.id, [CueRecord(kind=1, slot=0, in_msec=500), CueRecord(kind=0, in_msec=250)])
+    usb = tmp_path / "USB"
+    cli.cmd_export_onelibrary(_args(usb / "PIONEER" / "rekordbox" / "exportLibrary.db", with_anlz=True))
+    for d in sorted((usb / "PIONEER" / "USBANLZ").glob("*/*")):
+        dat, ext = _tag_sequence(d / "ANLZ0000.DAT"), _tag_sequence(d / "ANLZ0000.EXT")
+        assert dat == [t for t in _RB_DAT if t in dat] and dat[-2:] == ["PCOBh", "PCOBm"] and "PQTZ" in dat
+        assert ext == [t for t in _RB_EXT if t in ext]
+        assert [t for t in ext if t[:3] == "PCO"] == ["PCOBh", "PCOBm", "PCO2h", "PCO2m"]
+
+
 def test_existing_device_library_is_refused_before_anything_is_written(library, tmp_path):
     rb = tmp_path / "USB" / "PIONEER" / "rekordbox"
     rb.mkdir(parents=True)
