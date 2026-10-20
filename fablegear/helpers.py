@@ -717,6 +717,22 @@ def _detect_pioneer_drive_layout(drive_path: str | Path) -> dict:
             "db_path": str(master_db),
         }
 
+    from device_export import is_fablegear_export
+
+    if is_fablegear_export(drive):
+        return {
+            "pioneer": True,
+            "layout": "fablegear-usb",
+            "export_supported": True,
+            "export_error": None,
+            "export_note": (
+                "FableGear USB library (CDJ-ready). Exporting replaces it: export.pdb for "
+                "CDJ-3000 firmware 3.2x and older players, OneLibrary for newer ones, and ANLZ "
+                "beat grids and waveforms per track. Audio already on the drive is kept."
+            ),
+            "db_path": str(rekordbox_dir),
+        }
+
     if export_library.exists() or export_pdb.exists() or export_ext.exists():
         db_path = export_library if export_library.exists() else export_pdb if export_pdb.exists() else export_ext
         return {
@@ -724,12 +740,26 @@ def _detect_pioneer_drive_layout(drive_path: str | Path) -> dict:
             "layout": "rekordbox-usb-export",
             "export_supported": False,
             "export_error": (
-                "This drive uses Rekordbox USB export files "
+                "This drive holds a Rekordbox-made USB export "
                 "(PIONEER/rekordbox/exportLibrary.db, export.pdb, exportExt.pdb). "
-                "FableGear can detect it, but it cannot safely write that Pioneer format yet."
+                "FableGear won't overwrite another program's library: use a blank drive."
             ),
             "export_note": None,
             "db_path": str(db_path),
+        }
+
+    if not (drive / "PIONEER").exists():
+        return {
+            "pioneer": False,
+            "layout": "blank",
+            "export_supported": True,
+            "export_error": None,
+            "export_note": (
+                "No Pioneer library yet. FableGear writes a CDJ-ready USB library: export.pdb for "
+                "CDJ-3000 firmware 3.2x and older players, OneLibrary for newer ones, the audio "
+                "under Contents/, and ANLZ beat grids and waveforms per track."
+            ),
+            "db_path": None,
         }
 
     return {
@@ -1231,6 +1261,135 @@ def export_target_reachable(drive_path: str) -> bool:
         return False
 
 
+# Drive layouts the Record Room exports to through device_export (a CDJ-ready USB library).
+DEVICE_EXPORT_LAYOUTS = ("blank", "fablegear-usb")
+
+# Rekordbox colour ids -> FableGear's stored hex (same table as fablegear_database.rekordbox_sync).
+_RB_COLOR_HEX = {1: "#ff007f", 2: "#ff0000", 3: "#ffaa00", 4: "#ffff00",
+                 5: "#00ff00", 6: "#00f3ff", 7: "#0000ff", 8: "#7f00ff"}
+
+
+def _rekordbox_export_sources(src, playlist_ids: list) -> tuple[list, list, list[str]]:
+    """Selected Rekordbox playlists (plus the folders above them) as device_export sources.
+
+    Reads only. Returns (tracks, playlists, errors)."""
+    from pathlib import Path as _Path
+
+    from device_export import SourcePlaylist, SourceTrack
+
+    def _name(obj, attr):
+        rel = getattr(obj, attr, None)
+        return getattr(rel, "Name", None) or getattr(rel, "ScaleName", None)
+
+    def _int(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    by_id = {str(p.ID): p for p in src.get_playlist().all()}
+    errors: list[str] = []
+    tracks: dict[str, SourceTrack] = {}
+    nodes: dict[str, SourcePlaylist] = {}
+
+    def _add_folders(pl) -> None:
+        parent = str(getattr(pl, "ParentID", "") or "")
+        while parent and parent in by_id and parent not in nodes:
+            f = by_id[parent]
+            grand = str(getattr(f, "ParentID", "") or "")
+            nodes[parent] = SourcePlaylist(key=parent, name=f.Name or "Folder",
+                                           parent_key=grand if grand in by_id else None, is_folder=True)
+            parent = grand
+
+    for pl_id in playlist_ids:
+        pl = by_id.get(str(pl_id))
+        if pl is None:
+            errors.append(f"Playlist {pl_id} not found in source library")
+            continue
+        if int(getattr(pl, "Attribute", 0) or 0) == 1:
+            errors.append(f"Playlist {pl.Name or pl_id} is a folder and cannot be exported directly")
+            continue
+        parent = str(getattr(pl, "ParentID", "") or "")
+        node = SourcePlaylist(key=str(pl.ID), name=pl.Name or "Playlist",
+                              parent_key=parent if parent in by_id else None)
+        _add_folders(pl)
+        for song in src.get_playlist_songs(PlaylistID=pl.ID).order_by("TrackNo").all():
+            t = song.Content
+            if t is None:
+                continue
+            path = t.FolderPath or ""
+            if not path.startswith("/") and not (len(path) > 2 and path[1] == ":"):
+                errors.append(f"{t.Title or 'Track'} has no absolute source path")
+                continue
+            if not _Path(path).exists():
+                errors.append(f"{_Path(path).name}: source file is missing")
+                continue
+            if path not in tracks:
+                bpm = _int(getattr(t, "BPM", None))
+                tracks[path] = SourceTrack(
+                    path=_Path(path), title=t.Title, artist=_name(t, "Artist"), album=_name(t, "Album"),
+                    genre=_name(t, "Genre"), label=_name(t, "Label"), bpm=bpm / 100 if bpm else None,
+                    key=_name(t, "Key"), duration=_int(getattr(t, "Length", None)),
+                    year=_int(getattr(t, "ReleaseYear", None)), track_number=_int(getattr(t, "TrackNo", None)),
+                    disc_number=_int(getattr(t, "DiscNo", None)), comment=getattr(t, "Commnt", None),
+                    rating=_int(getattr(t, "Rating", None)) or 0,
+                    color=_RB_COLOR_HEX.get(_int(getattr(t, "ColorID", None)) or 0),
+                    bit_rate=_int(getattr(t, "BitRate", None)), sample_rate=_int(getattr(t, "SampleRate", None)),
+                )
+            node.track_paths.append(path)
+        nodes[node.key] = node
+    # Folders before their children, playlists in the order chosen.
+    ordered = [n for n in nodes.values() if n.is_folder] + [n for n in nodes.values() if not n.is_folder]
+    return list(tracks.values()), ordered, errors
+
+
+def _run_device_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
+    """Background thread: the Record Room's CDJ-ready export (see device_export.py)."""
+    from config import LOCAL_DB as _DB
+    from db_connection import read_db
+    from device_export import export_playlists_to_drive
+
+    def _update(patch: dict) -> None:
+        with _EXPORT_LOCK:
+            _EXPORT_JOBS[job_id].update(patch)
+
+    try:
+        with read_db(_DB) as src:
+            tracks, playlists, errors = _rekordbox_export_sources(src, playlist_ids)
+        if not tracks:
+            _update({"status": "complete_with_errors" if errors else "complete", "errors": errors,
+                     "tracks_total": 0, "tracks_done": 0, "current_track": ""})
+            return
+        _update({"tracks_total": len(tracks), "tracks_done": 0, "status": "running"})
+
+        fg_db = None
+        try:
+            from fablegear_database import FableGearDatabase
+            fg_db = FableGearDatabase(create=False)  # read only: Iron's analysis, grids and cues
+        except Exception as exc:
+            log.info("USB export without FableGear's own analysis (%s); using the source's values", exc)
+
+        def _progress(done: int, total: int, name: str) -> None:
+            _update({"tracks_done": done, "tracks_total": total or len(tracks), "current_track": name})
+
+        res = export_playlists_to_drive(
+            Path(drive_path), tracks, playlists, fablegear_db=fg_db, progress=_progress,
+            still_mounted=lambda: export_target_reachable(drive_path),
+        )
+        errors += res.errors
+        lost = any("disappeared" in e for e in res.errors)
+        _update({
+            "status": "failed" if lost else ("complete_with_errors" if errors else "complete"),
+            "tracks_done": res.tracks_written, "tracks_total": res.tracks_written,
+            "errors": errors, "current_track": "",
+            "layout": "fablegear-usb", "anlz_written": res.anlz_written,
+            "tracks_from_fablegear": res.tracks_from_fablegear,
+        })
+    except Exception as exc:
+        log.exception("USB export failed")
+        _update({"status": "failed", "errors": [str(exc)], "current_track": ""})
+
+
 def _run_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
     """
     Background thread: export selected playlists from the main Rekordbox DB
@@ -1293,6 +1452,9 @@ def _run_export(job_id: str, playlist_ids: list, drive_path: str) -> None:
 
     try:
         drive_info = _detect_pioneer_drive_layout(drive_path)
+        if drive_info.get("layout") in DEVICE_EXPORT_LAYOUTS and drive_info.get("export_supported"):
+            _run_device_export(job_id, playlist_ids, drive_path)
+            return
         if not drive_info.get("pioneer"):
             _update({"status": "failed", "errors": [f"No Pioneer export structure detected on {drive_path}"]})
             return
