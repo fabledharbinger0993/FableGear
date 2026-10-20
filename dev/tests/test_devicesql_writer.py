@@ -316,7 +316,7 @@ def test_write_device_library_refuses_to_overwrite_and_verifies(tmp_path):
     rb = tmp_path / "PIONEER" / "rekordbox"
     res = W.write_device_library(rb, lib)
     assert res.tracks_written == 21 and (rb / "export.pdb").is_file() and (rb / "exportExt.pdb").is_file()
-    assert not (rb / ".fg_verify").exists()
+    assert sorted(p.name for p in rb.iterdir()) == ["export.pdb", "exportExt.pdb"]  # nothing else left on the stick
     with pytest.raises(FileExistsError):
         W.write_device_library(rb, lib)
     W.write_device_library(rb, lib, overwrite=True)
@@ -335,4 +335,4 @@ def test_write_device_library_catches_a_bad_encoding(tmp_path, monkeypatch):
     rb = tmp_path / "PIONEER" / "rekordbox"
     with pytest.raises(ValueError, match="BPM/key"):
         W.write_device_library(rb, lib)
-    assert not (rb / "export.pdb").exists()
+    assert not rb.exists()  # refused before anything touched the stick

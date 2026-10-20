@@ -206,6 +206,11 @@ def write_usb_library(
     if is_fablegear_export(drive):
         _clear_previous_export(drive)
     rb.mkdir(parents=True, exist_ok=True)
+    # The marker goes down first: if this export fails half way, the next one recognises the
+    # half-written library as FableGear's and replaces it, instead of refusing the drive.
+    marker_path(drive).write_text(
+        "This USB library was written by FableGear. FableGear may replace it on the next export.\n"
+        f"Written: {datetime.now().isoformat(timespec='seconds')}\n", encoding="utf-8")
 
     res = DeviceExportResult()
     if progress:
@@ -218,9 +223,6 @@ def write_usb_library(
     write_device_library(rb, one.device_library, overwrite=True)
     write_rbfltr(pioneer)
     write_dj_profile(pioneer, display_name="FableGear")
-    marker_path(drive).write_text(
-        "This USB library was written by FableGear. FableGear may replace it on the next export.\n"
-        f"Written: {datetime.now().isoformat(timespec='seconds')}\n", encoding="utf-8")
 
     exporter = PioneerExporter(export_db)
     paths = {t.id: t.file_path for t in one.device_library.tracks}

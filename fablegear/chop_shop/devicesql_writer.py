@@ -62,6 +62,7 @@ Iron's key and BPM on the owner's CDJ-3000 (dev/docs/devicesql_export_writer.md 
 from __future__ import annotations
 
 import os
+import tempfile
 import zlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -699,26 +700,18 @@ def write_device_library(rekordbox_dir: Path, lib: DeviceLibrary, *, overwrite: 
     for name in targets:
         if (rekordbox_dir / name).exists() and not overwrite:
             raise FileExistsError(f"Refusing to overwrite existing file: {rekordbox_dir / name}")
-    rekordbox_dir.mkdir(parents=True, exist_ok=True)
-
-    verify_dir = rekordbox_dir / ".fg_verify"
-    verify_dir.mkdir(exist_ok=True)
-    try:
+    # Verified in a local temp folder, so a failure leaves nothing behind on the stick.
+    with tempfile.TemporaryDirectory(prefix="fg_pdb_verify_") as verify_dir:
         for name, data in targets.items():
-            probe = verify_dir / name
+            probe = Path(verify_dir) / name
             probe.write_bytes(data)
             rep = reader.read_pdb(probe)
             if not rep.valid_header or rep.partial:
                 raise ValueError(f"{name}: written bytes do not read back ({rep.detail}; {rep.notes})")
             if name == "export.pdb":
                 _check_export_readback(rep, lib)
-            probe.unlink()
-    finally:
-        try:
-            verify_dir.rmdir()
-        except OSError:
-            pass
 
+    rekordbox_dir.mkdir(parents=True, exist_ok=True)
     for name, data in targets.items():
         _atomic_write(rekordbox_dir / name, data)
     result.export_pdb = str(rekordbox_dir / "export.pdb")

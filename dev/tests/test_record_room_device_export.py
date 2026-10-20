@@ -179,6 +179,24 @@ def test_reexport_replaces_the_library_and_keeps_audio(tmp_path, rekordbox):
     assert [t.title for t in R.read_pdb(drive / "PIONEER" / "rekordbox" / "export.pdb").tracks] == ["Ay"]
 
 
+def test_a_failed_export_can_be_retried(tmp_path, rekordbox, monkeypatch):
+    from chop_shop import devicesql_writer as W
+
+    src, *_ = rekordbox
+    tracks, playlists, _ = helpers._rekordbox_export_sources(src, ["11"])
+    drive = tmp_path / "USB"
+    drive.mkdir()
+    real = W.write_device_library
+    monkeypatch.setattr(W, "write_device_library", lambda *a, **k: (_ for _ in ()).throw(OSError("unplugged")))
+    with pytest.raises(OSError):
+        device_export.export_playlists_to_drive(drive, tracks, playlists)
+    assert device_export.is_fablegear_export(drive)  # the half-written library is still recognisably ours
+    assert helpers._detect_pioneer_drive_layout(drive)["export_supported"] is True
+    monkeypatch.setattr(W, "write_device_library", real)
+    res = device_export.export_playlists_to_drive(drive, tracks, playlists)
+    assert res.tracks_written == 2 and len(R.read_pdb(drive / "PIONEER" / "rekordbox" / "export.pdb").tracks) == 2
+
+
 def test_a_drive_holding_another_library_is_never_written(tmp_path, rekordbox):
     src, *_ = rekordbox
     tracks, playlists, _ = helpers._rekordbox_export_sources(src, ["11"])
