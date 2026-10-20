@@ -1,5 +1,12 @@
 # Rekordbox ↔ FableGear export parity — gap analysis
 
+> **Correction (2026-10-20):** the "export.pdb holds only 57 tracks" headline below is wrong. It was
+> counted with the DeviceSQL reader before its row-group decoding was fixed (it then recovered 3 of 21
+> rows on another real stick). The fixed reader finds **413 track rows, 413 unique ids** in this
+> `export.pdb`: Rekordbox writes the whole library to the Device Library. Also stale below: FableGear
+> now writes `export.pdb`/`exportExt.pdb` and the ANLZ files in its exports. See
+> `dev/docs/devicesql_export_writer.md` section 6.
+
 Status: **Phase 0 COMPLETE** (ground truth captured from the *finished* export).
 FableGear-side column is established statically from code (definitive).
 Rekordbox-side column is measured from the real completed export. The "present
