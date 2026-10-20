@@ -37,7 +37,16 @@ mutagen/essentia/librosa.
 
 ---
 
-## 1. Current status (callouts dated up to 2026-10-14; body text from 2026-08-27)
+## 1. Current status (callouts dated up to 2026-10-20; body text from 2026-08-27)
+
+> **2026-10-20 (key net, USB export, Quench → DB):** key detection is now a small tonic-equivariant net
+> fitted on 29,291 Rekordbox-analysed tracks: **61.6% -> 63.4% exact on 3,000 untouched tracks**
+> (146 fixed / 94 broken, McNemar p = 0.001), chosen by a rule declared before the untouched set was
+> scored; the previous linear model stays as `detect_key_linear`. Tempo is unchanged; a fresh 3,000-track
+> hold-out gives 83.0% exact / 92.4% within 4% (no regression; matches SS21's whole library). §26.3 is
+> resolved: FableGear writes the DeviceSQL `export.pdb` CDJ-3000 firmware 3.2x reads, plus OneLibrary and
+> matching ANLZ, from `export-onelibrary` and the Record Room export (deck test still pending). Quench's
+> loudness now persists to `fg_loudness`. See §31.
 
 > **2026-10-14 (key window, later):** the key is now read from the WHOLE track (up to 10 min) instead of the
 > tempo body window, with weights refitted on whole-track chroma: **60.8% -> 62.2% exact** on 1,998
@@ -561,6 +570,17 @@ findings).
 - **Key: reading only the tempo body window -- SS28.3.** The whole track agrees with Rekordbox 1.8 points
   more often out-of-fold (5,295 tracks, p = 7e-5). SS10's "no gain from whole-track decoding" was about
   tempo; do not carry it over to key.
+
+- **Key: SS28.2's "the nonlinear net is about one point, not worth shipping" -- superseded by SS31.3.**
+  That was true at 2,795-5,295 training tracks; at 29,291 the net is +1.7 on an untouched 3,000 (p = 0.001)
+  and shipped. Conversely, do not expect more data to lift the *linear* form: refitted on the same 29k it
+  gained 0.4 (not significant).
+- **Key: half-track chroma views (SS28.2, re-tested at 17-29k in SS31.3).** Still no gain for either family.
+- **Tempo: SS20.9's backbeat-ratio doubling rule.** Not re-run in SS31.4 because SS22 already rejected that
+  feature family on held-out data; a new attempt needs the SS19.9 convention decision and ear labels
+  (`~/FableGearTestbed/results/tempo_earcheck.json` holds 91 candidates).
+- **USB export: "Rekordbox writes only a partial export.pdb (57 of 413 tracks)".** A pre-fix reader
+  artifact; the untouched export holds all 413 (dev/docs/devicesql_export_writer.md §6.1).
 ---
 
 ## 6. Tools available for continuing this work
@@ -3055,6 +3075,151 @@ Layout only. No detector, tag or loudness code changed.
   e.g. `python dev/scripts/benchmark_key_bpm_vs_rekordbox.py`.
 - `downloader.py` (dead since the phone companion split) moved to `dev/legacy/`, and `yt-dlp` was
   dropped from `fablegear/requirements.txt`.
+
+## 31. Forge results reach the stick and the database; key at scale; a fresh tempo hold-out (2026-10-20)
+
+Task (from Marshall): Iron, Anvil and Quench must all write to both the database and the file, survive
+a USB export, and be recognised in the USBANLZ folder Pioneer gear reads; improve Iron's BPM and/or key
+accuracy first if possible. Branch `forge-usb-device-library`. Labels as in §27: **demonstrated**,
+**inferred**, **unknown**.
+
+### 31.1 Audit: who writes where (demonstrated from code)
+
+| tool | file | FableGear DB | USB stick |
+|---|---|---|---|
+| Iron (BPM, key) | via Anvil tags | `bulk_set_analysis` (Forge, Record Room) | **was missing** for CDJ-3000 fw 3.2x: no `export.pdb` (§26.3) |
+| Anvil (tags) | yes | DB values written back to tags (Record Room), tags filled into the DB (Forge) | n/a |
+| Quench (loudness) | yes (levelled audio) | **was missing**: nothing persisted | the levelled audio is what gets copied |
+
+### 31.2 What changed (demonstrated; tests named)
+
+- **USB: §26.3 resolved by building the DeviceSQL writer.** `fablegear/chop_shop/devicesql_writer.py`
+  writes `export.pdb` / `exportExt.pdb`. All four committed Rekordbox files round-trip byte for byte;
+  encoders reproduce Rekordbox's own row bytes. `cli.py export-onelibrary` writes it by default beside
+  OneLibrary, from one pass, so the pdb track rows, `/Contents` audio and `PIONEER/USBANLZ` ANLZ paths
+  agree; the Record Room export writes the same stick onto a blank drive (or a FableGear stick), with
+  FableGear's analysis (Iron's BPM/key) winning over Rekordbox's. Full record and the remaining unknowns:
+  `dev/docs/devicesql_export_writer.md` §6. Tests: `test_devicesql_writer.py`, `test_device_export_cli.py`,
+  `test_record_room_device_export.py`.
+- **ANLZ as Rekordbox writes it**: both cue lists in every DAT/EXT (empty when none, byte-identical to
+  Rekordbox's), hot cues first, PCOB in EXT, and Rekordbox's tag order in all 412 tracks of the
+  ground-truth export. PVBR, PQT2, PSSI still not written.
+- **Quench → DB**: `fg_loudness` (LUFS and true peak as the file now is, target, gain applied when
+  Quench rewrote it), persisted by `_persist_process_results` beside Iron's BPM/key. Schema 1.2.0,
+  auto-migrated on open. Tests: `test_quench_persistence.py`.
+- OneLibrary `bitrate` is kbps now (it was bits per second, 320000 for a 320 kbps MP3).
+
+**Not shown:** no deck has loaded a FableGear-only stick yet (deck tests A and B).
+
+### 31.3 Key: five times the training data, and the net SS28 left on the table
+
+SS27.8 and SS28.7 both said to retrain once Rekordbox finished analysing the library. It has: a snapshot
+of the local Rekordbox 7 `master.db` (copied with wal and shm; the live file was not opened) gives
+**57,245** unique Rekordbox-analysed tracks whose files exist (one per (size, length)), against the
+20,096 of SS21. New, seeded, disjoint sets (path and file size) from that pool:
+
+| set | n | role |
+|---|---|---|
+| `confirm4` | 3,000 (all decoded) | **untouched**: drawn first, scored once after the selection was frozen |
+| `train4` | 11,998 (2 failed to decode) | training |
+| `train5` | 11,996 (4 failed to decode) | training |
+
+Whole-track spectra (`key_lab_extract.py --window whole --variants w1,w05,w2,mag`; the `--variants`
+and `pool` options are new) for 27,000 tracks took 78 minutes with 6 workers.
+
+**Method, declared in `dev/scripts/experiments/key_lab_scale.py`'s docstring before any untouched number
+existed.** Pools T0 = the shipped model's 5,297 tracks, T1 = T0 + train4 (17,295), T2 = T1 + train5
+(29,291). Two families over the shipped four whole-track views (optionally plus the same views on each
+half of the track): the linear model of SS27, and a tonic-equivariant net, score(t, m) = W[m] . x_t +
+v[m] . tanh(A x_t + c) + b[m], with one hidden layer of H units shared by all twelve tonics. 7 linear +
+18 net configurations (H 24/48/96, lam 0.01/0.03/0.1), each scored on a fixed, seeded 20% validation
+split of its pool. The candidate = the best validation configuration on T2, refitted on all of T2 with
+three seeds (logits averaged). **Ship rule:** >= +1.0 point on `confirm4` over the shipped detector
+with McNemar p < 0.01, and no loss on `confirm2 + confirm3` pooled. Checks before the run: analytic
+gradient equals finite differences (relative error 2e-9); the offline replica of the shipped detector
+agrees with live `iron.analyze` on 40 of 40 `confirm4` files.
+
+Validation exact-match by pool (demonstrated; full table in the benchmark JSON below):
+
+| pool | shipped detector | best linear | best net (config) |
+|---|---|---|---|
+| T0 (5,297; val 1,059) | 60.9 (in-sample) | 60.8 | 61.9 (H 48, lam 0.1); noise level, SE about 1.5 |
+| T1 (17,295; val 3,459) | 61.5 (partly in-sample) | 61.7 | 63.3 (H 24, lam 0.01) |
+| T2 (29,291; val 5,858) | 61.0 (partly in-sample) | 61.4 | **62.6 (H 24, lam 0.03): selected** |
+
+Half-track views never helped the linear model and helped the net only at the most regularised setting.
+
+**Untouched and held-out results** (exact match with Rekordbox's key; fixed / broken against the shipped
+detector, McNemar p):
+
+| set | n | shipped (SS28 linear) | **selected net** | fixed / broke, p | same linear form refitted on T2 |
+|---|---|---|---|---|---|
+| **confirm4 (untouched)** | 3,000 | 61.6 | **63.4** | **146 / 94, p = 0.001** | 62.0 (p = 0.36) |
+| confirm2 | 999 | 62.1 | 63.5 | 53 / 39, p = 0.17 | 62.1 |
+| confirm3 | 1,000 | 62.3 | 65.2 | 61 / 32, p = 0.004 | 62.5 |
+| rbfresh | 999 | 62.1 | 62.7 | 31 / 25, p = 0.50 | 62.4 |
+| rb200 | 200 | 66.0 | 67.0 | 11 / 9, p = 0.82 | 68.0 |
+| mixed150 (older tag keys) | 150 | 59.3 | 58.0 | 5 / 7, p = 0.77 | 62.0 |
+
+**Ship rule: PASS** (+1.73 points on `confirm4`, p = 0.00095; +43 tracks on `confirm2 + confirm3`).
+Reading (inferred): more data alone does nothing for the linear form (+0.4, not significant); the net
+needed it -- at SS28's 2,795-5,295 tracks it was within noise of the linear model, at 17-29k it is
+ahead on every large set. mixed150 moves 2 tracks the wrong way against a weaker reference; not
+significant, and noted rather than explained.
+
+**Shipped** (`fablegear/iron/key.py`, weights generated into `fablegear/iron/key_net_weights.py` by
+`dev/scripts/experiments/key_lab_export_weights.py`; 3 seeds x 1,322 numbers, float32, base64, 24 KB):
+`detect_key` is the net; the SS28 linear model stays as `detect_key_linear`, the SS18 detector as
+`detect_key_profile`. Verified after the switch (demonstrated): the float32 weights reproduce the
+evaluated numbers offline (63.37 / 63.46 / 65.20 on confirm4 / confirm2 / confirm3); live `iron.analyze`
+equals the offline prediction on 200 of 200 `confirm4` files; the 24-key synthetic triad test passes; a
+new tonic-equivariance test (rolling the views rolls the logits) is mutation-checked (a wrong roll
+direction fails 24 of 24 equivariance and 20 of 24 triad cases). Scoring costs about 0.04 ms per track.
+Confidence calibration on `confirm4` (accuracy by probability bin): 28% below 0.3 (n 180), 39% at
+0.3-0.5 (735), 57% at 0.5-0.7 (779), 81% at 0.7-0.9 (931), 96% above 0.9 (375); confirm2 and confirm3
+are within a few points of these.
+
+**What this does NOT show.** Agreement with Rekordbox 7, not closeness to the music; still no
+ear-checked key set. One library. The training labels are Rekordbox's analysis (the SS27.7 decision for
+the owner still applies). Fifth-related confusions remain the largest error class.
+
+### 31.4 Tempo: a fresh hold-out, and why the detector is unchanged
+
+`dev/scripts/experiments/tempo_holdout.py`: 3,000 seeded tracks from the 37,224 Rekordbox-analysed tracks
+that no earlier tempo benchmark used (the SS21 20,096 excluded by path and file size), current Iron,
+read only. **83.0% exact (<= 0.6 BPM), 88.4% within 1%, 91.5% within 2%, 92.4% within 4%** (0 crashes,
+3 without a tempo) -- in line with SS21's whole-library 81.3 / 87.3 / 92.9, so no regression; the 96.8%
+of SS20 is the curated 1,993 set. Misses beyond 2% (255): other 79, half 61, 2:3 40, 4:3 35, double 32,
+3:2 6, 3:4 2. By Rekordbox BPM: 160-180 holds 92 (56 half, 30 2:3, 6 other) and 80-100 holds 75
+(29 4:3, 21 double, 23 other).
+
+No tempo rule was tried: the one cue with an in-range signal (SS20.9's backbeat ratio) belongs to the
+family SS22 rejected on held-out data (11 breaks, 0 fixes), and SS5 says not to re-run it without a new
+mechanism. What SS22.4 asks for is human input: the felt-tempo vs drum-pulse convention for 160-185 BPM
+drum and bass (SS19.9), and ear labels. The hold-out yields a ready list for that:
+`~/FableGearTestbed/results/tempo_earcheck.json` (91 Iron-wrong tracks at Rekordbox 160-185 BPM, read at
+half or 2:3, with an empty `owner_label` field).
+
+### 31.5 Reproduce
+
+```
+cp ~/Library/Pioneer/rekordbox/master.db{,-wal,-shm} SNAP/          # a snapshot, never the live file
+python dev/scripts/experiments/key_lab_extract.py pool --snapshot SNAP/master.db --out ~/FableGearTestbed/refresh2/tracks.json
+for s in confirm4:3000 train4:12000 train5:12000; do
+  python dev/scripts/experiments/key_lab_extract.py extra ${s%%:*} --out-dir D --n ${s##*:} --pool ~/FableGearTestbed/refresh2/tracks.json
+  python dev/scripts/experiments/key_lab_extract.py extract --manifest D/${s%%:*}.json --out D/${s%%:*}_whole.npz \
+      --window whole --variants w1,w05,w2,mag --workers 6; done
+python dev/scripts/experiments/key_lab_scale.py --lab D --out D/scale_T0T1.json --pools T0,T1 --scan-only
+python dev/scripts/experiments/key_lab_scale.py --lab D --out D/scale_T2.json --pools T2 --export D/scale_model.json
+python dev/scripts/experiments/key_lab_export_weights.py D/scale_model.json
+python dev/scripts/experiments/tempo_holdout.py sample --pool ~/FableGearTestbed/refresh2/tracks.json \
+    --exclude ~/FableGearTestbed/refresh/tracks.json --n 3000 --out M.json
+python dev/scripts/experiments/tempo_holdout.py run --manifest M.json --out R.jsonl
+python dev/scripts/experiments/tempo_holdout.py score --run R.jsonl --earcheck E.json
+```
+
+Aggregate results: `dev/docs/iron/benchmarks/2026-10-20_key_scale_and_tempo_holdout.json`. Per-track
+files stay in `~/FableGearTestbed/` (outside the repo).
 
 ## How to add to this doc
 

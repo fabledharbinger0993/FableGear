@@ -14,17 +14,22 @@ read only at abstract level); no code or profile values were taken from that wor
 this repo's own code on the owner's library (docs/IRON_RESEARCH.md SS27, SS28); no third-party model
 or weight file is used.
 
-`detect_key` is the model of SS27, refitted on whole-track chroma in SS28 (the caller, iron.api, passes
-it the whole track rather than the tempo body window). `detect_key_profile` is the SS18 detector it replaced
-(Pearson correlation against two learned profiles on one whitened view), kept as the baseline
-for A/B benchmarks. See SS18 and SS27 for how each step was chosen and measured.
+`detect_key` is the SS31 model: the same four whole-track chroma views scored by a small
+tonic-equivariant net (one hidden layer of 24 units shared by all twelve tonics, three seeds averaged),
+fitted on 29,291 Rekordbox-analysed tracks; weights in `iron/key_net_weights.py`. On 3,000 untouched
+tracks it agrees with Rekordbox 63.4% of the time against 61.6% for `detect_key_linear` (McNemar
+p = 0.001). `detect_key_linear` is the linear model of SS27/SS28 and `detect_key_profile` the SS18
+detector; both are kept for A/B benchmarks. The caller, iron.api, passes the whole track (SS28).
 """
 
 from __future__ import annotations
 
+import base64
+
 import numpy as np
 
 from iron import dsp
+from iron import key_net_weights as _net_weights
 
 NOTES: tuple[str, ...] = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 
@@ -85,6 +90,22 @@ _MODEL_W = np.array([
 ])
 _MODEL_B = np.array([-1.6412, 1.6412])  # major, minor
 _MINOR_SHIFT = 0.00  # added to the minor logits; CV picked 0 once the model was fitted on whole tracks
+
+
+def _decode_seed(seed: tuple[str, ...]) -> tuple[np.ndarray, ...]:
+    h, d = _net_weights.HIDDEN, _net_weights.DIM
+    shapes = ((2, d), (h, d), (h,), (2, h), (2,))
+    return tuple(
+        np.frombuffer(base64.b64decode("".join(part)), dtype="<f4").astype(np.float64).reshape(shape)
+        for part, shape in zip(seed, shapes, strict=True)
+    )
+
+
+# SS31 model, per seed: score(t, m) = W[m] . x_t + v[m] . tanh(A x_t + c) + b[m], where x_t is the four
+# views rolled so tonic t sits at index 0 (view-major, 4 x 12). Seeds' logits are averaged.
+_NET_SEEDS: tuple[tuple[np.ndarray, ...], ...] = tuple(
+    _decode_seed(tuple(s if isinstance(s, str) else "".join(s) for s in seed)) for seed in _net_weights.SEEDS
+)
 
 # Camelot wheel notation, keyed by "<Note>maj"/"<Note>min".
 CAMELOT: dict[str, str] = {
@@ -148,17 +169,45 @@ def _view_chromas(y: np.ndarray, sr: int) -> np.ndarray:
     return centred / (np.linalg.norm(centred, axis=1, keepdims=True) + 1e-12)
 
 
+def _net_logits(views: np.ndarray) -> np.ndarray:
+    """(12, 2) logits of the SS31 net for (views, 12) chroma."""
+    x = np.stack([np.roll(views, -tonic, axis=1).reshape(-1) for tonic in range(12)])
+    total = np.zeros((12, 2))
+    with np.errstate(all="ignore"):  # Accelerate BLAS raises spurious matmul flags; outputs are finite
+        for W, A, c, v, b in _NET_SEEDS:
+            total += x @ W.T + np.tanh(x @ A.T + c) @ v.T + b
+    return total / len(_NET_SEEDS)
+
+
+def _decide(logits: np.ndarray) -> tuple[str, float] | None:
+    prob = np.exp(logits - logits.max())
+    prob /= prob.sum()
+    tonic, mode = np.unravel_index(int(np.argmax(prob)), prob.shape)
+    camelot = CAMELOT.get(NOTES[tonic] + ("min" if mode else "maj"))
+    if camelot is None:
+        return None
+    return camelot, round(float(prob[tonic, mode]), 4)
+
+
 def detect_key(y: np.ndarray, sr: int) -> tuple[str, float] | None:
     """
     Return (camelot_key, confidence) for a decoded clip, or None if it carries no usable
     tonal energy (silence, pure noise).
 
-    `confidence` is the model's softmax probability for the winning key (0..1). On held-out
-    Rekordbox-analysed tracks the winner is right about 22% of the time below 0.3, about 67%
-    at 0.5-0.7 and about 86% at 0.7-0.9 (SS28), so it is a usable "is this key trustworthy" signal;
-    a short or quiet clip can still score high by coincidence, so a caller enforcing a quality
-    bar should weight this alongside clip length/energy, not trust it alone.
+    `confidence` is the model's softmax probability for the winning key (0..1), a usable "is this
+    key trustworthy" signal (calibration by bin on untouched tracks: docs/IRON_RESEARCH.md SS31); a
+    short or quiet clip can still score high by coincidence, so a caller enforcing a quality bar
+    should weight this alongside clip length/energy, not trust it alone.
     """
+    views = _view_chromas(y, sr)
+    if not np.any(views[0]):
+        return None
+    return _decide(_net_logits(views))
+
+
+def detect_key_linear(y: np.ndarray, sr: int) -> tuple[str, float] | None:
+    """The SS27/SS28 linear model over the same views (detect_key until SS31), kept for A/B benchmarks.
+    `confidence` is its softmax probability (SS28 calibration)."""
     views = _view_chromas(y, sr)
     if not np.any(views[0]):
         return None
@@ -168,14 +217,7 @@ def detect_key(y: np.ndarray, sr: int) -> tuple[str, float] | None:
         rolled = np.roll(views, -tonic, axis=1)
         logits[tonic] = np.einsum("mgk,gk->m", _MODEL_W, rolled) + _MODEL_B
     logits[:, 1] += _MINOR_SHIFT
-    prob = np.exp(logits - logits.max())
-    prob /= prob.sum()
-
-    tonic, mode = np.unravel_index(int(np.argmax(prob)), prob.shape)
-    camelot = CAMELOT.get(NOTES[tonic] + ("min" if mode else "maj"))
-    if camelot is None:
-        return None
-    return camelot, round(float(prob[tonic, mode]), 4)
+    return _decide(logits)
 
 
 def detect_key_profile(y: np.ndarray, sr: int) -> tuple[str, float] | None:
