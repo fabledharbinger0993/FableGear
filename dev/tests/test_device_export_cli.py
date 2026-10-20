@@ -145,6 +145,16 @@ def test_anlz_tags_follow_rekordbox_order_with_and_without_cues(library, tmp_pat
         assert [t for t in ext if t[:3] == "PCO"] == ["PCOBh", "PCOBm", "PCO2h", "PCO2m"]
 
 
+def test_staged_file_names_are_safe_for_fat32(tmp_path):
+    from fablegear_database.onelibrary_writer import _stage_audio_file
+
+    src = tmp_path / 'What? "Edit" 1*2.wav'
+    src.write_bytes(b"RIFF" + bytes(40))
+    rel = _stage_audio_file(ContentRecord(file_path=str(src), artist="AC/DC", album="Live: 1991"), tmp_path / "USB")
+    assert rel == "/Contents/AC_DC/Live_ 1991/What_ _Edit_ 1_2.wav"
+    assert (tmp_path / "USB" / rel.lstrip("/")).read_bytes() == src.read_bytes()
+
+
 def test_existing_device_library_is_refused_before_anything_is_written(library, tmp_path):
     rb = tmp_path / "USB" / "PIONEER" / "rekordbox"
     rb.mkdir(parents=True)

@@ -243,7 +243,8 @@ def _stage_audio_file(track, drive_root: Path) -> str | None:
         return None
     artist = _safe_segment(track.artist, "UnknownArtist")
     album = _safe_segment(track.album, "UnknownAlbum")
-    filename = src.name
+    # Characters APFS allows but FAT32/exFAT refuse ('?', '*', ':', '"', ...) would make the copy fail.
+    filename = src.name.translate(_UNSAFE_SEGMENT)
     rel = f"/Contents/{artist}/{album}/{filename}"
     dest = drive_root / rel.lstrip("/")
     dest.parent.mkdir(parents=True, exist_ok=True)
