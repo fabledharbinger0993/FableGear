@@ -904,8 +904,9 @@ def cmd_duplicates(args: argparse.Namespace) -> None:
 
 def _persist_process_results(all_results, archive) -> int:
     """
-    Persist tagger analysis (BPM / key) into fg_content and append a
-    tag_tracks row to fg_processing_log.
+    Persist tagger analysis (BPM / key) into fg_content, Quench's loudness
+    measurement into fg_loudness, and append a tag_tracks row to
+    fg_processing_log.
 
     This is the producer half of the tagger → deduper Archive edge: what the
     tagger learns is durable, so downstream tools read it instead of
@@ -915,7 +916,19 @@ def _persist_process_results(all_results, archive) -> int:
         return 0
     entries = []
     existing_entries = []
+    loudness_entries = []
     for r in all_results:
+        # Quench's measurement of the file as it now is: after levelling if it rewrote the file.
+        levelled = bool(getattr(r, "normalised", False)) and getattr(r, "loudness_after", None) is not None
+        lufs = r.loudness_after if levelled else getattr(r, "loudness_before", None)
+        if lufs is not None:
+            peak = getattr(r, "true_peak_after" if levelled else "true_peak_before", None)
+            try:
+                lsize = r.path.stat().st_size
+            except OSError:
+                lsize = 0
+            loudness_entries.append((str(r.path), lsize, lufs, peak, getattr(r, "loudness_target", None),
+                                     getattr(r, "loudness_gain_db", None), levelled))
         if (r.bpm_detected is None and r.key_detected is None
                 and r.bpm_existing is None and r.key_existing is None):
             continue
@@ -931,6 +944,7 @@ def _persist_process_results(all_results, archive) -> int:
     try:
         written = archive.bulk_set_analysis(entries)
         archive.bulk_fill_analysis(existing_entries)
+        loudness_written = archive.bulk_set_loudness(loudness_entries)
         archive.log_operation(
             "tag_tracks",
             status="ok",
@@ -941,12 +955,15 @@ def _persist_process_results(all_results, archive) -> int:
                 "bpm_written": sum(1 for r in all_results if r.bpm_written),
                 "key_written": sum(1 for r in all_results if r.key_written),
                 "normalized": sum(1 for r in all_results if r.normalised),
+                "loudness_persisted": loudness_written,
                 "enrich_written": sum(1 for r in all_results if r.enrich_written),
                 "errors": sum(1 for r in all_results if not r.ok),
             },
         )
         if written:
             log.info("Archive updated: BPM/key for %d file(s) persisted to fg_content", written)
+        if loudness_written:
+            log.info("Archive updated: loudness for %d file(s) persisted to fg_loudness", loudness_written)
         return written
     except Exception as exc:
         log.warning("Failed to persist tagger analysis to archive: %s", exc)
@@ -2009,6 +2026,17 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
         else:
             log.warning("--stage-audio ignored: target is not under PIONEER/rekordbox/")
 
+    # The Device Library files must be free too, checked before anything is written, so a refusal
+    # never leaves a stick with a new exportLibrary.db beside a stale export.pdb.
+    write_pdb = not getattr(args, "no_device_library", False)
+    pdb_dir = target.parent
+    if write_pdb and not getattr(args, "force", False):
+        stale = [p for p in (pdb_dir / "export.pdb", pdb_dir / "exportExt.pdb") if p.exists()]
+        if stale:
+            log.error("Refusing to overwrite existing %s (pass --force to replace, or "
+                      "--no-device-library to leave it).", ", ".join(str(p) for p in stale))
+            sys.exit(1)
+
     # --force: replace an existing export in place (removes the DB + its WAL/SHM
     # sidecars) so re-exporting to the same stick doesn't require a manual rm.
     if getattr(args, "force", False) and target.exists():
@@ -2038,6 +2066,19 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
         log.exception("OneLibrary export failed")
         sys.exit(1)
 
+    pdb_error = None
+    if write_pdb and result.device_library is not None:
+        from chop_shop.devicesql_writer import write_device_library
+        try:
+            dl = write_device_library(pdb_dir, result.device_library,
+                                      overwrite=getattr(args, "force", False))
+            log.info("Device Library (export.pdb + exportExt.pdb): %d tracks, %d playlists -> %s",
+                     dl.tracks_written, dl.playlists_written, pdb_dir)
+        except Exception as exc:
+            pdb_error = str(exc)
+            log.error("Device Library (export.pdb) NOT written: %s. CDJ-3000 firmware 3.2x and "
+                      "older players will not see this stick's tracks.", exc)
+
     log.info("Export complete:")
     log.info("  Tracks written  : %d", result.tracks_written)
     log.info("  Tracks skipped  : %d", result.tracks_skipped)
@@ -2065,6 +2106,8 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
                 "with_anlz": bool(getattr(args, "with_anlz", False)),
                 "device_name": device_name,
                 "errors": len(result.errors),
+                "device_library": ("skipped" if not write_pdb else
+                                   "failed: " + pdb_error if pdb_error else "written"),
             },
         )
     except Exception:
@@ -2101,6 +2144,8 @@ def cmd_export_onelibrary(args: argparse.Namespace) -> None:
             "No ANLZ files written (pass --with-anlz to generate beat grids + "
             "waveforms). Without them the CDJ re-analyzes on load."
         )
+    if pdb_error:
+        sys.exit(1)
 
 
 def _generate_export_anlz(fg_db, target: Path, result) -> None:
@@ -3930,8 +3975,8 @@ Examples:
 
     p_onelib = sub.add_parser(
         "export-onelibrary",
-        help="Write a Pioneer OneLibrary exportLibrary.db from FableGear's database "
-             "(CDJ-3000/OMNIS-DUO/XDJ-AZ/OPUS-QUAD format; hardware-unvalidated)",
+        help="Write a Pioneer USB library from FableGear's database: OneLibrary exportLibrary.db "
+             "plus the DeviceSQL export.pdb older players read (hardware-unvalidated)",
     )
     p_onelib.add_argument(
         "target",
@@ -3957,6 +4002,12 @@ Examples:
         "--no-identity-files",
         action="store_true",
         help="Skip writing RBFLTR.DAT and djprofile.nxs alongside exportLibrary.db",
+    )
+    p_onelib.add_argument(
+        "--no-device-library",
+        action="store_true",
+        help="Skip the DeviceSQL export.pdb/exportExt.pdb (the format CDJ-3000 firmware 3.2x "
+             "and older players read). Written by default, beside exportLibrary.db, as Rekordbox does",
     )
     p_onelib.add_argument(
         "--force",

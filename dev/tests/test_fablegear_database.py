@@ -455,9 +455,10 @@ def test_automatic_migration(tmp_path):
         tables = {row[0] for row in cursor.fetchall()}
         assert "fg_cue" in tables
         assert "fg_beatgrid" in tables
+        assert "fg_loudness" in tables
 
         cursor.execute("SELECT value FROM fg_metadata WHERE key='schema_version'")
-        assert cursor.fetchone()[0] == "1.1.0"
+        assert cursor.fetchone()[0] == "1.2.0"
 
 def test_export_track_anlz(tmp_path):
     from chop_shop.anlz_reader import parse_anlz_file

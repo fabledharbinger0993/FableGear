@@ -116,6 +116,10 @@ class ProcessResult:
     tag_backend: str = ""            # "anvil" | "mutagen" (fallback for containers Anvil refuses)
     loudness_before: float | None = None
     loudness_after: float | None = None
+    true_peak_before: float | None = None
+    true_peak_after: float | None = None
+    loudness_gain_db: float | None = None   # gain Quench applied (None when it did not rewrite)
+    loudness_target: float | None = None
     normalised: bool = False
     skipped_bpm: bool = False
     skipped_key: bool = False
@@ -958,6 +962,10 @@ def process_file(
         )
         result.loudness_before = q.before.integrated_lufs if q.before else None
         result.loudness_after = q.after.integrated_lufs if q.after else None
+        result.true_peak_before = q.before.true_peak_dbtp if q.before else None
+        result.true_peak_after = q.after.true_peak_dbtp if q.after else None
+        result.loudness_gain_db = q.plan.applied_db if (q.levelled and q.plan) else None
+        result.loudness_target = TARGET_LUFS
         result.normalised = q.levelled
         result.skipped_loudness = q.skipped
         if q.skip_reason == "unsupported_format":
