@@ -201,3 +201,23 @@ Wiring:
 3. Settings files (`MYSETTING.DAT`, `DEVSETTING.DAT`, `DJMMYSETTING.DAT`) are not written; Rekordbox
    writes them. Unknown whether the deck needs them.
 4. The deck-accepted values of the unknown fields above are carried, not understood.
+
+### 6.5 ANLZ parity, 2026-10-22 [D]
+
+The untouched Rekordbox export writes three tags FableGear's ANLZ stage did not: `PVBR`
+(.DAT, 412/412 tracks), `PQT2` and `PSSI` (.EXT, 412/412 each).
+
+- **PVBR is now written** (`chop_shop/vbr_index.py`, injected by
+  `PioneerExporter.export_track_anlz` on both export routes). Measured layout: 16-byte
+  header (u32 0), 400 u32 index entries, one trailing u32. Non-MP3 audio gets all zeros
+  (matches all 184 PCM tracks byte for byte — pinned by a fixture test); CBR MP3 gets a
+  zero index + total sample count; VBR MP3 (3 capture examples) gets 400 monotone byte
+  offsets, taken as the frame at i/400 through the track [I — fits first entry = ID3v2
+  size, monotone, last short of EOF; Deep Symmetry leaves the body undocumented].
+- **PQT2 and PSSI are deliberately not written.** PQT2's 56-byte header is understood
+  (two PQTZ-style beat entries + the beat count) but the 2-byte per-beat entries are
+  undocumented (pyrekordbox models them as `beat:u8, unknown:u8`; the captures don't fit
+  an obvious decoding), and PSSI is phrase analysis (a Rekordbox ML model) plus an XOR
+  mask. Writing guessed bytes risks a deck rejection that absence does not: exports from
+  older Rekordbox versions lack both tags and play on CDJs. Revisit only if deck tests
+  A/B fail in a way that implicates them.

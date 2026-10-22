@@ -520,6 +520,11 @@ def test_export_track_anlz(tmp_path):
     assert dat_report.exists is True
     assert dat_report.ppth_path == "Contents/export_track.wav"
 
+    # PVBR present and placed as Rekordbox places it: right after PPTH. A .wav
+    # source gets the all-zero seek index (same as Rekordbox writes for PCM).
+    assert "PVBR" in dat_report.tags_present
+    assert dat_report.tags_present.index("PVBR") == dat_report.tags_present.index("PPTH") + 1
+
     # Verify beatgrid was parsed correctly
     assert len(dat_report.beat_grid) == 3
     assert dat_report.beat_grid[0].beat_no == 1

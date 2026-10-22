@@ -606,6 +606,7 @@ class PioneerExporter:
             # them (mono preview -> .DAT, mono+colour detail -> .EXT, 3-band ->
             # .2EX). Best-effort: a track whose audio can't be read/analysed still
             # gets a valid ANLZ set (grid + cues), just without waveforms.
+            self._inject_pvbr(track, dat_path)
             self._inject_waveforms(track, dat_path, ext_path, anlz_dir)
             _reorder_anlz_tags(dat_path, _DAT_TAG_ORDER)
             _reorder_anlz_tags(ext_path, _EXT_TAG_ORDER)
@@ -616,6 +617,22 @@ class PioneerExporter:
         except Exception as exc:
             log.error("Failed to generate Pioneer ANLZ files for content %d: %s", content_id, exc)
             return False
+
+    def _inject_pvbr(self, track, dat_path) -> None:
+        """Append the PVBR seek-index tag Rekordbox puts in every .DAT. The builder
+        never raises for bad audio (an unreadable or non-MP3 file gets the all-zero
+        tag Rekordbox writes for PCM), so only an import/IO failure lands here."""
+        import sys
+        try:
+            cs = Path(__file__).resolve().parent.parent / "chop_shop"
+            if str(cs) not in sys.path:
+                sys.path.insert(0, str(cs))
+            import vbr_index
+            import waveform_generator as wg
+
+            wg.inject_tags(dat_path, [vbr_index.build_pvbr(getattr(track, "file_path", "") or "")])
+        except Exception as exc:
+            log.warning("PVBR injection skipped (%s): %s", type(exc).__name__, exc)
 
     def _inject_waveforms(self, track, dat_path, ext_path, anlz_dir) -> None:
         """Inject waveform tags. Prefers the per-track cache written by `parse`
