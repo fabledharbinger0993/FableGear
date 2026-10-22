@@ -270,6 +270,21 @@ class DatabaseSchema:
     CREATE INDEX IF NOT EXISTS idx_beatgrid_content_time ON fg_beatgrid(content_id, time_msec);
     """
 
+    # Quench's loudness measurement of each file, as the file is now (after any levelling).
+    # One row per track; gain_applied_db / levelled_at describe the last time Quench rewrote it.
+    LOUDNESS_TABLE = """
+    CREATE TABLE IF NOT EXISTS fg_loudness (
+        content_id INTEGER PRIMARY KEY,
+        integrated_lufs REAL NOT NULL,
+        true_peak_dbtp REAL,
+        target_lufs REAL,
+        gain_applied_db REAL,
+        levelled_at TEXT,
+        measured_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (content_id) REFERENCES fg_content(id) ON DELETE CASCADE
+    );
+    """
+
     @staticmethod
     def create_schema(db_path: Path) -> bool:
         """
@@ -304,6 +319,7 @@ class DatabaseSchema:
             cursor.executescript(DatabaseSchema.PROCESSING_LOG_TABLE)
             cursor.executescript(DatabaseSchema.CUE_TABLE)
             cursor.executescript(DatabaseSchema.BEATGRID_TABLE)
+            cursor.executescript(DatabaseSchema.LOUDNESS_TABLE)
 
             conn.commit()
             conn.close()
@@ -317,7 +333,7 @@ class DatabaseSchema:
     @staticmethod
     def get_schema_version() -> str:
         """Get the current schema version."""
-        return "1.1.0"
+        return "1.2.0"
 
     @staticmethod
     def validate_schema(db_path: Path) -> list[str]:
@@ -340,7 +356,7 @@ class DatabaseSchema:
             required_tables = [
                 "fg_content", "fg_artist", "fg_album", "fg_genre",
                 "fg_key", "fg_label", "fg_playlist", "fg_playlist_song",
-                "fg_cue", "fg_beatgrid"
+                "fg_cue", "fg_beatgrid", "fg_loudness"
             ]
 
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -361,7 +377,7 @@ class DatabaseSchema:
     def upgrade_schema(db_path: Path) -> bool:
         """
         Upgrade the schema of an existing database if needed.
-        Adds new columns and tables for schema version 1.1.0.
+        Adds new columns and tables for schema versions 1.1.0 and 1.2.0 (fg_loudness).
         """
         try:
             conn = sqlite3.connect(db_path)
@@ -377,6 +393,7 @@ class DatabaseSchema:
             # Create new tables
             cursor.executescript(DatabaseSchema.CUE_TABLE)
             cursor.executescript(DatabaseSchema.BEATGRID_TABLE)
+            cursor.executescript(DatabaseSchema.LOUDNESS_TABLE)
 
             # Update schema version metadata if metadata table exists
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='fg_metadata'")

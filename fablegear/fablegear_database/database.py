@@ -435,6 +435,53 @@ class FableGearDatabase:
             conn.executemany(sql, rows)
         return len(rows)
 
+    def bulk_set_loudness(
+        self,
+        entries: list[tuple[str, int, float, float | None, float | None, float | None, bool]],
+    ) -> int:
+        """
+        Persist Quench's measurement of each file as it is now.
+
+        entries: (file_path, file_size, integrated_lufs, true_peak_dbtp, target_lufs,
+        gain_applied_db, levelled). ``levelled`` means Quench rewrote the file in this run, so
+        ``gain_applied_db`` and ``levelled_at`` are updated; otherwise the last levelling is kept.
+        A file not yet in the library gets a minimal fg_content row, as bulk_set_analysis does.
+        """
+        if not entries:
+            return 0
+        ensure = (
+            "INSERT INTO fg_content (file_path, file_name, file_size) VALUES (?, ?, ?) "
+            "ON CONFLICT(file_path) DO UPDATE SET file_size = excluded.file_size"
+        )
+        upsert = (
+            "INSERT INTO fg_loudness (content_id, integrated_lufs, true_peak_dbtp, target_lufs, "
+            "  gain_applied_db, levelled_at, measured_at) "
+            "SELECT id, ?, ?, ?, ?, CASE WHEN ? THEN datetime('now', 'localtime') END, "
+            "  datetime('now', 'localtime') FROM fg_content WHERE file_path = ? "
+            "ON CONFLICT(content_id) DO UPDATE SET "
+            "  integrated_lufs = excluded.integrated_lufs, "
+            "  true_peak_dbtp = excluded.true_peak_dbtp, "
+            "  target_lufs = excluded.target_lufs, "
+            "  gain_applied_db = CASE WHEN excluded.levelled_at IS NOT NULL "
+            "    THEN excluded.gain_applied_db ELSE gain_applied_db END, "
+            "  levelled_at = COALESCE(excluded.levelled_at, levelled_at), "
+            "  measured_at = excluded.measured_at"
+        )
+        with self.transaction() as conn:
+            for path, size, lufs, peak, target, gain, levelled in entries:
+                conn.execute(ensure, (path, Path(path).name, size))
+                conn.execute(upsert, (lufs, peak, target, gain if levelled else None, 1 if levelled else 0, path))
+        return len(entries)
+
+    def get_loudness(self, file_path: str) -> dict[str, Any] | None:
+        """Quench's stored measurement for one file, or None."""
+        with self.connection() as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT l.* FROM fg_loudness l JOIN fg_content c ON c.id = l.content_id "
+                "WHERE c.file_path = ?", (file_path,)).fetchone()
+        return dict(row) if row else None
+
     def snapshot(self, dest_dir: Path, label: str, keep: int = 10) -> Path:
         """Write a consistent copy of this database into dest_dir before a bulk change.
 

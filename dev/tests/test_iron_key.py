@@ -131,6 +131,35 @@ def test_model_weights_have_one_row_per_view():
     assert key._MODEL_B.shape == (2,)
 
 
+def test_net_weights_decode_to_the_shapes_the_scorer_expects():
+    dim = 12 * (1 + len(key._VIEW_ENVELOPES))
+    assert key._net_weights.DIM == dim and len(key._NET_SEEDS) >= 1
+    for W, A, c, v, b in key._NET_SEEDS:
+        assert W.shape == (2, dim) and A.shape == (key._net_weights.HIDDEN, dim)
+        assert c.shape == (key._net_weights.HIDDEN,) and v.shape == (2, key._net_weights.HIDDEN) and b.shape == (2,)
+        assert all(np.isfinite(x).all() for x in (W, A, c, v, b))
+
+
+@pytest.mark.parametrize(("note", "mode"), _ALL_KEYS)
+def test_net_logits_are_tonic_equivariant(note, mode):
+    # Rolling every view by k semitones must roll the net's logits by k tonics: the twelve tonics
+    # share weights. A view-order or roll-direction slip in _net_logits breaks this for most keys.
+    intervals = (0, 4, 7) if mode == "maj" else (0, 3, 7)
+    freqs = [_NOTE_FREQ[note] * 2 ** (i / 12) for i in intervals]
+    views = key._view_chromas(_chord(freqs), SR)
+    base = key._net_logits(views)
+    for k in (1, 5, 7):
+        assert np.allclose(key._net_logits(np.roll(views, k, axis=1)), np.roll(base, k, axis=0), atol=1e-9)
+
+
+def test_detect_key_linear_baseline_still_finds_every_triad_root():
+    # The SS27/SS28 linear model is kept for A/B benchmarks; it must stay callable and sensible.
+    y = _chord([_NOTE_FREQ[n] * o for n in ("A", "C", "E") for o in (0.5, 1.0)])
+    result = key.detect_key_linear(y, SR)
+    assert result is not None and result[0] == "8A"
+    assert key.detect_key_linear(np.zeros(SR * 2), SR) is None
+
+
 def test_detect_key_profile_baseline_still_finds_the_root():
     # The SS18 detector is kept for A/B benchmarks; it must stay callable and sensible.
     y = _chord([_NOTE_FREQ[n] for n in ("A", "C", "E")])
