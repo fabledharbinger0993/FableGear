@@ -1,6 +1,6 @@
 # FableGear — instructions for Claude
 
-## Repository layout (since v1.2.1)
+## Repository layout (since v1.3.0)
 
 - **`fablegear/`** is the app, and the only folder the installer ships
   (`build_release.sh` packages `git archive HEAD:fablegear`). Every runtime file goes here.
