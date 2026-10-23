@@ -14,8 +14,9 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout the release tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
           ref: ${{ github.ref_name }}
           fetch-depth: 0   # build_release.sh needs tags for `git describe`
 
@@ -25,12 +26,17 @@ jobs:
         # and packages FableGear.zip. No inline launcher copy to drift out of sync.
         run: bash build_release.sh
 
+      - name: Write SHA-256 checksum
+        run: shasum -a 256 FableGear.zip > FableGear.zip.sha256
+
       - name: Create release and upload FableGear.zip
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           draft: false
           prerelease: false
-          files: FableGear.zip
+          files: |
+            FableGear.zip
+            FableGear.zip.sha256
           body: |
             ## Download
 
@@ -43,5 +49,8 @@ jobs:
             2. First launch: right-click → **Open** → **Open Anyway** (Gatekeeper). A
                Terminal window opens to finish setup and start FableGear; later launches
                are instant and auto-update to the latest release.
+
+            Optional integrity check: download **FableGear.zip.sha256** next to the zip and run
+            `shasum -a 256 -c FableGear.zip.sha256`.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
