@@ -727,3 +727,49 @@ def test_genuine_server_error_still_returns_500(client, monkeypatch):
 
     assert resp.status_code == 500
     assert resp.get_json()["ok"] is False
+
+
+# ── Browser-origin attacks against the loopback UI ───────────────────────────
+# remote_addr alone cannot tell the desktop UI from a hostile page open in the
+# user's own browser: both arrive from 127.0.0.1. These pin the Host and
+# cross-site checks that close that gap.
+
+def _loopback(client, path, *, method="GET", headers=None, base_url=None):
+    fn = getattr(client, method.lower())
+    return fn(path, environ_overrides={"REMOTE_ADDR": LOOPBACK},
+              headers=headers or {}, base_url=base_url)
+
+
+def test_dns_rebinding_host_blocked(client):
+    r = _loopback(client, "/", base_url="http://attacker.example.com:5001")
+    assert r.status_code == 403
+
+
+@pytest.mark.parametrize("base_url", [
+    "http://127.0.0.1:5001",
+    "http://localhost:5001",
+    "http://[::1]:5001",
+    "http://macbook.local:5001",
+    "http://mac-studio:5001",
+])
+def test_local_host_names_allowed(client, base_url):
+    assert _loopback(client, "/", base_url=base_url).status_code != 403
+
+
+@pytest.mark.parametrize("headers", [
+    {"Origin": "https://evil.example"},
+    {"Origin": "null"},
+    {"Sec-Fetch-Site": "cross-site"},
+    {"Sec-Fetch-Site": "same-site"},
+])
+def test_cross_site_post_blocked(client, headers):
+    assert _loopback(client, "/api/cancel", method="POST", headers=headers).status_code == 403
+
+
+@pytest.mark.parametrize("headers", [
+    {},
+    {"Sec-Fetch-Site": "same-origin"},
+    {"Origin": "http://localhost"},
+])
+def test_same_origin_post_reaches_handler(client, headers):
+    assert _loopback(client, "/api/cancel", method="POST", headers=headers).status_code != 403
