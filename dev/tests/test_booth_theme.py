@@ -82,10 +82,11 @@ def test_panels_use_the_variables_not_the_old_literals():
 
 
 def test_images_keep_the_red_tint_even_where_a_rule_adds_a_glow():
-    # Rules that set their own `filter` (a glow on the active tool icon and the pipeline logo)
+    # Rules that set their own `filter` (a glow on the active rail icon and on the
+    # left panel's TOOLS tiles)
     # replace the booth tint unless the booth theme re-adds it.
     assert "--img-tint:" in EXT
-    for selector in (".step-tab.active .step-icon", "#nav-btn-pipeline-wizard .step-icon"):
+    for selector in (".step-tab.active .step-icon", ".lp-tool-btn.active .lp-tool-icon"):
         rule = re.search(r'body\[data-theme="booth"\][^{]*' + re.escape(selector) + r"[^{]*\{([^}]*)\}", EXT)
         assert rule and "var(--img-tint)" in rule.group(1), selector
 
@@ -94,13 +95,16 @@ def test_images_keep_the_red_tint_even_where_a_rule_adds_a_glow():
 # booth image rule silently drops the red tint (this is how hovering a card brought colour back).
 # A new one must get a booth counterpart that keeps `var(--img-tint)`, then be listed here.
 _IMAGE_FILTER_RULES = {
-    ".brand-logo", ".lp-logo img", ".lp-btn:hover .lp-icon, .lp-btn.active .lp-icon",
-    ".step-tab.active .step-icon, .step-tab:hover .step-icon", "#nav-btn-pipeline-wizard .step-icon",
+    ".brand-logo", ".lp-logo img",
+    ".lp-btn:hover .lp-icon, .lp-btn.active .lp-icon, .lp-btn.lp-dock-near .lp-icon",
+    ".lp-tool-btn:hover .lp-tool-icon, .lp-tool-btn.active .lp-tool-icon, .lp-tool-btn.lp-dock-near .lp-tool-icon",
+    ".step-tab.active .step-icon, .step-tab:hover .step-icon",
     ".card-icon img", ".card:hover .card-icon img", ".audit-panel-icon",
     ".db-tool-btn.permission-locked:hover img", ".icon-sm-invert", ".icon-btn-sm-invert",
 }
 _NEEDS_BOOTH_COUNTERPART = (
-    ".lp-btn:hover .lp-icon", ".step-tab.active .step-icon", "#nav-btn-pipeline-wizard .step-icon",
+    ".lp-btn:hover .lp-icon", ".lp-tool-btn.active .lp-tool-icon",
+    ".step-tab.active .step-icon",
     ".card:hover .card-icon img", ".db-tool-btn.permission-locked:hover img", ".icon-sm-invert",
 )
 

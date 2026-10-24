@@ -1,3 +1,11 @@
+<!-- ══ Outrun stage ════════════════════════════════════════════════════════
+     The neon grid the app floats on and the frame that closes it off from the
+     desktop. Both are decorative and inert — see #fg-backdrop / #fg-frame in
+     fablegear.css. First in the document so they are never in anything's way;
+     the backdrop sits at z-index -1 and the frame above everything. -->
+<div id="fg-backdrop" aria-hidden="true"><i id="fg-prism"></i></div>
+<div id="fg-frame" aria-hidden="true"></div>
+
 <!-- Glow filter for titlebar gradient edge -->
 <svg class="titlebar-glow-defs" xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true">
   <defs>

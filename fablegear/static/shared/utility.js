@@ -181,11 +181,22 @@ function prefillRelocate(deadRoots) {
 
 checkDeadRoots();
 
-/* ── Workflow rail — prominent tool icons open the single morphing modal ─────── */
-document.querySelectorAll('.step-tab').forEach(btn => {
+/* ── Tool icons — open the single morphing modal ───────────────────────────────
+   Two sources now: the left panel's TOOLS group (.lp-tool-btn), which is the
+   main one and is visible in both rooms, and whatever .step-tab buttons the
+   Chop Shop rail still carries. A tool clicked from the Record Room switches
+   rooms first, otherwise the modal would open over a workspace whose tool cards
+   aren't in the DOM path the modal borrows from. */
+const FG_TOOL_BTN_SELECTOR = '.step-tab, .lp-tool-btn';
+
+document.querySelectorAll(FG_TOOL_BTN_SELECTOR).forEach(btn => {
   btn.addEventListener('click', () => {
     const target = btn.dataset.target;
     if (!target) return;
+    if (!document.body.classList.contains('fg-space-chop')
+        && typeof setFableGearSpace === 'function') {
+      setFableGearSpace('chop');
+    }
     let switched = true;
     if (typeof handleToolIconClick === 'function') {
       switched = handleToolIconClick(target) !== false;
@@ -193,7 +204,8 @@ document.querySelectorAll('.step-tab').forEach(btn => {
       openToolFloatModal(target);
     }
     if (!switched) return;
-    document.querySelectorAll('.step-tab').forEach(tab => tab.classList.remove('active'));
+    document.querySelectorAll(FG_TOOL_BTN_SELECTOR)
+      .forEach(tab => tab.classList.remove('active'));
     btn.classList.add('active');
   });
 });
