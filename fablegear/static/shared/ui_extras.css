@@ -104,6 +104,12 @@ body[data-theme="booth"] {
   --accent-b-rgb:  255, 106, 74;
   --accent-b-dim:  rgba(255, 106, 74, 0.15);
 
+  /* The outrun stage. Cyan and magenta are the two things a dark booth cannot
+     have, and the backdrop is the largest surface in the app — both voices
+     collapse onto the long-wavelength band here, deep ember against bright. */
+  --grid-a-rgb:    168, 52, 24;
+  --grid-b-rgb:    255, 104, 56;
+
   /* Panel surfaces and accents (tokens added in fablegear.css; defaults are navy/violet/teal/green). */
   --chop-panel-top-rgb:    30, 11, 9;
   --chop-panel-bottom-rgb: 14, 5, 4;
