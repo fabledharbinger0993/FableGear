@@ -368,11 +368,27 @@ input[type="range"] { -webkit-app-region: no-drag; }
   display: flex; flex-direction: column; align-items: center;
   background: var(--surface);
   border-right: 1px solid var(--border);
-  overflow: hidden;
+  /* Scrolls rather than clips. With the TOOLS group added, the full stack is
+     ~930px; on a short window `overflow: hidden` silently ate the bottom
+     utilities (Log / Undo / Studio / Splash). The scrollbar is hidden — the
+     panel is icons, so there's nothing to misread as a cut-off list. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+  /* ── Dock fisheye ──────────────────────────────────────────────────────────
+     Every .lp-btn in the panel rests at this height and magnifies toward the
+     pointer (shared/lp_dock.js). 15 buttons x 44px = 660px, plus the logo,
+     group label and divider, clears the app's 900px window without a scrollbar.
+     The script holds the TOTAL constant — growing one row shrinks the distant
+     ones by exactly as much — so magnifying never resizes the panel, never
+     trips the scrollbar, and never shifts the buttons under the pointer. */
+  --lp-dock-base: 44px;
   -webkit-app-region: no-drag;
   -webkit-user-select: none;
   user-select: none;
 }
+#left-panel::-webkit-scrollbar { width: 0; height: 0; }
 .lp-logo {
   display: flex; align-items: center; justify-content: center;
   width: 100%;
@@ -390,19 +406,123 @@ input[type="range"] { -webkit-app-region: no-drag; }
   width: 100%;
   flex-shrink: 0;
 }
+
+/* ── TOOLS group ──────────────────────────────────────────────────────────────
+   The main tool icons, moved out of the Chop Shop's top rail. Icon-only at 48px
+   so seven of them plus the ten existing nav/utility buttons still fit an 80px
+   column: at 64px each they'd run ~1340px and the panel is overflow:hidden, so
+   the bottom utilities would simply vanish on a laptop. The group is the only
+   shrinkable child of #left-panel — on a genuinely short window it scrolls
+   internally and the room nav above / utilities below stay pinned. */
+.lp-group-label {
+  width: 100%;
+  padding: 6px 0 3px;
+  flex-shrink: 0;
+  font-size: 9px;      /* px, not rem: html is font-size: 10px here */
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--text-dim);
+  opacity: .75;
+}
+.lp-tools {
+  display: flex; flex-direction: column;
+  width: 100%;
+  flex: 0 0 auto;
+}
+
+/* Scoped under .lp-tools on purpose: .lp-btn (min-height: 64px) is declared
+   after this block, so a bare .lp-tool-btn would tie on specificity and lose,
+   rendering the tiles at 64px and overflowing the column. */
+/* The active marker is a left edge bar on .lp-btn, which reads as a sliver at
+   dock sizes — the tiles carry a filled plate instead. */
+.lp-tools .lp-tool-btn::before { content: none; }
+.lp-tools .lp-tool-btn.active {
+  background: rgba(var(--room-accent-rgb), .14);
+  box-shadow: inset 0 0 0 1px rgba(var(--room-accent-rgb), .45);
+  border-radius: 8px;
+}
+/* Sized off the row, so the icon grows with the fisheye. No transform: scale
+   here — the row height is already doing the work, and a transform on the
+   button would make it a containing block and clip the label flyout. */
+.lp-tool-icon {
+  width: auto;
+  height: calc(var(--lp-h, var(--lp-dock-base)) * .82);
+  max-width: 100%;
+  object-fit: contain;
+  opacity: .88;
+  transition: opacity .15s, filter .15s;
+}
+.lp-tool-btn:hover .lp-tool-icon,
+.lp-tool-btn.active .lp-tool-icon,
+.lp-tool-btn.lp-dock-near .lp-tool-icon {
+  opacity: 1;
+  filter: drop-shadow(0 0 10px rgba(var(--room-accent-rgb), .45));
+}
+
+/* Rows ease toward their new height; the pointer drives them continuously, so
+   this is a short smoothing pass, not an animation you wait on. */
+#left-panel.lp-dock-eased .lp-btn { transition: height .13s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  #left-panel.lp-dock-eased .lp-btn { transition: none; }
+}
+
+/* ── Dock label ───────────────────────────────────────────────────────────────
+   The name of the magnified tool, flown out to the right of the panel. It's a
+   body-level fixed element rather than a child of the button: the panel clips
+   its overflow, so an in-panel label would be cut off at 80px. */
+#lp-dock-label {
+  position: fixed;
+  z-index: 400;
+  display: none;
+  padding: 5px 11px;
+  border-radius: 7px;
+  background: rgba(8, 10, 20, .94);
+  border: 1px solid rgba(var(--room-accent-rgb), .55);
+  box-shadow: 0 0 18px rgba(var(--room-accent-rgb), .35);
+  color: rgb(var(--room-accent-rgb));
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 0 8px rgba(var(--room-accent-rgb), .7);
+}
+#lp-dock-label.open { display: block; }
+
+/* Pipeline Wizard runs the others in order — set it apart with a hairline above
+   so it doesn't read as a seventh peer tool. box-shadow rather than border-top:
+   .lp-btn sets `border: none` and is declared after this block, so a border
+   here would lose the cascade. */
+.lp-tool-entry {
+  box-shadow: inset 0 1px 0 rgba(var(--room-accent-rgb), .18);
+}
+.lp-tools .lp-tool-entry .lp-tool-icon {
+  height: calc(var(--lp-h, var(--lp-dock-base)) * .62);
+}
 /* Every rail button is the same box; every icon — image or glyph — lives in
    the same 52px slot. One size system, no more mixed weights. */
+/* Every button in the panel is a dock row. --lp-h is written per-button by
+   lp_dock.js; the fallback keeps the column correct before the script runs, and
+   if it never does. min-height is 0 and padding 0 on purpose — a 64px floor
+   would fight the computed height and break the constant-sum layout. */
 .lp-btn {
   position: relative;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
   width: 100%;
-  min-height: 64px;
-  padding: 6px 4px;
+  min-height: 0;
+  height: var(--lp-h, var(--lp-dock-base, 44px));
+  padding: 0;
   gap: 0;
   background: transparent;
   border: none;
   cursor: pointer;
+  flex: 0 0 auto;
+  overflow: hidden;
   transition: filter .15s, background .15s;
   color: var(--text-dim);
 }
@@ -430,27 +550,37 @@ input[type="range"] { -webkit-app-region: no-drag; }
   opacity: .45;
   pointer-events: none;
 }
+/* Sized off the row, so every icon grows with the fisheye. No transform: scale
+   — the row height already does the work, and a transform on the button would
+   make it a containing block and clip the fixed-position dock label. */
 .lp-icon {
-  width: 52px; height: 52px;
+  width: auto;
+  height: calc(var(--lp-h, var(--lp-dock-base, 44px)) * .82);
+  max-width: 100%;
   object-fit: contain;
   opacity: .92;
   transition: opacity .15s, filter .15s;
 }
 .lp-btn:hover .lp-icon,
-.lp-btn.active .lp-icon {
+.lp-btn.active .lp-icon,
+.lp-btn.lp-dock-near .lp-icon {
   opacity: 1;
   filter: drop-shadow(0 0 8px rgba(var(--room-accent-rgb), .4));
 }
+/* Glyph buttons (Log, Undo) are text, not images — scale the type with the row
+   so they magnify alongside the icon buttons. */
 .lp-glyph {
-  width: 52px; height: 52px;
+  width: 100%;
+  height: calc(var(--lp-h, var(--lp-dock-base, 44px)) * .82);
   display: flex; align-items: center; justify-content: center;
-  font-size: 1.9rem;
+  font-size: calc(var(--lp-h, var(--lp-dock-base, 44px)) * .46);
   line-height: 1;
   opacity: .92;
   transition: opacity .15s, text-shadow .15s;
 }
 .lp-btn:hover .lp-glyph,
-.lp-btn.active .lp-glyph {
+.lp-btn.active .lp-glyph,
+.lp-btn.lp-dock-near .lp-glyph {
   opacity: 1;
   text-shadow: 0 0 9px rgba(var(--room-accent-rgb), .42);
 }
@@ -1032,37 +1162,12 @@ body.fg-space-chop .workflow-rail { display: flex; }
   white-space: nowrap;
 }
 
-#nav-btn-pipeline-wizard {
-  position: relative;
-  flex: 0 0 auto;          /* centrepiece keeps its size; tools share the rest */
-  min-width: 282px;
-  max-width: 282px;
-  height: 100%;
-  justify-content: center;
-  overflow: hidden;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  padding: 4px 0;
-}
-
-#nav-btn-pipeline-wizard::before {
-  content: none;
-}
-
-#nav-btn-pipeline-wizard .step-icon {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  filter: drop-shadow(0 0 8px rgba(0, 255, 255, .28));
-}
-
-#nav-btn-pipeline-wizard:hover {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  filter: brightness(1.08);
-}
+/* The Pipeline Wizard button's rail geometry (min-width: 282px, height: 100%,
+   a full-bleed .step-icon) lived here while it was the rail's centrepiece. It
+   now sits in the left panel's TOOLS group, where those rules stretched it to
+   342px tall and swamped the column — and its image is a .lp-tool-icon, so the
+   .step-icon rule matched nothing. Styling comes from .lp-tools .lp-tool-entry
+   in the TOOLS block instead. */
 
 
 @media (max-width: 840px) {
@@ -5492,26 +5597,30 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
   position: fixed;
   inset: 0;
   z-index: 11999;
-  background: rgba(4, 2, 14, 0.45);
-  -webkit-backdrop-filter: blur(3px);
-  backdrop-filter: blur(3px);
+  background: rgba(4, 2, 14, 0.62);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
 }
 #tool-float-modal-backdrop.active { display: block; }
 
+/* A tool in use owns the screen: wide enough for two-column tool bodies, tall
+   enough that the folder-drop zone and the action row are both visible without
+   scrolling. The left panel stays reachable behind the backdrop blur so you can
+   see which tool is lit. */
 #tool-float-modal {
   display: none;
   position: fixed;
   z-index: 12000;
-  width: 680px;
-  max-height: 80vh;
-  left: 50%;
+  width: min(1080px, calc(100vw - var(--left-panel-w) - 72px));
+  max-height: 88vh;
+  left: calc(var(--left-panel-w) + (100vw - var(--left-panel-w)) / 2);
   top: 50%;
   transform: translate(-50%, -50%);
   flex-direction: column;
   background: rgba(12, 8, 28, 0.98);
   border: 1px solid rgba(140, 100, 255, 0.35);
   border-radius: 14px;
-  box-shadow: 0 16px 80px rgba(80, 40, 200, 0.55);
+  box-shadow: 0 24px 110px rgba(80, 40, 200, 0.55), 0 0 0 1px rgba(255,255,255,.04);
   overflow: hidden;
 }
 
@@ -5535,6 +5644,16 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
   object-fit: contain;
   border-radius: 6px;
   flex-shrink: 0;
+}
+
+/* The 330x260 tile art, when a tool has one. Wider box and cover-crop so the
+   painted frame fills it instead of letterboxing inside a square. */
+#tool-float-modal-icon.tfm-icon-tile {
+  width: 66px;
+  height: 52px;
+  object-fit: cover;
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px rgba(var(--room-accent-rgb), .35);
 }
 
 .tool-float-title-wrap {
@@ -6086,36 +6205,13 @@ body.fg-space-chop #chop-banner-dock > * {
   pointer-events: auto;
 }
 
-body.fg-space-chop.fg-chop-banner-open #tool-float-modal {
-  top: calc(var(--chop-zone-top) + var(--chop-banner-h, 0px) + 8px);
-}
-
-body.fg-space-chop #tool-float-modal-backdrop { display: none !important; }
-
-body.fg-space-chop #tool-float-modal {
-  left: calc(var(--left-panel-w) + var(--chop-terminal-w));
-  right: var(--nav-bar-right-w);
-  top: var(--chop-zone-top);
-  bottom: calc(var(--chop-readout-h) + 2px);
-  width: auto;
-  max-height: none;
-  min-height: 220px;
-  transform: none !important;
-  border-radius: 0;
-  border-left: none;
-  border-right: none;
-  box-shadow: none;
-  z-index: 60;
-  background: var(--surface);
-  border-color: var(--border-hi);
-}
-
-body.fg-space-chop #tool-float-modal-header {
-  background: var(--surface-hi);
-  border-bottom-color: var(--border);
-  cursor: default;
-}
-
+/* The Chop Shop used to DOCK this modal into the upper zone — backdrop forced
+   off, pinned between the terminal and the right nav, close button hidden, no
+   shadow. That made a tool read as part of the page furniture. It's now the
+   same front-and-centre overlay it is everywhere else (see #tool-float-modal
+   in the base block), so all of those overrides are gone. Only the in-room
+   colour tuning stays below; nothing here may reintroduce position, width,
+   backdrop or close-button rules. */
 body.fg-space-chop #tool-float-modal-footer {
   background: var(--surface);
   border-top-color: var(--border);
@@ -6124,11 +6220,6 @@ body.fg-space-chop #tool-float-modal-footer {
 body.fg-space-chop #tool-float-modal-actions { border-bottom-color: var(--border); }
 body.fg-space-chop #tool-float-modal-body { scrollbar-color: var(--border-hi) transparent; }
 
-body:has(#fb-panel.fb-open).fg-space-chop #tool-float-modal {
-  left: calc(var(--left-panel-w) + var(--sidebar-w) + var(--chop-terminal-w));
-}
-
-body.fg-space-chop #tool-float-modal-close { display: none; }
 body.fg-space-chop #scan-bar { display: none !important; }
 
 body.fg-space-chop #log-panel {
@@ -6165,12 +6256,21 @@ body.fg-space-chop #chop-readout {
   left: calc(var(--left-panel-w) + var(--chop-terminal-w));
   right: var(--nav-bar-right-w);
   height: var(--chop-readout-h);
-  flex-direction: column;
-  gap: 6px;
+  flex-direction: row;
+  align-items: center;
+  gap: 18px;
   padding: 10px 20px;
   z-index: 55;
   background: linear-gradient(180deg, var(--surface), var(--bg));
   border-top: 1px solid rgba(var(--accent-rgb), .25);
+}
+
+.chop-readout-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
@@ -6192,24 +6292,101 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
 
 .chop-spinner.active { display: inline-block; animation: spin .7s linear infinite; }
 
+/* ── Radial progress ──────────────────────────────────────────────────────────
+   r=52 in a 120 viewBox → circumference 2π·52 ≈ 326.73, which is the
+   stroke-dasharray; scan_bar.js sets stroke-dashoffset to
+   326.73 × (1 − pct/100). Rotated −90° so 0% starts at twelve o'clock. */
+.chop-ring-wrap {
+  position: relative;
+  flex: 0 0 auto;
+  width: clamp(72px, 11vh, 104px);
+  aspect-ratio: 1;
+}
+.chop-ring-svg {
+  width: 100%; height: 100%;
+  transform: rotate(-90deg);
+  overflow: visible;
+}
+.chop-ring-track {
+  fill: none;
+  stroke: rgba(255, 255, 255, .07);
+  stroke-width: 9;
+}
+.chop-ring-fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 9;
+  stroke-linecap: round;
+  stroke-dasharray: 326.73;
+  stroke-dashoffset: 326.73;
+  filter: drop-shadow(0 0 7px rgba(var(--accent-rgb), .6));
+  transition: stroke-dashoffset .35s ease;
+}
+.chop-ring-centre {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  /* center, not baseline: baseline in a full-height box pins the number to the
+     top of the ring instead of its middle. */
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--text);
+}
+/* px, not rem: html is font-size: 10px, so .62rem rendered the % sign at 6px. */
+#chop-prog-pct { font-size: clamp(17px, 2.4vh, 24px); line-height: 1; }
+/* align-self stays `center`: flex-end aligned it to the bottom of the 88px
+   ring box, ~45px below the number. margin-top nudges it to sit on the
+   number's baseline rather than its middle. */
+.chop-ring-sign {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--text-muted);
+  align-self: center;
+  margin-top: 7px;
+}
+/* Only spin the ring's glow while something is actually running. */
+#chop-readout.running .chop-ring-fill {
+  animation: chop-ring-pulse 1.8s ease-in-out infinite;
+}
+@keyframes chop-ring-pulse {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(var(--accent-rgb), .45)); }
+  50%      { filter: drop-shadow(0 0 14px rgba(var(--accent-rgb), .85)); }
+}
+
+/* ── Segmented bar ────────────────────────────────────────────────────────────
+   The mask cuts the track into 9px ticks with 4px gaps, so the one
+   width-driven fill below reads as discrete segments lighting up left to right
+   instead of a smooth smear. Keeping the fill width-driven means scan_bar.js
+   needs no new wiring for the bar. */
 .chop-prog-track {
-  height: 16px;
-  border-radius: 9px;
+  height: 15px;
+  border-radius: 2px;
   background: rgba(255, 255, 255, .06);
-  border: 1px solid var(--border);
   overflow: hidden;
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 9px, transparent 9px 13px);
+  mask-image: repeating-linear-gradient(90deg, #000 0 9px, transparent 9px 13px);
 }
 
 #chop-prog-fill {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, rgba(var(--accent-rgb), .65), var(--accent));
+  background: linear-gradient(90deg,
+    rgba(var(--accent-rgb), .55) 0%,
+    var(--accent) 55%,
+    rgba(var(--accent-rgb), 1) 100%);
+  box-shadow: 0 0 14px rgba(var(--accent-rgb), .5);
   transition: width .3s ease;
 }
 
 .chop-prog-line { font-size: .78rem; color: var(--text-muted); }
 .chop-prog-line span { color: var(--accent); font-weight: 700; }
-.chop-ticks { display: flex; gap: 24px; }
+.chop-ticks { display: flex; align-items: baseline; gap: 24px; flex-wrap: wrap; }
+/* The stats now sit on the tick row. `margin-top: auto` from the standalone
+   rule would fight the row's baseline alignment — push them right instead. */
+.chop-ticks .chop-readout-stats { margin-top: 0; margin-left: auto; }
 .chop-tick { display: flex; align-items: baseline; gap: 5px; }
 .chop-tick-arrow { font-size: .85rem; }
 .chop-tick.up .chop-tick-arrow { color: var(--safe); }
@@ -6771,11 +6948,29 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
    is the only declaration, and --chop-zone-top now sits on `body` so it can see
    the Chop Shop's taller --rail-h. */
 
-/* Hide the scrolling card stack + intro — the docked modal is the tool surface */
+/* Hide the scrolling card stack + intro — the overlay is the tool surface. The
+   room's idle copy lives in #chop-idle instead, so the middle isn't blank
+   before you pick a tool. */
 body.fg-space-chop #chop-card-stack { display: none; }
 
-/* Safety alert dock — pinned above the docked modal; boot.js pushes the modal
-   down by --chop-banner-h so alerts never cover the tool form. */
+#chop-idle { display: none; }
+body.fg-space-chop #chop-idle {
+  display: block;
+  position: fixed;
+  left: calc(var(--left-panel-w) + var(--chop-terminal-w) + 28px);
+  right: calc(var(--nav-bar-right-w) + 28px);
+  top: calc(var(--chop-zone-top) + 28px);
+  max-width: 620px;
+  z-index: 10;
+}
+body.fg-space-chop.fg-chop-tool-open #chop-idle { display: none; }
+#chop-idle h2 { margin: 6px 0 10px; font-size: 1.35rem; color: var(--text); }
+#chop-idle p { color: var(--text-muted); line-height: 1.6; }
+#chop-idle strong { color: rgb(var(--room-accent-rgb)); }
+
+/* Safety alert dock. It used to push the docked tool panel down by
+   --chop-banner-h; with the tool surface now a centred overlay, banners sit
+   under it and nothing needs pushing. */
 body.fg-space-chop #chop-banner-dock {
   position: fixed;
   left: calc(var(--left-panel-w) + var(--chop-terminal-w) + 14px);
@@ -6794,34 +6989,10 @@ body.fg-space-chop #chop-banner-dock > * {
   margin: 0;
   pointer-events: auto;
 }
-body.fg-space-chop.fg-chop-banner-open #tool-float-modal {
-  top: calc(var(--chop-zone-top) + var(--chop-banner-h, 0px) + 8px);
-}
-
-/* ── Docked morphing modal — right side, full height minus readout strip ────── */
-body.fg-space-chop #tool-float-modal-backdrop { display: none !important; }
-body.fg-space-chop #tool-float-modal {
-  left: calc(var(--left-panel-w) + var(--chop-terminal-w));
-  right: var(--nav-bar-right-w);
-  top: var(--chop-zone-top);
-  bottom: calc(var(--chop-readout-h) + 2px);
-  width: auto;
-  max-height: none;
-  min-height: 220px;
-  transform: none !important;
-  border-radius: 0;
-  border-left: none;
-  border-right: none;
-  box-shadow: none;
-  z-index: 60;
-  background: var(--surface);
-  border-color: var(--border-hi);
-}
-body.fg-space-chop #tool-float-modal-header {
-  background: var(--surface-hi);
-  border-bottom-color: var(--border);
-  cursor: default;
-}
+/* ── Morphing modal — a front-and-centre overlay, NOT docked ────────────────
+   This was the second copy of the docking block (the first is further up, near
+   #chop-banner-dock). Both are gone: a tool in use owns the screen now. Only
+   in-room colour tuning remains. */
 body.fg-space-chop #tool-float-modal-footer {
   background: var(--surface);
   border-top-color: var(--border);
@@ -6832,10 +7003,6 @@ body.fg-space-chop #tool-float-modal-actions {
 body.fg-space-chop #tool-float-modal-body {
   scrollbar-color: var(--border-hi) transparent;
 }
-body:has(#fb-panel.fb-open).fg-space-chop #tool-float-modal {
-  left: calc(var(--left-panel-w) + var(--sidebar-w) + var(--chop-terminal-w));
-}
-body.fg-space-chop #tool-float-modal-close { display: none; }
 
 /* ── Terminal — left column, full height ──────────────────────────────────────── */
 body.fg-space-chop #scan-bar { display: none !important; }
@@ -6873,52 +7040,16 @@ body.fg-space-chop #log-output {
   cursor: text;
 }
 
-/* ── Progress readout — compact strip across the bottom right ─────────────────── */
+/* ── Progress readout — strip across the bottom right ──────────────────────────
+   This was a second, later copy of the readout block. Its duplicated
+   flex-direction:column and flat .chop-prog-track/#chop-prog-fill rules won the
+   cascade over the radial-ring layout defined further up, so they're gone.
+   Layout, the ring and the segmented bar live in ONE place now — search
+   `.chop-ring-wrap`. Only the bits that weren't duplicated remain here. */
 #chop-readout { display: none; }
-body.fg-space-chop #chop-readout {
-  display: flex;
-  position: fixed;
-  bottom: 0;
-  left: calc(var(--left-panel-w) + var(--chop-terminal-w));
-  right: var(--nav-bar-right-w);
-  height: var(--chop-readout-h);
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 20px;
-  z-index: 55;
-  background: linear-gradient(180deg, var(--surface), var(--bg-deepest));
-  border-top: 1px solid rgba(var(--accent-rgb), .25);
-}
 body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   left: calc(var(--left-panel-w) + var(--sidebar-w) + var(--chop-terminal-w));
 }
-.chop-readout-head { display: flex; align-items: center; gap: 10px; }
-#chop-readout-title { font-size: .92rem; font-weight: 600; color: var(--text); }
-.chop-spinner {
-  width: 13px; height: 13px;
-  border: 2px solid var(--border-hi);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  display: none;
-  flex-shrink: 0;
-}
-.chop-spinner.active { display: inline-block; animation: spin .7s linear infinite; }
-.chop-prog-track {
-  height: 16px;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, .06);
-  border: 1px solid var(--border);
-  overflow: hidden;
-}
-#chop-prog-fill {
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(90deg, rgba(var(--accent-rgb), .65), var(--accent));
-  transition: width .3s ease;
-}
-.chop-prog-line { font-size: .78rem; color: var(--text-muted); }
-.chop-prog-line span { color: var(--accent); font-weight: 700; }
-.chop-ticks { display: flex; gap: 24px; }
 .chop-tick { display: flex; align-items: baseline; gap: 5px; }
 .chop-tick-arrow { font-size: .85rem; }
 .chop-tick.up .chop-tick-arrow { color: var(--safe); }
@@ -7896,7 +8027,6 @@ body.fg-space-chop .workflow-rail-divider {
   background: linear-gradient(180deg, transparent, rgba(var(--room-accent-rgb), .55), transparent);
 }
 
-body.fg-space-chop #tool-float-modal,
 body.fg-space-chop #log-panel,
 body.fg-space-chop #chop-readout {
   background:
@@ -7904,6 +8034,16 @@ body.fg-space-chop #chop-readout {
     radial-gradient(circle at 82% 16%, rgba(var(--room-accent-rgb), .12), transparent 32%);
   border-color: rgba(var(--room-accent-rgb), .28);
   box-shadow: 0 0 34px rgba(0,0,0,.26);
+}
+
+/* The modal takes the room's panel treatment but keeps its lifted overlay
+   shadow — it floats above the workspace, so a flat 34px panel shadow would
+   sit it back down into the page. */
+body.fg-space-chop #tool-float-modal {
+  background:
+    linear-gradient(135deg, rgba(var(--chop-panel-top-rgb), .96), rgba(var(--chop-panel-bottom-rgb), .99)),
+    radial-gradient(circle at 82% 16%, rgba(var(--room-accent-rgb), .12), transparent 32%);
+  border-color: rgba(var(--room-accent-rgb), .42);
 }
 
 body.fg-space-chop #tool-float-modal-header,
@@ -7919,9 +8059,25 @@ body.fg-space-chop #chop-readout-title {
   text-transform: uppercase;
 }
 
+/* Room-accent tint for the progress pair. Keep the gradient — a flat fill
+   undoes the segmented bar's left-to-right read. */
 body.fg-space-chop #chop-prog-fill {
-  background: var(--room-accent);
+  background: linear-gradient(90deg,
+    rgba(var(--room-accent-rgb), .50) 0%,
+    rgb(var(--room-accent-rgb)) 55%,
+    rgb(var(--room-accent-rgb)) 100%);
   box-shadow: 0 0 18px rgba(var(--room-accent-rgb), .55);
+}
+body.fg-space-chop .chop-ring-fill {
+  stroke: rgb(var(--room-accent-rgb));
+  filter: drop-shadow(0 0 7px rgba(var(--room-accent-rgb), .6));
+}
+body.fg-space-chop #chop-readout.running .chop-ring-fill {
+  animation: chop-ring-pulse-room 1.8s ease-in-out infinite;
+}
+@keyframes chop-ring-pulse-room {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(var(--room-accent-rgb), .45)); }
+  50%      { filter: drop-shadow(0 0 14px rgba(var(--room-accent-rgb), .85)); }
 }
 
 body.fg-space-chop .card,

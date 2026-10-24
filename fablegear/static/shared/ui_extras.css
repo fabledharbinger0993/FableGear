@@ -199,12 +199,20 @@ body[data-theme="booth"] video { filter: var(--img-tint); }
 /* Icons that add a glow set their own filter, which would drop the tint: keep both. */
 body[data-theme="booth"] .step-tab.active .step-icon,
 body[data-theme="booth"] .step-tab:hover .step-icon { filter: var(--img-tint) drop-shadow(0 0 9px rgba(var(--room-accent-rgb), .45)); }
-body[data-theme="booth"] #nav-btn-pipeline-wizard .step-icon { filter: var(--img-tint) drop-shadow(0 0 8px rgba(var(--accent-rgb), .28)); }
+/* (The #nav-btn-pipeline-wizard .step-icon counterpart went with that button's
+   rail rules — it's a .lp-tool-icon in the left panel now, covered by the
+   .lp-tool-btn rule below.) */
 /* Hover/active states that set their own filter (card icons, the left-rail icons) and the
    locked-tool hover and white-icon helpers: same rule, tint first, effect after. */
 body[data-theme="booth"] .card:hover .card-icon img { filter: var(--img-tint) brightness(1.25) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5)); }
 body[data-theme="booth"] .lp-btn:hover .lp-icon,
-body[data-theme="booth"] .lp-btn.active .lp-icon { filter: var(--img-tint) drop-shadow(0 0 8px rgba(var(--room-accent-rgb), .4)); }
+body[data-theme="booth"] .lp-btn.active .lp-icon,
+body[data-theme="booth"] .lp-btn.lp-dock-near .lp-icon { filter: var(--img-tint) drop-shadow(0 0 8px rgba(var(--room-accent-rgb), .4)); }
+/* TOOLS group tiles — same deal as .lp-icon; their glow would drop the tint.
+   .lp-dock-near is set by lp_dock.js on whichever tiles the fisheye has grown. */
+body[data-theme="booth"] .lp-tool-btn:hover .lp-tool-icon,
+body[data-theme="booth"] .lp-tool-btn.active .lp-tool-icon,
+body[data-theme="booth"] .lp-tool-btn.lp-dock-near .lp-tool-icon { filter: var(--img-tint) drop-shadow(0 0 10px rgba(var(--room-accent-rgb), .45)); }
 body[data-theme="booth"] .db-tool-btn.permission-locked:hover img { filter: var(--img-tint) grayscale(30%); }
 body[data-theme="booth"] .icon-sm-invert,
 body[data-theme="booth"] .icon-btn-sm-invert { filter: brightness(0) invert(1) var(--img-tint); }

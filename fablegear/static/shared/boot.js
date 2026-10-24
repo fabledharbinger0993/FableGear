@@ -33,6 +33,10 @@ function _initChopBannerWatch() {
   // re-fired once the banners stopped toggling; (2) a banner's *content*
   // changing height (e.g. a findings list) without its own style/class
   // attribute changing.
+  // These two existed to push the DOCKED tool panel down so banners couldn't
+  // cover the tool form. The tool surface is a centred overlay now, so nothing
+  // reads them any more — they're kept because the banner dock still wants a
+  // measured height, and restoring any docked panel would want them back.
   const recompute = () => {
     const h = dock.offsetHeight;
     document.body.classList.toggle('fg-chop-banner-open', h > 0);

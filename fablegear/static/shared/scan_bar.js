@@ -74,6 +74,22 @@ function dismissScanBar() {
    Mirrors the live scan into the bottom-half readout (chop space only). All
    look-ups are guarded so these are harmless no-ops in the Record Room. */
 function _chopSetText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+
+/* Radial progress. The ring is r=52 in a 120 viewBox, so its circumference is
+   2π·52 ≈ 326.73 — that value is also the stroke-dasharray in the stylesheet,
+   and must stay in step with it. Offsetting the dash by the unfilled remainder
+   is what sweeps the arc. aria-valuenow carries the real number for anyone not
+   looking at the arc. */
+const CHOP_RING_CIRCUMFERENCE = 2 * Math.PI * 52;
+function _chopSetRing(pct) {
+  const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
+  const fill = document.getElementById('chop-ring-fill');
+  if (fill) {
+    fill.style.strokeDashoffset =
+      String(CHOP_RING_CIRCUMFERENCE * (1 - clamped / 100));
+  }
+  document.getElementById('chop-ring')?.setAttribute('aria-valuenow', String(Math.round(clamped)));
+}
 function _chopReadoutReset(title) {
   _chopSetText('chop-readout-title', title || 'Running…');
   _chopSetText('chop-prog-pct', '0');
@@ -84,6 +100,7 @@ function _chopReadoutReset(title) {
   _chopSetText('chop-stat-errors', '0');
   _chopSetText('chop-stat-warnings', '0');
   const fill = document.getElementById('chop-prog-fill'); if (fill) fill.style.width = '0%';
+  _chopSetRing(0);
   document.getElementById('chop-readout')?.classList.add('running');
   document.getElementById('chop-readout-spinner')?.classList.add('active');
 }
@@ -112,13 +129,19 @@ function _chopReadoutUpdate(p) {
   _chopSetText('chop-stat-errors', errors.toLocaleString());
   _chopSetText('chop-stat-warnings', scanWarnings.toLocaleString());
   const fill = document.getElementById('chop-prog-fill'); if (fill) fill.style.width = pct + '%';
+  _chopSetRing(pct);
 }
 function _chopReadoutFinish() {
   _chopSetText('chop-readout-title', 'Complete');
   document.getElementById('chop-readout-spinner')?.classList.remove('active');
   document.getElementById('chop-readout')?.classList.remove('running');
   const fill = document.getElementById('chop-prog-fill');
-  if (fill && fill.style.width === '0%') fill.style.width = '100%';
+  if (fill && fill.style.width === '0%') {
+    // A tool that finished without ever reporting progress still reads as done.
+    fill.style.width = '100%';
+    _chopSetText('chop-prog-pct', '100');
+    _chopSetRing(100);
+  }
 }
 function _chopReadoutDismiss() {
   _chopReadoutFinish();

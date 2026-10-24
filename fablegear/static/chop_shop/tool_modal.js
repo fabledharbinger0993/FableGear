@@ -26,20 +26,32 @@ function openToolFloatModal(toolId) {
   _toolFloatPlaceholder = document.createComment(`fablegear-tool-placeholder:${toolId}`);
   _toolFloatPrevParent?.insertBefore(_toolFloatPlaceholder, card);
 
-  // Populate modal header
-  const navBtn  = document.querySelector(`#tools-panel .tool-btn[data-step="${toolId}"]`);
+  // Populate modal header. The nav button is now the left panel's TOOLS tile,
+  // which is icon-only — so its accessible name comes from aria-label rather
+  // than a .tool-label span.
+  const navBtn  = document.querySelector(`.lp-tool-btn[data-target="${toolId}"]`)
+    || document.querySelector(`.step-tab[data-target="${toolId}"]`);
+  // data-tile is the full 330x260 tile art. The left-panel button shows a small
+  // square icon instead (the tile is unreadable at 42px), so the header is where
+  // the artwork actually gets to be itself.
+  const tileArt = navBtn?.dataset?.tile || '';
   const iconImg = navBtn?.querySelector('img') || card.querySelector('.card-icon img');
   const badge   = card.querySelector('.risk-badge');
   const labelEl = navBtn?.querySelector('.tool-label');
   const titleEl = card.querySelector('.card-title');
   const titleTxt = labelEl?.textContent?.trim()
+    || navBtn?.getAttribute('aria-label')?.trim()
     || titleEl?.textContent?.trim()
     || toolId.replace('step-', '').replace(/-/g, ' ');
 
   const mIcon  = document.getElementById('tool-float-modal-icon');
   const mTitle = document.getElementById('tool-float-modal-title');
   const mBadge = document.getElementById('tool-float-modal-badge');
-  if (mIcon)  { mIcon.src = iconImg?.src || ''; mIcon.alt = titleTxt; }
+  if (mIcon) {
+    mIcon.src = tileArt || iconImg?.src || '';
+    mIcon.alt = titleTxt;
+    mIcon.classList.toggle('tfm-icon-tile', Boolean(tileArt));
+  }
   if (mTitle) mTitle.textContent = titleTxt;
   if (mBadge) {
     if (badge) {
@@ -71,24 +83,20 @@ function openToolFloatModal(toolId) {
   // Show modal + backdrop
   modal.style.display = 'flex';
   if (backdrop) backdrop.classList.add('active');
+  document.body.classList.add('fg-chop-tool-open');   // hides #chop-idle
 
-  // In the Chop Shop the modal is docked (CSS-positioned). Drop any inline
-  // left/top/transform left over from a previous free-float drag so the
-  // docking rules take effect.
-  if (document.body.classList.contains('fg-space-chop')) {
-    modal.style.left = '';
-    modal.style.top = '';
-    modal.style.transform = '';
-  }
+  // Always re-centre on open. Dragging materialises inline left/top and
+  // transform:none; clearing them hands positioning back to the CSS so each
+  // tool opens front and centre rather than wherever the last one was parked.
+  modal.style.left = '';
+  modal.style.top = '';
+  modal.style.transform = '';
 
   // Sync scan bar state into modal footer
   _syncToolModalScanState();
 
-  // Mark nav button active
-  document.querySelectorAll('#tools-panel .tool-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.step === toolId);
-  });
-  document.querySelectorAll('.step-tab').forEach(tab => {
+  // Mark nav button active — the left panel's TOOLS group plus any rail tabs
+  document.querySelectorAll('.step-tab, .lp-tool-btn').forEach(tab => {
     tab.classList.toggle('active', tab.dataset.target === toolId);
   });
   _expandedTool = toolId;
@@ -101,9 +109,11 @@ function closeToolFloatModal() {
 
   modal.style.display = 'none';
   if (backdrop) backdrop.classList.remove('active');
+  document.body.classList.remove('fg-chop-tool-open');   // reveals #chop-idle
 
   _returnFloatCard();
-  document.querySelectorAll('#tools-panel .tool-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.step-tab, .lp-tool-btn')
+    .forEach(b => b.classList.remove('active'));
   _expandedTool = null;
 }
 
@@ -269,11 +279,20 @@ function showToolHoverTip(toolId, anchorEl) {
   if (titleEl) titleEl.textContent = copy.title;
   if (bodyEl) bodyEl.textContent = copy.body;
 
-  const anchor = anchorEl || document.querySelector(`.step-tab[data-target="${toolId}"]`);
+  const anchor = anchorEl
+    || document.querySelector(`.lp-tool-btn[data-target="${toolId}"]`)
+    || document.querySelector(`.step-tab[data-target="${toolId}"]`);
   if (anchor) {
     const rect = anchor.getBoundingClientRect();
-    tip.style.top = `${rect.bottom + 8}px`;
-    tip.style.left = `${Math.max(16, rect.left)}px`;
+    if (anchor.closest('#left-panel')) {
+      // Left-panel tiles are only 80px from the window edge — dropping the tip
+      // below them would sit it on top of the panel. Fly it out to the side.
+      tip.style.top = `${Math.max(16, rect.top)}px`;
+      tip.style.left = `${rect.right + 10}px`;
+    } else {
+      tip.style.top = `${rect.bottom + 8}px`;
+      tip.style.left = `${Math.max(16, rect.left)}px`;
+    }
   }
 
   tip.classList.add('open');
@@ -284,7 +303,7 @@ function closeToolHoverTip() {
 }
 
 function _initToolHoverDescriptions() {
-  const buttons = document.querySelectorAll('.step-tab[data-target]');
+  const buttons = document.querySelectorAll('.step-tab[data-target], .lp-tool-btn[data-target]');
   if (!buttons.length) return;
 
   buttons.forEach((btn) => {

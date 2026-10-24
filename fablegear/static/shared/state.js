@@ -47,12 +47,11 @@ function setFableGearSpace(space) {
     closeRightNavDropdown();
     showBackToRecordHint();
     if (typeof closeToolHelpPanel === 'function') closeToolHelpPanel();
-    // Dock the single morphing modal on a default tool so the upper zone is
-    // never empty when entering the Chop Shop.
-    if (typeof _toolFloatActive !== 'undefined' && !_toolFloatActive
-        && typeof openToolFloatModal === 'function') {
-      openToolFloatModal('step-process');
-    }
+    // No default tool on arrival. The tool modal is a front-and-center overlay
+    // now, not a panel docked into the upper zone, so auto-opening Forge here
+    // would greet you with a dimmed workspace behind a modal you didn't ask
+    // for — and would flash the wrong tool when a left-panel TOOLS click
+    // switches rooms on its way to opening something else.
   }
 
   localStorage.setItem('fablegear-space', nextSpace);
