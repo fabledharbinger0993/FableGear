@@ -172,6 +172,24 @@ def test_the_pop_out_art_is_red_shifted_in_the_booth():
                 "add a booth rule in ui_extras.css that applies var(--img-tint) to it")
 
 
+def test_the_progress_tube_keeps_its_filament_out_of_the_booth():
+    """The tube is built from re-graded tokens except its white-hot core, which
+    is a literal white. --tube-core exists so the booth can warm it; if someone
+    inlines white back into the gradient the booth silently gets a cold filament
+    in it, which is the one thing Studio Lighting is for."""
+    assert re.search(r"\.chop-prog-track\s*{[^}]*--tube-core:", CSS), (
+        "--tube-core is gone from .chop-prog-track; move this check with it")
+    fill = re.search(r"#chop-prog-fill\s*{([^}]*)}", CSS)
+    assert fill, "#chop-prog-fill rule not found"
+    assert "255, 255, 255" not in fill.group(1), (
+        "#chop-prog-fill hard-codes white; use rgba(var(--tube-core), ...) so the "
+        "booth can warm it")
+    rule = re.search(r'body\[data-theme="booth"\][^{]*\.chop-prog-track[^{]*\{([^}]*)\}', EXT)
+    assert rule and "--tube-core" in rule.group(1), (
+        "Studio Lighting does not warm --tube-core; the lit tube keeps a white "
+        "filament in a dark booth")
+
+
 def test_the_progress_mascot_is_red_shifted_in_the_booth():
     """The readout's radial progress is a bitmap mascot, not a vector ring.
 

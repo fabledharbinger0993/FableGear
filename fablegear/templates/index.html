@@ -775,9 +775,6 @@
       <circle class="chop-ring-track" cx="60" cy="60" r="52"></circle>
       <circle class="chop-ring-fill" id="chop-ring-fill" cx="60" cy="60" r="52"></circle>
     </svg>
-    <div class="chop-ring-centre" aria-hidden="true">
-      <span id="chop-prog-pct">0</span><i class="chop-ring-sign">%</i>
-    </div>
   </div>
 
   <div class="chop-readout-main">
@@ -785,9 +782,14 @@
       <span id="chop-readout-title">Idle — select a tool to begin</span>
       <span id="chop-readout-spinner" class="chop-spinner"></span>
     </div>
-    <!-- Segmented bar: the track is masked into ticks, so the single
-         width-driven #chop-prog-fill reads as discrete segments lighting up. -->
-    <div class="chop-prog-track"><div id="chop-prog-fill"></div></div>
+    <!-- The lit tube: one width-driven #chop-prog-fill glowing inside a glass
+         capsule, with the percentage reading off its end. -->
+    <div class="chop-prog-row">
+      <div class="chop-prog-track"><div id="chop-prog-fill"></div></div>
+      <div class="chop-prog-readout" aria-hidden="true">
+        <span id="chop-prog-pct">0</span><i class="chop-prog-sign">%</i>
+      </div>
+    </div>
     <div class="chop-ticks">
       <div class="chop-tick up">
         <span class="chop-tick-arrow">▲</span>

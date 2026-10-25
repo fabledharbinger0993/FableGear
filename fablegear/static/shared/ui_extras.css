@@ -222,6 +222,11 @@ body[data-theme="booth"] #pipeline-wizard::after {
   filter: var(--img-tint);
 }
 
+/* The tube's filament. Everything else in the tube is built from tokens the
+   booth already re-grades; this one is white, which is the only colour in the
+   readout with any blue left in it. */
+body[data-theme="booth"] .chop-prog-track { --tube-core: 255, 216, 190; }
+
 /* The progress mascot is the same kind of problem: a bitmap full of magenta and
    electric blue that no colour token reaches. It sits on a pseudo-element for
    the same reason — the filter must not touch the percentage reading out of the

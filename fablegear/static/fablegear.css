@@ -6600,13 +6600,14 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
    326.73 × (1 − pct/100). Rotated −90° so 0% starts at twelve o'clock. */
 /* ── Progress: the mascot ──────────────────────────────────────────────────
    The readout's radial progress is the FableGear mascot — headphones around a
-   disco ball — with the percentage reading out of the dark lens at its centre.
-   The art is a fixed bitmap, so it does the looking and the SVG ring does the
-   measuring: the ring is pushed OUTSIDE the ball (see .chop-ring-svg) so the
-   arc traces around the headphones instead of being buried under them. The
-   number keeps its role=progressbar / aria-valuenow on the wrapper, unchanged —
-   none of this is announced, and swapping a vector ring for a picture must not
-   cost a screen reader the only thing it could read here. */
+   disco ball. It carries no number: the 37% in the mockup was a placeholder,
+   and the percentage now reads off the end of the tube instead, so the lens
+   stays dark glass. The art is a fixed bitmap, so it does the looking and the
+   SVG ring does the measuring: the ring is pushed OUTSIDE the ball (see
+   .chop-ring-svg) so the arc traces around the headphones instead of being
+   buried under them. role=progressbar / aria-valuenow stay on the wrapper —
+   none of this is announced, and neither a picture nor a glowing tube may cost
+   a screen reader the only thing it could read here. */
 .chop-ring-wrap {
   position: relative;
   flex: 0 0 auto;
@@ -6642,38 +6643,6 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   filter: drop-shadow(0 0 7px rgba(var(--accent-rgb), .75));
   transition: stroke-dashoffset .35s ease;
 }
-.chop-ring-centre {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  /* center, not baseline: baseline in a full-height box pins the number to the
-     top of the ring instead of its middle. */
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  font-family: var(--mono);
-  font-weight: 700;
-  /* Reads out of the mascot's centre lens, which is small and near-black, so
-     the number is lit rather than merely light-coloured. */
-  color: #eafcff;
-  font-size: clamp(13px, 1.9vh, 19px);
-  letter-spacing: -.02em;
-  text-shadow:
-    0 0 5px rgba(var(--cyan-glow-rgb), .95),
-    0 0 13px rgba(var(--grid-a-rgb), .55);
-}
-/* px, not rem: html is font-size: 10px, so .62rem rendered the % sign at 6px. */
-#chop-prog-pct { font-size: clamp(17px, 2.4vh, 24px); line-height: 1; }
-/* align-self stays `center`: flex-end aligned it to the bottom of the 88px
-   ring box, ~45px below the number. margin-top nudges it to sit on the
-   number's baseline rather than its middle. */
-.chop-ring-sign {
-  font-style: normal;
-  font-size: 11px;
-  color: var(--text-muted);
-  align-self: center;
-  margin-top: 7px;
-}
 /* Only spin the ring's glow while something is actually running. */
 #chop-readout.running .chop-ring-fill {
   animation: chop-ring-pulse 1.8s ease-in-out infinite;
@@ -6683,30 +6652,92 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   50%      { filter: drop-shadow(0 0 14px rgba(var(--accent-rgb), .85)); }
 }
 
-/* ── Segmented bar ────────────────────────────────────────────────────────────
-   The mask cuts the track into 9px ticks with 4px gaps, so the one
-   width-driven fill below reads as discrete segments lighting up left to right
-   instead of a smooth smear. Keeping the fill width-driven means scan_bar.js
-   needs no new wiring for the bar. */
+/* ── The lit tube ─────────────────────────────────────────────────────────────
+   Progress is a glass capsule with light inside it, not a row of ticks: a
+   near-black tube with a bright rim, a fill that blooms out through the glass,
+   and a highlight down the top of the fill so it reads as a tube rather than a
+   flat bar. The tick mask is gone — a segmented bar and a lit tube are two
+   different objects, and masking this one would cut the glow into dashes.
+
+   Two gradients and a shadow, but still ONE width-driven element: scan_bar.js
+   sets `style.width` on #chop-prog-fill and nothing else, and that stays true.
+   The track deliberately does not clip — the bloom spilling past the glass is
+   the whole effect, and overflow:hidden would square it off.
+
+   --tube is the tail colour, set on the TRACK and inherited by the fill, so
+   the room tint below is a one-line override. Setting it on the fill instead
+   would force that override to restate `background` — a shorthand, so it would
+   silently drop the core-light layer and flatten the tube back into a bar. */
+.chop-prog-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .chop-prog-track {
-  height: 15px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, .06);
-  overflow: hidden;
-  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 9px, transparent 9px 13px);
-  mask-image: repeating-linear-gradient(90deg, #000 0 9px, transparent 9px 13px);
+  --tube: var(--accent-b-rgb);
+  /* The filament. A token rather than a literal because Studio Lighting has to
+     be able to warm it: white is the one colour in here with blue left in it,
+     and a white-hot core is exactly what a dark booth can't have. */
+  --tube-core: 255, 255, 255;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 20px;
+  border-radius: 999px;
+  /* The empty glass glows too — in the art the whole tube is lit, and only the
+     light inside it moves. */
+  background: rgba(1, 1, 5, .96);
+  border: 1px solid rgba(var(--cyan-hot-rgb), .55);
+  box-shadow:
+    inset 0 2px 10px rgba(0, 0, 0, .98),
+    0 0 12px rgba(var(--accent-rgb), .40),
+    0 0 26px rgba(var(--accent-rgb), .18);
 }
 
 #chop-prog-fill {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg,
-    rgba(var(--accent-rgb), .55) 0%,
-    var(--accent) 55%,
-    rgba(var(--accent-rgb), 1) 100%);
-  box-shadow: 0 0 14px rgba(var(--accent-rgb), .5);
+  border-radius: 999px;
+  background:
+    /* The core of the light, white-hot down the middle of the tube and falling
+       off to the glass at both edges. This is what makes it read as a lit tube
+       seen side-on rather than a coloured rectangle — a top-down sheen was
+       tried first and just bleached the colour out. */
+    linear-gradient(180deg,
+      rgba(var(--tube-core), 0) 2%,
+      rgba(var(--tube-core), .95) 42%,
+      rgba(var(--tube-core), .95) 56%,
+      rgba(var(--tube-core), 0) 96%),
+    /* ...over the light itself: the tail colour running up to cyan at the head */
+    linear-gradient(90deg,
+      rgb(var(--tube)) 0%,
+      rgb(var(--accent-rgb)) 62%,
+      rgb(var(--cyan-glow-rgb)) 100%);
+  box-shadow:
+    0 0 16px rgba(var(--tube), 1),
+    0 0 38px rgba(var(--accent-rgb), .85),
+    0 0 78px rgba(var(--accent-b-rgb), .55);
   transition: width .3s ease;
 }
+
+/* The percentage reads off the end of the tube. It used to sit in the mascot's
+   centre lens; the mascot is the mascot now, and carries no number. */
+.chop-prog-readout {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--text-pale);
+  letter-spacing: -.02em;
+  text-shadow:
+    0 0 6px rgba(var(--cyan-glow-rgb), .9),
+    0 0 16px rgba(var(--grid-a-rgb), .5);
+}
+/* px, not rem: html is font-size: 10px, so .62rem rendered the % sign at 6px. */
+#chop-prog-pct { font-size: clamp(17px, 2.4vh, 24px); line-height: 1; }
+.chop-prog-sign { font-style: normal; font-size: 11px; color: var(--text-muted); }
 
 .chop-prog-line { font-size: .78rem; color: var(--text-muted); }
 .chop-prog-line span { color: var(--accent); font-weight: 700; }
@@ -8386,15 +8417,9 @@ body.fg-space-chop #chop-readout-title {
   text-transform: uppercase;
 }
 
-/* Room-accent tint for the progress pair. Keep the gradient — a flat fill
-   undoes the segmented bar's left-to-right read. */
-body.fg-space-chop #chop-prog-fill {
-  background: linear-gradient(90deg,
-    rgba(var(--room-accent-rgb), .50) 0%,
-    rgb(var(--room-accent-rgb)) 55%,
-    rgb(var(--room-accent-rgb)) 100%);
-  box-shadow: 0 0 18px rgba(var(--room-accent-rgb), .55);
-}
+/* Room-accent tint for the tube. One declaration, because --tube is inherited
+   by the fill and used in both its gradient and its bloom. */
+body.fg-space-chop .chop-prog-track { --tube: var(--room-accent-rgb); }
 body.fg-space-chop .chop-ring-fill {
   stroke: rgb(var(--room-accent-rgb));
   filter: drop-shadow(0 0 7px rgba(var(--room-accent-rgb), .6));
