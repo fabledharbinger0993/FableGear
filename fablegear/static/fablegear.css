@@ -6885,10 +6885,25 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
 .chop-tick-arrow { font-size: .85rem; }
 .chop-tick.up .chop-tick-arrow { color: var(--safe); }
 .chop-tick.down .chop-tick-arrow { color: var(--caution); }
-.chop-tick-num { font-family: var(--mono); font-size: 1.3rem; font-weight: 700; color: var(--text); }
+/* tabular-nums so a rolling counter doesn't shuffle the caption beside it
+   sideways on every frame as the digits change width. */
+.chop-tick-num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text);
+}
+/* The total, quieter than the count climbing towards it. */
+.chop-tick-of {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1rem;
+  color: var(--text-dim);
+}
 .chop-tick-cap { font-size: .68rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; }
 .chop-readout-stats { display: flex; flex-wrap: wrap; gap: 14px; margin-top: auto; font-size: .72rem; color: var(--text-muted); }
-.chop-readout-stats b { font-family: var(--mono); }
+.chop-readout-stats b { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .crs.ok b { color: var(--safe); }
 .crs.err b { color: var(--danger); }
 .crs.warn b { color: var(--caution); }
@@ -7544,17 +7559,6 @@ body.fg-space-chop #log-output {
 body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   left: calc(var(--left-panel-w) + var(--sidebar-w) + var(--chop-terminal-w));
 }
-.chop-tick { display: flex; align-items: baseline; gap: 5px; }
-.chop-tick-arrow { font-size: .85rem; }
-.chop-tick.up .chop-tick-arrow { color: var(--safe); }
-.chop-tick.down .chop-tick-arrow { color: var(--caution); }
-.chop-tick-num { font-family: var(--mono); font-size: 1.3rem; font-weight: 700; color: var(--text); }
-.chop-tick-cap { font-size: .68rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; }
-.chop-readout-stats { display: flex; flex-wrap: wrap; gap: 14px; margin-top: auto; font-size: .72rem; color: var(--text-muted); }
-.chop-readout-stats b { font-family: var(--mono); }
-.crs.ok b   { color: var(--safe); }
-.crs.err b  { color: var(--danger); }
-.crs.warn b { color: var(--caution); }
 
 /* ── Running-tool "what is this?" side panel ────────────────────────────────── */
 #tool-help-panel { display: none; }
