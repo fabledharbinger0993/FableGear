@@ -6674,12 +6674,17 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   gap: 14px;
 }
 
-.chop-prog-track {
+/* --tube is the lit colour and --tube-core the filament, both declared here
+   because the tube and the spectrum below are lit from the same two. The
+   filament is a token rather than a literal because Studio Lighting has to be
+   able to warm it: white is the one colour in this readout with any blue left
+   in it, and a white-hot filament is exactly what a dark booth can't have. */
+#chop-readout {
   --tube: var(--accent-b-rgb);
-  /* The filament. A token rather than a literal because Studio Lighting has to
-     be able to warm it: white is the one colour in here with blue left in it,
-     and a white-hot core is exactly what a dark booth can't have. */
   --tube-core: 255, 255, 255;
+}
+
+.chop-prog-track {
   flex: 1 1 auto;
   min-width: 0;
   height: 20px;
@@ -6738,6 +6743,137 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
 /* px, not rem: html is font-size: 10px, so .62rem rendered the % sign at 6px. */
 #chop-prog-pct { font-size: clamp(17px, 2.4vh, 24px); line-height: 1; }
 .chop-prog-sign { font-style: normal; font-size: 11px; color: var(--text-muted); }
+
+/* ── Activity: the spectrum ───────────────────────────────────────────────────
+   The bars are an activity light, not an analyser. A scan has no audio signal
+   to read — nothing is being decoded — so driving them from "the data" would
+   mean inventing data. What they honestly say is "something is still running",
+   which is why they move only while #chop-readout is .running and sit dim and
+   still otherwise, and why the whole block is aria-hidden: there is nothing
+   here a screen reader could learn that the tube's aria-valuenow doesn't
+   already say.
+
+   Each bar keeps its own peak in --h, and the animation swings it between 28%
+   and 100% of that peak rather than between two shared extremes — otherwise
+   every bar tops out at the same height on every cycle and the row reads as a
+   wave machine instead of a spectrum. */
+.chop-spectrum {
+  flex: 0 0 auto;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+}
+
+/* px, not rem: html is font-size: 10px, so .78rem set this label at 7.8px. */
+.chop-spec-cap {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: rgba(var(--tube-core), .95);
+  text-shadow:
+    0 0 5px rgba(var(--cyan-glow-rgb), 1),
+    0 0 14px rgba(var(--cyan-hot-rgb), .8),
+    0 0 30px rgba(var(--tube), .45);
+}
+
+.chop-spec-bars {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: clamp(40px, 8vh, 64px);
+  padding-bottom: 6px;
+}
+
+/* The cyan feet are one pseudo-element, not sixteen more: a dashed strip whose
+   repeat pitch is the bar width plus the gap, so a foot lands under each bar by
+   construction and keeps doing so if the count changes. 7px dashes under 8px
+   bars, because in the art the foot is a shade narrower than what it carries.
+   drop-shadow rather than box-shadow so the glow follows each dash instead of
+   haloing the whole strip. */
+.chop-spec-bars::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: repeating-linear-gradient(90deg,
+    rgb(var(--cyan-hot-rgb)) 0 7px,
+    transparent 7px 14px);
+  filter: drop-shadow(0 0 3px rgba(var(--cyan-glow-rgb), .95));
+}
+
+.chop-spec-bars i {
+  flex: 0 0 8px;
+  /* Idle height, overridden to the full peak by .running below. Resting at the
+     full peaks instead read LOUDER than running — sixteen tall static bars look
+     like a frozen scan, not a stopped one. */
+  height: calc(var(--h, 40%) * .3);
+  border-radius: 1.5px;
+  background: linear-gradient(180deg,
+    rgba(var(--tube-core), .98) 0%,
+    rgba(var(--tube-core), .62) 20%,
+    rgb(var(--tube)) 86%);
+  box-shadow: 0 0 12px rgba(var(--tube), .75);
+  opacity: .34;
+  transition: opacity .3s ease;
+}
+
+.chop-spec-bars i:nth-child(1) { --h: 76%; }
+.chop-spec-bars i:nth-child(2) { --h: 42%; }
+.chop-spec-bars i:nth-child(3) { --h: 20%; }
+.chop-spec-bars i:nth-child(4) { --h: 34%; }
+.chop-spec-bars i:nth-child(5) { --h: 58%; }
+.chop-spec-bars i:nth-child(6) { --h: 88%; }
+.chop-spec-bars i:nth-child(7) { --h: 50%; }
+.chop-spec-bars i:nth-child(8) { --h: 30%; }
+.chop-spec-bars i:nth-child(9) { --h: 94%; }
+.chop-spec-bars i:nth-child(10) { --h: 46%; }
+.chop-spec-bars i:nth-child(11) { --h: 66%; }
+.chop-spec-bars i:nth-child(12) { --h: 24%; }
+.chop-spec-bars i:nth-child(13) { --h: 80%; }
+.chop-spec-bars i:nth-child(14) { --h: 38%; }
+.chop-spec-bars i:nth-child(15) { --h: 70%; }
+.chop-spec-bars i:nth-child(16) { --h: 54%; }
+
+/* The label says "in progress", so it goes quiet along with the bars. */
+#chop-readout:not(.running) .chop-spec-cap { opacity: .32; }
+
+#chop-readout.running .chop-spec-bars i {
+  height: var(--h);
+  opacity: 1;
+  animation: chop-spec 1.15s ease-in-out infinite alternate;
+}
+/* Two independent cycles — four durations against three start offsets — so the
+   row doesn't fall into step with itself. Negative delays start each bar part
+   way through, so there is no moment where all sixteen sit flat together. */
+#chop-readout.running .chop-spec-bars i:nth-child(4n+2) { animation-duration: 1.45s; }
+#chop-readout.running .chop-spec-bars i:nth-child(4n+3) { animation-duration: .92s; }
+#chop-readout.running .chop-spec-bars i:nth-child(4n)   { animation-duration: 1.28s; }
+#chop-readout.running .chop-spec-bars i:nth-child(3n+2) { animation-delay: -.45s; }
+#chop-readout.running .chop-spec-bars i:nth-child(3n)   { animation-delay: -.85s; }
+
+@keyframes chop-spec {
+  from { height: calc(var(--h) * .42); }
+  to   { height: var(--h); }
+}
+
+/* Stopped, not flattened: .running still sets height to each bar's own peak,
+   so the row reads as a spectrum for anyone who has asked motion to stop
+   rather than collapsing to the idle stubs. */
+@media (prefers-reduced-motion: reduce) {
+  #chop-readout.running .chop-spec-bars i { animation: none; }
+}
+
+/* Decorative, and the first thing that should go when the readout is squeezed
+   between the terminal and a sidebar — the tube and the counters are not. */
+@media (max-width: 1240px) {
+  .chop-spectrum { display: none; }
+}
 
 .chop-prog-line { font-size: .78rem; color: var(--text-muted); }
 .chop-prog-line span { color: var(--accent); font-weight: 700; }
@@ -8419,7 +8555,7 @@ body.fg-space-chop #chop-readout-title {
 
 /* Room-accent tint for the tube. One declaration, because --tube is inherited
    by the fill and used in both its gradient and its bloom. */
-body.fg-space-chop .chop-prog-track { --tube: var(--room-accent-rgb); }
+body.fg-space-chop #chop-readout { --tube: var(--room-accent-rgb); }
 body.fg-space-chop .chop-ring-fill {
   stroke: rgb(var(--room-accent-rgb));
   filter: drop-shadow(0 0 7px rgba(var(--room-accent-rgb), .6));
