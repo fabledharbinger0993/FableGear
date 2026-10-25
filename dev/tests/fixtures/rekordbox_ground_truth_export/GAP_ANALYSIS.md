@@ -1,5 +1,15 @@
 # Rekordbox ↔ FableGear export parity — gap analysis
 
+> **Correction (2026-10-20):** the "export.pdb holds only 57 tracks" headline below is wrong. It was
+> counted with the DeviceSQL reader before its row-group decoding was fixed (it then recovered 3 of 21
+> rows on another real stick). The fixed reader finds **413 track rows, 413 unique ids** in this
+> `export.pdb`: Rekordbox writes the whole library to the Device Library. Also stale below: FableGear
+> now writes `export.pdb`/`exportExt.pdb` and the ANLZ files in its exports, including the waveform
+> tags (PWAV/PWV2 → .DAT, PWV3/PWV5/PWV4 → .EXT, PWV7/PWV6/PWVC → .2EX), and (2026-10-22) PVBR.
+> The .2EX tag order measured here is PPTH, PWV7, PWV6, PWVC — the table below has it wrong.
+> Remaining ANLZ gaps are PQT2 and PSSI only, deliberately unwritten. See
+> `dev/docs/devicesql_export_writer.md` sections 6.3 and 6.5.
+
 Status: **Phase 0 COMPLETE** (ground truth captured from the *finished* export).
 FableGear-side column is established statically from code (definitive).
 Rekordbox-side column is measured from the real completed export. The "present

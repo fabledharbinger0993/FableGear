@@ -55,6 +55,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import sqlcipher3
 
@@ -190,6 +191,37 @@ def _file_type_code(fmt: str | None) -> int | None:
     return _FILE_TYPE_CODES.get(fmt.strip().lower().lstrip("."))
 
 
+def _bitrate_kbps(bit_rate: int | None) -> int | None:
+    """Rekordbox stores kbps (320, 1411) in both device databases; FableGear's scanner stores bits per
+    second. Values that already look like kbps pass through."""
+    if not bit_rate:
+        return None
+    return round(bit_rate / 1000) if bit_rate >= 10_000 else int(bit_rate)
+
+
+# FableGear stores track colours as Rekordbox's hex values; the Device Library's colour table is fixed
+# (1 pink .. 8 purple). Same mapping as rekordbox_sync.HEX_TO_COLOR_ID.
+_HEX_TO_DEVICE_COLOR = {
+    "#ff007f": 1, "#ff0000": 2, "#ffaa00": 3, "#ffff00": 4,
+    "#00ff00": 5, "#00f3ff": 6, "#0000ff": 7, "#7f00ff": 8,
+}
+
+
+def _device_color_id(color: str | None) -> int:
+    if not color:
+        return 0
+    c = color.strip().lower()
+    from chop_shop.devicesql_writer import COLOR_IDS
+    return _HEX_TO_DEVICE_COLOR.get(c) or COLOR_IDS.get(c, 0)
+
+
+def _iso_date(value: str | None) -> str:
+    """'YYYY-MM-DD' from an ISO timestamp, or '' when there is none."""
+    if not value or len(value) < 10 or value[4] != "-" or value[7] != "-":
+        return ""
+    return value[:10]
+
+
 # Characters not safe in a FAT32/exFAT path segment on a CDJ-readable drive.
 _UNSAFE_SEGMENT = str.maketrans({c: "_" for c in '\\/:*?"<>|'})
 
@@ -211,7 +243,8 @@ def _stage_audio_file(track, drive_root: Path) -> str | None:
         return None
     artist = _safe_segment(track.artist, "UnknownArtist")
     album = _safe_segment(track.album, "UnknownAlbum")
-    filename = src.name
+    # Characters APFS allows but FAT32/exFAT refuse ('?', '*', ':', '"', ...) would make the copy fail.
+    filename = src.name.translate(_UNSAFE_SEGMENT)
     rel = f"/Contents/{artist}/{album}/{filename}"
     dest = drive_root / rel.lstrip("/")
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -244,6 +277,9 @@ class OneLibraryWriteResult:
     # Getting this wrong produces a structurally valid database whose
     # tracks point at ANLZ folders that were never written.
     content_id_map: dict[int, int] = field(default_factory=dict)
+    # The same tracks, ids and ANLZ paths, for the DeviceSQL export.pdb that CDJ-3000 firmware 3.2x
+    # reads instead of this database (chop_shop.devicesql_writer.write_device_library).
+    device_library: Any = None
 
 
 class _IdAllocator:
@@ -316,7 +352,11 @@ class OneLibraryWriter:
 
         # Deferred import: key_mapper pulls in config, which raises until
         # FableGear has been through setup — keep that coupling out of module load.
+        from chop_shop.devicesql_writer import DeviceLibrary, DeviceTrack
         from key_mapper import notation_to_scale_name
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        device = DeviceLibrary(export_date=today)
 
         conn = sqlcipher3.connect(str(target_path))
         try:
@@ -407,9 +447,22 @@ class OneLibraryWriter:
                         track.modified_date, track.created_at,
                         content_path, track.file_name,
                         track.file_size, _file_type_code(track.format),
-                        track.bit_rate, None, track.sample_rate, None, 0,
+                        _bitrate_kbps(track.bit_rate), None, track.sample_rate, None, 0,
                         0, 0, None, None, None,
                         _anlz_path_for(content_id), None, 0, 0, 0, 0, 0,
+                    ))
+                    device.tracks.append(DeviceTrack(
+                        id=content_id, title=track.title or track.file_name or "",
+                        file_path=content_path, analyze_path=_anlz_path_for(content_id),
+                        bpm=track.bpm, key_id=key_id or 0, artist_id=artist_id or 0,
+                        album_id=album_id or 0, genre_id=genre_id or 0, label_id=label_id or 0,
+                        color_id=_device_color_id(track.color), rating=track.rating or 0,
+                        file_size=track.file_size or 0, sample_rate=track.sample_rate or 0,
+                        bitrate=_bitrate_kbps(track.bit_rate) or 0, duration=length or 0,
+                        track_number=track.track_number or 0, disc_number=track.disc_number or 0,
+                        year=track.year or 0, file_type=_file_type_code(track.format) or 0,
+                        comment=track.comment or "", date_added=_iso_date(track.created_at),
+                        analyze_date=today,
                     ))
 
                     for cue in track.cues:
@@ -453,8 +506,18 @@ class OneLibraryWriter:
 
             result.content_id_map = dict(fg_id_to_content_id)
 
+            # export.pdb mirrors exactly the content rows this database received.
+            inserted = {row[0] for row in content_rows}
+            device.tracks = [t for t in device.tracks if t.id in inserted]
+            device.artists = dict(artists.rows())
+            device.genres = dict(genres.rows())
+            device.labels = dict(labels.rows())
+            device.keys = dict(keys.rows())
+            device.albums = {r[0]: (r[1], r[2] or 0) for r in albums_rows}
+
             if include_playlists:
-                self._write_playlists(cur, fg_id_to_content_id, result, playlist_ids)
+                self._write_playlists(cur, fg_id_to_content_id, result, playlist_ids, device=device)
+            result.device_library = device
 
             cur.execute(
                 "INSERT INTO property VALUES (?,?,?,?,?,?)",
@@ -476,7 +539,7 @@ class OneLibraryWriter:
 
     def _write_playlists(
         self, cur, fg_id_to_content_id: dict[int, int], result: OneLibraryWriteResult,
-        playlist_ids: list[int] | None = None,
+        playlist_ids: list[int] | None = None, device: Any = None,
     ) -> None:
         """Flatten FableGear's playlist/folder tree into playlist rows,
         preserving folder hierarchy via playlist_id_parent (attribute=1
@@ -511,6 +574,13 @@ class OneLibraryWriter:
                 playlist_rows.append((pid, seq, node.get("name", ""), None,
                                        1 if is_folder else 0, parent_id))
                 result.playlists_written += 1
+                node_tracks: list[int] = []
+                if device is not None:
+                    from chop_shop.devicesql_writer import DevicePlaylist
+                    device.playlists.append(DevicePlaylist(
+                        id=pid, parent_id=parent_id or 0, name=node.get("name", "") or "",
+                        is_folder=is_folder, sort_order=seq, track_ids=node_tracks,
+                    ))
                 if is_folder:
                     _walk(node.get("children", []), pid)
                 else:
@@ -527,6 +597,7 @@ class OneLibraryWriter:
                             continue  # not part of this export's content set
                         track_seq += 1
                         content_link_rows.append((pid, content_id, track_seq))
+                        node_tracks.append(content_id)
                         result.playlist_entries_written += 1
 
         _walk(tree, None)

@@ -1,0 +1,1269 @@
+{
+ "date": "2026-10-20",
+ "section": "docs/IRON_RESEARCH.md SS31",
+ "reference": "Rekordbox 7 analysis of the owner's library (Analysed != 0); not human labels",
+ "key": {
+  "pools": {
+   "T0": 5297,
+   "T1": 17295,
+   "T2": 29291
+  },
+  "validation_scan": {
+   "T0 {'family': 'linear', 'views': 'whole', 'lam': 0.003}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "linear",
+     "views": "whole",
+     "lam": 0.003
+    },
+    "val_exact": 60.81208687440982,
+    "seconds": 1
+   },
+   "T0 {'family': 'linear', 'views': 'whole', 'lam': 0.01}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "linear",
+     "views": "whole",
+     "lam": 0.01
+    },
+    "val_exact": 60.7176581680831,
+    "seconds": 0
+   },
+   "T0 {'family': 'linear', 'views': 'whole', 'lam': 0.03}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "linear",
+     "views": "whole",
+     "lam": 0.03
+    },
+    "val_exact": 60.3399433427762,
+    "seconds": 0
+   },
+   "T0 {'family': 'linear', 'views': 'whole', 'lam': 0.1}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "linear",
+     "views": "whole",
+     "lam": 0.1
+    },
+    "val_exact": 60.3399433427762,
+    "seconds": 0
+   },
+   "T0 {'family': 'linear', 'views': 'whole+halves', 'lam': 0.01}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "linear",
+     "views": "whole+halves",
+     "lam": 0.01
+    },
+    "val_exact": 60.3399433427762,
+    "seconds": 2
+   },
+   "T0 {'family': 'linear', 'views': 'whole+halves', 'lam': 0.03}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "linear",
+     "views": "whole+halves",
+     "lam": 0.03
+    },
+    "val_exact": 60.3399433427762,
+    "seconds": 1
+   },
+   "T0 {'family': 'linear', 'views': 'whole+halves', 'lam': 0.1}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "linear",
+     "views": "whole+halves",
+     "lam": 0.1
+    },
+    "val_exact": 60.81208687440982,
+    "seconds": 1
+   },
+   "T0 {'family': 'net', 'views': 'whole', 'H': 24, 'lam': 0.01}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 24,
+     "lam": 0.01
+    },
+    "val_exact": 60.15108593012276,
+    "seconds": 4
+   },
+   "T0 {'family': 'net', 'views': 'whole', 'H': 24, 'lam': 0.03}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 24,
+     "lam": 0.03
+    },
+    "val_exact": 61.095372993389994,
+    "seconds": 4
+   },
+   "T0 {'family': 'net', 'views': 'whole', 'H': 24, 'lam': 0.1}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 24,
+     "lam": 0.1
+    },
+    "val_exact": 61.00094428706326,
+    "seconds": 4
+   },
+   "T0 {'family': 'net', 'views': 'whole', 'H': 48, 'lam': 0.01}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 48,
+     "lam": 0.01
+    },
+    "val_exact": 60.62322946175638,
+    "seconds": 7
+   },
+   "T0 {'family': 'net', 'views': 'whole', 'H': 48, 'lam': 0.03}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 48,
+     "lam": 0.03
+    },
+    "val_exact": 59.86779981114259,
+    "seconds": 7
+   },
+   "T0 {'family': 'net', 'views': 'whole', 'H': 48, 'lam': 0.1}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 48,
+     "lam": 0.1
+    },
+    "val_exact": 61.9452313503305,
+    "seconds": 7
+   },
+   "T0 {'family': 'net', 'views': 'whole', 'H': 96, 'lam': 0.01}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 96,
+     "lam": 0.01
+    },
+    "val_exact": 58.07365439093485,
+    "seconds": 14
+   },
+   "T0 {'family': 'net', 'views': 'whole', 'H': 96, 'lam': 0.03}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 96,
+     "lam": 0.03
+    },
+    "val_exact": 59.67894239848914,
+    "seconds": 14
+   },
+   "T0 {'family': 'net', 'views': 'whole', 'H': 96, 'lam': 0.1}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 96,
+     "lam": 0.1
+    },
+    "val_exact": 61.756373937677054,
+    "seconds": 14
+   },
+   "T0 {'family': 'net', 'views': 'whole+halves', 'H': 24, 'lam': 0.01}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 24,
+     "lam": 0.01
+    },
+    "val_exact": 58.35694050991501,
+    "seconds": 7
+   },
+   "T0 {'family': 'net', 'views': 'whole+halves', 'H': 24, 'lam': 0.03}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 24,
+     "lam": 0.03
+    },
+    "val_exact": 58.829084041548626,
+    "seconds": 7
+   },
+   "T0 {'family': 'net', 'views': 'whole+halves', 'H': 24, 'lam': 0.1}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 24,
+     "lam": 0.1
+    },
+    "val_exact": 60.52880075542964,
+    "seconds": 7
+   },
+   "T0 {'family': 'net', 'views': 'whole+halves', 'H': 48, 'lam': 0.01}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 48,
+     "lam": 0.01
+    },
+    "val_exact": 56.37393767705382,
+    "seconds": 10
+   },
+   "T0 {'family': 'net', 'views': 'whole+halves', 'H': 48, 'lam': 0.03}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 48,
+     "lam": 0.03
+    },
+    "val_exact": 57.129367327667616,
+    "seconds": 10
+   },
+   "T0 {'family': 'net', 'views': 'whole+halves', 'H': 48, 'lam': 0.1}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 48,
+     "lam": 0.1
+    },
+    "val_exact": 60.15108593012276,
+    "seconds": 12
+   },
+   "T0 {'family': 'net', 'views': 'whole+halves', 'H': 96, 'lam': 0.01}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 96,
+     "lam": 0.01
+    },
+    "val_exact": 56.37393767705382,
+    "seconds": 17
+   },
+   "T0 {'family': 'net', 'views': 'whole+halves', 'H': 96, 'lam': 0.03}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 96,
+     "lam": 0.03
+    },
+    "val_exact": 56.94050991501416,
+    "seconds": 18
+   },
+   "T0 {'family': 'net', 'views': 'whole+halves', 'H': 96, 'lam': 0.1}": {
+    "pool": "T0",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 96,
+     "lam": 0.1
+    },
+    "val_exact": 59.67894239848914,
+    "seconds": 17
+   },
+   "T0 shipped": {
+    "pool": "T0",
+    "cfg": "shipped",
+    "val_exact": 60.90651558073654
+   },
+   "T1 {'family': 'linear', 'views': 'whole', 'lam': 0.003}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "linear",
+     "views": "whole",
+     "lam": 0.003
+    },
+    "val_exact": 61.60740098294305,
+    "seconds": 3
+   },
+   "T1 {'family': 'linear', 'views': 'whole', 'lam': 0.01}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "linear",
+     "views": "whole",
+     "lam": 0.01
+    },
+    "val_exact": 61.72304134142815,
+    "seconds": 2
+   },
+   "T1 {'family': 'linear', 'views': 'whole', 'lam': 0.03}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "linear",
+     "views": "whole",
+     "lam": 0.03
+    },
+    "val_exact": 61.60740098294305,
+    "seconds": 1
+   },
+   "T1 {'family': 'linear', 'views': 'whole', 'lam': 0.1}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "linear",
+     "views": "whole",
+     "lam": 0.1
+    },
+    "val_exact": 61.40503035559411,
+    "seconds": 1
+   },
+   "T1 {'family': 'linear', 'views': 'whole+halves', 'lam': 0.01}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "linear",
+     "views": "whole+halves",
+     "lam": 0.01
+    },
+    "val_exact": 61.173749638623875,
+    "seconds": 6
+   },
+   "T1 {'family': 'linear', 'views': 'whole+halves', 'lam': 0.03}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "linear",
+     "views": "whole+halves",
+     "lam": 0.03
+    },
+    "val_exact": 61.28938999710899,
+    "seconds": 4
+   },
+   "T1 {'family': 'linear', 'views': 'whole+halves', 'lam': 0.1}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "linear",
+     "views": "whole+halves",
+     "lam": 0.1
+    },
+    "val_exact": 61.57849089332177,
+    "seconds": 3
+   },
+   "T1 {'family': 'net', 'views': 'whole', 'H': 24, 'lam': 0.01}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 24,
+     "lam": 0.01
+    },
+    "val_exact": 63.313096270598436,
+    "seconds": 18
+   },
+   "T1 {'family': 'net', 'views': 'whole', 'H': 24, 'lam': 0.03}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 24,
+     "lam": 0.03
+    },
+    "val_exact": 62.87944492627927,
+    "seconds": 18
+   },
+   "T1 {'family': 'net', 'views': 'whole', 'H': 24, 'lam': 0.1}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 24,
+     "lam": 0.1
+    },
+    "val_exact": 62.908355015900554,
+    "seconds": 21
+   },
+   "T1 {'family': 'net', 'views': 'whole', 'H': 48, 'lam': 0.01}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 48,
+     "lam": 0.01
+    },
+    "val_exact": 62.53252385082394,
+    "seconds": 27
+   },
+   "T1 {'family': 'net', 'views': 'whole', 'H': 48, 'lam': 0.03}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 48,
+     "lam": 0.03
+    },
+    "val_exact": 62.35906331309627,
+    "seconds": 26
+   },
+   "T1 {'family': 'net', 'views': 'whole', 'H': 48, 'lam': 0.1}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 48,
+     "lam": 0.1
+    },
+    "val_exact": 62.73489447817289,
+    "seconds": 27
+   },
+   "T1 {'family': 'net', 'views': 'whole', 'H': 96, 'lam': 0.01}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 96,
+     "lam": 0.01
+    },
+    "val_exact": 61.69413125180688,
+    "seconds": 49
+   },
+   "T1 {'family': 'net', 'views': 'whole', 'H': 96, 'lam': 0.03}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 96,
+     "lam": 0.03
+    },
+    "val_exact": 62.24342295461116,
+    "seconds": 51
+   },
+   "T1 {'family': 'net', 'views': 'whole', 'H': 96, 'lam': 0.1}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 96,
+     "lam": 0.1
+    },
+    "val_exact": 62.53252385082394,
+    "seconds": 49
+   },
+   "T1 {'family': 'net', 'views': 'whole+halves', 'H': 24, 'lam': 0.01}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 24,
+     "lam": 0.01
+    },
+    "val_exact": 61.433940445215384,
+    "seconds": 26
+   },
+   "T1 {'family': 'net', 'views': 'whole+halves', 'H': 24, 'lam': 0.03}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 24,
+     "lam": 0.03
+    },
+    "val_exact": 61.34721017635155,
+    "seconds": 23
+   },
+   "T1 {'family': 'net', 'views': 'whole+halves', 'H': 24, 'lam': 0.1}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 24,
+     "lam": 0.1
+    },
+    "val_exact": 62.937265105521824,
+    "seconds": 26
+   },
+   "T1 {'family': 'net', 'views': 'whole+halves', 'H': 48, 'lam': 0.01}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 48,
+     "lam": 0.01
+    },
+    "val_exact": 60.740098294304715,
+    "seconds": 38
+   },
+   "T1 {'family': 'net', 'views': 'whole+halves', 'H': 48, 'lam': 0.03}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 48,
+     "lam": 0.03
+    },
+    "val_exact": 61.89650187915583,
+    "seconds": 39
+   },
+   "T1 {'family': 'net', 'views': 'whole+halves', 'H': 48, 'lam': 0.1}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 48,
+     "lam": 0.1
+    },
+    "val_exact": 62.59034403006649,
+    "seconds": 39
+   },
+   "T1 {'family': 'net', 'views': 'whole+halves', 'H': 96, 'lam': 0.01}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 96,
+     "lam": 0.01
+    },
+    "val_exact": 60.19080659150043,
+    "seconds": 68
+   },
+   "T1 {'family': 'net', 'views': 'whole+halves', 'H': 96, 'lam': 0.03}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 96,
+     "lam": 0.03
+    },
+    "val_exact": 61.28938999710899,
+    "seconds": 67
+   },
+   "T1 {'family': 'net', 'views': 'whole+halves', 'H': 96, 'lam': 0.1}": {
+    "pool": "T1",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 96,
+     "lam": 0.1
+    },
+    "val_exact": 62.995085284764386,
+    "seconds": 66
+   },
+   "T1 shipped": {
+    "pool": "T1",
+    "cfg": "shipped",
+    "val_exact": 61.462850534836655
+   },
+   "T2 {'family': 'linear', 'views': 'whole', 'lam': 0.003}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "linear",
+     "views": "whole",
+     "lam": 0.003
+    },
+    "val_exact": 61.283714578354385,
+    "seconds": 3
+   },
+   "T2 {'family': 'linear', 'views': 'whole', 'lam': 0.01}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "linear",
+     "views": "whole",
+     "lam": 0.01
+    },
+    "val_exact": 61.16421987026289,
+    "seconds": 2
+   },
+   "T2 {'family': 'linear', 'views': 'whole', 'lam': 0.03}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "linear",
+     "views": "whole",
+     "lam": 0.03
+    },
+    "val_exact": 61.24957323318539,
+    "seconds": 2
+   },
+   "T2 {'family': 'linear', 'views': 'whole', 'lam': 0.1}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "linear",
+     "views": "whole",
+     "lam": 0.1
+    },
+    "val_exact": 61.07886650734039,
+    "seconds": 1
+   },
+   "T2 {'family': 'linear', 'views': 'whole+halves', 'lam': 0.01}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "linear",
+     "views": "whole+halves",
+     "lam": 0.01
+    },
+    "val_exact": 61.30078525093888,
+    "seconds": 7
+   },
+   "T2 {'family': 'linear', 'views': 'whole+halves', 'lam': 0.03}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "linear",
+     "views": "whole+halves",
+     "lam": 0.03
+    },
+    "val_exact": 61.40320928644588,
+    "seconds": 4
+   },
+   "T2 {'family': 'linear', 'views': 'whole+halves', 'lam': 0.1}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "linear",
+     "views": "whole+halves",
+     "lam": 0.1
+    },
+    "val_exact": 61.283714578354385,
+    "seconds": 3
+   },
+   "T2 {'family': 'net', 'views': 'whole', 'H': 24, 'lam': 0.01}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 24,
+     "lam": 0.01
+    },
+    "val_exact": 62.342096278593374,
+    "seconds": 22
+   },
+   "T2 {'family': 'net', 'views': 'whole', 'H': 24, 'lam': 0.03}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 24,
+     "lam": 0.03
+    },
+    "val_exact": 62.59815636736087,
+    "seconds": 22
+   },
+   "T2 {'family': 'net', 'views': 'whole', 'H': 24, 'lam': 0.1}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 24,
+     "lam": 0.1
+    },
+    "val_exact": 62.05189484465687,
+    "seconds": 22
+   },
+   "T2 {'family': 'net', 'views': 'whole', 'H': 48, 'lam': 0.01}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 48,
+     "lam": 0.01
+    },
+    "val_exact": 62.17138955274838,
+    "seconds": 35
+   },
+   "T2 {'family': 'net', 'views': 'whole', 'H': 48, 'lam': 0.03}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 48,
+     "lam": 0.03
+    },
+    "val_exact": 62.564015022191874,
+    "seconds": 35
+   },
+   "T2 {'family': 'net', 'views': 'whole', 'H': 48, 'lam': 0.1}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 48,
+     "lam": 0.1
+    },
+    "val_exact": 62.188460225332875,
+    "seconds": 35
+   },
+   "T2 {'family': 'net', 'views': 'whole', 'H': 96, 'lam': 0.01}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 96,
+     "lam": 0.01
+    },
+    "val_exact": 62.154318880163885,
+    "seconds": 60
+   },
+   "T2 {'family': 'net', 'views': 'whole', 'H': 96, 'lam': 0.03}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 96,
+     "lam": 0.03
+    },
+    "val_exact": 62.461590986684875,
+    "seconds": 50
+   },
+   "T2 {'family': 'net', 'views': 'whole', 'H': 96, 'lam': 0.1}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole",
+     "H": 96,
+     "lam": 0.1
+    },
+    "val_exact": 62.22260157050188,
+    "seconds": 38
+   },
+   "T2 {'family': 'net', 'views': 'whole+halves', 'H': 24, 'lam': 0.01}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 24,
+     "lam": 0.01
+    },
+    "val_exact": 61.91532946398088,
+    "seconds": 18
+   },
+   "T2 {'family': 'net', 'views': 'whole+halves', 'H': 24, 'lam': 0.03}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 24,
+     "lam": 0.03
+    },
+    "val_exact": 62.17138955274838,
+    "seconds": 18
+   },
+   "T2 {'family': 'net', 'views': 'whole+halves', 'H': 24, 'lam': 0.1}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 24,
+     "lam": 0.1
+    },
+    "val_exact": 62.52987367702288,
+    "seconds": 18
+   },
+   "T2 {'family': 'net', 'views': 'whole+halves', 'H': 48, 'lam': 0.01}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 48,
+     "lam": 0.01
+    },
+    "val_exact": 61.64219870262888,
+    "seconds": 28
+   },
+   "T2 {'family': 'net', 'views': 'whole+halves', 'H': 48, 'lam': 0.03}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 48,
+     "lam": 0.03
+    },
+    "val_exact": 62.154318880163885,
+    "seconds": 28
+   },
+   "T2 {'family': 'net', 'views': 'whole+halves', 'H': 48, 'lam': 0.1}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 48,
+     "lam": 0.1
+    },
+    "val_exact": 62.461590986684875,
+    "seconds": 28
+   },
+   "T2 {'family': 'net', 'views': 'whole+halves', 'H': 96, 'lam': 0.01}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 96,
+     "lam": 0.01
+    },
+    "val_exact": 61.64219870262888,
+    "seconds": 46
+   },
+   "T2 {'family': 'net', 'views': 'whole+halves', 'H': 96, 'lam': 0.03}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 96,
+     "lam": 0.03
+    },
+    "val_exact": 62.239672243086375,
+    "seconds": 45
+   },
+   "T2 {'family': 'net', 'views': 'whole+halves', 'H': 96, 'lam': 0.1}": {
+    "pool": "T2",
+    "cfg": {
+     "family": "net",
+     "views": "whole+halves",
+     "H": 96,
+     "lam": 0.1
+    },
+    "val_exact": 62.27381358825538,
+    "seconds": 45
+   },
+   "T2 shipped": {
+    "pool": "T2",
+    "cfg": "shipped",
+    "val_exact": 60.976442471833394
+   }
+  },
+  "selected": {
+   "pool": "T2",
+   "cfg": {
+    "family": "net",
+    "views": "whole",
+    "H": 24,
+    "lam": 0.03
+   },
+   "val_exact": 62.59815636736087,
+   "n_train": 29291
+  },
+  "eval": {
+   "confirm4": {
+    "n": 3000,
+    "shipped": 61.633333333333326,
+    "selected": 63.366666666666674,
+    "selected_fixed": 146,
+    "selected_broke": 94,
+    "selected_p": 0.0009549735200305356,
+    "linear_more_data": 61.96666666666667,
+    "linear_fixed": 53,
+    "linear_broke": 43,
+    "linear_p": 0.3583976321916262,
+    "shipped_metrics": {
+     "n": 3000,
+     "exact": 1849,
+     "exact_pct": 61.63333333333333,
+     "fifth": 350,
+     "fifth_pct": 11.666666666666666,
+     "relative": 133,
+     "relative_pct": 4.433333333333334,
+     "parallel": 119,
+     "parallel_pct": 3.966666666666667,
+     "wt_up_minor": 64,
+     "wt_up_minor_pct": 2.1333333333333333,
+     "wt_down_minor": 48,
+     "wt_down_minor_pct": 1.6,
+     "other": 549,
+     "other_pct": 18.3,
+     "mirex": 0.6959,
+     "pred_minor_pct": 88.63333333333333,
+     "true_minor_pct": 81.96666666666667
+    },
+    "selected_metrics": {
+     "n": 3000,
+     "exact": 1901,
+     "exact_pct": 63.36666666666667,
+     "fifth": 347,
+     "fifth_pct": 11.566666666666666,
+     "relative": 136,
+     "relative_pct": 4.533333333333333,
+     "parallel": 100,
+     "parallel_pct": 3.3333333333333335,
+     "wt_up_minor": 58,
+     "wt_up_minor_pct": 1.9333333333333333,
+     "wt_down_minor": 36,
+     "wt_down_minor_pct": 1.2,
+     "other": 516,
+     "other_pct": 17.2,
+     "mirex": 0.7117666666666668,
+     "pred_minor_pct": 87.33333333333333,
+     "true_minor_pct": 81.96666666666667
+    }
+   },
+   "confirm2": {
+    "n": 999,
+    "shipped": 62.06206206206206,
+    "selected": 63.46346346346346,
+    "selected_fixed": 53,
+    "selected_broke": 39,
+    "selected_p": 0.17498389846296153,
+    "linear_more_data": 62.06206206206206,
+    "linear_fixed": 10,
+    "linear_broke": 10,
+    "linear_p": 1.0,
+    "shipped_metrics": {
+     "n": 999,
+     "exact": 620,
+     "exact_pct": 62.06206206206206,
+     "fifth": 126,
+     "fifth_pct": 12.612612612612613,
+     "relative": 34,
+     "relative_pct": 3.4034034034034035,
+     "parallel": 31,
+     "parallel_pct": 3.103103103103103,
+     "wt_up_minor": 21,
+     "wt_up_minor_pct": 2.1021021021021022,
+     "wt_down_minor": 14,
+     "wt_down_minor_pct": 1.4014014014014013,
+     "other": 188,
+     "other_pct": 18.81881881881882,
+     "mirex": 0.7001001001001,
+     "pred_minor_pct": 88.28828828828829,
+     "true_minor_pct": 83.88388388388388
+    },
+    "selected_metrics": {
+     "n": 999,
+     "exact": 634,
+     "exact_pct": 63.46346346346346,
+     "fifth": 119,
+     "fifth_pct": 11.911911911911911,
+     "relative": 32,
+     "relative_pct": 3.2032032032032034,
+     "parallel": 31,
+     "parallel_pct": 3.103103103103103,
+     "wt_up_minor": 23,
+     "wt_up_minor_pct": 2.3023023023023024,
+     "wt_down_minor": 14,
+     "wt_down_minor_pct": 1.4014014014014013,
+     "other": 183,
+     "other_pct": 18.31831831831832,
+     "mirex": 0.71001001001001,
+     "pred_minor_pct": 88.08808808808809,
+     "true_minor_pct": 83.88388388388388
+    }
+   },
+   "confirm3": {
+    "n": 1000,
+    "shipped": 62.3,
+    "selected": 65.2,
+    "selected_fixed": 61,
+    "selected_broke": 32,
+    "selected_p": 0.003461853491442379,
+    "linear_more_data": 62.5,
+    "linear_fixed": 16,
+    "linear_broke": 14,
+    "linear_p": 0.855535551905632,
+    "shipped_metrics": {
+     "n": 1000,
+     "exact": 623,
+     "exact_pct": 62.3,
+     "fifth": 109,
+     "fifth_pct": 10.9,
+     "relative": 44,
+     "relative_pct": 4.4,
+     "parallel": 29,
+     "parallel_pct": 2.9,
+     "wt_up_minor": 23,
+     "wt_up_minor_pct": 2.3,
+     "wt_down_minor": 18,
+     "wt_down_minor_pct": 1.8,
+     "other": 195,
+     "other_pct": 19.5,
+     "mirex": 0.6965,
+     "pred_minor_pct": 88.1,
+     "true_minor_pct": 82.3
+    },
+    "selected_metrics": {
+     "n": 1000,
+     "exact": 652,
+     "exact_pct": 65.2,
+     "fifth": 105,
+     "fifth_pct": 10.5,
+     "relative": 39,
+     "relative_pct": 3.9,
+     "parallel": 21,
+     "parallel_pct": 2.1,
+     "wt_up_minor": 23,
+     "wt_up_minor_pct": 2.3,
+     "wt_down_minor": 14,
+     "wt_down_minor_pct": 1.4,
+     "other": 183,
+     "other_pct": 18.3,
+     "mirex": 0.7203999999999999,
+     "pred_minor_pct": 87.0,
+     "true_minor_pct": 82.3
+    }
+   },
+   "rbfresh": {
+    "n": 999,
+    "shipped": 62.06206206206206,
+    "selected": 62.66266266266266,
+    "selected_fixed": 31,
+    "selected_broke": 25,
+    "selected_p": 0.5044037600228256,
+    "linear_more_data": 62.36236236236237,
+    "linear_fixed": 14,
+    "linear_broke": 11,
+    "linear_p": 0.6900379657745361,
+    "shipped_metrics": {
+     "n": 999,
+     "exact": 620,
+     "exact_pct": 62.06206206206206,
+     "fifth": 114,
+     "fifth_pct": 11.411411411411411,
+     "relative": 36,
+     "relative_pct": 3.6036036036036037,
+     "parallel": 32,
+     "parallel_pct": 3.2032032032032034,
+     "wt_up_minor": 27,
+     "wt_up_minor_pct": 2.7027027027027026,
+     "wt_down_minor": 22,
+     "wt_down_minor_pct": 2.2022022022022023,
+     "other": 197,
+     "other_pct": 19.71971971971972,
+     "mirex": 0.694894894894895,
+     "pred_minor_pct": 88.58858858858859,
+     "true_minor_pct": 84.78478478478479
+    },
+    "selected_metrics": {
+     "n": 999,
+     "exact": 626,
+     "exact_pct": 62.66266266266266,
+     "fifth": 113,
+     "fifth_pct": 11.31131131131131,
+     "relative": 34,
+     "relative_pct": 3.4034034034034035,
+     "parallel": 34,
+     "parallel_pct": 3.4034034034034035,
+     "wt_up_minor": 26,
+     "wt_up_minor_pct": 2.6026026026026026,
+     "wt_down_minor": 24,
+     "wt_down_minor_pct": 2.4024024024024024,
+     "other": 192,
+     "other_pct": 19.21921921921922,
+     "mirex": 0.7002002002002002,
+     "pred_minor_pct": 88.48848848848849,
+     "true_minor_pct": 84.78478478478479
+    }
+   },
+   "rb200": {
+    "n": 200,
+    "shipped": 66.0,
+    "selected": 67.0,
+    "selected_fixed": 11,
+    "selected_broke": 9,
+    "selected_p": 0.8238029479980469,
+    "linear_more_data": 68.0,
+    "linear_fixed": 4,
+    "linear_broke": 0,
+    "linear_p": 0.125,
+    "shipped_metrics": {
+     "n": 200,
+     "exact": 132,
+     "exact_pct": 66.0,
+     "fifth": 22,
+     "fifth_pct": 11.0,
+     "relative": 0,
+     "relative_pct": 0.0,
+     "parallel": 5,
+     "parallel_pct": 2.5,
+     "wt_up_minor": 11,
+     "wt_up_minor_pct": 5.5,
+     "wt_down_minor": 1,
+     "wt_down_minor_pct": 0.5,
+     "other": 41,
+     "other_pct": 20.5,
+     "mirex": 0.72,
+     "pred_minor_pct": 96.0,
+     "true_minor_pct": 91.0
+    },
+    "selected_metrics": {
+     "n": 200,
+     "exact": 134,
+     "exact_pct": 67.0,
+     "fifth": 25,
+     "fifth_pct": 12.5,
+     "relative": 0,
+     "relative_pct": 0.0,
+     "parallel": 4,
+     "parallel_pct": 2.0,
+     "wt_up_minor": 9,
+     "wt_up_minor_pct": 4.5,
+     "wt_down_minor": 0,
+     "wt_down_minor_pct": 0.0,
+     "other": 37,
+     "other_pct": 18.5,
+     "mirex": 0.7365,
+     "pred_minor_pct": 97.5,
+     "true_minor_pct": 91.0
+    }
+   },
+   "mixed150": {
+    "n": 150,
+    "shipped": 59.333333333333336,
+    "selected": 57.99999999999999,
+    "selected_fixed": 5,
+    "selected_broke": 7,
+    "selected_p": 0.7744140625,
+    "linear_more_data": 62.0,
+    "linear_fixed": 4,
+    "linear_broke": 0,
+    "linear_p": 0.125,
+    "shipped_metrics": {
+     "n": 150,
+     "exact": 89,
+     "exact_pct": 59.333333333333336,
+     "fifth": 20,
+     "fifth_pct": 13.333333333333334,
+     "relative": 7,
+     "relative_pct": 4.666666666666667,
+     "parallel": 8,
+     "parallel_pct": 5.333333333333333,
+     "wt_up_minor": 3,
+     "wt_up_minor_pct": 2.0,
+     "wt_down_minor": 1,
+     "wt_down_minor_pct": 0.6666666666666666,
+     "other": 26,
+     "other_pct": 17.333333333333332,
+     "mirex": 0.6846666666666666,
+     "pred_minor_pct": 84.66666666666667,
+     "true_minor_pct": 84.0
+    },
+    "selected_metrics": {
+     "n": 150,
+     "exact": 87,
+     "exact_pct": 58.0,
+     "fifth": 24,
+     "fifth_pct": 16.0,
+     "relative": 7,
+     "relative_pct": 4.666666666666667,
+     "parallel": 5,
+     "parallel_pct": 3.3333333333333335,
+     "wt_up_minor": 2,
+     "wt_up_minor_pct": 1.3333333333333333,
+     "wt_down_minor": 1,
+     "wt_down_minor_pct": 0.6666666666666666,
+     "other": 27,
+     "other_pct": 18.0,
+     "mirex": 0.6806666666666668,
+     "pred_minor_pct": 85.33333333333334,
+     "true_minor_pct": 84.0
+    }
+   }
+  },
+  "ship_decision": {
+   "ship": true,
+   "confirm4_gain": 1.7333333333333485,
+   "confirm4_p": 0.0009549735200305356,
+   "confirm23_gain_tracks": 43
+  },
+  "shipped_float32_check": {
+   "confirm4": {
+    "n": 3000,
+    "exact": 63.366666666666674,
+    "calibration": [
+     [
+      "0.0-0.3",
+      180,
+      28.333333333333332
+     ],
+     [
+      "0.3-0.5",
+      735,
+      39.183673469387756
+     ],
+     [
+      "0.5-0.7",
+      779,
+      57.381258023106554
+     ],
+     [
+      "0.7-0.9",
+      931,
+      81.203007518797
+     ],
+     [
+      "0.9-1.0",
+      375,
+      95.73333333333333
+     ]
+    ]
+   },
+   "live_agreement": "200/200",
+   "confirm2": {
+    "n": 999,
+    "exact": 63.46346346346346,
+    "calibration": [
+     [
+      "0.0-0.3",
+      57,
+      33.33333333333333
+     ],
+     [
+      "0.3-0.5",
+      246,
+      39.43089430894309
+     ],
+     [
+      "0.5-0.7",
+      263,
+      57.414448669201526
+     ],
+     [
+      "0.7-0.9",
+      283,
+      79.50530035335689
+     ],
+     [
+      "0.9-1.0",
+      150,
+      94.66666666666667
+     ]
+    ]
+   },
+   "confirm3": {
+    "n": 1000,
+    "exact": 65.2,
+    "calibration": [
+     [
+      "0.0-0.3",
+      65,
+      27.692307692307693
+     ],
+     [
+      "0.3-0.5",
+      243,
+      42.79835390946502
+     ],
+     [
+      "0.5-0.7",
+      263,
+      64.25855513307985
+     ],
+     [
+      "0.7-0.9",
+      311,
+      80.06430868167203
+     ],
+     [
+      "0.9-1.0",
+      118,
+      94.91525423728814
+     ]
+    ]
+   }
+  }
+ },
+ "tempo_holdout": {
+  "n": 3000,
+  "summary": [
+   "tracks 3000  scored 2997  crashes 0  no tempo 3",
+   "exact (<= 0.6 BPM) 2488 (83.0%)  within 1% 88.4%  within 2% 91.5%  within 4% 92.4%",
+   "misses beyond 2%: 255  by class: {'other': 79, 'half': 61, '2:3': 40, '4:3': 35, 'double': 32, '3:2': 6, '3:4': 2}",
+   "misses by Rekordbox BPM band: {60: 21, 80: 75, 100: 22, 120: 21, 140: 19, 160: 92, 180: 5}"
+  ]
+ }
+}
