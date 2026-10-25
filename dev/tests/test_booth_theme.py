@@ -170,3 +170,19 @@ def test_the_pop_out_art_is_red_shifted_in_the_booth():
             assert rule and "var(--img-tint)" in rule.group(1), (
                 f"{selector}{layer} keeps its cyan/magenta art under Studio Lighting; "
                 "add a booth rule in ui_extras.css that applies var(--img-tint) to it")
+
+
+def test_the_progress_mascot_is_red_shifted_in_the_booth():
+    """The readout's radial progress is a bitmap mascot, not a vector ring.
+
+    Like the pop-out art it carries its own magenta and electric blue that no
+    colour token reaches, and like the pop-out art its selector contains none of
+    the words the image-filter sweep above looks for, so only this check stands
+    between it and a dark booth lit by a disco ball.
+    """
+    assert re.search(r"\.chop-ring-wrap::before\s*{[^}]*maskot-progress", CSS), (
+        "the mascot is no longer on .chop-ring-wrap::before; move this check with it")
+    rule = re.search(r'body\[data-theme="booth"\][^{]*\.chop-ring-wrap::before[^{]*\{([^}]*)\}', EXT)
+    assert rule and "var(--img-tint)" in rule.group(1), (
+        "the progress mascot keeps its cyan/magenta under Studio Lighting; add a booth "
+        "rule in ui_extras.css that applies var(--img-tint) to it")

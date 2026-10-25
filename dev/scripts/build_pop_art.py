@@ -53,6 +53,11 @@ TOOLS = {f"pop-{name}": name for name in TOOL_NAMES}
 # the card crops was tried on 2026-10-25 and reverted.
 ICONS = {f"icon-{name}": name for name in TOOL_NAMES}
 
+# The progress mascot: headphones around a disco ball with a dark lens at its
+# centre, which is where the percentage reads. Installed flat (no crop) — it is
+# already square and tight, and the glow around it is the look.
+MASCOT = {"maskot-progress": "maskot-progress"}
+
 
 def decode_rgba(path: Path) -> tuple[int, int, bytearray]:
     """Minimal 8-bit RGBA PNG reader — there is no PIL in this venv, and adding
@@ -132,7 +137,7 @@ def main() -> int:
         print(f"source folder not found: {args.src}", file=sys.stderr)
         return 1
 
-    missing = [stem for stem in (*TOOLS, *ICONS) if not (args.src / f"{stem}.png").is_file()]
+    missing = [stem for stem in (*TOOLS, *ICONS, *MASCOT) if not (args.src / f"{stem}.png").is_file()]
     if missing:
         print(f"missing source art: {', '.join(sorted(missing))}", file=sys.stderr)
         return 1
@@ -185,9 +190,16 @@ def main() -> int:
             check=True, stdout=subprocess.DEVNULL,
         )
 
+    for stem, name in MASCOT.items():
+        src = args.src / f"{stem}.png"
+        width, height, _ = decode_rgba(src)
+        print(f"{name:<11} {width}x{height} (copied flat)")
+        if not args.dry_run:
+            (ICON_DEST / f"{name}.png").write_bytes(src.read_bytes())
+
     if not args.dry_run:
         print(f"\nwrote {2 * len(TOOLS)} files to {DEST.relative_to(REPO)}"
-              f" and {len(ICONS)} to {ICON_DEST.relative_to(REPO)}")
+              f" and {len(ICONS) + len(MASCOT)} to {ICON_DEST.relative_to(REPO)}")
     return 0
 
 

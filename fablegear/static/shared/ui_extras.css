@@ -221,6 +221,14 @@ body[data-theme="booth"] #settings-modal::after,
 body[data-theme="booth"] #pipeline-wizard::after {
   filter: var(--img-tint);
 }
+
+/* The progress mascot is the same kind of problem: a bitmap full of magenta and
+   electric blue that no colour token reaches. It sits on a pseudo-element for
+   the same reason — the filter must not touch the percentage reading out of the
+   middle of it. Covered by test_the_progress_mascot_is_red_shifted_in_the_booth. */
+body[data-theme="booth"] .chop-ring-wrap::before {
+  filter: var(--img-tint);
+}
 body[data-theme="booth"] img,
 body[data-theme="booth"] video { filter: var(--img-tint); }
 /* Icons that add a glow set their own filter, which would drop the tint: keep both. */

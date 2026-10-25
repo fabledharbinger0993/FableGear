@@ -6598,11 +6598,29 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
    r=52 in a 120 viewBox → circumference 2π·52 ≈ 326.73, which is the
    stroke-dasharray; scan_bar.js sets stroke-dashoffset to
    326.73 × (1 − pct/100). Rotated −90° so 0% starts at twelve o'clock. */
+/* ── Progress: the mascot ──────────────────────────────────────────────────
+   The readout's radial progress is the FableGear mascot — headphones around a
+   disco ball — with the percentage reading out of the dark lens at its centre.
+   The art is a fixed bitmap, so it does the looking and the SVG ring does the
+   measuring: the ring is pushed OUTSIDE the ball (see .chop-ring-svg) so the
+   arc traces around the headphones instead of being buried under them. The
+   number keeps its role=progressbar / aria-valuenow on the wrapper, unchanged —
+   none of this is announced, and swapping a vector ring for a picture must not
+   cost a screen reader the only thing it could read here. */
 .chop-ring-wrap {
   position: relative;
   flex: 0 0 auto;
   width: clamp(72px, 11vh, 104px);
   aspect-ratio: 1;
+}
+
+.chop-ring-wrap::before {
+  content: '';
+  position: absolute;
+  /* Inset so the ball sits inside the progress arc rather than under it. */
+  inset: 11%;
+  background: url('/static/chop_shop/icons/maskot-progress.png') center / contain no-repeat;
+  pointer-events: none;
 }
 .chop-ring-svg {
   width: 100%; height: 100%;
@@ -6612,16 +6630,16 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
 .chop-ring-track {
   fill: none;
   stroke: rgba(255, 255, 255, .07);
-  stroke-width: 9;
+  stroke-width: 5;
 }
 .chop-ring-fill {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 9;
+  stroke-width: 5;
   stroke-linecap: round;
   stroke-dasharray: 326.73;
   stroke-dashoffset: 326.73;
-  filter: drop-shadow(0 0 7px rgba(var(--accent-rgb), .6));
+  filter: drop-shadow(0 0 7px rgba(var(--accent-rgb), .75));
   transition: stroke-dashoffset .35s ease;
 }
 .chop-ring-centre {
@@ -6635,7 +6653,14 @@ body:has(#fb-panel.fb-open).fg-space-chop #chop-readout {
   gap: 1px;
   font-family: var(--mono);
   font-weight: 700;
-  color: var(--text);
+  /* Reads out of the mascot's centre lens, which is small and near-black, so
+     the number is lit rather than merely light-coloured. */
+  color: #eafcff;
+  font-size: clamp(13px, 1.9vh, 19px);
+  letter-spacing: -.02em;
+  text-shadow:
+    0 0 5px rgba(var(--cyan-glow-rgb), .95),
+    0 0 13px rgba(var(--grid-a-rgb), .55);
 }
 /* px, not rem: html is font-size: 10px, so .62rem rendered the % sign at 6px. */
 #chop-prog-pct { font-size: clamp(17px, 2.4vh, 24px); line-height: 1; }
