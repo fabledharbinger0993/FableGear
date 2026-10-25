@@ -58,17 +58,31 @@ def test_booth_values_for_the_chop_shop_tokens_are_red_not_pink_or_blue():
         assert rgb and not _off_red(rgb), f"{name} = {m.group(1)} is not red-shifted"
 
 
-def test_the_normal_theme_keeps_its_original_colours():
-    # These variables replaced colours written straight into rules; their defaults must stay
-    # exactly what those rules used, so only Studio Lighting changes.
+def test_the_normal_theme_keeps_its_deliberate_colours():
+    """These tokens replaced colours that used to be written straight into rules.
+
+    This test originally pinned them to the pre-refactor literals, to prove the
+    literals-to-tokens refactor changed nothing on screen. That job is done, and on
+    2026-10-25 the palette was deliberately re-graded to the Chop Shop pop-out art
+    (magenta to 305 degrees, blue to 198, surfaces darker) — so the old values are
+    no longer what the app should render. The pin stays, because an accidental drift
+    in a colour nobody meant to touch is still worth catching; only the values moved.
+    Changing one here is a design decision, not a test fix: say so in the commit.
+    """
     expected = {
-        "--chop-panel-top-rgb": "13, 20, 32", "--chop-panel-bottom-rgb": "7, 10, 18",
-        "--chop-card-rgb": "12, 18, 30", "--log-bg": "#050508", "--violet-rgb": "190, 130, 255",
-        "--health-bg-rgb": "30, 24, 48", "--health-border-rgb": "180, 130, 255",
-        "--pill-text": "#a9eff8", "--pill-text-hi": "#d9fbff",
-        "--pill-on-top-rgb": "5, 50, 66", "--pill-on-bottom-rgb": "4, 30, 43",
-        "--pill-top-rgb": "4, 34, 46", "--pill-bottom-rgb": "3, 20, 30",
-        "--quenched-text": "#86efac", "--text-pale": "#d5f4f8", "--tl-green": "#28c840",
+        "--chop-panel-top-rgb": "10, 14, 28", "--chop-panel-bottom-rgb": "5, 7, 15",
+        "--chop-card-rgb": "9, 13, 26", "--log-bg": "#030206", "--violet-rgb": "205, 120, 255",
+        "--health-bg-rgb": "26, 16, 44", "--health-border-rgb": "200, 110, 255",
+        "--pill-text": "#a6e4ff", "--pill-text-hi": "#d6f4ff",
+        "--pill-on-top-rgb": "6, 46, 74", "--pill-on-bottom-rgb": "4, 26, 48",
+        "--pill-top-rgb": "4, 28, 52", "--pill-bottom-rgb": "3, 16, 34",
+        # Green stays green and the macOS traffic light stays macOS green: both are
+        # semantic, not part of the room's palette.
+        "--quenched-text": "#86efac", "--text-pale": "#d2eeff", "--tl-green": "#28c840",
+        # The two voices the art is graded to. Measured from the pop art, not picked.
+        "--accent-b": "#e833cf", "--accent-b-rgb": "232, 51, 207",
+        "--accent": "#1fb6ff", "--accent-rgb": "31, 182, 255",
+        "--grid-a-rgb": "34, 170, 255", "--grid-b-rgb": "224, 44, 200",
     }
     tokens = _root_tokens()
     assert {k: tokens.get(k) for k in expected} == expected
@@ -123,3 +137,36 @@ def test_no_image_filter_rule_escapes_the_booth_tint():
     for selector in _NEEDS_BOOTH_COUNTERPART:
         rules = re.findall(r'body\[data-theme="booth"\][^{]*' + re.escape(selector) + r"[^{]*\{([^}]*)\}", EXT)
         assert rules and all("var(--img-tint)" in r for r in rules), selector
+
+
+# The pop-out card art (static/chop_shop/pops/) is a bitmap worn by three modals as a
+# 9-sliced ::before. No colour token reaches it, so the rule above that policies
+# `filter` on image-ish SELECTORS can't see it either — "#tool-float-modal::before"
+# matches none of its image words. It still has to red-shift, or the largest
+# magenta-and-electric-blue surface in the app survives a dark booth untouched.
+_POP_SKINNED = ("#tool-float-modal", "#settings-modal", "#pipeline-wizard")
+
+
+def test_every_modal_that_wears_the_pop_art_declares_both_layers():
+    for selector in _POP_SKINNED:
+        assert re.search(rf"{re.escape(selector)}::before\s*{{[^}}]*border-image-source", CSS), (
+            f"{selector} is listed as pop-skinned but sets no frame (border-image-source)")
+        assert re.search(rf"{re.escape(selector)}::after\s*{{[^}}]*background-image", CSS), (
+            f"{selector} is listed as pop-skinned but sets no interior (background-image)")
+
+
+def test_the_pop_out_art_is_red_shifted_in_the_booth():
+    """BOTH layers, which is the bug this originally missed.
+
+    The art is worn as two pseudo-elements: ::before is the 9-sliced frame and
+    ::after is the dimmed interior crop. The first version of this test checked
+    only ::before, the booth rule matched it, and the lit object inside every
+    pop-out stayed magenta and electric blue in a dark booth. Keep both here.
+    """
+    for selector in _POP_SKINNED:
+        for layer in ("::before", "::after"):
+            rule = re.search(
+                r'body\[data-theme="booth"\][^{]*' + re.escape(selector + layer) + r"[^{]*\{([^}]*)\}", EXT)
+            assert rule and "var(--img-tint)" in rule.group(1), (
+                f"{selector}{layer} keeps its cyan/magenta art under Studio Lighting; "
+                "add a booth rule in ui_extras.css that applies var(--img-tint) to it")

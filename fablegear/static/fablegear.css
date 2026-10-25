@@ -1,14 +1,24 @@
 /* ── Design tokens ─────────────────────────────────────────────────────── */
+/* ── Palette ───────────────────────────────────────────────────────────────
+   Re-graded 2026-10-25 to the Chop Shop pop-out art (static/chop_shop/pops/).
+   The hues are measured, not picked: a saturation-weighted hue histogram over
+   the painted frame band of all eight images puts the magenta voice at 305°
+   (#8e1e82 / #a12687) and the blue at 195–210° (#2a8bad / #1b6495). The app
+   was at 337° (a rose pink) and 185° (a teal cyan), which is why it never
+   quite matched the artwork. Everything below is those two hues plus a darker
+   set of surfaces, so the art reads as part of the app rather than pasted on.
+   See dev/scripts/build_pop_art.py for where the art comes from.
+   ──────────────────────────────────────────────────────────────────────── */
 :root {
-  --bg:            #07090e;
-  --surface:       #0d1420;
-  --surface-hi:    #162030;
-  --border:        #243040;
-  --border-hi:     #3a5060;
+  --bg:            #03040b;
+  --surface:       #080c18;
+  --surface-hi:    #101829;
+  --border:        #1d2840;
+  --border-hi:     #304668;
 
-  --text:          #dce8ef;
-  --text-muted:    #8aabba;
-  --text-dim:      #4f6878;
+  --text:          #dbe9f7;
+  --text-muted:    #8aa8c4;
+  --text-dim:      #4f6480;
 
   --safe:          #1A8200;
   --safe-dim:      rgba(26, 130, 0, 0.15);
@@ -26,17 +36,19 @@
   --danger-dim:    rgba(239, 68, 68, 0.15);
   --danger-border: rgba(239, 68, 68, 0.30);
 
-  --accent:        #00d4e8;
-  --accent-dim:    rgba(0, 212, 232, 0.15);
-  --accent-rgb:    0, 212, 232;
-  --accent2:       #00b4c8;
-  --accent2-dim:   rgba(0, 180, 200, 0.15);
+  /* Electric blue, 198° — the art's cool voice. Was #00d4e8, a 185° teal. */
+  --accent:        #1fb6ff;
+  --accent-dim:    rgba(31, 182, 255, 0.15);
+  --accent-rgb:    31, 182, 255;
+  --accent2:       #0f96e0;
+  --accent2-dim:   rgba(15, 150, 224, 0.15);
 
   /* The app's second voice — the magenta that lives in the Chop Shop icon set
-     and Deck B. Formalized so the two rooms can speak their own color. */
-  --accent-b:      #ff2d78;
-  --accent-b-rgb:  255, 45, 120;
-  --accent-b-dim:  rgba(255, 45, 120, 0.15);
+     and Deck B. Formalized so the two rooms can speak their own color.
+     Moved to 305° to match the pop-out art; it was #ff2d78, a 337° rose. */
+  --accent-b:      #e833cf;
+  --accent-b-rgb:  232, 51, 207;
+  --accent-b-dim:  rgba(232, 51, 207, 0.15);
 
   /* ── Outrun backdrop ───────────────────────────────────────────────────
      The neon grid the whole app floats on (#fg-backdrop) and the frame that
@@ -46,52 +58,52 @@
      Tokens rather than literals so Studio Lighting reaches them: a cyan
      horizon burning away under a dark booth is precisely what that theme
      exists to prevent. */
-  --grid-a-rgb:    0, 200, 226;
-  --grid-b-rgb:    236, 46, 150;
-  --grid-fade:     .5;
+  --grid-a-rgb:    34, 170, 255;
+  --grid-b-rgb:    224, 44, 200;
+  --grid-fade:     .56;
 
   /* RGB channel tokens for the cyan/navy family the Record Room hardcoded.
      Every literal in the stylesheet that was one of these now reads the
      token, so the Studio Lighting (booth) theme in ui_extras.css reaches it.
      Values here are the exact former literals: default rendering unchanged. */
-  --accent2-rgb:      0, 180, 200;
-  --cyan-deep-rgb:    0, 160, 180;
-  --cyan-blue-rgb:    0, 120, 180;
-  --steel-cyan-rgb:   109, 184, 212;
-  --panel-tint-rgb:   5, 13, 22;
+  --accent2-rgb:      15, 150, 224;
+  --cyan-deep-rgb:    10, 130, 200;
+  --cyan-blue-rgb:    18, 96, 200;
+  --steel-cyan-rgb:   120, 180, 225;
+  --panel-tint-rgb:   4, 9, 20;
   /* Chop Shop panel surfaces and accents that were written straight into rules. They are
      tokens so the Studio Lighting (booth) theme in shared/ui_extras.css can red-shift them. */
-  --chop-panel-top-rgb:    13, 20, 32;
-  --chop-panel-bottom-rgb: 7, 10, 18;
-  --chop-card-rgb:         12, 18, 30;
-  --log-bg:                #050508;
-  --violet-rgb:            190, 130, 255;
-  --health-bg-rgb:         30, 24, 48;
-  --health-border-rgb:     180, 130, 255;
-  --pill-text:         #a9eff8;
-  --pill-text-hi:      #d9fbff;
-  --pill-on-top-rgb:   5, 50, 66;
-  --pill-on-bottom-rgb:4, 30, 43;
-  --pill-top-rgb:          4, 34, 46;
-  --pill-bottom-rgb:       3, 20, 30;
+  --chop-panel-top-rgb:    10, 14, 28;
+  --chop-panel-bottom-rgb: 5, 7, 15;
+  --chop-card-rgb:         9, 13, 26;
+  --log-bg:                #030206;
+  --violet-rgb:            205, 120, 255;
+  --health-bg-rgb:         26, 16, 44;
+  --health-border-rgb:     200, 110, 255;
+  --pill-text:         #a6e4ff;
+  --pill-text-hi:      #d6f4ff;
+  --pill-on-top-rgb:   6, 46, 74;
+  --pill-on-bottom-rgb:4, 26, 48;
+  --pill-top-rgb:          4, 28, 52;
+  --pill-bottom-rgb:       3, 16, 34;
   --quenched-text:         #86efac;
-  --text-pale:             #d5f4f8;
+  --text-pale:             #d2eeff;
   --tl-green:              #28c840;
-  --panel-deep-rgb:   2, 8, 14;
-  --cyan-hot-rgb:     0, 194, 255;
-  --cyan-glow-rgb:    0, 243, 255;
-  --cyan-bright-rgb:  0, 235, 255;
-  --cyan-pale-rgb:    0, 220, 240;
-  --titlebar-edge-rgb:      0, 77, 96;
-  --titlebar-highlight-rgb: 0, 229, 255;
-  --drop-active-fill-rgb:   0, 130, 150;
-  --folder-zone-fill-rgb:   0, 100, 120;
-  --folder-pill-fill-rgb:   0, 130, 150;
-  --rkb-dialog-shadow-rgb:  0, 130, 150;
-  --library-backdrop-start-rgb: 3, 7, 13;
-  --library-backdrop-mid-rgb:   6, 19, 27;
-  --library-backdrop-end-rgb:   8, 7, 19;
-  --lf-select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2300b4c8' fill-opacity='0.5'/%3E%3C/svg%3E");
+  --panel-deep-rgb:   2, 5, 13;
+  --cyan-hot-rgb:     30, 175, 255;
+  --cyan-glow-rgb:    60, 205, 255;
+  --cyan-bright-rgb:  48, 195, 255;
+  --cyan-pale-rgb:    40, 182, 245;
+  --titlebar-edge-rgb:      8, 62, 110;
+  --titlebar-highlight-rgb: 45, 190, 255;
+  --drop-active-fill-rgb:   16, 110, 185;
+  --folder-zone-fill-rgb:   12, 86, 150;
+  --folder-pill-fill-rgb:   16, 110, 185;
+  --rkb-dialog-shadow-rgb:  16, 110, 185;
+  --library-backdrop-start-rgb: 2, 4, 11;
+  --library-backdrop-mid-rgb:   4, 13, 26;
+  --library-backdrop-end-rgb:   7, 5, 20;
+  --lf-select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%230f96e0' fill-opacity='0.5'/%3E%3C/svg%3E");
 
   --mono: 'JetBrains Mono','Fira Code','Cascadia Code',ui-monospace,monospace;
   --sans: system-ui,-apple-system,'Segoe UI',sans-serif;
@@ -2448,16 +2460,27 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
   padding: 24px;
 }
 #settings-backdrop.hidden { display: none; }
+/* Wears pops/settings.png as its skin — the wireframe sphere. `position` and
+   `isolation` make it a stacking context so the ::before skin (see "The
+   pop-out's skin") stays inside it; the radius matches the art's painted
+   corners, and the background is dark enough not to glow through the art's
+   semi-transparent edge. */
 #settings-modal {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-hi) 90%, black), var(--surface));
-  border: 1px solid var(--border-hi);
-  border-radius: 12px;
+  background: rgba(5, 4, 14, 0.97);
+  border: 0;
+  border-radius: 26px;
   width: 100%; max-width: 560px;
   max-height: 90vh;
-  box-shadow: 0 24px 80px rgba(0,0,0,.8);
+  box-shadow:
+    0 -2px 28px rgba(var(--grid-b-rgb), .30),
+    0 12px 34px rgba(var(--grid-a-rgb), .20),
+    0 24px 80px rgba(2, 1, 10, .82);
   display: flex; flex-direction: column;
   overflow: hidden;
+  position: relative;
+  isolation: isolate;
 }
+#settings-modal::before { border-image-source: url('/static/chop_shop/pops/settings.png'); }
 
 /* ── Settings tabs ─────────────────────────────────────────────────────────
    Underline-style tab bar. Without these rules the tabs fall back to raw
@@ -3516,11 +3539,17 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
 }
 #pipeline-wizard-backdrop.hidden { display: none; }
 
+/* Wears pops/queue.png — the neon corridor, which is what a pipeline is. Same
+   stacking-context and radius reasoning as #settings-modal above. */
 #pipeline-wizard {
-  background: var(--surface);
-  border: 1px solid var(--border-hi);
-  border-radius: 14px;
-  box-shadow: 0 24px 80px rgba(0,0,0,.85);
+  background: rgba(5, 4, 14, 0.97);
+  border: 0;
+  border-radius: 26px;
+  isolation: isolate;
+  box-shadow:
+    0 -2px 28px rgba(var(--grid-b-rgb), .30),
+    0 12px 34px rgba(var(--grid-a-rgb), .20),
+    0 24px 80px rgba(2, 1, 10, .85);
   width: 90vw;
   max-width: 700px;
   max-height: 88vh;
@@ -3530,6 +3559,7 @@ details[open].dupes-load-existing > summary::before { content: '▾ '; }
   transition: max-width .42s cubic-bezier(.22,1,.36,1);
   position: relative;
 }
+#pipeline-wizard::before { border-image-source: url('/static/chop_shop/pops/queue.png'); }
 #pipeline-wizard.wizard-wide { max-width: 980px; }
 
 #pipe-wiz-p1 { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
@@ -5757,15 +5787,25 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
   display: none;
   position: fixed;
   z-index: 12000;
-  width: min(1080px, calc(100vw - var(--left-panel-w) - 72px));
+  /* Shaped to the art, not to the widest the window allows. The art is ~1.25:1
+     (436x350); the card was 1080x590, which is 1.83:1, so the interior was
+     stretched half as wide again as it was drawn and the podium ellipse came
+     out as a letterbox smear. 880x660 is 1.33:1 — close enough that `cover`
+     on the interior layer crops almost nothing. The min-height is what stops a
+     short tool from going wide-and-flat again. */
+  width: min(880px, calc(100vw - var(--left-panel-w) - 72px));
+  min-height: min(660px, 88vh);
   max-height: 88vh;
   left: calc(var(--left-panel-w) + (100vw - var(--left-panel-w)) / 2);
   top: 50%;
   transform: translate(-50%, -50%);
   flex-direction: column;
-  background: rgba(12, 8, 28, 0.98);
-  border: 2px solid rgba(var(--grid-b-rgb), .55);
-  border-radius: 28px;
+  /* Sits UNDER the art skin, and has to be opaque enough to carry body text:
+     the art's interior is pure black (measured) but its alpha falls off toward
+     the frame, so without this the grid shows through behind the content. */
+  background: rgba(5, 4, 14, 0.97);
+  border: 0;
+  border-radius: 26px;
   /* Magenta biased above, cyan below: two glows standing in for the gradient
      border the card can't have (it holds content, so it can't be mask-punched
      the way #fg-frame is). Cheaper than a gradient ring, and it reads the
@@ -5773,18 +5813,121 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
   box-shadow:
     0 -2px 32px rgba(var(--grid-b-rgb), .34),
     0 12px 38px rgba(var(--grid-a-rgb), .24),
-    0 0 0 1px rgba(255, 255, 255, .05),
-    0 36px 130px rgba(4, 2, 14, .80);
+    0 36px 130px rgba(2, 1, 10, .84);
   overflow: hidden;
+}
+
+/* ── The pop-out's skin ────────────────────────────────────────────────────
+   Each tool's art (static/chop_shop/pops/) IS the card: a painted neon frame
+   around a black interior, 9-sliced so the painted corners stay crisp while the
+   middle stretches to whatever size the card is. tool_modal.js points
+   --tfm-pop at the active tool's image; the Settings and Pipeline Wizard
+   modals set theirs as a literal further down, since they never change.
+
+   A pseudo-element, not a child div, for two reasons. It needs no markup in
+   any of the three modals that wear one. And Studio Lighting has to red-shift
+   it — the only way to red-shift a bitmap is a `filter`, and a filter on the
+   card itself would recolour the tool's content too, while a filter on
+   ::before reaches nothing but the art.
+
+   z-index: -1 puts it above the card's own background and below every bit of
+   content without the content needing a z-index of its own. That requires the
+   card to be a stacking context, or the skin escapes it and lands behind the
+   backdrop: this one is (position + z-index), and the two below are given
+   `isolation: isolate` precisely so they are too. Don't remove it.
+
+   border-image-slice (46) is larger than the border-width (30) on purpose: the
+   source's painted band runs 0–27px in from the trimmed edge (measured across
+   all eight), so 46 clears the band and its decay, and squeezing that into 30
+   renders the frame a touch tighter and brighter than the source. */
+#tool-float-modal::before,
+#settings-modal::before,
+#pipeline-wizard::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border: 30px solid transparent;
+  border-image-slice: 46;
+  border-image-repeat: stretch;
+}
+
+#tool-float-modal::before { border-image-source: var(--tfm-pop, none); }
+
+/* ── ...and the interior, separately ───────────────────────────────────────
+   The frame above and the lit object inside it have opposite jobs. The frame is
+   the card's border and wants to stay vivid; the interior sits under the tool's
+   folder paths and dropdowns and has to keep quiet. One image at one opacity
+   cannot do both — dimming the skin to let the controls read dimmed the border
+   with it, and the card lost its edge.
+
+   So the frame comes from the 9-slice above (no `fill`, so it paints the border
+   and nothing else) and the interior comes from a separate `-core` crop, which
+   is the same art with the frame cut off — see FRAME in build_pop_art.py. The
+   crop is inset by the frame width so it never doubles up on the border, and
+   cover-cropped rather than stretched: stretching it to a wide card smeared the
+   podium ellipse into a letterbox, which is why the card is now shaped to the
+   art (see its width/min-height) instead of the art being shaped to the card.
+
+   0.5 is the most the art can assert itself before it starts fighting the data.
+   Raise it and the card photographs better and reads worse in use. */
+#tool-float-modal::after,
+#settings-modal::after,
+#pipeline-wizard::after {
+  content: '';
+  position: absolute;
+  inset: 30px;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--tfm-pop-core, none) center / cover no-repeat;
+  opacity: .5;
+}
+
+#tool-float-modal::after  { background-image: var(--tfm-pop-core, none); }
+#settings-modal::after    { background-image: url('/static/chop_shop/pops/settings-core.png'); }
+#pipeline-wizard::after   { background-image: url('/static/chop_shop/pops/queue-core.png'); }
+
+/* ...and the tool's own panels go transparent so there is something to see
+   through. .card-form in particular was fully opaque (rgb(16,24,41)), which
+   covered the art's whole interior and left only a lit border around a flat
+   navy sheet. Scoped to the pop-out: in the Record Room these cards sit on the
+   page with no art behind them and still need their own surface. */
+#tool-float-modal-body .card,
+#tool-float-modal-body .card-form {
+  background: transparent;
+}
+
+/* ...and the form gets a measure. Every block in these tools was written to fill
+   whatever width it was handed, which was fine against a 1080px card and is not
+   against an 880px one shaped to the art: an 828px drop bin and a 697px path
+   field sitting next to a 290px dropdown reads as an accident rather than a
+   layout. Capping the form column rather than each control, because the same
+   stretch affects .folder-zone, .folder-pills, .checkbox-row, .btn-row, the
+   Quench preview rows and the progress track — and any control a future tool
+   adds. One cap here fixes all of them and the next one too.
+   Pop-out only: in the Record Room these cards are the page, and there the full
+   width is the right answer. */
+#tool-float-modal-body .card-form,
+#tool-float-modal-body .explainers {
+  max-width: 620px;
+  margin-inline: auto;
+}
+
+/* A tool with no art of its own keeps the plain neon card it had before, so
+   the border the skin normally draws doesn't just go missing. */
+#tool-float-modal:not(.tfm-has-pop) {
+  border: 2px solid rgba(var(--grid-b-rgb), .55);
 }
 
 #tool-float-modal-header {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
-  padding: 12px 16px;
-  background: rgba(28, 18, 50, 0.98);
-  border-bottom: 1px solid rgba(140, 100, 255, 0.2);
+  padding: 18px 58px 10px;
+  background: transparent;
+  border-bottom: 0;
   cursor: grab;
   -webkit-user-select: none;
   user-select: none;
@@ -5792,69 +5935,71 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
 }
 #tool-float-modal-header:active { cursor: grabbing; }
 
-#tool-float-modal-icon {
-  width: 36px;
-  height: 36px;
-  object-fit: contain;
-  border-radius: 6px;
-  flex-shrink: 0;
-}
-
-/* The 330x260 tile art, when a tool has one. Wider box and cover-crop so the
-   painted frame fills it instead of letterboxing inside a square. */
-#tool-float-modal-icon.tfm-icon-tile {
-  width: 66px;
-  height: 52px;
-  object-fit: cover;
-  border-radius: 8px;
-  box-shadow: 0 0 0 1px rgba(var(--room-accent-rgb), .35);
-}
+/* The card wears the tool's art now, so a thumbnail of it in the header is the
+   same picture twice. Kept in the markup (and still populated) so nothing that
+   reads the element breaks; just not shown. */
+#tool-float-modal-icon { display: none; }
 
 .tool-float-title-wrap {
-  flex: 1;
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  gap: 12px;
   min-width: 0;
 }
 
+/* Big, centred, and lit from inside — the title is the only thing competing
+   with the artwork, so it has to hold its own against it. */
 #tool-float-modal-title {
-  font-size: .9rem;
-  font-weight: 700;
-  color: var(--text);
-  letter-spacing: .04em;
+  font-size: 2.3rem;
+  font-weight: 800;
+  color: var(--text-pale);
+  letter-spacing: .10em;
+  text-transform: uppercase;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-shadow:
+    0 0 6px rgba(var(--cyan-glow-rgb), .95),
+    0 0 18px rgba(var(--grid-a-rgb), .65),
+    0 0 42px rgba(var(--grid-b-rgb), .35);
 }
 
+/* Out of the title's way, against the art's top-right corner. */
 #tool-float-modal-close {
-  width: 28px;
-  height: 28px;
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  background: rgba(255, 95, 87, 0.85);
-  border: 1px solid rgba(255, 95, 87, 0.4);
-  color: rgba(40, 10, 10, 0.95);
-  font-size: 18px;
+  background: rgba(255, 72, 64, 0.92);
+  border: 1px solid rgba(255, 140, 130, 0.45);
+  color: rgba(40, 6, 6, 0.95);
+  font-size: 20px;
   line-height: 1;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  box-shadow: 0 0 14px rgba(255, 72, 64, .45);
   transition: transform .15s, background .15s;
 }
 #tool-float-modal-close:hover {
   transform: scale(1.08);
-  background: rgba(255, 95, 87, 1);
+  background: rgba(255, 72, 64, 1);
 }
 
+/* Inset from the painted frame so no control ever sits on top of the neon
+   border the art draws. 30px is the skin's border-width. */
 #tool-float-modal-body {
   flex: 1;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(140, 100, 255, 0.3) transparent;
+  scrollbar-color: rgba(var(--grid-b-rgb), 0.35) transparent;
   min-height: 0;
+  padding: 0 14px;
 }
 #tool-float-modal-body .card {
   border: none;
@@ -5864,10 +6009,13 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
 }
 #tool-float-modal-body .card-head { display: none !important; }
 
+/* Transparent, and inset like the body: an opaque bar here painted over the
+   bottom edge of the art and cut the frame off mid-glow. */
 #tool-float-modal-footer {
-  border-top: 1px solid rgba(140, 100, 255, 0.2);
-  background: rgba(8, 4, 20, 0.98);
+  border-top: 1px solid rgba(var(--grid-b-rgb), 0.22);
+  background: transparent;
   flex-shrink: 0;
+  margin: 0 16px 8px;
 }
 
 #tool-float-modal-actions {
@@ -5875,7 +6023,7 @@ body:has(#fb-panel.fb-open) #library-editor-overlay {
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  border-bottom: 1px solid rgba(140, 100, 255, 0.1);
+  border-bottom: 1px solid rgba(var(--grid-b-rgb), 0.14);
 }
 #tool-float-modal-actions.active { display: flex; }
 
@@ -8234,9 +8382,15 @@ body.fg-space-chop #chop-readout.running .chop-ring-fill {
   50%      { filter: drop-shadow(0 0 14px rgba(var(--room-accent-rgb), .85)); }
 }
 
-body.fg-space-chop .card,
-body.fg-space-chop #tool-float-modal-body .card {
+body.fg-space-chop .card {
   background: rgba(var(--chop-card-rgb), .82);
+  border-color: rgba(var(--room-accent-rgb), .20);
+}
+
+/* The pop-out used to be listed above, giving the card a navy surface inside
+   the overlay too. It wears the tool's art there now, so it keeps only the
+   border tint — the fill is cleared in "The pop-out's skin" block. */
+body.fg-space-chop #tool-float-modal-body .card {
   border-color: rgba(var(--room-accent-rgb), .20);
 }
 

@@ -44,39 +44,53 @@
        bar baked in — illegible at dock size — so the panel uses the square
        per-tool icons and hands the tile off via data-tile, which the overlay
        header renders at a size the art was drawn for. -->
+  <!-- Two art sets per tool, and they are NOT interchangeable. src is the dock
+       set (chop_shop/icons/) — the same objects drawn bright and saturated to be
+       read at 44px. data-pop is the card set (chop_shop/pops/), painted dark so a
+       card's worth of controls can sit on it; the overlay 9-slices its frame and
+       dims its interior. Pointing the dock at the card art was tried on
+       2026-10-25 and reverted: at 44px it read as a glowing smudge, because the
+       brightest thing in it is the podium, not the object. -->
   <div class="lp-group-label" aria-hidden="true">Tools</div>
   <nav class="lp-tools" id="lp-tools" aria-label="Chop Shop tools">
     <button type="button" class="lp-btn lp-tool-btn" data-target="step-process"
             data-tile="/static/chop_shop/tiles/forge.png"
+            data-pop="/static/chop_shop/pops/forge.png"
             title="Forge — Iron, Anvil &amp; Quench (tag · level · key · BPM)" aria-label="Forge">
-      <img src="/static/icon-track-tagger.png" alt="" class="lp-tool-icon" aria-hidden="true">
+      <img src="/static/chop_shop/icons/forge.png" alt="" class="lp-tool-icon" aria-hidden="true">
     </button>
     <button type="button" class="lp-btn lp-tool-btn" data-target="step-rename"
             data-tile="/static/chop_shop/tiles/rename.png"
+            data-pop="/static/chop_shop/pops/rename.png"
             title="Re-Name — rewrite filenames from tags" aria-label="Re-Name">
-      <img src="/static/icon-renamer.png" alt="" class="lp-tool-icon" aria-hidden="true">
+      <img src="/static/chop_shop/icons/rename.png" alt="" class="lp-tool-icon" aria-hidden="true">
     </button>
     <button type="button" class="lp-btn lp-tool-btn" data-target="step-convert"
             data-tile="/static/chop_shop/tiles/refactor.png"
+            data-pop="/static/chop_shop/pops/refactor.png"
             title="Re-Factor — convert audio formats" aria-label="Re-Factor">
-      <img src="/static/icon-converter.png" alt="" class="lp-tool-icon" aria-hidden="true">
+      <img src="/static/chop_shop/icons/refactor.png" alt="" class="lp-tool-icon" aria-hidden="true">
     </button>
     <button type="button" class="lp-btn lp-tool-btn" data-target="step-organize"
             data-tile="/static/chop_shop/tiles/reorganize.png"
+            data-pop="/static/chop_shop/pops/reorganize.png"
             title="Re-Organize — restructure folders from tags" aria-label="Re-Organize">
-      <img src="/static/icon-organizer.png" alt="" class="lp-tool-icon" aria-hidden="true">
+      <img src="/static/chop_shop/icons/reorganize.png" alt="" class="lp-tool-icon" aria-hidden="true">
     </button>
     <button type="button" class="lp-btn lp-tool-btn" data-target="step-duplicates"
             data-tile="/static/chop_shop/tiles/dedupe.png"
+            data-pop="/static/chop_shop/pops/dedupe.png"
             title="De-Duplicate — find and prune duplicate tracks" aria-label="De-Duplicate">
-      <img src="/static/icon-deduper.png" alt="" class="lp-tool-icon" aria-hidden="true">
+      <img src="/static/chop_shop/icons/dedupe.png" alt="" class="lp-tool-icon" aria-hidden="true">
     </button>
     <button type="button" class="lp-btn lp-tool-btn" data-target="step-novelty"
             data-tile="/static/chop_shop/tiles/novelty.png"
+            data-pop="/static/chop_shop/pops/novelty.png"
             title="Novelty — find unique tracks on other drives" aria-label="Novelty">
-      <img src="/static/icon-novelty.png" alt="" class="lp-tool-icon" aria-hidden="true">
+      <img src="/static/chop_shop/icons/novelty.png" alt="" class="lp-tool-icon" aria-hidden="true">
     </button>
     <button type="button" class="lp-btn lp-tool-btn lp-tool-entry" id="nav-btn-pipeline-wizard"
+            data-pop="/static/chop_shop/pops/queue.png"
             onclick="openPipelineWizard()" title="Pipeline Wizard — run the tools in order"
             aria-label="Pipeline Wizard">
       <img src="/static/icon-logo-fablegear.png" alt="" class="lp-tool-icon" aria-hidden="true">

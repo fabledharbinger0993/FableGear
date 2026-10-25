@@ -35,7 +35,20 @@ function openToolFloatModal(toolId) {
   // square icon instead (the tile is unreadable at 42px), so the header is where
   // the artwork actually gets to be itself.
   const tileArt = navBtn?.dataset?.tile || '';
+  // data-pop is the tool's own card art — a painted neon frame around a black
+  // interior, which becomes the skin of this modal (9-sliced; see
+  // #tool-float-modal-skin in fablegear.css). A tool without one falls back to
+  // the plain dark card, which is why the CSS keeps a `none` default.
+  const popArt  = navBtn?.dataset?.pop || '';
   const iconImg = navBtn?.querySelector('img') || card.querySelector('.card-icon img');
+  // Two layers, because the frame and the interior want opposite brightness:
+  // --tfm-pop is 9-sliced into the card's border, --tfm-pop-core is the same art
+  // with the frame cut off and sits dimmed under the content. See "The pop-out's
+  // skin" in fablegear.css.
+  const popCore = popArt.replace(/\.png$/, '-core.png');
+  modal.style.setProperty('--tfm-pop', popArt ? `url("${popArt}")` : 'none');
+  modal.style.setProperty('--tfm-pop-core', popArt ? `url("${popCore}")` : 'none');
+  modal.classList.toggle('tfm-has-pop', Boolean(popArt));
   const badge   = card.querySelector('.risk-badge');
   const labelEl = navBtn?.querySelector('.tool-label');
   const titleEl = card.querySelector('.card-title');

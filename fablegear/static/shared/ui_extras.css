@@ -66,11 +66,13 @@
    only — every component inherits automatically. Toggle: header 🔴 button,
    ⌘⇧B, or the command palette. */
 body[data-theme="booth"] {
-  --bg:            #0c0405;
-  --surface:       #160808;
-  --surface-hi:    #221010;
-  --border:        #3a1a16;
-  --border-hi:     #5a2a20;
+  /* Darkened 2026-10-25 alongside the normal theme's re-grade to the pop-out
+     art, so Studio Lighting sits as deep as the room it mirrors. */
+  --bg:            #060202;
+  --surface:       #0e0505;
+  --surface-hi:    #180a0a;
+  --border:        #301410;
+  --border-hi:     #4e2219;
 
   --text:          #ffd9b8;
   --text-muted:    #cf9070;
@@ -199,6 +201,25 @@ body[data-theme="booth"] {
    one red-orange hue (greyscale first, then tinted): a dark booth gets no blue or green light. */
 body[data-theme="booth"] {
   --img-tint: grayscale(1) sepia(1) hue-rotate(-35deg) saturate(2.4) brightness(0.9) contrast(1.05);
+}
+
+/* ── Studio Lighting: the pop-out card art ──────────────────────────────────
+   The three skinned modals (#tool-float-modal, #settings-modal,
+   #pipeline-wizard) wear Marshall's art as a 9-sliced ::before — see "The
+   pop-out's skin" in fablegear.css. It's a bitmap, so a token can't reach it
+   and only a filter can red-shift it; that filter lands on the pseudo-element,
+   which holds nothing but the art, so the tool's own content is untouched.
+
+   Without this the largest magenta-and-electric-blue surface in the app
+   survives a dark booth intact, which is the one thing this theme exists to
+   prevent. Covered by test_the_pop_out_art_is_red_shifted_in_the_booth. */
+body[data-theme="booth"] #tool-float-modal::before,
+body[data-theme="booth"] #settings-modal::before,
+body[data-theme="booth"] #pipeline-wizard::before,
+body[data-theme="booth"] #tool-float-modal::after,
+body[data-theme="booth"] #settings-modal::after,
+body[data-theme="booth"] #pipeline-wizard::after {
+  filter: var(--img-tint);
 }
 body[data-theme="booth"] img,
 body[data-theme="booth"] video { filter: var(--img-tint); }
