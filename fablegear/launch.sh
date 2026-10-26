@@ -100,72 +100,18 @@ source "$VENV/bin/activate"
 # block regardless of how the caller invokes the script.
 "$VENV/bin/python" -m pip install --quiet -r "$SCRIPT_DIR/requirements_optional.txt" >> "$LOG" 2>&1 || true
 
-# ── Update to the latest RELEASE (skip in dev mode) ──────────────────────
-# Release-gated: tracks GitHub's "latest release" tag, same endpoint the
-# in-app update_checker.py uses, so the launcher and the UI always agree.
-# Devs working from source opt out by touching a .dev sentinel in the repo root
-# (or in fablegear/).
-# Offline-safe: if the API is unreachable, the app launches on current code.
+# ── Updates are never applied here ────────────────────────────────────────
+# This script used to fast-forward or hard-reset a source checkout to GitHub's
+# "latest release" tag on every launch and then `pip install --upgrade` its
+# requirements, with no signature check and no prompt. A compromised GitHub
+# account or release tag would therefore have run attacker code on every
+# user's machine the next time they opened the app.
+#
+# Updating is now always an explicit user action: the in-app banner
+# (update_checker.py) announces a new release, the Update button
+# (/api/update/apply) applies it, and an installed copy is updated by running
+# a newer installer. Nothing below this line changes code on disk.
 cd "$SCRIPT_DIR"
-# An installed copy (made by the installer app) is a snapshot with no .git: it is updated by running
-# a newer installer, so skip the git-based update entirely.
-# In a source checkout this script lives in <repo>/fablegear/, so .git and the .dev
-# sentinel sit one level up; a release install has neither.
-REPO_TOP="$STATE_DIR"
-if [ ! -f "$REPO_TOP/.dev" ] && [ ! -f "$SCRIPT_DIR/.dev" ] && [ -d "$REPO_TOP/.git" ]; then
-  git fetch origin --tags --quiet >> "$LOG" 2>&1
-  LATEST_TAG=$(curl -fsSL --max-time 10 \
-    "https://api.github.com/repos/fabledharbinger0993/FableGear/releases/latest" 2>/dev/null \
-    | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
-  CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-  if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "$CURRENT_TAG" ]; then
-    # Best-effort heads-up: an update can take minutes and everything below
-    # is silenced, so without this the only user feedback is a missing window.
-    osascript -e "display notification \"Updating to $LATEST_TAG — the window will open when ready\" with title \"FableGear\"" >/dev/null 2>&1 &
-    if git merge-base --is-ancestor HEAD "$LATEST_TAG" 2>/dev/null; then
-      echo "FableGear: updating ${CURRENT_TAG:-untagged} -> $LATEST_TAG" >> "$LOG"
-      PREV_HEAD=$(git rev-parse HEAD)
-      if git merge --ff-only "$LATEST_TAG" >> "$LOG" 2>&1; then
-        if "$VENV/bin/python" -m pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1 \
-          && "$VENV/bin/python" -m pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1; then
-          :
-        else
-          echo "FableGear: dependency install failed after update; rolling back" >> "$LOG"
-          if git diff --quiet && git diff --cached --quiet; then
-            git reset --hard "$PREV_HEAD" >> "$LOG" 2>&1
-          else
-            echo "FableGear: skipped rollback because local changes are present" >> "$LOG"
-          fi
-        fi
-      else
-        echo "FableGear: fast-forward to $LATEST_TAG failed; staying on ${CURRENT_TAG:-current}" >> "$LOG"
-      fi
-    elif git merge-base --is-ancestor "$LATEST_TAG" HEAD 2>/dev/null; then
-      # HEAD is a DESCENDANT of the latest tag — i.e. ahead of the release
-      # (a dev checkout, or a build not yet tagged). Never downgrade; leave it.
-      echo "FableGear: HEAD is ahead of $LATEST_TAG; staying on current build" >> "$LOG"
-    else
-      # HEAD is neither an ancestor nor a descendant of the latest tag — the
-      # clone has genuinely DIVERGED (left on an old branch, or files edited
-      # outside git), so a fast-forward is impossible and the install would
-      # otherwise be stuck on stale code forever. A release install (no .dev)
-      # must track the release line, so realign hard to the tag. Any local
-      # changes are stashed first (recoverable via `git stash list`), never
-      # silently discarded.
-      echo "FableGear: clone diverged from $LATEST_TAG; realigning to the release" >> "$LOG"
-      if ! git diff --quiet || ! git diff --cached --quiet; then
-        git stash push -u -m "fablegear-auto-$(git rev-parse --short HEAD)" >> "$LOG" 2>&1 || true
-      fi
-      if git reset --hard "$LATEST_TAG" >> "$LOG" 2>&1; then
-        "$VENV/bin/python" -m pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements_ui.txt" >> "$LOG" 2>&1
-        "$VENV/bin/python" -m pip install --upgrade --quiet -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1
-        echo "FableGear: realigned to $LATEST_TAG" >> "$LOG"
-      else
-        echo "FableGear: could not realign to $LATEST_TAG; staying on ${CURRENT_TAG:-current}" >> "$LOG"
-      fi
-    fi
-  fi
-fi
 
 # ── Launch FableGear (arch-aware) ─────────────────────────────────────────
 # Resolve once here so the running app can read it directly (helpers.py /

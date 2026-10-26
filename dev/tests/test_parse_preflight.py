@@ -16,12 +16,29 @@ REPO_ROOT = Path(__file__).resolve().parents[2] / "fablegear"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-# Inject a fake waveform_generator BEFORE importing cli, so the pre-flight's
-# `import waveform_generator` resolves to our stub (no real DSP / cache files).
+# A fake waveform_generator, installed around each test so the pre-flight's lazy
+# `import waveform_generator` resolves to the stub (no real DSP / cache files).
+# Installed per-test and restored after: leaving the stub in sys.modules poisons
+# every later test in the process that needs the real module (the exporter's
+# waveform/PVBR injection silently became a no-op in full-suite runs).
 _FAKE_WG = types.ModuleType("waveform_generator")
 _WAVE_CACHE = {1: {"PWV3": b"x"}}  # only content id 1 has cached waveforms
 _FAKE_WG.load_waveform_cache = lambda cid: _WAVE_CACHE.get(cid)
-sys.modules["waveform_generator"] = _FAKE_WG
+
+
+@pytest.fixture(autouse=True)
+def _stub_waveform_generator():
+    had = "waveform_generator" in sys.modules
+    real = sys.modules.get("waveform_generator")
+    sys.modules["waveform_generator"] = _FAKE_WG
+    try:
+        yield
+    finally:
+        if had:
+            sys.modules["waveform_generator"] = real
+        else:
+            del sys.modules["waveform_generator"]
+
 
 import cli
 

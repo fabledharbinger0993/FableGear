@@ -49,13 +49,15 @@ both BSD-licensed and already depended on elsewhere in FableGear.
 
 ## How detection works
 
-**Key** (`iron/key.py`): `iron.dsp.chroma()` folds FFT bin energy into a 12-bin pitch-class
-profile (linear-frequency, not a full constant-Q transform -- adequate for a whole-track key
-estimate, where transcription-grade low-frequency resolution isn't the goal). The profile is
-correlated against the Krumhansl-Schmuckler major/minor key profiles (Krumhansl & Kessler
-1982, published psychoacoustic data) and the best match is mapped to Camelot notation. This
-correlation step was already original code before this package existed -- the only thing that
-used to come from librosa was the chroma extraction itself.
+**Key** (`iron/key.py`): the whole track (up to 10 minutes) is mapped onto a 36-bins-per-octave
+log-frequency spectrum and spectrally whitened at three envelope widths, plus the raw magnitude:
+four views. Each view is band-limited, harmonic-summed, tuning-corrected and folded to a 12-bin
+chroma. A small tonic-equivariant net (one hidden layer of 24 units shared by all twelve tonics,
+three seeds averaged; weights in `iron/key_net_weights.py`, fitted by this repo's own code on
+29,291 Rekordbox-analysed tracks of the owner's library) scores the 24 keys; the winner is mapped
+to Camelot and its softmax probability is the confidence. On 3,000 untouched tracks it agrees with
+Rekordbox's key 63.4% of the time (docs/IRON_RESEARCH.md §31). The previous linear model and the
+§18 profile detector stay callable as `detect_key_linear` / `detect_key_profile` for A/B runs.
 
 **Tempo** (`iron/tempo.py`): five onset-strength functions (full-band, low, mid and high
 band log-mel spectral flux, plus high-frequency content) each feed a windowed autocorrelation
@@ -109,8 +111,11 @@ not ported.
   would score lower. Remaining errors are mostly half-tempo and 4:3. Iron is now
   the **primary BPM and key detector** in `audio_processor.process_file` (Iron -> librosa,
   logged). essentia was removed in v1.2.0 (docs/IRON_RESEARCH.md §29); librosa stays in the
-  requirements as the fallback and for the callers listed in §29.2. (This paragraph predates
-  Iron's key detector and the wiring; key accuracy is in docs/IRON_RESEARCH.md §18, §27, §28.)
+  requirements as the fallback and for the callers listed in §29.2. (The 300-track figures above
+  are an early sample of club music. On a fresh, random 3,000-track hold-out of the whole library
+  (2026-10-20) Iron is 83.0% exact / 88.4% within 1% / 92.4% within 4% of Rekordbox, in line with
+  the 20,096-track run of docs/IRON_RESEARCH.md §21. The largest single band of misses is
+  160-180 BPM (92 of 255), mostly read at half tempo or 2:3. Key accuracy: §18, §27, §28, §31.)
 - **A near-perfectly-periodic signal is a genuinely hard case.** Autocorrelation-based
   disambiguation relies on real asymmetry in the onset pattern (dynamics, kick/snare
   contrast); an idealized, exactly-regular pulse train is mathematically ambiguous between

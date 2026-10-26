@@ -1861,12 +1861,11 @@ def api_library_export_start():
     if not any(target_path.is_relative_to(m) for m in all_volumes):
         return jsonify({"error": "Invalid export destination"}), 403
 
-    # 2. Pioneer Structure Check
+    # 2. Target check: a FableGear-writable layout (master.db, a blank drive, or a FableGear stick)
     drive_info = _detect_pioneer_drive_layout(drive_path)
-    if not drive_info.get("pioneer"):
-        return jsonify({"error": f"No Pioneer export structure detected on {drive_path}"}), 400
     if not drive_info.get("export_supported"):
-        return jsonify({"error": drive_info.get("export_error")}), 400
+        return jsonify({"error": drive_info.get("export_error")
+                        or f"No Pioneer export structure detected on {drive_path}"}), 400
 
     job_id = str(uuid.uuid4())
     with _EXPORT_LOCK:

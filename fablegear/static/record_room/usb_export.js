@@ -47,18 +47,24 @@ async function leOpenExportModal() {
   try {
     const res = await fetch('/api/library/export/drives');
     const drives = await res.json();
-    const pioneer = drives.filter(d => d.pioneer);
+    // Pioneer drives, plus blank drives FableGear can turn into a CDJ-ready stick.
+    const pioneer = drives.filter(d => d.pioneer || d.export_supported);
     if (!pioneer.length) {
-      driveContainer.innerHTML = '<div class="le-export-no-drives">No Pioneer USB drives found. Insert a drive that Rekordbox has exported to at least once.</div>';
+      driveContainer.innerHTML = '<div class="le-export-no-drives">No USB drives found. Insert a blank USB drive (FAT32 or exFAT): FableGear writes a CDJ-ready library onto it.</div>';
     } else {
-      const supported = pioneer.filter(d => d.export_supported);
+      // Never pre-select a blank drive: writing onto one should be a deliberate click.
+      const supported = pioneer.filter(d => d.export_supported && d.layout !== 'blank');
       _leExportDrivePath = supported.length ? supported[0].path : null;
+      const cdjReady = d => d.layout === 'blank' || d.layout === 'fablegear-usb';
       driveContainer.innerHTML = pioneer.map(d => {
         const checked = _leExportDrivePath === d.path ? 'checked' : '';
         const disabled = d.export_supported ? '' : 'disabled';
-        const badge = d.export_supported ? 'Pioneer' : 'Detected Pioneer';
+        const badge = cdjReady(d) ? 'CDJ-ready' : (d.export_supported ? 'Pioneer' : 'Detected Pioneer');
         const note = d.export_supported
-          ? (d.layout === 'master-db' ? 'FableGear export supported' : (d.layout || 'Supported'))
+          ? (d.layout === 'master-db' ? 'FableGear export supported'
+            : d.layout === 'blank' ? 'Blank drive: new CDJ-ready library'
+            : d.layout === 'fablegear-usb' ? 'FableGear USB library: will be replaced'
+            : (d.layout || 'Supported'))
           : (d.export_error || 'Unsupported export target');
         const detail = d.export_supported ? (d.export_note || '') : '';
         return `
