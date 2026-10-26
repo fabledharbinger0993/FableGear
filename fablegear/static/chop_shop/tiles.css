@@ -1,77 +1,38 @@
 /* ════════════════════════════════════════════════════════════════════════
    FableGear — Chop Shop tool tiles (tiles.css)
-   The Chop Shop rail carries the tile set from the tile concept sheet
-   (static/chop_shop/tiles/, 330x260 each, frame and label bar baked in).
-   fablegear.css still owns the rail box and the generic .step-tab rules;
-   this file only sizes the art, lifts the rail to fit it, and keeps the
-   room-accent bloom on hover/active so the Booth theme (ui_extras.css)
-   still re-tints the lit edge. The Forge tile's subtitle slot was painted
-   out of the art so .step-tile-caption can carry live wording.
+
+   The tile set in static/chop_shop/tiles/ (330x260 each, frame and label bar
+   baked into the art) used to ride in the Chop Shop rail as .step-tile
+   buttons, and this file existed to make the rail tall enough for them:
+   --rail-h went to 168px, which pushed --chop-zone-top — and with it the
+   terminal, the tool surface and the readout — a long way down the window.
+
+   The tool icons now live in the left panel's TOOLS group
+   (templates/partials/header.html), at 42px, where that art is illegible, so
+   the panel shows the square per-tool icons from static/ and passes the tile
+   path along in data-tile. The tool overlay's header renders it from there
+   (#tool-float-modal-icon.tfm-icon-tile in fablegear.css) at a size the art
+   was actually drawn for.
+
+   So: no rail-height override any more — the Chop Shop rail now carries only
+   the five Rekordbox text buttons and takes the 96px from fablegear.css. The
+   .step-tile rules are gone with the markup that used them. Restoring tiles to
+   a rail means restoring BOTH the art sizing and a --rail-h tall enough for
+   it; don't raise one without the other.
+
+   Kept as a file (rather than deleted) because index.html still links it and
+   it's the natural home for tile-art rules if the tiles come back.
    ──────────────────────────────────────────────────────────────────────── */
 
-/* Taller rail: 330x260 art at 140px tall is ~178px wide, labels readable.
-   --chop-zone-top derives from --rail-h, so the terminal and docked modal
-   move down with it. The rail already scrolls sideways when it overflows. */
-body.fg-space-chop {
-  --rail-h: 168px;
-  --tile-h: 140px;
-}
-@media (max-width: 1500px) { body.fg-space-chop { --rail-h: 150px; --tile-h: 122px; } }
-@media (max-width: 1280px) { body.fg-space-chop { --rail-h: 132px; --tile-h: 104px; } }
-
-body.fg-space-chop .step-tab.step-tile {
-  flex: 0 0 auto;
-  width: auto;
-  min-width: 0;
-  max-width: none;
-  height: var(--tile-h);
-  padding: 0;
-  border: 0;
-  border-radius: 14px;          /* follows the art's frame corner at this size */
-  background: transparent;
-  overflow: hidden;
-  line-height: 0;
-  box-shadow:
-    0 12px 28px -16px rgba(0, 0, 0, .9),
-    0 0 14px -6px rgba(var(--room-accent-rgb), .35);
-  transition: transform .15s ease, box-shadow .2s ease, filter .15s;
-}
-body.fg-space-chop .step-tab.step-tile::after { content: none; } /* the art has its own label bar */
-
-body.fg-space-chop .step-tile .step-tile-art {
-  width: auto;
-  height: var(--tile-h);
-  aspect-ratio: 330 / 260;
-  object-fit: cover;
-  display: block;
-  opacity: 1;
-}
-
-body.fg-space-chop .step-tab.step-tile:hover,
-body.fg-space-chop .step-tab.step-tile:focus-visible {
-  transform: translateY(-2px);
-  background: transparent;
-  box-shadow:
-    0 16px 32px -16px rgba(0, 0, 0, .9),
-    0 0 22px -2px rgba(var(--room-accent-rgb), .7);
-}
-body.fg-space-chop .step-tab.step-tile.active {
-  background: transparent;
-  box-shadow:
-    0 12px 28px -16px rgba(0, 0, 0, .9),
-    0 0 0 2px rgba(var(--room-accent-rgb), .9),
-    0 0 22px -2px rgba(var(--room-accent-rgb), .7);
-}
-body.fg-space-chop .step-tab.step-tile:active { transform: translateY(0); }
-
-/* Live caption over the Forge art's painted-out subtitle slot, placed as a
-   fraction of the 330x260 art so it scales with the tile. */
+/* Live caption slot — the Forge art has its subtitle area painted out so live
+   wording can sit over it. Unused while the tiles are out of the rail; kept
+   next to the art it belongs to. */
 .step-tile-caption {
   position: absolute;
   left: 0; right: 0;
   top: 86%;
   line-height: 1;
-  font-size: calc(var(--tile-h) * .055);
+  font-size: calc(var(--tile-h, 140px) * .055);
   font-weight: 700;
   letter-spacing: .12em;
   text-transform: uppercase;
@@ -79,12 +40,4 @@ body.fg-space-chop .step-tab.step-tile:active { transform: translateY(0); }
   color: rgb(var(--accent-rgb));
   text-shadow: 0 0 5px rgba(var(--accent-rgb), .9), 0 0 12px rgba(var(--accent-rgb), .45);
   pointer-events: none;
-}
-
-/* ── Reduced motion: no lift ──────────────────────────────────────────── */
-@media (prefers-reduced-motion: reduce) {
-  body.fg-space-chop .step-tab.step-tile { transition: none; }
-  body.fg-space-chop .step-tab.step-tile:hover,
-  body.fg-space-chop .step-tab.step-tile:focus-visible,
-  body.fg-space-chop .step-tab.step-tile:active { transform: none; }
 }

@@ -73,17 +73,97 @@ function dismissScanBar() {
 /* ── Chop Shop scanner-window readout ─────────────────────────────────────────
    Mirrors the live scan into the bottom-half readout (chop space only). All
    look-ups are guarded so these are harmless no-ops in the Record Room. */
-function _chopSetText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+function _chopSetText(id, v) {
+  // Always the literal path: it cancels any roll in flight, so an em dash or a
+  // reset wins over whatever the ticker was in the middle of counting to.
+  _chopStopTick(id);
+  const el = document.getElementById(id);
+  if (el) el.textContent = v;
+}
+
+/* ── The counters roll ────────────────────────────────────────────────────────
+   Progress arrives in bursts — a tool can report nothing for a second and then
+   jump two hundred files at once — and a number that teleports reads as a
+   glitch where one that climbs reads as work happening.
+
+   The roll re-aims rather than queues: a value arriving mid-roll re-targets the
+   one already running from wherever the digits have got to, so a fast scan
+   never falls behind the number it is animating towards. The element always
+   lands on exactly the value it was given; the easing only decides how it gets
+   there, which is why the final frame assigns the number rather than the
+   interpolation's last step. */
+const _CHOP_TICK_MS = 380;
+const _chopTicks = new Map();   // element id -> { at, raf }
+
+function _chopStopTick(id) {
+  const live = _chopTicks.get(id);
+  if (live) { cancelAnimationFrame(live.raf); _chopTicks.delete(id); }
+}
+
+function _chopSetNum(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const to = Number(value) || 0;
+  const live = _chopTicks.get(id);
+  // Strict parse, so the em dash a counter resets to reads as "no start" rather
+  // than as zero. Stripping non-digits would turn it into 0 and roll TOTAL up
+  // from nothing and REMAINING up from nothing — two numbers the scan was never
+  // at, and REMAINING only ever falls.
+  const shown = String(el.textContent).replace(/,/g, '').trim();
+  const from = live ? live.at : (/^-?\d+$/.test(shown) ? Number(shown) : NaN);
+  // Nothing to roll FROM, already there, or motion is unwelcome: land on it.
+  if (!Number.isFinite(from) || from === to ||
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    _chopStopTick(id);
+    el.textContent = to.toLocaleString();
+    return;
+  }
+  _chopStopTick(id);
+  const t0 = performance.now();
+  const state = { at: from, raf: 0 };
+  const step = (now) => {
+    const p = Math.min(1, (now - t0) / _CHOP_TICK_MS);
+    const eased = 1 - Math.pow(1 - p, 3);   // ease-out: quick off the mark, settling in
+    state.at = from + (to - from) * eased;
+    if (p < 1) {
+      el.textContent = Math.round(state.at).toLocaleString();
+      state.raf = requestAnimationFrame(step);
+    } else {
+      el.textContent = to.toLocaleString();
+      _chopTicks.delete(id);
+    }
+  };
+  state.raf = requestAnimationFrame(step);
+  _chopTicks.set(id, state);
+}
+
+/* Radial progress. The ring is r=52 in a 120 viewBox, so its circumference is
+   2π·52 ≈ 326.73 — that value is also the stroke-dasharray in the stylesheet,
+   and must stay in step with it. Offsetting the dash by the unfilled remainder
+   is what sweeps the arc. aria-valuenow carries the real number for anyone not
+   looking at the arc. */
+const CHOP_RING_CIRCUMFERENCE = 2 * Math.PI * 52;
+function _chopSetRing(pct) {
+  const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
+  const fill = document.getElementById('chop-ring-fill');
+  if (fill) {
+    fill.style.strokeDashoffset =
+      String(CHOP_RING_CIRCUMFERENCE * (1 - clamped / 100));
+  }
+  document.getElementById('chop-ring')?.setAttribute('aria-valuenow', String(Math.round(clamped)));
+}
 function _chopReadoutReset(title) {
   _chopSetText('chop-readout-title', title || 'Running…');
   _chopSetText('chop-prog-pct', '0');
   _chopSetText('chop-tick-done', '0');
+  _chopSetText('chop-tick-total', '—');
   _chopSetText('chop-tick-remaining', '—');
   _chopSetText('chop-stat-clean', '0');
   _chopSetText('chop-stat-edited', '0');
   _chopSetText('chop-stat-errors', '0');
   _chopSetText('chop-stat-warnings', '0');
   const fill = document.getElementById('chop-prog-fill'); if (fill) fill.style.width = '0%';
+  _chopSetRing(0);
   document.getElementById('chop-readout')?.classList.add('running');
   document.getElementById('chop-readout-spinner')?.classList.add('active');
 }
@@ -104,21 +184,31 @@ function _chopReadoutUpdate(p) {
   const remaining = p.remaining || 0;
   const total = (p.total != null) ? p.total : (done + remaining);
   const pct = total > 0 ? Math.round((done / total) * 100) : (done > 0 ? 100 : 0);
-  _chopSetText('chop-tick-done', done.toLocaleString());
-  _chopSetText('chop-tick-remaining', remaining.toLocaleString());
+  _chopSetNum('chop-tick-done', done);
+  // The total was already being computed for the percentage and then thrown
+  // away. Showing it turns DONE from a bare number into how far through the
+  // work the scan is.
+  _chopSetNum('chop-tick-total', total);
+  _chopSetNum('chop-tick-remaining', remaining);
   _chopSetText('chop-prog-pct', String(pct));
-  _chopSetText('chop-stat-clean', clean.toLocaleString());
-  _chopSetText('chop-stat-edited', edited.toLocaleString());
-  _chopSetText('chop-stat-errors', errors.toLocaleString());
-  _chopSetText('chop-stat-warnings', scanWarnings.toLocaleString());
+  _chopSetNum('chop-stat-clean', clean);
+  _chopSetNum('chop-stat-edited', edited);
+  _chopSetNum('chop-stat-errors', errors);
+  _chopSetNum('chop-stat-warnings', scanWarnings);
   const fill = document.getElementById('chop-prog-fill'); if (fill) fill.style.width = pct + '%';
+  _chopSetRing(pct);
 }
 function _chopReadoutFinish() {
   _chopSetText('chop-readout-title', 'Complete');
   document.getElementById('chop-readout-spinner')?.classList.remove('active');
   document.getElementById('chop-readout')?.classList.remove('running');
   const fill = document.getElementById('chop-prog-fill');
-  if (fill && fill.style.width === '0%') fill.style.width = '100%';
+  if (fill && fill.style.width === '0%') {
+    // A tool that finished without ever reporting progress still reads as done.
+    fill.style.width = '100%';
+    _chopSetText('chop-prog-pct', '100');
+    _chopSetRing(100);
+  }
 }
 function _chopReadoutDismiss() {
   _chopReadoutFinish();

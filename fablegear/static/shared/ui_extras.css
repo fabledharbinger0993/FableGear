@@ -66,11 +66,13 @@
    only — every component inherits automatically. Toggle: header 🔴 button,
    ⌘⇧B, or the command palette. */
 body[data-theme="booth"] {
-  --bg:            #0c0405;
-  --surface:       #160808;
-  --surface-hi:    #221010;
-  --border:        #3a1a16;
-  --border-hi:     #5a2a20;
+  /* Darkened 2026-10-25 alongside the normal theme's re-grade to the pop-out
+     art, so Studio Lighting sits as deep as the room it mirrors. */
+  --bg:            #060202;
+  --surface:       #0e0505;
+  --surface-hi:    #180a0a;
+  --border:        #301410;
+  --border-hi:     #4e2219;
 
   --text:          #ffd9b8;
   --text-muted:    #cf9070;
@@ -103,6 +105,12 @@ body[data-theme="booth"] {
   --accent-b:      #ff6a4a;
   --accent-b-rgb:  255, 106, 74;
   --accent-b-dim:  rgba(255, 106, 74, 0.15);
+
+  /* The outrun stage. Cyan and magenta are the two things a dark booth cannot
+     have, and the backdrop is the largest surface in the app — both voices
+     collapse onto the long-wavelength band here, deep ember against bright. */
+  --grid-a-rgb:    168, 52, 24;
+  --grid-b-rgb:    255, 104, 56;
 
   /* Panel surfaces and accents (tokens added in fablegear.css; defaults are navy/violet/teal/green). */
   --chop-panel-top-rgb:    30, 11, 9;
@@ -194,17 +202,57 @@ body[data-theme="booth"] {
 body[data-theme="booth"] {
   --img-tint: grayscale(1) sepia(1) hue-rotate(-35deg) saturate(2.4) brightness(0.9) contrast(1.05);
 }
+
+/* ── Studio Lighting: the pop-out card art ──────────────────────────────────
+   The three skinned modals (#tool-float-modal, #settings-modal,
+   #pipeline-wizard) wear Marshall's art as a 9-sliced ::before — see "The
+   pop-out's skin" in fablegear.css. It's a bitmap, so a token can't reach it
+   and only a filter can red-shift it; that filter lands on the pseudo-element,
+   which holds nothing but the art, so the tool's own content is untouched.
+
+   Without this the largest magenta-and-electric-blue surface in the app
+   survives a dark booth intact, which is the one thing this theme exists to
+   prevent. Covered by test_the_pop_out_art_is_red_shifted_in_the_booth. */
+body[data-theme="booth"] #tool-float-modal::before,
+body[data-theme="booth"] #settings-modal::before,
+body[data-theme="booth"] #pipeline-wizard::before,
+body[data-theme="booth"] #tool-float-modal::after,
+body[data-theme="booth"] #settings-modal::after,
+body[data-theme="booth"] #pipeline-wizard::after {
+  filter: var(--img-tint);
+}
+
+/* The tube's filament. Everything else in the tube is built from tokens the
+   booth already re-grades; this one is white, which is the only colour in the
+   readout with any blue left in it. */
+body[data-theme="booth"] #chop-readout { --tube-core: 255, 216, 190; }
+
+/* The progress mascot is the same kind of problem: a bitmap full of magenta and
+   electric blue that no colour token reaches. It sits on a pseudo-element for
+   the same reason — the filter must not touch the percentage reading out of the
+   middle of it. Covered by test_the_progress_mascot_is_red_shifted_in_the_booth. */
+body[data-theme="booth"] .chop-ring-wrap::before {
+  filter: var(--img-tint);
+}
 body[data-theme="booth"] img,
 body[data-theme="booth"] video { filter: var(--img-tint); }
 /* Icons that add a glow set their own filter, which would drop the tint: keep both. */
 body[data-theme="booth"] .step-tab.active .step-icon,
 body[data-theme="booth"] .step-tab:hover .step-icon { filter: var(--img-tint) drop-shadow(0 0 9px rgba(var(--room-accent-rgb), .45)); }
-body[data-theme="booth"] #nav-btn-pipeline-wizard .step-icon { filter: var(--img-tint) drop-shadow(0 0 8px rgba(var(--accent-rgb), .28)); }
+/* (The #nav-btn-pipeline-wizard .step-icon counterpart went with that button's
+   rail rules — it's a .lp-tool-icon in the left panel now, covered by the
+   .lp-tool-btn rule below.) */
 /* Hover/active states that set their own filter (card icons, the left-rail icons) and the
    locked-tool hover and white-icon helpers: same rule, tint first, effect after. */
 body[data-theme="booth"] .card:hover .card-icon img { filter: var(--img-tint) brightness(1.25) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5)); }
 body[data-theme="booth"] .lp-btn:hover .lp-icon,
-body[data-theme="booth"] .lp-btn.active .lp-icon { filter: var(--img-tint) drop-shadow(0 0 8px rgba(var(--room-accent-rgb), .4)); }
+body[data-theme="booth"] .lp-btn.active .lp-icon,
+body[data-theme="booth"] .lp-btn.lp-dock-near .lp-icon { filter: var(--img-tint) drop-shadow(0 0 8px rgba(var(--room-accent-rgb), .4)); }
+/* TOOLS group tiles — same deal as .lp-icon; their glow would drop the tint.
+   .lp-dock-near is set by lp_dock.js on whichever tiles the fisheye has grown. */
+body[data-theme="booth"] .lp-tool-btn:hover .lp-tool-icon,
+body[data-theme="booth"] .lp-tool-btn.active .lp-tool-icon,
+body[data-theme="booth"] .lp-tool-btn.lp-dock-near .lp-tool-icon { filter: var(--img-tint) drop-shadow(0 0 10px rgba(var(--room-accent-rgb), .45)); }
 body[data-theme="booth"] .db-tool-btn.permission-locked:hover img { filter: var(--img-tint) grayscale(30%); }
 body[data-theme="booth"] .icon-sm-invert,
 body[data-theme="booth"] .icon-btn-sm-invert { filter: brightness(0) invert(1) var(--img-tint); }

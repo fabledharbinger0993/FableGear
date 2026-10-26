@@ -59,37 +59,14 @@
   <button type="button" class="brew-dismiss" onclick="brewDismiss()" title="Dismiss until next check">✕</button>
 </div>
 
-<!-- ══ Chop Shop tool rail ═══════════════════════════════════════════════════ -->
+<!-- ══ Chop Shop tool rail ═══════════════════════════════════════════════════
+     The FableGear-native tool icons (Forge, Re-Name, Re-Factor, Re-Organize,
+     De-Duplicate, Novelty, Pipeline) used to live here. They now sit in the
+     left panel's TOOLS group (partials/header.html) so every main tool is
+     reachable from one place, in any room. What's left here is the
+     Rekordbox-explicit maintenance set, which only makes sense in-room. -->
 <nav class="workflow-rail" id="workflow-rail">
-  <button type="button" class="step-tab step-tile active" data-target="step-process">
-    <img class="step-icon step-tile-art" src="/static/chop_shop/tiles/forge.png" alt="Forge — Iron, Anvil &amp; Quench" width="330" height="260"><span class="step-tile-caption" aria-hidden="true">Tag · Level · Key · BPM</span>
-  </button>
-  <button type="button" class="step-tab step-tile" data-target="step-rename">
-    <img class="step-icon step-tile-art" src="/static/chop_shop/tiles/rename.png" alt="Re-Name" width="330" height="260">
-  </button>
-  <button type="button" class="step-tab step-tile" data-target="step-convert">
-    <img class="step-icon step-tile-art" src="/static/chop_shop/tiles/refactor.png" alt="Re-Factor" width="330" height="260">
-  </button>
-  <button type="button" class="step-tab step-tile" data-target="step-organize">
-    <img class="step-icon step-tile-art" src="/static/chop_shop/tiles/reorganize.png" alt="Re-Organize" width="330" height="260">
-  </button>
-  <button type="button" class="step-tab step-tile" data-target="step-duplicates">
-    <img class="step-icon step-tile-art" src="/static/chop_shop/tiles/dedupe.png" alt="De-Duplicate" width="330" height="260">
-  </button>
-  <button type="button" class="step-tab step-tile" data-target="step-novelty">
-    <img class="step-icon step-tile-art" src="/static/chop_shop/tiles/novelty.png" alt="Novelty" width="330" height="260">
-  </button>
-
-  <button type="button" class="step-tab step-tab-entry" id="nav-btn-pipeline-wizard" onclick="openPipelineWizard()" title="Pipeline Wizard" aria-label="Pipeline Wizard">
-    <!-- alt="" (decorative): the button carries the accessible name via aria-label, so a
-         missing/still-loading image paints nothing instead of floating "Pipeline Wizard"
-         alt text + a broken-image glyph in the background. -->
-    <img class="step-icon" src="/static/icon-logo-fablegear.png" alt="">
-  </button>
-
-  <div class="workflow-rail-divider" aria-hidden="true"></div>
-
-  <!-- Right of the divider: the Rekordbox-explicit tools (the DB panel's
+  <!-- The Rekordbox-explicit tools (the DB panel's
        sections). FableGear-native tools live left; rekordbox maintenance
        lives here. Generic nav (Library/Queue/Drives) is the left rail's job. -->
   <button type="button" class="step-tab step-tab-rb-tool" id="nav-btn-rb-audit" onclick="openDbPanel('audit')" title="Audit — read-only Rekordbox library health check">
@@ -156,6 +133,21 @@
     </div>
   </div>
   </div>
+
+  <!-- ── Idle state ───────────────────────────────────────────────────────────
+       #chop-card-stack is display:none in this room (its tool cards get borrowed
+       into the overlay), and no tool auto-opens on arrival any more — so without
+       this the middle of the room would just be empty. Hidden by CSS whenever
+       body carries .fg-chop-tool-open. -->
+  <section id="chop-idle" aria-live="polite">
+    <p class="room-kicker">Chop Shop</p>
+    <h2>Maintenance, repair, and file work live here.</h2>
+    <p>
+      Pick a tool from the <strong>Tools</strong> group in the left panel — Forge
+      (tag · level · key · BPM), Re-Name, Re-Factor, Re-Organize, De-Duplicate or
+      Novelty. Rekordbox database maintenance sits in the rail above.
+    </p>
+  </section>
 
   <!-- Chop Shop Workspace -->
   <div id="chop-card-stack">
@@ -773,29 +765,75 @@
      two-thirds: progress bar + done↑ / remaining↓ tick counters. Fed by
      showScanBar / updateScanBar / finishScanBar (see scan_bar.js). -->
 <section id="chop-readout" aria-label="Scan progress readout">
-  <div class="chop-readout-head">
-    <span id="chop-readout-title">Idle — select a tool to begin</span>
-    <span id="chop-readout-spinner" class="chop-spinner"></span>
+
+  <!-- Radial progress. role=progressbar + aria-valuenow carry the real value;
+       the SVG is decorative. scan_bar.js drives stroke-dashoffset via
+       _chopSetRing() and keeps aria-valuenow in step. -->
+  <div class="chop-ring-wrap" id="chop-ring" role="progressbar"
+       aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Progress">
+    <svg class="chop-ring-svg" viewBox="0 0 120 120" aria-hidden="true">
+      <circle class="chop-ring-track" cx="60" cy="60" r="52"></circle>
+      <circle class="chop-ring-fill" id="chop-ring-fill" cx="60" cy="60" r="52"></circle>
+    </svg>
   </div>
-  <div class="chop-prog-track"><div id="chop-prog-fill"></div></div>
-  <div class="chop-prog-line"><span id="chop-prog-pct">0</span>% complete</div>
-  <div class="chop-ticks">
-    <div class="chop-tick up">
-      <span class="chop-tick-arrow">▲</span>
-      <span class="chop-tick-num" id="chop-tick-done">0</span>
-      <span class="chop-tick-cap">done</span>
+
+  <div class="chop-readout-main">
+    <div class="chop-readout-head">
+      <span id="chop-readout-title">Idle — select a tool to begin</span>
+      <span id="chop-readout-spinner" class="chop-spinner"></span>
     </div>
-    <div class="chop-tick down">
-      <span class="chop-tick-arrow">▼</span>
-      <span class="chop-tick-num" id="chop-tick-remaining">—</span>
-      <span class="chop-tick-cap">remaining</span>
+    <!-- The lit tube: one width-driven #chop-prog-fill glowing inside a glass
+         capsule, with the percentage reading off its end. -->
+    <div class="chop-prog-row">
+      <div class="chop-prog-track"><div id="chop-prog-fill"></div></div>
+      <div class="chop-prog-readout" aria-hidden="true">
+        <span id="chop-prog-pct">0</span><i class="chop-prog-sign">%</i>
+      </div>
+    </div>
+    <div class="chop-ticks">
+      <div class="chop-tick up">
+        <span class="chop-tick-arrow">▲</span>
+        <span class="chop-tick-num" id="chop-tick-done">0</span>
+        <span class="chop-tick-of">/ <span id="chop-tick-total">—</span></span>
+        <span class="chop-tick-cap">done</span>
+      </div>
+      <div class="chop-tick down">
+        <span class="chop-tick-arrow">▼</span>
+        <span class="chop-tick-num" id="chop-tick-remaining">—</span>
+        <span class="chop-tick-cap">remaining</span>
+      </div>
+      <div class="chop-readout-stats">
+        <span class="crs ok"><b id="chop-stat-clean">0</b> clean</span>
+        <span class="crs ok"><b id="chop-stat-edited">0</b> edited</span>
+        <span class="crs err"><b id="chop-stat-errors">0</b> errors</span>
+        <span class="crs warn"><b id="chop-stat-warnings">0</b> warnings</span>
+      </div>
     </div>
   </div>
-  <div class="chop-readout-stats">
-    <span class="crs ok"><b id="chop-stat-clean">0</b> clean</span>
-    <span class="crs ok"><b id="chop-stat-edited">0</b> edited</span>
-    <span class="crs err"><b id="chop-stat-errors">0</b> errors</span>
-    <span class="crs warn"><b id="chop-stat-warnings">0</b> warnings</span>
+
+  <!-- Activity light, not an analyser: a scan has no signal to read, so these
+       say "still running" and nothing more. aria-hidden for the same reason —
+       the tube's aria-valuenow already carries everything real here. -->
+  <div class="chop-spectrum" aria-hidden="true">
+    <span class="chop-spec-cap">In Progress</span>
+    <div class="chop-spec-bars">
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+    </div>
   </div>
 </section>
 
@@ -833,6 +871,7 @@
 <script type="module" src="/static/record_room/library_mode.js?v={{ cb }}"></script>
 <script src="/static/shared/utility.js?v={{ cb }}"></script>
 <script src="/static/shared/scan_bar.js?v={{ cb }}"></script>
+<script src="/static/shared/lp_dock.js?v={{ cb }}"></script>
 <script src="/static/chop_shop/runners.js?v={{ cb }}"></script>
 <script src="/static/chop_shop/pipeline.js?v={{ cb }}"></script>
 <script src="/static/chop_shop/dedupe.js?v={{ cb }}"></script>
