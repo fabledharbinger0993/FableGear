@@ -69,6 +69,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from anvil.schema import bpm_to_db
+
 try:
     from . import devicesql_canned as canned
     from . import devicesql_reader as reader
@@ -576,7 +578,7 @@ def encode_track_row(t: DeviceTrack) -> bytes:
         _u16b(0x24), _u16b(0), _u32b(_TRACK_U04), _u32b(t.sample_rate), _u32b(t.composer_id), _u32b(t.file_size),
         _u32b(_track_u14(t)), _u16b(_TRACK_U18), _u16b(_TRACK_U1A), _u32b(t.artwork_id), _u32b(t.key_id),
         _u32b(t.original_artist_id), _u32b(t.label_id), _u32b(t.remixer_id), _u32b(t.bitrate), _u32b(t.track_number),
-        _u32b(round(t.bpm * 100) if t.bpm else 0), _u32b(t.genre_id), _u32b(t.album_id),
+        _u32b(bpm_to_db(t.bpm) or 0), _u32b(t.genre_id), _u32b(t.album_id),
         _u32b(t.artist_id), _u32b(t.id), _u16b(t.disc_number), _u16b(t.play_count), _u16b(t.year),
         _u16b(t.bit_depth), _u16b(t.duration), _u16b(_TRACK_U56), bytes([t.color_id & 0xFF]),
         bytes([max(0, min(t.rating, 5))]), _u16b(t.file_type), _u16b(_TRACK_U5C),
@@ -730,6 +732,7 @@ def _check_export_readback(rep: reader.PdbReport, lib: DeviceLibrary) -> None:
         if r is None or r.title != t.title or r.drive_relative_path != t.file_path \
                 or r.anlz_folder_path != t.analyze_path:
             raise ValueError(f"export.pdb: track {t.id} does not read back as written")
-        want_bpm = round(t.bpm * 100) / 100 if t.bpm else None
+        db_bpm = bpm_to_db(t.bpm)
+        want_bpm = db_bpm / 100 if db_bpm else None
         if r.bpm != want_bpm or (t.key_id and r.key != lib.keys.get(t.key_id)):
             raise ValueError(f"export.pdb: track {t.id} BPM/key do not read back as written")

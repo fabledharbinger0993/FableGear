@@ -327,7 +327,7 @@ STANDARD_KEY_ALIASES = {
     "Bbm": "Bbm",   "A#m": "Bbm",   "Bbmin": "Bbm",
     "Bm": "Bm",     "Bmin": "Bm",
     "Cm": "Cm",     "Cmin": "Cm",
-    "C#m": "C#m",   "Dbm": "C#m",   "C#min": "C#m", "Dbmin": "C#m",
+    "C#m": "Dbm",   "Dbm": "Dbm",   "C#min": "Dbm", "Dbmin": "Dbm",
     "Dm": "Dm",     "Dmin": "Dm",
     "Ebm": "Ebm",   "D#m": "Ebm",   "Ebmin": "Ebm",
     "Em": "Em",     "Emin": "Em",

@@ -49,7 +49,7 @@ log = logging.getLogger(__name__)
 CANONICAL_SCALE_NAMES: frozenset[str] = frozenset({
     # Minor (Camelot xA)
     "Am",  "Em",  "Bm",  "F#m",
-    "C#m", "Abm", "Ebm", "Bbm",
+    "Dbm", "Abm", "Ebm", "Bbm",
     "Fm",  "Cm",  "Gm",  "Dm",
     # Major (Camelot xB)
     "C",   "G",   "D",   "A",
@@ -219,11 +219,11 @@ if __name__ == "__main__":
     # ── Part 1: notation_to_scale_name (no DB needed) ──
     print("=== notation_to_scale_name ===")
     test_cases = [
-        ("5A",  "C#m"),  ("8B",  "Db"),  ("1B",  "C"),   ("12A", "Dm"),
-        ("5a",  "C#m"),  ("8b",  "Db"),
-        ("5m",  "C#m"),  ("8d",  "Db"),  ("1d",  "C"),
+        ("5A",  "Dbm"),  ("8B",  "Db"),  ("1B",  "C"),   ("12A", "Dm"),
+        ("5a",  "Dbm"),  ("8b",  "Db"),
+        ("5m",  "Dbm"),  ("8d",  "Db"),  ("1d",  "C"),
         ("Am",  "Am"),   ("F#m", "F#m"), ("Gm",  "Gm"),
-        ("Dbm", "C#m"),  ("C#m", "C#m"),
+        ("Dbm", "Dbm"),  ("C#m", "Dbm"),
         ("Eb",  "Eb"),   ("F#",  "F#"),  ("Bb",  "Bb"),
         ("Cmaj","C"),    ("DM",  "D"),   ("Amin","Am"),
         ("XYZ", None),   ("",    None),  (None,  None),

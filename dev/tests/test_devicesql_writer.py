@@ -336,3 +336,24 @@ def test_write_device_library_catches_a_bad_encoding(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="BPM/key"):
         W.write_device_library(rb, lib)
     assert not rb.exists()  # refused before anything touched the stick
+
+
+@pytest.mark.parametrize("bpm", [float("nan"), float("inf"), -5.0, 0.001, 5000.0])
+def test_implausible_bpm_exports_without_tempo_instead_of_breaking_the_stick(tmp_path, bpm):
+    # bpm_to_db is the single BPM guard: a bad tempo is written as "no tempo" (0), never
+    # a crash (NaN/inf) or a wrapped u32 that then fails read-back for the whole stick.
+    lib = W.DeviceLibrary(export_date="2026-10-27")
+    lib.tracks.append(W.DeviceTrack(id=1, title="t", file_path="/Contents/a.mp3",
+                                    analyze_path="/PIONEER/USBANLZ/P000/00000001/ANLZ0000.DAT", bpm=bpm))
+    data = W.build_export_pdb(lib)
+    (track,) = R.read_pdb(_write(tmp_path, data)).tracks
+    assert track.bpm is None
+    W.write_device_library(tmp_path, lib, overwrite=True)
+
+
+def test_valid_bpm_is_still_written_to_the_centi_bpm_field(tmp_path):
+    lib = W.DeviceLibrary(export_date="2026-10-27")
+    lib.tracks.append(W.DeviceTrack(id=1, title="t", file_path="/Contents/a.mp3",
+                                    analyze_path="/PIONEER/USBANLZ/P000/00000001/ANLZ0000.DAT", bpm=128.5))
+    (track,) = R.read_pdb(_write(tmp_path, W.build_export_pdb(lib))).tracks
+    assert track.bpm == 128.5
