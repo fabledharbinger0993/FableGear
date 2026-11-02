@@ -53,7 +53,7 @@ def test_repo_root_holds_no_runtime_code():
     """A .py or app asset dropped at the repo root would silently never ship."""
     allowed = {
         ".gitignore", ".mcp.json", "CLAUDE.md", "LICENSE", "README.md",
-        "build_release.sh", "launch.sh", "pyrightconfig.json", "ruff.toml",
+        "build_release.sh", "justfile", "launch.sh", "pyrightconfig.json", "ruff.toml",
     }
     root_files = {p for p in _tracked(".") if "/" not in p}
     assert root_files <= allowed, sorted(root_files - allowed)
