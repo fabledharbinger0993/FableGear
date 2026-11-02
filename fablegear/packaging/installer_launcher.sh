@@ -82,7 +82,25 @@ APPLESCRIPT
   exit 1
 fi
 
+# Run the wizard from a private copy of the payload, never from inside this app bundle.
+# macOS runs a downloaded (quarantined) app from a temporary read-only mount ("App
+# Translocation") and can remove that mount while the wizard is still running -- the exec below
+# hands the process to Python, so Launch Services may consider this app finished. The wizard reads
+# its page, requirements and code from the payload throughout the install, so every later step
+# then fails with "No such file or directory". A copy also survives the user moving or deleting
+# the installer mid-install.
+STAGE_ROOT="$HOME/Library/Caches/FableGear/installer"
+mkdir -p "$STAGE_ROOT" 2>/dev/null
+# Copies from earlier runs: anything older than a day is no longer in use.
+find "$STAGE_ROOT" -mindepth 1 -maxdepth 1 -type d -name 'payload.*' -mtime +1 -exec rm -rf {} + 2>/dev/null
+STAGE="$(mktemp -d "$STAGE_ROOT/payload.XXXXXX" 2>/dev/null)"
+if [ -z "$STAGE" ] || ! cp -R "$PAYLOAD/." "$STAGE/" 2>>"$LOG" || [ ! -f "$STAGE/installer_wizard.py" ]; then
+  [ -n "$STAGE" ] && rm -rf "$STAGE"
+  dialog "The installer couldn't copy its files to $STAGE_ROOT. Check that your disk has free space, then open the installer again."
+  exit 1
+fi
+
 {
-  echo "=== $(date) installer start: python=$PY target=$TARGET"
+  echo "=== $(date) installer start: python=$PY target=$TARGET payload=$PAYLOAD staged=$STAGE"
 } >> "$LOG"
-exec "$PY" "$PAYLOAD/installer_wizard.py" --target "$TARGET" >> "$LOG" 2>&1
+exec "$PY" "$STAGE/installer_wizard.py" --target "$TARGET" >> "$LOG" 2>&1
