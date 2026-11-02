@@ -16,6 +16,7 @@ at the container-support level.
 
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 from collections.abc import Iterable
@@ -29,6 +30,8 @@ from iron import key as key_detect
 from iron import tempo as tempo_detect
 from iron.errors import DecodeFailed
 from iron.schema import IronResult, TempoCheckpoint
+
+_log = logging.getLogger(__name__)
 
 _ANALYSIS_SR = 22050
 _ANALYSIS_DURATION = 90.0
@@ -76,11 +79,14 @@ _STABILITY_TOLERANCE = 0.04  # MIREX-style 4%, matching scripts/benchmark_iron_t
 
 
 def _find_ffmpeg() -> str:
+    # PATH first. The Homebrew/usr-local paths are a fallback for launchers with a minimal PATH,
+    # and using one usually means the environment is misconfigured, so say so.
     found = shutil.which("ffmpeg")
     if found:
         return found
     for candidate in ("/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"):
         if Path(candidate).exists():
+            _log.warning("ffmpeg not on PATH; falling back to %s", candidate)
             return candidate
     return "ffmpeg"  # last resort -- surfaces a clear FileNotFoundError if truly absent
 
@@ -97,6 +103,7 @@ def _find_ffprobe() -> str:
         return str(sibling)
     for candidate in ("/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe"):
         if Path(candidate).exists():
+            _log.warning("ffprobe not on PATH; falling back to %s", candidate)
             return candidate
     return "ffprobe"
 
@@ -199,6 +206,8 @@ def _check_stability(
             y, sr = _decode(path, window, start=anchor_time)
             outcome = tempo_detect.detect_tempo(y, sr, bpm_min=bpm_min, bpm_max=bpm_max)
         except Exception:  # a bad checkpoint must not take down the whole stability check
+            # Logged, not silent: a decode failure is routine, but a detector bug should be visible.
+            _log.warning("stability checkpoint at beat %d (%s) failed", beat, path.name, exc_info=True)
             checkpoints.append(TempoCheckpoint(beat, anchor_time, None, None))
             continue
 
