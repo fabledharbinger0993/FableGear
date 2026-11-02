@@ -16,10 +16,11 @@
 
 set -euo pipefail
 
-REPO_URL="https://github.com/fabledharbinger0993/FableGear.git"
 APP_NAME="Install FableGear.app"
 ZIP_NAME="FableGear.zip"
 BUILD_DIR="$(mktemp -d)"
+# Clean up on every exit, including early failures such as a failed git archive.
+trap 'rm -rf "$BUILD_DIR"' EXIT
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
@@ -27,6 +28,20 @@ DO_RELEASE=false
 for arg in "$@"; do
   [[ "$arg" == "--release" ]] && DO_RELEASE=true
 done
+
+# ── Check for gh before building (release only) ───────────────────────────────
+# Fail now, not after the zip is built. gh comes from PATH, so Intel Macs (/usr/local/bin)
+# and other install methods work too.
+if [[ "$DO_RELEASE" == true ]]; then
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "Error: GitHub CLI (gh) is required for --release but was not found on PATH." >&2
+    exit 1
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    echo "Error: gh is not authenticated. Run 'gh auth login' and try again." >&2
+    exit 1
+  fi
+fi
 
 # ── Version from latest git tag ───────────────────────────────────────────────
 # Only vX.Y.Z tags count: the repo also carries non-release tags (an archival marker tag) that
@@ -36,6 +51,12 @@ VERSION="$(git -C "$SCRIPT_DIR" tag --merged HEAD --sort=-v:refname 2>/dev/null 
   | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
 VERSION="${VERSION:-v0.0.0}"
 echo "Building $APP_NAME  version $VERSION"
+
+# A release must carry a real tag: never publish an untagged v0.0.0 build.
+if [[ "$DO_RELEASE" == true && "$VERSION" == "v0.0.0" ]]; then
+  echo "Error: no vX.Y.Z tag is reachable from HEAD; refusing to publish a v0.0.0 release." >&2
+  exit 1
+fi
 
 # ── Create the installer app ──────────────────────────────────────────────────
 # The zip holds one app, "Install FableGear.app". It carries a snapshot of FableGear's code
@@ -115,14 +136,19 @@ ICON_SRC="$SCRIPT_DIR/fablegear/static/fablegear-icon-1024.png"
 if [[ -f "$ICON_SRC" ]]; then
   ICONSET_DIR="$BUILD_DIR/fablegear.iconset"
   mkdir -p "$ICONSET_DIR"
+  # The icon is optional, so a sips failure must not abort the build under set -e. Its stderr
+  # stays visible so the reason is in the log; only stdout is discarded.
+  ICON_OK=true
   for size in 16 32 64 128 256 512; do
-    sips -z $size $size "$ICON_SRC" --out "$ICONSET_DIR/icon_${size}x${size}.png" &>/dev/null
+    sips -z $size $size "$ICON_SRC" --out "$ICONSET_DIR/icon_${size}x${size}.png" >/dev/null || ICON_OK=false
     double=$((size * 2))
-    sips -z $double $double "$ICON_SRC" --out "$ICONSET_DIR/icon_${size}x${size}@2x.png" &>/dev/null
+    sips -z $double $double "$ICON_SRC" --out "$ICONSET_DIR/icon_${size}x${size}@2x.png" >/dev/null || ICON_OK=false
   done
-  iconutil -c icns "$ICONSET_DIR" -o "$APP_PATH/Contents/Resources/applet.icns" 2>/dev/null \
-    && echo "  ✓ Icon applied" \
-    || echo "  ⚠ Icon conversion failed — app will use default icon"
+  if [[ "$ICON_OK" == true ]] && iconutil -c icns "$ICONSET_DIR" -o "$APP_PATH/Contents/Resources/applet.icns"; then
+    echo "  ✓ Icon applied"
+  else
+    echo "  ⚠ Icon conversion failed — app will use default icon"
+  fi
 fi
 
 # ── Package into FableGear.zip ─────────────────────────────────────────────────
@@ -132,7 +158,6 @@ ZIP_PATH="$(pwd)/$ZIP_NAME"
 rm -f "$ZIP_PATH"
 (cd "$BUILD_DIR" && zip -qr "$ZIP_PATH" "$APP_NAME")
 echo "  ✓ Packaged → $ZIP_PATH"
-rm -rf "$BUILD_DIR"
 
 # ── Optionally create a GitHub release ───────────────────────────────────────
 if [[ "$DO_RELEASE" == true ]]; then
@@ -168,11 +193,13 @@ This is macOS Gatekeeper — it blocks apps that aren't signed with an Apple Dev
 
 The button stays for about an hour after your attempt; if it's gone, double-click the app again. FableGear may also ask for access to your music folders and external drives (**Privacy & Security → Files & Folders**) and, for your Rekordbox library, **Full Disk Access**. Full walkthrough: https://github.com/fabledharbinger0993/FableGear#first-launch-on-a-mac-two-things-macos-will-ask-you-for"
 
-  /opt/homebrew/bin/gh release create "$VERSION" "$ZIP_PATH" \
+  # create fails when the release already exists; then upload replaces the asset. create's
+  # stderr is left visible so a real failure (auth, network) is not hidden.
+  gh release create "$VERSION" "$ZIP_PATH" \
     --title "FableGear $VERSION" \
     --notes "$RELEASE_NOTES" \
-    --latest 2>/dev/null \
-    || /opt/homebrew/bin/gh release upload "$VERSION" "$ZIP_PATH" --clobber
+    --latest \
+    || gh release upload "$VERSION" "$ZIP_PATH" --clobber
 
   echo "  ✓ Release $VERSION published"
   echo "  → https://github.com/fabledharbinger0993/FableGear/releases/tag/$VERSION"
