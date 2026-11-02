@@ -367,6 +367,17 @@ def _venv_is_usable() -> bool:
     return bool(ver and MIN_PYTHON <= ver[:2] <= MAX_PYTHON)  # both bounds: a 3.14 venv is as unusable as a 3.9
 
 
+def _child_cwd() -> Path:
+    """Working folder for the wizard's own subprocesses (venv, pip).
+
+    Never REPO_ROOT: when the wizard runs from the app bundle, REPO_ROOT is the payload
+    folder, and macOS App Translocation can remove that folder mid-install. Popen then fails
+    before the program even starts ("[Errno 2] No such file or directory: '.../payload'").
+    Every path these commands use is absolute, so the folder only has to exist.
+    """
+    return Path.home()
+
+
 def stream_venv_setup() -> Iterator[str]:
     """Create (or repair) the private environment, then bring pip up to date."""
     if app_is_running():
@@ -391,7 +402,7 @@ def stream_venv_setup() -> Iterator[str]:
     if not VENV_DIR.exists():
         steps.append([py, "-m", "venv", str(VENV_DIR)])
     steps.append([str(VENV_DIR / "bin" / "python"), "-m", "pip", "install", "--upgrade", "pip"])
-    yield from stream_steps(steps, cwd=REPO_ROOT)
+    yield from stream_steps(steps, cwd=_child_cwd())
 
 
 def required_install_commands() -> list[list[str]]:
@@ -425,7 +436,7 @@ def stream_python_install() -> Iterator[str]:
         yield "data: [SEQUENCE_FAILED]\n\n"
         return
 
-    for line in stream_steps(required_install_commands(), cwd=REPO_ROOT):
+    for line in stream_steps(required_install_commands(), cwd=_child_cwd()):
         if "[SEQUENCE_OK]" in line:
             break
         yield line
@@ -435,7 +446,7 @@ def stream_python_install() -> Iterator[str]:
     cmd = optional_install_command()
     if cmd is not None:
         failed = False
-        for line in stream_command(cmd, cwd=REPO_ROOT):
+        for line in stream_command(cmd, cwd=_child_cwd()):
             if line.startswith("data: [DONE:"):
                 failed = _exit_code(line) != "0"
             else:

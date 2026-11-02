@@ -255,6 +255,37 @@ def test_venv_setup_leaves_a_healthy_venv_alone(tmp_path, monkeypatch):
     assert len(seen[0]) == 1 and "pip" in seen[0][0]  # only the pip upgrade, no re-create
 
 
+def test_venv_setup_never_runs_from_a_payload_folder_that_has_gone(tmp_path, monkeypatch):
+    """Regression: under App Translocation the payload folder can vanish mid-install.
+
+    Popen with a missing cwd fails before the program starts, which is the
+    "[Errno 2] No such file or directory: '.../Resources/payload'" the installer showed.
+    The venv and pip commands must not depend on that folder at all.
+    """
+    gone_payload = tmp_path / "AppTranslocation" / "payload"  # never created
+    venv = tmp_path / "app" / "venv"
+    monkeypatch.setattr(wiz, "REPO_ROOT", gone_payload)
+    monkeypatch.setattr(wiz, "VENV_DIR", venv)
+    monkeypatch.setattr(wiz, "find_python", lambda: ("/usr/bin/pythonX", (3, 12, 0)))
+    cwds = []
+
+    class FakeProc:
+        stdout = iter([])
+
+        def __init__(self, cmd, cwd=None, **kwargs):
+            if cwd is not None and not Path(cwd).is_dir():  # what the real OS does
+                raise FileNotFoundError(2, "No such file or directory", cwd)
+            cwds.append(cwd)
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(wiz.subprocess, "Popen", FakeProc)
+    out = "".join(wiz.stream_venv_setup())
+    assert "[SEQUENCE_OK]" in out and "could not start" not in out
+    assert cwds and all(Path(c).resolve() != gone_payload.resolve() for c in cwds)
+
+
 # ── Launcher script ──────────────────────────────────────────────────────────
 
 def test_launcher_script_is_valid_bash_and_shared_with_setup_sh():
