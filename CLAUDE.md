@@ -21,11 +21,17 @@
   venv/bin/python -m pip install -r fablegear/requirements.txt -r dev/requirements-dev.txt
   ```
 - System tools the code calls: `ffmpeg`/`ffprobe` and Chromaprint's `fpcalc`. CI installs ffmpeg with Homebrew.
+- Tests also need `ffmpeg` and Node 22 (CI pins it with `actions/setup-node`). Without them pytest
+  **skips** those tests instead of failing (ffmpeg-backed audio tests; JS syntax, Record Room and
+  installer tests use node), so a green run on a machine missing either covers less than CI. Check first:
+  ```bash
+  command -v ffmpeg && node --version    # expect v22.x
+  ```
 - CI gates on three checks. Run all three before pushing:
   ```bash
   ruff check .
   pyright .                              # must report 0 errors; the warnings are deliberate (see pyrightconfig.json)
-  venv/bin/python -m pytest dev/tests -q
+  venv/bin/python -m pytest dev/tests -q   # check the summary: any "skipped" means a tool above is missing
   ```
 - Run them **after committing**. `dev/tests/test_payload_boundary.py` reads `git ls-files`, so an
   uncommitted file at the root passes locally and fails in CI.
