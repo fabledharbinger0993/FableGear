@@ -94,3 +94,43 @@ def test_no_supported_python_reports_and_exits_without_running_the_wizard(tmp_pa
     _fake_python(bindir / "python3.12", 309, log)        # too old
     done = _run(_bundle(tmp_path), tmp_path, [bindir], {"FABLEGEAR_PYTHON_CANDIDATES": str(bindir / "python3.12")})
     assert done.returncode == 1 and not log.exists()
+
+
+def test_runs_the_wizard_from_a_staged_copy_not_the_app_bundle(tmp_path):
+    # macOS can unmount a translocated app's bundle while the wizard runs, so the wizard must
+    # never read from inside the bundle: it runs from a copy under ~/Library/Caches.
+    log = tmp_path / "calls.log"
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _fake_python(bindir / "python3.12", 312, log)
+    exe = _bundle(tmp_path)
+    payload = exe.parent.parent / "Resources" / "payload"
+    (payload / "templates").mkdir()
+    (payload / "templates" / "installer_wizard.html").write_text("page")
+    done = _run(exe, tmp_path, [bindir])
+    assert done.returncode == 0, done.stderr
+    call = log.read_text()
+    stage_root = tmp_path / "home" / "Library" / "Caches" / "FableGear" / "installer"
+    staged = [d for d in stage_root.iterdir() if d.name.startswith("payload.")]
+    assert len(staged) == 1
+    assert str(staged[0] / "installer_wizard.py") + " --target" in call
+    assert str(payload) not in call
+    assert (staged[0] / "templates" / "installer_wizard.html").read_text() == "page"
+
+
+def test_stale_staged_copies_are_removed_and_recent_ones_kept(tmp_path):
+    import os
+    import time
+    log = tmp_path / "calls.log"
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _fake_python(bindir / "python3.12", 312, log)
+    stage_root = tmp_path / "home" / "Library" / "Caches" / "FableGear" / "installer"
+    old, recent = stage_root / "payload.old", stage_root / "payload.recent"
+    old.mkdir(parents=True)
+    recent.mkdir()
+    three_days_ago = time.time() - 3 * 86400
+    os.utime(old, (three_days_ago, three_days_ago))
+    done = _run(_bundle(tmp_path), tmp_path, [bindir])
+    assert done.returncode == 0, done.stderr
+    assert not old.exists() and recent.exists()
