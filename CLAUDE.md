@@ -13,6 +13,33 @@
 - In a source checkout the venv, `.fablegear_ready` and `fablegear.log` stay at the repo
   root; an installed copy keeps them beside the code.
 
+## Setup and checks
+
+- Python 3.13, matching CI. The venv is `venv/` at the repo root (`pyrightconfig.json` points at it):
+  ```bash
+  python3.13 -m venv venv        # or: uv venv venv --python 3.13
+  venv/bin/python -m pip install -r fablegear/requirements.txt -r dev/requirements-dev.txt
+  ```
+- System tools the code calls: `ffmpeg`/`ffprobe` and Chromaprint's `fpcalc`. CI installs ffmpeg with Homebrew.
+- Tests also need `ffmpeg` and Node 22 (CI pins it with `actions/setup-node`). Without them pytest
+  **skips** those tests instead of failing (ffmpeg-backed audio tests; JS syntax, Record Room and
+  installer tests use node), so a green run on a machine missing either covers less than CI. Check first:
+  ```bash
+  command -v ffmpeg && node --version    # expect v22.x
+  ```
+- CI gates on three checks. Run all three before pushing:
+  ```bash
+  ruff check .
+  pyright .                              # must report 0 errors; the warnings are deliberate (see pyrightconfig.json)
+  venv/bin/python -m pytest dev/tests -q   # check the summary: any "skipped" means a tool above is missing
+  ```
+- Run them **after committing**. `dev/tests/test_payload_boundary.py` reads `git ls-files`, so an
+  uncommitted file at the root passes locally and fails in CI.
+- Keep the repo root clean (`git status`). A stray `.py` at the root shadows the real module under
+  `fablegear/` for imports and pyright: the symptom is "No parameter named X" for a parameter that exists.
+- If local checks disagree with CI, run them on a clean `git worktree add` of the same commit first: that
+  separates the code from the local environment.
+
 ## Iron / Anvil / Quench (tempo, key, beat-grid, tag I/O, and loudness)
 
 **Before touching tempo, key, beat-grid, or downbeat/meter detection code (`fablegear/iron/`), tag
