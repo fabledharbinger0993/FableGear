@@ -193,6 +193,11 @@ def inject_cache_bust():
 #     loopback while the Host header is still the attacker's domain.
 #   * State-changing requests must be same-origin (Sec-Fetch-Site / Origin).
 #     This blocks cross-site POSTs from any page open in the user's browser.
+#   * GET/HEAD requests under /api/ get the same check. Several tool routes
+#     (/api/run/organize, /api/run/rename, /api/open-file, ...) are GETs because
+#     the UI drives them with EventSource, so a hostile page could otherwise
+#     start them with a plain <img> or fetch(). Page and /static/ GETs stay
+#     open so a link to the UI from another site still loads.
 #
 # Policy, first match wins:
 #   1. Loopback (127.0.0.1 / ::1)        → allow  (desktop UI, pywebview)
@@ -229,9 +234,21 @@ def _host_header_is_local(raw_host: str) -> bool:
     return host == "localhost" or host.endswith(".local") or "." not in host
 
 
-def _is_cross_site_write() -> bool:
-    """True for a state-changing request that a browser marks as cross-site."""
-    if request.method in ("GET", "HEAD", "OPTIONS"):
+def _is_cross_site_request() -> bool:
+    """True for a request a browser marks as coming from another site.
+
+    Applies to every state-changing method, and to GET/HEAD under ``/api/``
+    (the tool routes there have side effects). Other GETs are never treated
+    as cross-site, so navigating to the UI from an external link still works.
+
+    Signals, in order: ``Sec-Fetch-Site`` (sent by every current browser),
+    then ``Origin``, then, for safe methods only, ``Referer`` as a fallback
+    for older browsers that send neither on an ``<img>``-style GET. A request
+    with none of these headers (curl, the MCP server, the health check) is
+    allowed, as before.
+    """
+    safe_method = request.method in ("GET", "HEAD", "OPTIONS")
+    if safe_method and not request.path.startswith("/api/"):
         return False
     site = (request.headers.get("Sec-Fetch-Site") or "").lower()
     if site and site not in ("same-origin", "none"):
@@ -242,6 +259,13 @@ def _is_cross_site_write() -> bool:
             return urlparse(origin).netloc.lower() != request.host.lower()
         except ValueError:
             return True
+    if safe_method and not site:
+        referer = request.headers.get("Referer")
+        if referer:
+            try:
+                return urlparse(referer).netloc.lower() != request.host.lower()
+            except ValueError:
+                return True
     return False
 
 
@@ -250,7 +274,7 @@ def _enforce_network_boundary():
     if not _host_header_is_local(request.host):
         app.logger.warning("Blocked request with non-local Host header %r", request.host)
         return jsonify({"error": "forbidden", "message": "Unrecognised Host header."}), 403
-    if _is_cross_site_write():
+    if _is_cross_site_request():
         app.logger.warning("Blocked cross-site %s %s", request.method, request.path)
         return jsonify({"error": "forbidden", "message": "Cross-site requests are not allowed."}), 403
     if request.remote_addr in ("127.0.0.1", "::1"):
