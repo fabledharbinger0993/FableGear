@@ -820,12 +820,16 @@ def test_same_origin_api_get_reaches_handler(client, headers):
         r.close()
 
 
-@pytest.mark.parametrize("path", ["/", "/static/fablegear.css"])
-def test_cross_site_page_and_static_gets_still_load(client, path):
+@pytest.mark.parametrize("path, expected", [
+    # "/" serves the UI, or redirects to /onboarding while setup is incomplete.
+    ("/", (200, 302)),
+    ("/static/fablegear.css", (200,)),
+])
+def test_cross_site_page_and_static_gets_still_load(client, path, expected):
     """Following a link to the UI from another site must keep working."""
     r = _loopback(client, path, headers={"Sec-Fetch-Site": "cross-site",
                                          "Referer": "https://example.com/"})
     try:
-        assert r.status_code != 403
+        assert r.status_code in expected
     finally:
         r.close()
