@@ -773,3 +773,63 @@ def test_cross_site_post_blocked(client, headers):
 ])
 def test_same_origin_post_reaches_handler(client, headers):
     assert _loopback(client, "/api/cancel", method="POST", headers=headers).status_code != 403
+
+
+# The tool routes under /api/run/ (and /api/open-file) are GETs because the UI
+# drives them with EventSource, so a hostile page could start them with a plain
+# <img> or fetch(). None of the paths below pass enough arguments to do anything:
+# a request that reaches its handler gets 400, and a blocked one gets 403.
+_SIDE_EFFECT_GETS = [
+    "/api/run/organize",
+    "/api/run/rename",
+    "/api/run/rename-folders",
+    "/api/run/prune",
+    "/api/open-file",
+]
+
+
+@pytest.mark.parametrize("path", _SIDE_EFFECT_GETS)
+@pytest.mark.parametrize("headers", [
+    {"Sec-Fetch-Site": "cross-site"},
+    {"Sec-Fetch-Site": "same-site"},
+    {"Origin": "https://evil.example"},
+    {"Origin": "null"},
+    {"Referer": "https://evil.example/page.html"},
+])
+def test_cross_site_api_get_blocked(client, path, headers):
+    r = _loopback(client, path, headers=headers)
+    try:
+        assert r.status_code == 403
+    finally:
+        r.close()
+
+
+@pytest.mark.parametrize("headers", [
+    {},                                              # curl, MCP server, health checks
+    {"Sec-Fetch-Site": "same-origin"},               # the desktop UI
+    {"Sec-Fetch-Site": "none"},                      # URL typed into the address bar
+    {"Origin": "http://localhost"},
+    {"Referer": "http://localhost/"},
+    {"Sec-Fetch-Site": "same-origin", "Referer": "http://localhost/onboarding"},
+])
+def test_same_origin_api_get_reaches_handler(client, headers):
+    r = _loopback(client, "/api/open-file", headers=headers)
+    try:
+        assert r.status_code == 400      # handler ran and rejected the missing path
+    finally:
+        r.close()
+
+
+@pytest.mark.parametrize("path, expected", [
+    # "/" serves the UI, or redirects to /onboarding while setup is incomplete.
+    ("/", (200, 302)),
+    ("/static/fablegear.css", (200,)),
+])
+def test_cross_site_page_and_static_gets_still_load(client, path, expected):
+    """Following a link to the UI from another site must keep working."""
+    r = _loopback(client, path, headers={"Sec-Fetch-Site": "cross-site",
+                                         "Referer": "https://example.com/"})
+    try:
+        assert r.status_code in expected
+    finally:
+        r.close()
